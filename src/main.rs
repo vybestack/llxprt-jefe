@@ -40,10 +40,15 @@ use jefe::theme::FileThemeManager;
 /// Shared application context passed to the root component.
 struct AppContext {
     keymap_snapshot: Option<jefe::domain::action_registry::ActionRegistrySnapshot>,
-    keymap_document: jefe::persistence::settings_document::SettingsDocument,
-    keymap_expected_hash: jefe::persistence::writer::ExpectedHash,
+    settings_document: jefe::persistence::settings_document::SettingsDocument,
+    settings_expected_hash: jefe::persistence::writer::ExpectedHash,
     keymap_recovery: Option<String>,
-    keymap_revision: u64,
+    settings_revision: u64,
+    /// Whether `--config` isolated this session from the default locations.
+    ///
+    /// Settings reports it, because "which file am I actually editing" is the
+    /// first thing to check when an edit appears not to have taken effect.
+    config_isolated: bool,
     persistence: jefe::persistence::FilePersistenceManager,
     published_settings: jefe::persistence::settings_document::PublishedSettings,
     theme_manager: FileThemeManager,
@@ -319,8 +324,8 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     let keymap_diagnostic = startup.keymap_diagnostic_message();
     let keymap_recovery = keymap_diagnostic.clone();
     let keymap_snapshot = startup.keymap_snapshot;
-    let keymap_document = startup.keymap_document;
-    let keymap_expected_hash = startup.keymap_expected_hash;
+    let settings_document = startup.settings_document;
+    let settings_expected_hash = startup.settings_expected_hash;
     let published_settings = startup.settings;
     let persistence = startup.manager;
     write_optional_diagnostic(keymap_diagnostic);
@@ -354,10 +359,11 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         keymap_snapshot: Some(keymap_snapshot),
-        keymap_document,
-        keymap_expected_hash,
+        settings_document,
+        settings_expected_hash,
         keymap_recovery,
-        keymap_revision: 0,
+        settings_revision: 0,
+        config_isolated: cli_args.config_dir.is_some(),
         persistence,
         published_settings,
         theme_manager,

@@ -375,7 +375,7 @@ pub const HELP_DISPLAY_LINES: &[HelpDisplayLine] = &[
         "Jump to agent shortcut",
     ),
     blank(6, 14),
-    help(7, 0, &["dashboard.open-theme-picker"], "Theme picker"),
+    help(7, 0, &["core.open-settings"], "Settings"),
     help(
         7,
         1,
@@ -420,6 +420,7 @@ pub enum FooterMode {
     Actions,
     Errors,
     Terminals,
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -538,7 +539,7 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
             hint("relaunch/recover", &["dashboard.relaunch-agent"], 15),
             hint("reorder", &["dashboard.grab-start"], 16),
             hint("split", &["dashboard.open-split"], 17),
-            hint("theme", &["dashboard.open-theme-picker"], 18),
+            hint("settings", &["core.open-settings"], 18),
             hint("help", &["dashboard.open-help"], 19),
             hint("quit", &["core.emergency-exit"], 98),
             raw_hint("qqq quit", 99),
@@ -723,6 +724,18 @@ pub const FOOTER_MODE_GROUPS: &[FooterModeGroup] = &[
             hint("close", &["terminal-manager.close-shell"], 3),
             hint("back to dashboard", &["terminal-manager.back"], 4),
             raw_hint("? help", 5),
+        ],
+    },
+    FooterModeGroup {
+        mode: FooterMode::Settings,
+        hints: &[
+            hint("move", &["settings.up", "settings.down"], 1),
+            hint("pane", &["settings.cycle-pane"], 2),
+            hint("apply", &["settings.activate"], 3),
+            hint("save", &["settings.save"], 4),
+            hint("reset", &["settings.reset"], 5),
+            hint("back", &["settings.back"], 6),
+            hint("quit", &["core.emergency-exit"], 98),
         ],
     },
 ];

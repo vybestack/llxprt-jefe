@@ -42,6 +42,8 @@ mod effects_tests;
 mod quick_resume;
 /// Dependency-free SHA-256 used for durable digests and write fencing.
 pub mod sha256;
+mod theme_id;
+pub use theme_id::{THEME_ID_BYTE_LIMIT, ThemeId, ThemeIdError};
 mod transient_agent;
 pub use actions::*;
 pub use quick_resume::QuickResume;

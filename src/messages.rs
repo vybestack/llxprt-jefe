@@ -27,7 +27,10 @@ pub use actions::ActionsMessage;
 mod errors;
 mod errors_conversion;
 pub use errors::ErrorsMessage;
+/// Settings-shell messages (issue #387 CW-07).
+pub mod settings;
 pub use prs::PullRequestsMessage;
+pub use settings::SettingsMessage;
 mod event_conversion;
 mod keys;
 mod names;
@@ -51,6 +54,8 @@ pub enum MessageDomain {
     PullRequests,
     Actions,
     Errors,
+    /// Settings-shell domain (issue #387 CW-07).
+    Settings,
     /// Terminal-manager domain (issue #361 PR B).
     TerminalManager,
     System,
@@ -185,24 +190,7 @@ pub enum PersistenceMessage {
 }
 #[derive(Debug, Clone)]
 pub enum ThemeMessage {
-    SetTheme(String),
     ResolveFailed(String),
-    /// Open the theme picker modal.
-    ///
-    /// `available_themes` is a list of `(slug, display_name)` pairs from
-    /// `ThemeManager::themes_with_names()`. `active_slug` is the currently
-    /// applied theme's slug (used to mark the active row).
-    OpenThemePicker {
-        available_themes: Vec<(String, String)>,
-        active_slug: String,
-    },
-    PickerNavigateUp,
-    PickerNavigateDown,
-    PickerConfirm,
-    PickerCancel,
-    /// Toggle the in-dialog "Apply jefe theme to agent" override checkbox
-    /// (issue #179). Flips `ModalState::ThemePicker.override_theme`.
-    ToggleAgentThemeOverride,
 }
 /// Issues-mode messages.
 #[derive(Debug, Clone)]
@@ -695,6 +683,10 @@ pub enum AppMessage {
     PullRequests(PullRequestsMessage),
     Actions(ActionsMessage),
     Errors(ErrorsMessage),
+    /// Settings-shell domain (issue #387 CW-07). Boxed because one variant
+    /// carries the whole loaded source and would otherwise set the size of
+    /// every message on the bus.
+    Settings(Box<SettingsMessage>),
     /// Terminal-manager domain (issue #361 PR B).
     TerminalManager(TerminalManagerMessage),
     System(SystemMessage),
@@ -719,6 +711,7 @@ impl AppMessage {
             Self::PullRequests(_) => MessageDomain::PullRequests,
             Self::Actions(_) => MessageDomain::Actions,
             Self::Errors(_) => MessageDomain::Errors,
+            Self::Settings(_) => MessageDomain::Settings,
             Self::TerminalManager(_) => MessageDomain::TerminalManager,
             Self::System(_) => MessageDomain::System,
             Self::EffectCompletion(_) => MessageDomain::Effects,
@@ -748,6 +741,7 @@ impl AppMessage {
             Self::PullRequests(message) => message.name(),
             Self::Actions(message) => message.name(),
             Self::Errors(message) => message.name(),
+            Self::Settings(message) => message.name(),
             Self::TerminalManager(message) => message.name(),
             Self::System(message) => message.name(),
             Self::EffectCompletion(_) => "EffectCompletion",

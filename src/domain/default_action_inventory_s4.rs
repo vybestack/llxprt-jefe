@@ -66,16 +66,6 @@ pub(super) const SPECS: &[Spec] = &[
         ["BackTab", "Up"]
     ),
     spec!("modal.form", "form.space", H::FormNextField, [" "]),
-    spec!("modal.theme", "theme.up", H::ThemeUp, ["Up"]),
-    spec!("modal.theme", "theme.down", H::ThemeDown, ["Down"]),
-    spec!(
-        "modal.theme",
-        "theme.toggle-override",
-        H::ThemeToggleOverride,
-        ["Tab"]
-    ),
-    spec!("modal.theme", "theme.apply", H::ThemeApply, ["Enter"]),
-    spec!(protected "modal.theme", "theme.cancel", H::ThemeCancel, ["Esc"]),
     spec!("search", "search.apply", H::SearchApply, ["Enter"]),
     spec!(protected "search", "search.cancel", H::SearchCancel, ["Esc"]),
     spec!(
@@ -963,11 +953,9 @@ pub(super) const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
     (&["modal.confirm", "global"], false),
     (&["modal.auth", "global"], false),
     (&["modal.form", "global"], false),
-    (&["modal.theme", "global"], false),
     (&["search", "global"], false),
     (&["help", "dashboard.pre-mode", "global"], false),
     (&["modal.confirm", "dashboard.pre-mode", "global"], false),
     (&["modal.form", "dashboard.pre-mode", "global"], false),
-    (&["modal.theme", "dashboard.pre-mode", "global"], false),
     (&["search", "dashboard.pre-mode", "global"], false),
 ];

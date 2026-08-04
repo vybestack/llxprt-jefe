@@ -414,6 +414,42 @@ fn resize_restart_fixture_produces_both_evidence_frames() {
     cleanup(&outcome);
 }
 
+/// @requirement CW07-02
+/// @requirement CW07-04
+/// @requirement CW07-11
+#[test]
+fn settings_shell_fixture_saves_only_the_edited_syntax() {
+    let outcome = run_fixture("settings-shell.json");
+    assert_passed("settings-shell", &outcome);
+    cleanup(&outcome);
+}
+
+/// @requirement CW07-03
+/// @requirement CW07-11
+#[test]
+fn settings_dirty_back_fixture_offers_save_discard_and_cancel() {
+    let outcome = run_fixture("settings-dirty-back.json");
+    assert_passed("settings-dirty-back", &outcome);
+    cleanup(&outcome);
+}
+
+/// @requirement CW07-06
+/// @requirement CW07-07
+#[test]
+fn settings_external_edit_fixture_preserves_disk_and_draft() {
+    let outcome = run_fixture("settings-external-edit.json");
+    assert_passed("settings-external-edit", &outcome);
+    cleanup(&outcome);
+}
+
+/// @requirement CW07-11
+#[test]
+fn settings_unavailable_theme_fixture_says_so_at_reduced_geometry() {
+    let outcome = run_fixture("settings-unavailable-small.json");
+    assert_passed("settings-unavailable-small", &outcome);
+    cleanup(&outcome);
+}
+
 #[test]
 fn keys_editor_fixture_covers_validation_dirty_save_and_reopen() {
     let outcome = run_fixture("keys-editor.json");

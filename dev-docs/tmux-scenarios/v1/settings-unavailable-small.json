@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "name": "settings-unavailable-small",
+  "platform": "macos",
+  "terminal": { "cols": 80, "rows": 24 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "work", "mode": 448 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": { "utf8": "settings_schema = 2\n[appearance]\ntheme = 'missing-theme'\n" },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": ",", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Appearance",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "down", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "unavailable",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["missing-theme", "unavailable"],
+      "absent": []
+    },
+    { "op": "key", "key": "q", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "q", "modifiers": ["control"] },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

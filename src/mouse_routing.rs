@@ -725,9 +725,11 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        ScreenId::Errors | ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Terminals => {
-            (false, false)
-        }
+        ScreenId::Errors
+        | ScreenId::Dashboard
+        | ScreenId::Repositories
+        | ScreenId::Terminals
+        | ScreenId::Settings => (false, false),
     };
     let error_visible = (state.error_message.is_some()
         && !matches!(state.screen(), ScreenId::Errors))
@@ -738,9 +740,9 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
 /// Whether a blocking modal is open (Finding G).
 ///
 /// Blocking modals intercept mouse input even if they have no selectable
-/// content projection. ThemePicker and WorkflowDispatch are full-screen
-/// modals without content projection — they must still disable terminal
-/// routing so a focused terminal behind them doesn't receive PTY events.
+/// content projection. WorkflowDispatch is a full-screen modal without content
+/// projection — it must still disable terminal routing so a focused terminal
+/// behind it doesn't receive PTY events.
 fn is_blocking_modal_open(state: &AppState) -> bool {
     use jefe::state::ModalState;
     matches!(
@@ -758,7 +760,6 @@ fn is_blocking_modal_open(state: &AppState) -> bool {
             | ModalState::PreflightPrompt { .. }
             | ModalState::ConfirmIssueDirtyCopy { .. }
             | ModalState::ConfirmIssueOriginMismatch { .. }
-            | ModalState::ThemePicker { .. }
             | ModalState::WorkflowDispatch { .. }
             | ModalState::Auth { .. }
     )
@@ -788,7 +789,6 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         jefe::state::ModalState::None
         | jefe::state::ModalState::Keys { .. }
         | jefe::state::ModalState::Search { .. }
-        | jefe::state::ModalState::ThemePicker { .. }
         | jefe::state::ModalState::WorkflowDispatch { .. } => {}
     }
     if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {

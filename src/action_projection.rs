@@ -355,6 +355,7 @@ fn footer_mode(screen: ScreenId) -> FooterMode {
         ScreenId::Actions => FooterMode::Actions,
         ScreenId::Errors => FooterMode::Errors,
         ScreenId::Terminals => FooterMode::Terminals,
+        ScreenId::Settings => FooterMode::Settings,
     }
 }
 
@@ -514,6 +515,7 @@ fn footer_contexts(
         },
         FooterMode::Errors => &["errors", "global"],
         FooterMode::Terminals => &["terminal-manager", "global"],
+        FooterMode::Settings => &["settings", "global"],
     }
 }
 

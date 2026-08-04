@@ -93,14 +93,7 @@ message_names!(PersistenceMessage {
 });
 
 message_names!(ThemeMessage {
-    Self::SetTheme(_) => "SetTheme",
     Self::ResolveFailed(_) => "ThemeResolveFailed",
-    Self::OpenThemePicker { .. } => "OpenThemePicker",
-    Self::PickerNavigateUp => "ThemePickerNavigateUp",
-    Self::PickerNavigateDown => "ThemePickerNavigateDown",
-    Self::PickerConfirm => "ThemePickerConfirm",
-    Self::PickerCancel => "CloseThemePicker",
-    Self::ToggleAgentThemeOverride => "ThemePickerToggleOverride",
 });
 
 message_names!(SystemMessage {

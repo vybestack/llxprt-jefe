@@ -12,6 +12,7 @@ mod filter_controls;
 mod issues;
 mod keys_editor;
 pub use keys_editor::handle_key as handle_keys_editor_key;
+pub use settings::handle_dirty_guard_key;
 mod issues_comments_dispatch;
 mod issues_dispatch;
 mod issues_filter;
@@ -33,6 +34,7 @@ mod preflight;
 mod pty_passthrough;
 mod relaunch;
 mod send_runtime;
+mod settings;
 mod settled_refresh;
 /// Shell-overlay key dispatch (issue #222).
 pub mod shell_overlay;

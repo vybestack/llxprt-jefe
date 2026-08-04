@@ -224,6 +224,167 @@ fn value_at_path<'a>(value: &'a toml::Value, path: &[String]) -> Option<&'a toml
         .try_fold(value, |current, key| current.as_table()?.get(key))
 }
 
+/// One assignment a lossless editor may set, replace, or remove.
+///
+/// The decoded `path` is what locates an existing assignment, and the two text
+/// fields are what is written when nothing is there yet. They are separate
+/// because the document does not record how a key *would* have been spelled:
+/// `keymap` quotes its action keys and declares `[keymap."<context>"]`, while
+/// `appearance` writes bare keys under `[appearance]`. Deriving either from the
+/// path would need a per-root special case in the patcher, which is exactly the
+/// knowledge each editor already has.
+pub(super) struct Assignment<'a> {
+    /// Decoded path of the assignment, for example `["appearance", "theme"]`.
+    pub path: &'a [&'a str],
+    /// Exact header written when the owning table is absent, for example
+    /// `[appearance]`.
+    pub table_header: &'a str,
+    /// Exact key text written when the assignment is absent, for example
+    /// `theme`.
+    pub key_text: &'a str,
+}
+
+/// Set, replace, or remove exactly one assignment, preserving every other byte.
+///
+/// `Some(value)` replaces an existing value span or inserts a new statement;
+/// `None` removes an existing statement and is a no-op when there is none.
+/// Why one assignment could not be patched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PatchRefusal {
+    /// An ancestor of the leaf is written as one value — an inline table — so
+    /// the leaf has no syntax of its own to replace, and adding a table header
+    /// for it would redefine what the inline table already defines.
+    InlineAncestor,
+}
+
+pub(super) fn patch_assignment(
+    document: &SettingsDocument,
+    assignment: &Assignment<'_>,
+    value: Option<&[u8]>,
+) -> Result<Vec<u8>, PatchRefusal> {
+    if let Some(node) = document.node(assignment.path) {
+        return Ok(match value {
+            // Writing the value that is already there must not disturb how it
+            // was written: `'green-screen'` and `"green-screen"` are the same
+            // value, and replacing one with the other would make an edit that
+            // undoes itself still count as a change to the file.
+            Some(value) if same_value(document.span_bytes(node.value_span), value) => {
+                document.original_bytes().to_vec()
+            }
+            Some(value) => apply_patches(
+                document.original_bytes(),
+                vec![(node.value_span, value.to_vec())],
+            ),
+            None => apply_patches(
+                document.original_bytes(),
+                vec![(node.statement_span, Vec::new())],
+            ),
+        });
+    }
+    if has_inline_ancestor(document, assignment.path) {
+        return Err(PatchRefusal::InlineAncestor);
+    }
+    let Some(value) = value else {
+        return Ok(document.original_bytes().to_vec());
+    };
+    Ok(insert_assignment(document, assignment, value))
+}
+
+/// Whether an ancestor of this leaf is written as one value.
+///
+/// `appearance = { theme = "x" }` gives `appearance` a value span of its own, so
+/// `appearance.theme` has no syntax to replace and cannot be given a table
+/// header without redefining what the inline table already defines. Saying so is
+/// the only honest answer: silently doing nothing would lose the user's edit,
+/// and writing the header would produce a document that no longer parses.
+fn has_inline_ancestor(document: &SettingsDocument, path: &[&str]) -> bool {
+    (1..path.len()).any(|depth| document.node(&path[..depth]).is_some())
+}
+
+/// Whether two value fragments denote the same TOML value.
+///
+/// A fragment is not a document, so each is parsed as the right-hand side of a
+/// throwaway assignment. A fragment that will not parse is treated as different,
+/// which is the safe answer: the patch then goes ahead and the whole candidate
+/// is validated afterwards.
+fn same_value(existing: &[u8], replacement: &[u8]) -> bool {
+    match (parse_fragment(existing), parse_fragment(replacement)) {
+        (Some(existing), Some(replacement)) => existing == replacement,
+        _ => false,
+    }
+}
+
+fn parse_fragment(fragment: &[u8]) -> Option<toml::Value> {
+    let text = std::str::from_utf8(fragment).ok()?;
+    let document = format!("value = {text}").parse::<toml::Value>().ok()?;
+    document.as_table()?.get("value").cloned()
+}
+
+fn insert_assignment(
+    document: &SettingsDocument,
+    assignment: &Assignment<'_>,
+    value: &[u8],
+) -> Vec<u8> {
+    let Some((_, table_path)) = assignment.path.split_last() else {
+        return document.original_bytes().to_vec();
+    };
+    // Every value reaching here is rendered by `toml::Value::to_string`, so it
+    // is UTF-8 by construction. Refusing rather than lossily transcoding means
+    // a value this could not render leaves the document exactly as it was
+    // instead of being written as something subtly different.
+    let Ok(rendered) = std::str::from_utf8(value) else {
+        return document.original_bytes().to_vec();
+    };
+    let statement = format!("{} = {rendered}\n", assignment.key_text);
+    if let Some(table) = document.table_span(table_path) {
+        // A table's own statements are the ones between its header and the next
+        // header. Selecting by path prefix instead would reach into a nested
+        // table — `[workbench.layout_overrides.x]` is under `workbench` — and
+        // put the assignment inside it, where it means something else entirely.
+        let boundary = document
+            .table_nodes()
+            .iter()
+            .map(|node| node.span.start)
+            .filter(|start| *start > table.start)
+            .min()
+            .unwrap_or_else(|| document.original_bytes().len() as u64);
+        let end = document
+            .syntax_nodes()
+            .iter()
+            .filter(|node| node.statement_span.start >= table.end)
+            .filter(|node| node.statement_span.end <= boundary)
+            .map(|node| node.statement_span.end)
+            .max()
+            .unwrap_or(table.end);
+        // The new assignment has to start its own line. A header never ends in
+        // a newline, and neither does the last statement of a file that has no
+        // trailing one, so the byte actually there is what decides.
+        let starts_a_line = usize::try_from(end)
+            .ok()
+            .and_then(|end| end.checked_sub(1))
+            .and_then(|index| document.original_bytes().get(index))
+            == Some(&b'\n');
+        let prefix = if starts_a_line { "" } else { "\n" };
+        return apply_patches(
+            document.original_bytes(),
+            vec![(
+                ByteSpan::new(end, end),
+                format!("{prefix}{statement}").into_bytes(),
+            )],
+        );
+    }
+    let mut block = Vec::new();
+    if !document.original_bytes().ends_with(b"\n") {
+        block.push(b'\n');
+    }
+    block.extend_from_slice(format!("{}\n{statement}", assignment.table_header).as_bytes());
+    let end = document.original_bytes().len() as u64;
+    apply_patches(
+        document.original_bytes(),
+        vec![(ByteSpan::new(end, end), block)],
+    )
+}
+
 pub(super) fn apply_patches(original: &[u8], mut patches: Vec<(ByteSpan, Vec<u8>)>) -> Vec<u8> {
     patches.sort_by_key(|(span, _)| std::cmp::Reverse((span.start, span.end)));
     let mut candidate = original.to_vec();

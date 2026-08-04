@@ -20,6 +20,6 @@ pub use dashboard_filter_indicator::dashboard_filter_indicator;
 pub use modals::{AuthModal, ConfirmModal, HelpModal, KeysModal};
 pub use screens::{
     ActionsScreen, Dashboard, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
-    ThemePickerScreen, WorkflowDispatchForm,
+    WorkflowDispatchForm,
 };
 pub use util::{CARET_CHAR, ELLIPSIS, text_with_caret, truncate_with_ellipsis};

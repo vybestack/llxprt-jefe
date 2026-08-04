@@ -98,11 +98,14 @@ pub enum AppEvent {
     /// Stage a durable save of the committed state (issue #381).
     StageDurableSave,
     PersistenceSaveFailed(String),
-    SetTheme(String),
+
     ThemeResolveFailed(String),
 
-    /// Theme-picker modal interactions (see [`ThemePickerEvent`]).
-    ThemePicker(super::theme_picker_events::ThemePickerEvent),
+    /// One Settings-shell intent or completion (issue #387).
+    ///
+    /// Boxed because one variant carries the whole loaded settings source and
+    /// would otherwise set the size of every event in this enum.
+    Settings(Box<crate::messages::SettingsMessage>),
 
     Quit,
     ClearError,

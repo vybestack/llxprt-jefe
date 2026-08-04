@@ -124,25 +124,6 @@ impl AppMessage {
         }
     }
 
-    /// Convert a grouped theme-picker event into the typed message bus.
-    fn from_theme_picker_event(event: crate::state::ThemePickerEvent) -> Self {
-        use crate::state::ThemePickerEvent as P;
-        match event {
-            P::Open {
-                available_themes,
-                active_slug,
-            } => Self::Theme(ThemeMessage::OpenThemePicker {
-                available_themes,
-                active_slug,
-            }),
-            P::NavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
-            P::NavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
-            P::Confirm => Self::Theme(ThemeMessage::PickerConfirm),
-            P::ToggleOverride => Self::Theme(ThemeMessage::ToggleAgentThemeOverride),
-            P::Close => Self::Theme(ThemeMessage::PickerCancel),
-        }
-    }
-
     /// Convert multi-agent workbench [`AppEvent`] variants into UI-navigation
     /// messages (issue #626). Split out so the top-level converter stays within
     /// the clippy line budget.
@@ -263,9 +244,8 @@ impl AppMessage {
             AppEvent::PersistenceSaveFailed(error) => {
                 Self::Persistence(PersistenceMessage::SaveFailed(error))
             }
-            AppEvent::SetTheme(theme) => Self::Theme(ThemeMessage::SetTheme(theme)),
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
-            AppEvent::ThemePicker(picker) => Self::from_theme_picker_event(picker),
+            AppEvent::Settings(message) => Self::Settings(message),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
@@ -658,6 +638,7 @@ impl From<AppMessage> for AppEvent {
             AppMessage::PullRequests(message) => message.into(),
             AppMessage::Actions(message) => message.into(),
             AppMessage::Errors(message) => message.into(),
+            AppMessage::Settings(message) => Self::Settings(message),
             AppMessage::TerminalManager(message) => message.into(),
             AppMessage::System(message) => message.into(),
             AppMessage::EffectCompletion(completion) => Self::EffectCompletion(completion),
@@ -797,22 +778,8 @@ impl From<PersistenceMessage> for AppEvent {
 
 impl From<ThemeMessage> for AppEvent {
     fn from(message: ThemeMessage) -> Self {
-        use crate::state::ThemePickerEvent as P;
         match message {
-            ThemeMessage::SetTheme(theme) => Self::SetTheme(theme),
             ThemeMessage::ResolveFailed(error) => Self::ThemeResolveFailed(error),
-            ThemeMessage::OpenThemePicker {
-                available_themes,
-                active_slug,
-            } => Self::ThemePicker(P::Open {
-                available_themes,
-                active_slug,
-            }),
-            ThemeMessage::PickerNavigateUp => Self::ThemePicker(P::NavigateUp),
-            ThemeMessage::PickerNavigateDown => Self::ThemePicker(P::NavigateDown),
-            ThemeMessage::PickerConfirm => Self::ThemePicker(P::Confirm),
-            ThemeMessage::ToggleAgentThemeOverride => Self::ThemePicker(P::ToggleOverride),
-            ThemeMessage::PickerCancel => Self::ThemePicker(P::Close),
         }
     }
 }

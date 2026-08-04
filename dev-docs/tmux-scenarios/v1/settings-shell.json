@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "name": "settings-shell",
+  "platform": "macos",
+  "terminal": { "cols": 120, "rows": 36 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "work", "mode": 448 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "# keep this comment\nsettings_schema = 2\n[appearance]\ntheme = 'green-screen' # and this one\n[extensions.future]\nvalue = 'stay'\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": ["jefe", "--config", "${workspace}/config"],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": ",", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Diagnostics",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [">>General", "Appearance", "Diagnostics", "Platform", "Isolated"],
+      "absent": ["CFG-E"]
+    },
+    { "op": "key", "key": "down", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>Appearance",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["Green Screen", "Ayu Dark", "Apply theme to agent"],
+      "absent": []
+    },
+    { "op": "key", "key": "tab", "modifiers": [] },
+    { "op": "key", "key": "down", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>Ayu Dark",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "s save",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "s", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Saved",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "# keep this comment\nsettings_schema = 2\n[appearance]\ntheme = \"ayu-dark\" # and this one\n[extensions.future]\nvalue = 'stay'\n"
+        }
+      }
+    },
+    { "op": "key", "key": "q", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "q", "modifiers": ["control"] },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

@@ -6,7 +6,7 @@ use jefe::list_viewport::PageItemCount;
 use jefe::state::{
     ActionsFilterField, ActionsFocus, AppEvent, AppState, DetailSubfocus, IssueFocus,
     IssuePropertyKind, NewIssueFormFocus, PrChangesFocus, PrDetailSubfocus, PrFocus,
-    PrLifecycleEvent, PrPropertyKind, ReadOnlyHintKind, ScreenId, ThemePickerEvent,
+    PrLifecycleEvent, PrPropertyKind, ReadOnlyHintKind, ScreenId,
 };
 
 use super::{BoundaryAction, HandlerExecution};
@@ -736,17 +736,10 @@ pub(super) fn modal_execution(handler: HandlerKey, chord: Chord) -> Option<Handl
         }
         HandlerKey::FormNextField => Event(AppEvent::FormNextField),
         HandlerKey::FormPreviousField => Event(AppEvent::FormPrevField),
-        HandlerKey::ThemeToggleOverride => {
-            Event(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
-        }
         HandlerKey::SearchBackspace => Noop,
         HandlerKey::ConfirmAccept => Boundary(BoundaryAction::ConfirmAccept),
         HandlerKey::AuthRetry => Boundary(BoundaryAction::AuthRetry),
         HandlerKey::FormSubmit => Boundary(BoundaryAction::FormSubmit),
-        HandlerKey::ThemeUp => Boundary(BoundaryAction::ThemeUp),
-        HandlerKey::ThemeDown => Boundary(BoundaryAction::ThemeDown),
-        HandlerKey::ThemeApply => Boundary(BoundaryAction::ThemeApply),
-        HandlerKey::ThemeCancel => Boundary(BoundaryAction::ThemeCancel),
         HandlerKey::SearchApply | HandlerKey::SearchCancel => Event(AppEvent::CloseModal),
         _ => return None,
     })
@@ -769,31 +762,6 @@ pub(super) fn apply_modal_boundary(
             if let Some(evt) = modal::handle_form_space(app_state, ctx) {
                 super::super::apply_and_persist(app_state, ctx, evt);
             }
-        }
-        BoundaryAction::ThemeUp => {
-            super::super::apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::ThemePicker(ThemePickerEvent::NavigateUp),
-            );
-            modal::preview_theme_selection(app_state, ctx);
-        }
-        BoundaryAction::ThemeDown => {
-            super::super::apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::ThemePicker(ThemePickerEvent::NavigateDown),
-            );
-            modal::preview_theme_selection(app_state, ctx);
-        }
-        BoundaryAction::ThemeApply => modal::apply_theme_picker_selection(app_state, ctx),
-        BoundaryAction::ThemeCancel => {
-            modal::revert_theme_to_active(app_state, ctx);
-            super::super::apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::ThemePicker(ThemePickerEvent::Close),
-            );
         }
         _ => {}
     }

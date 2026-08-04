@@ -27,7 +27,8 @@ impl AppState {
             | super::ScreenId::Repositories
             | super::ScreenId::Actions
             | super::ScreenId::Errors
-            | super::ScreenId::Terminals => {}
+            | super::ScreenId::Terminals
+            | super::ScreenId::Settings => {}
         }
         self.warning_message = Some(reason);
     }

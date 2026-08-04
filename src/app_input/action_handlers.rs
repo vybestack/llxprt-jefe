@@ -33,24 +33,26 @@ pub enum BoundaryAction {
     FocusRepositories,
     FocusAgents,
     FocusTerminal,
-    OpenThemePicker,
     OpenKeys,
+    Settings(super::settings::SettingsAction),
     TerminalManagerCloseShell,
     TerminalManagerFocusShell,
     ConfirmAccept,
     AuthRetry,
     FormSubmit,
     FormSpace,
-    ThemeUp,
-    ThemeDown,
-    ThemeApply,
-    ThemeCancel,
     HelpScrollUp,
     HelpScrollDown,
     HelpPageUp,
     HelpPageDown,
     HelpHome,
     HelpEnd,
+}
+
+use super::settings::SettingsAction;
+
+const fn settings_boundary(action: SettingsAction) -> HandlerExecution {
+    HandlerExecution::Boundary(BoundaryAction::Settings(action))
 }
 
 pub fn pre_mode_owned(
@@ -174,21 +176,15 @@ fn apply_boundary(
             super::normal::set_pane_focus(app_state, ctx, PaneFocus::Agents);
         }
         BoundaryAction::FocusTerminal => super::normal::focus_terminal_pane(app_state, ctx),
-        BoundaryAction::OpenThemePicker => {
-            super::modal_handlers::open_theme_picker(app_state, ctx);
-        }
         BoundaryAction::OpenKeys => super::keys_editor::open(app_state, ctx),
+        BoundaryAction::Settings(action) => super::settings::apply(action, app_state, ctx),
         BoundaryAction::TerminalManagerCloseShell | BoundaryAction::TerminalManagerFocusShell => {
             apply_terminal_manager_boundary(boundary, app_state, ctx);
         }
         BoundaryAction::ConfirmAccept
         | BoundaryAction::AuthRetry
         | BoundaryAction::FormSubmit
-        | BoundaryAction::FormSpace
-        | BoundaryAction::ThemeUp
-        | BoundaryAction::ThemeDown
-        | BoundaryAction::ThemeApply
-        | BoundaryAction::ThemeCancel => {
+        | BoundaryAction::FormSpace => {
             s4::apply_modal_boundary(boundary, app_state, ctx);
         }
         BoundaryAction::HelpScrollUp
@@ -265,6 +261,18 @@ macro_rules! handler_execution {
         match handler {
             H::EmergencyExit => E::Boundary(B::Quit),
             H::OpenKeys => E::Boundary(B::OpenKeys),
+            H::OpenSettings => settings_boundary(SettingsAction::Open),
+            H::SettingsBack => settings_boundary(SettingsAction::Back),
+            H::SettingsUp => settings_boundary(SettingsAction::Up),
+            H::SettingsDown => settings_boundary(SettingsAction::Down),
+            H::SettingsCyclePane => settings_boundary(SettingsAction::CyclePane),
+            H::SettingsCyclePaneReverse => settings_boundary(SettingsAction::CyclePaneReverse),
+            H::SettingsActivate => settings_boundary(SettingsAction::Activate),
+            H::SettingsSelectPrevious => settings_boundary(SettingsAction::SelectPrevious),
+            H::SettingsSelectNext => settings_boundary(SettingsAction::SelectNext),
+            H::SettingsSave => settings_boundary(SettingsAction::Save),
+            H::SettingsSaveAndExit => settings_boundary(SettingsAction::SaveAndExit),
+            H::SettingsReset => settings_boundary(SettingsAction::Reset),
             H::JumpAgent(slot) => E::Boundary(B::JumpAgent(slot)),
             H::TerminalScrollPageUp
             | H::TerminalScrollPageDown
@@ -318,7 +326,6 @@ macro_rules! handler_execution {
             H::FocusAgents => E::Boundary(B::FocusAgents),
             H::FocusTerminal => E::Boundary(B::FocusTerminal),
             H::ActivateDashboardSelection => activate_execution(state),
-            H::OpenThemePicker => E::Boundary(B::OpenThemePicker),
             H::DashboardGrabStart => E::Event(AppEvent::EnterDashboardGrab),
             H::DashboardGrabDrop => E::Event(AppEvent::ExitDashboardGrab),
             H::DashboardGrabUp => E::Event(AppEvent::DashboardGrabMoveUp),
@@ -367,11 +374,6 @@ macro_rules! handler_execution {
             | H::FormSubmit
             | H::FormNextField
             | H::FormPreviousField
-            | H::ThemeUp
-            | H::ThemeDown
-            | H::ThemeToggleOverride
-            | H::ThemeApply
-            | H::ThemeCancel
             | H::SearchApply
             | H::SearchCancel
             | H::SearchBackspace

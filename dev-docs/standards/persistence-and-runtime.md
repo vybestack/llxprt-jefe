@@ -132,7 +132,75 @@ remote transport settings and does not reinterpret agent type identity.
   instance on the migrated screen, with an empty stack and no guard — a restored
   stack would point at screens whose data is long gone, and a restored guard
   would ask about a draft that no longer exists.
+- The Settings draft is not persisted. The draft, its edits, its theme preview,
+  its scheduled save revision, and the screen's selection all belong to the
+  session looking at them. Persisting any of them would let a restart resurrect
+  unsaved work over a file that has moved on.
 - No background task scheduler state, no network server state.
+
+---
+
+## Editing the Settings Document
+
+The settings document is edited losslessly. There is one parser
+(`persistence::settings_document`), one patcher
+(`settings_document::patch_assignment`), and one writer
+(`persistence::writer::write`); the keymap editor and the Settings shell both go
+through all three rather than owning a copy of any of them.
+
+### Draft identity
+
+A draft is bound to the exact bytes it was taken from, not to a copy of the
+values in them. It holds:
+
+- those bytes and their SHA-256, which becomes the writer's expected hash — an
+  absent settings file binds to `ExpectedHash::Absent`, and its first save is
+  the file's creation;
+- the document revision it was read at;
+- the exact syntax paths that were edited, which is a closed set of host-owned
+  leaves rather than an open path space;
+- the complete validated candidate, or the sorted diagnostics that block it.
+
+Editing mutates the candidate only. The published settings, the theme manager,
+the composed keymap, and the screen registry are all unchanged until a save
+succeeds.
+
+### Save
+
+A save requires zero validation errors. It moves the draft to
+`Saving { revision }` with a strictly increasing per-session revision and emits
+exactly one write of the whole candidate. The writer rereads the target,
+compares the expected hash, replaces atomically through a mode-0600 temporary
+file, and reports one of four outcomes:
+
+| Outcome | Meaning | What the draft does |
+|---|---|---|
+| `Written` | the candidate is authoritative | adopts the new bytes, hash, and revision, and returns to clean |
+| `Superseded` | a newer revision was scheduled first | returns to dirty; the newer save stands |
+| `Conflict` (`CFG-E007`) | the target changed since the draft was bound | keeps the disk and the draft, and offers Reload, Export, Retry |
+| `Failed` (`CFG-E104`) | nothing was written | keeps the draft, and offers Retry, Export, Discard |
+
+Only the newest scheduled revision is answerable. A completion naming an older
+one is a fact about work that has been superseded, not an instruction, and is
+ignored.
+
+### Schema 1
+
+A schema-1 document is read through its in-memory migration view and never
+rewritten by reading. An explicit save is the one moment it becomes schema 2:
+the candidate is built from the migration's own schema-2 rendering, which
+carries every unknown root assignment and table into `[extensions.schema1.*]`
+rather than dropping it.
+
+### Theme preview ownership
+
+The preview token is a value the draft holds, not a mode the theme manager is
+in. It names the theme being shown *and* the theme it replaced, so replacing a
+preview keeps the theme the first one replaced, and reverting does not depend on
+the manager having remembered anything. It is bound to the draft's generation,
+so a token issued for a draft that has since been reloaded or discarded cannot
+repaint the session. The boundary's only job is to make the manager wear the
+theme the state names.
 
 ---
 

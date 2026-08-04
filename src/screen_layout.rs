@@ -12,6 +12,7 @@
 //! the application is currently hiding.
 
 use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
+use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
 use crate::workbench::{
     PanelId, PanelState, Rect, ResolvedLayout, ScreenId, ScreenInstanceId, resolve_layout,
@@ -94,6 +95,7 @@ pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         // The split view, the errors screen, and the Terminal Manager render
         // no conditional band, so nothing is ever hidden on them.
         ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals => {}
+        ScreenId::Settings => push_unfocused_settings_sections(&mut hidden, state),
         ScreenId::Issues => {
             push_band_state(
                 &mut hidden,
@@ -129,6 +131,28 @@ pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         }
     }
     hidden
+}
+
+/// Hide every Settings section panel except the one in view.
+///
+/// The descriptor declares all three because all three are real panels with
+/// their own content and focus; which one is showing is an application decision
+/// the descriptor deliberately does not model.
+fn push_unfocused_settings_sections(hidden: &mut Vec<PanelId>, state: &AppState) {
+    for section in SettingsSection::ALL {
+        if section != state.settings_state.section {
+            hidden.push(PanelId::from_static(settings_section_panel(section)));
+        }
+    }
+}
+
+/// The panel one Settings section renders into.
+pub(crate) const fn settings_section_panel(section: SettingsSection) -> &'static str {
+    match section {
+        SettingsSection::General => crate::workbench::SETTINGS_GENERAL_PANEL,
+        SettingsSection::Appearance => crate::workbench::SETTINGS_APPEARANCE_PANEL,
+        SettingsSection::Diagnostics => crate::workbench::SETTINGS_DIAGNOSTICS_PANEL,
+    }
 }
 
 /// The two conditional bands a workspace screen declares.

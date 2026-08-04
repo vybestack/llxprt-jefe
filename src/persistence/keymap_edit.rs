@@ -18,7 +18,7 @@ use crate::domain::{Id, OwnerCatalog};
 
 use super::diagnostic::Diagnostic;
 use super::migration::migrate_settings;
-use super::settings_document::{PublishedSettings, SettingsDocument, apply_patches};
+use super::settings_document::{Assignment, PublishedSettings, SettingsDocument, patch_assignment};
 use super::{FilePersistenceManager, PersistenceError, writer};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -323,66 +323,21 @@ fn patch_bytes(
     value: Option<Vec<u8>>,
 ) -> Vec<u8> {
     let path = ["keymap", context.as_str(), action.as_str()];
-    if let Some(node) = document.node(&path) {
-        return match value {
-            Some(value) => apply_patches(document.original_bytes(), vec![(node.value_span, value)]),
-            None => apply_patches(
-                document.original_bytes(),
-                vec![(node.statement_span, Vec::new())],
-            ),
-        };
-    }
-    let Some(value) = value else {
-        return document.original_bytes().to_vec();
-    };
-    insert_assignment(document, context, action, &value)
-}
-
-fn insert_assignment(
-    document: &SettingsDocument,
-    context: &ContextId,
-    action: &ActionId,
-    value: &[u8],
-) -> Vec<u8> {
-    let table_path = ["keymap", context.as_str()];
-    let assignment = format!(
-        "\"{}\" = {}\n",
-        action.as_str(),
-        String::from_utf8_lossy(value)
-    );
-    if let Some(table) = document.table_span(&table_path) {
-        let last_statement = document
-            .syntax_nodes()
-            .iter()
-            .filter(|node| {
-                node.path
-                    .starts_with(&["keymap".to_owned(), context.as_str().to_owned()])
-            })
-            .map(|node| node.statement_span.end)
-            .max();
-        let end = match last_statement {
-            Some(end) => end,
-            None => table.end,
-        };
-        let prefix = if end == table.end { "\n" } else { "" };
-        return apply_patches(
-            document.original_bytes(),
-            vec![(
-                crate::domain::ByteSpan::new(end, end),
-                format!("{prefix}{assignment}").into_bytes(),
-            )],
-        );
-    }
-    let mut block = Vec::new();
-    if !document.original_bytes().ends_with(b"\n") {
-        block.push(b'\n');
-    }
-    block.extend_from_slice(format!("[keymap.\"{}\"]\n{assignment}", context.as_str()).as_bytes());
-    let end = document.original_bytes().len() as u64;
-    apply_patches(
-        document.original_bytes(),
-        vec![(crate::domain::ByteSpan::new(end, end), block)],
+    let table_header = format!("[keymap.\"{}\"]", context.as_str());
+    let key_text = format!("\"{}\"", action.as_str());
+    patch_assignment(
+        document,
+        &Assignment {
+            path: &path,
+            table_header: &table_header,
+            key_text: &key_text,
+        },
+        value.as_deref(),
     )
+    // A keymap context written as one inline value has no syntax for this
+    // binding; leaving the bytes alone keeps the document valid, and the
+    // complete-candidate check that follows reports that nothing changed.
+    .unwrap_or_else(|_| document.original_bytes().to_vec())
 }
 
 fn chord_array(chords: &[Chord]) -> Vec<u8> {

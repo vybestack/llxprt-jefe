@@ -63,6 +63,15 @@
       "focus_order": ["repositories", "shell-list", "shell-preview"],
       "required_panels": ["repositories", "shell-list"],
       "collapse_order": ["shell-preview"]
+    },
+    {
+      "id": "core.settings",
+      "title": "Settings",
+      "route": "settings",
+      "initial_focus": "settings-sections",
+      "focus_order": ["settings-sections", "settings-general", "settings-appearance", "settings-diagnostics"],
+      "required_panels": ["settings-sections"],
+      "collapse_order": ["settings-general", "settings-appearance", "settings-diagnostics"]
     }
   ]
 }

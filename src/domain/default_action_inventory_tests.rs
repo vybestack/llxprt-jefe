@@ -236,7 +236,6 @@ fn every_context_local_unwind_is_protected() {
         super::action_registry::HandlerKey::ConfirmCancel,
         super::action_registry::HandlerKey::AuthCancel,
         super::action_registry::HandlerKey::FormCancel,
-        super::action_registry::HandlerKey::ThemeCancel,
         super::action_registry::HandlerKey::SearchCancel,
         super::action_registry::HandlerKey::FilterCancel,
         super::action_registry::HandlerKey::IssuesExit,

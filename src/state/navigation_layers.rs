@@ -162,10 +162,13 @@ impl AppState {
                 super::types::PrFocus::PrDetail | super::types::PrFocus::PrChanges
             ),
             ScreenId::Actions => self.actions_state.focus == super::types::ActionsFocus::Detail,
+            // Settings unwinds its detail focus through its own reducer, so
+            // Back leaves the screen rather than stepping back a pane.
             ScreenId::Dashboard
             | ScreenId::Repositories
             | ScreenId::Errors
-            | ScreenId::Terminals => false,
+            | ScreenId::Terminals
+            | ScreenId::Settings => false,
         }
     }
 }
