@@ -31,6 +31,53 @@ use super::settings::{CAPTURE_PROMPT, step};
 use super::settings_types::ChordCapture;
 use super::settings_view::{self, SettingsActivation};
 
+/// What a reorder did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reorder {
+    /// The order changed.
+    Moved,
+    /// The move names something that cannot be moved, and said so.
+    Refused,
+    /// The move asks for the order the document already has.
+    Unchanged,
+}
+
+impl Reorder {
+    /// Whether the reducer changed anything the screen should redraw for.
+    const fn changed(self) -> bool {
+        matches!(self, Self::Moved | Self::Refused)
+    }
+}
+
+/// The membership array one move produces, or why it produces none.
+///
+/// `Ok(None)` is a move that asks for the order that is already there, which is
+/// not unsaved work.
+fn reordered_membership(
+    rows: &[ScreenEditorRow],
+    screen_id: &Id,
+    anchor: &Id,
+    placement: Placement,
+) -> Result<Option<Vec<Id>>, String> {
+    let mut order = screens_editor::screen_membership(rows);
+    let Some(from) = order.iter().position(|id| id == screen_id) else {
+        return Err(format!("{screen_id} is not an enabled screen"));
+    };
+    if screen_id == anchor {
+        return Ok(None);
+    }
+    let moved = order.remove(from);
+    let Some(target) = order.iter().position(|id| id == anchor) else {
+        return Err(format!("{anchor} is not an enabled screen"));
+    };
+    let insert_at = match placement {
+        Placement::Before => target,
+        Placement::After => target + 1,
+    };
+    order.insert(insert_at, moved);
+    Ok(Some(order))
+}
+
 /// Which side of an anchor a reordered screen lands on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Placement {
@@ -106,12 +153,12 @@ impl AppState {
             ScreenIntent::SetEnabled { screen_id, enabled } => {
                 self.draft_screen_membership(&rows, &screen_id, enabled)
             }
-            ScreenIntent::MoveBefore { screen_id, anchor } => {
-                self.draft_screen_order(&rows, &screen_id, &anchor, Placement::Before)
-            }
-            ScreenIntent::MoveAfter { screen_id, anchor } => {
-                self.draft_screen_order(&rows, &screen_id, &anchor, Placement::After)
-            }
+            ScreenIntent::MoveBefore { screen_id, anchor } => self
+                .draft_screen_order(&rows, &screen_id, &anchor, Placement::Before)
+                .changed(),
+            ScreenIntent::MoveAfter { screen_id, anchor } => self
+                .draft_screen_order(&rows, &screen_id, &anchor, Placement::After)
+                .changed(),
             ScreenIntent::ReplaceLayout { screen_id, layout } => {
                 self.edit_settings(SettingsEdit::ReplaceLayout {
                     screen: screen_id,
@@ -162,28 +209,17 @@ impl AppState {
         screen_id: &Id,
         anchor: &Id,
         placement: Placement,
-    ) -> bool {
-        let mut order = screens_editor::screen_membership(rows);
-        let Some(from) = order.iter().position(|id| id == screen_id) else {
-            self.settings_state.notice = Some(format!("{screen_id} is not an enabled screen"));
-            return true;
+    ) -> Reorder {
+        let order = match reordered_membership(rows, screen_id, anchor, placement) {
+            Ok(None) => return Reorder::Unchanged,
+            Ok(Some(order)) => order,
+            Err(reason) => {
+                self.settings_state.notice = Some(reason);
+                return Reorder::Refused;
+            }
         };
-        if screen_id == anchor {
-            // A screen cannot move relative to itself, and pretending it did
-            // would report unsaved work that changes nothing.
-            return false;
-        }
-        let moved = order.remove(from);
-        let Some(target) = order.iter().position(|id| id == anchor) else {
-            self.settings_state.notice = Some(format!("{anchor} is not an enabled screen"));
-            return true;
-        };
-        let insert_at = match placement {
-            Placement::Before => target,
-            Placement::After => target + 1,
-        };
-        order.insert(insert_at, moved);
-        self.edit_settings(SettingsEdit::ScreenOrder(order))
+        self.edit_settings(SettingsEdit::ScreenOrder(order));
+        Reorder::Moved
     }
 
     /// Perform whatever the focused row answers to one question.
@@ -224,18 +260,33 @@ impl AppState {
             direction,
             NavDir::Up | NavDir::Prev | NavDir::Home | NavDir::PageUp(_)
         );
-        let intent = if moved_up {
-            ScreenIntent::MoveBefore { screen_id, anchor }
+        let placement = if moved_up {
+            Placement::Before
         } else {
-            ScreenIntent::MoveAfter { screen_id, anchor }
+            Placement::After
         };
         // The row the user is looking at moves with the screen it names, or the
         // cursor would be left pointing at whatever took its place.
-        let changed = self.draft_screen(intent);
-        if changed {
+        // The cursor follows the screen it names, and only when the screen
+        // actually moved: moving it after a refusal would leave the user
+        // pointing at whatever happened to be there.
+        let Ok(registry) = crate::workbench::screen_registry() else {
+            return false;
+        };
+        let Some(published) = self
+            .settings_state
+            .draft
+            .as_ref()
+            .map(|draft| draft.published().clone())
+        else {
+            return false;
+        };
+        let projected = screens_editor::project_screens(registry, &published);
+        let outcome = self.draft_screen_order(&projected, &screen_id, &anchor, placement);
+        if outcome == Reorder::Moved {
             self.settings_state.selected_row = if moved_up { index - 1 } else { index + 1 };
         }
-        changed
+        outcome.changed()
     }
 
     /// Withdraw a waiting capture.
@@ -333,7 +384,18 @@ impl AppState {
             self.settings_state.notice = Some(format!("{screen_id} is not a known screen"));
             return true;
         };
-        let layout = self.drafted_layout(&screen).unwrap_or(screen.layout);
+        let layout = match self.drafted_layout(&screen) {
+            Ok(Some(layout)) => layout,
+            Ok(None) => screen.layout,
+            // Opening the compiled tree instead would show a layout the
+            // document does not describe, and applying it would overwrite the
+            // override the user still has to see to correct. Reset is the way
+            // out, and it is offered on the row.
+            Err(reason) => {
+                self.settings_state.notice = Some(reason);
+                return true;
+            }
+        };
         self.settings_state.layout_editor =
             Some(LayoutEditorState::open(screen_id.clone(), layout));
         self.settings_state.notice = None;
@@ -383,12 +445,21 @@ impl AppState {
             .cloned()
     }
 
-    /// The layout the candidate currently overrides this screen with, if any.
-    fn drafted_layout(&self, screen: &ScreenDescriptor) -> Option<LayoutNode> {
-        let published = self.settings_state.draft.as_ref()?.published();
-        let id = Id::parse(screen.id.as_str()).ok()?;
-        let values = published.workbench.layout_overrides.get(&id)?;
-        super::screens_editor_layout::read(values, screen).ok()
+    /// The layout the candidate currently overrides this screen with.
+    ///
+    /// `Ok(None)` means the document says nothing about this screen, which is
+    /// a different answer from an override the layout grammar cannot read.
+    fn drafted_layout(&self, screen: &ScreenDescriptor) -> Result<Option<LayoutNode>, String> {
+        let Some(draft) = self.settings_state.draft.as_ref() else {
+            return Ok(None);
+        };
+        let Ok(id) = Id::parse(screen.id.as_str()) else {
+            return Ok(None);
+        };
+        let Some(values) = draft.published().workbench.layout_overrides.get(&id) else {
+            return Ok(None);
+        };
+        crate::workbench::screen_lowering_layout::lower_settings_layout(values).map(Some)
     }
 
     /// Draft one Keys editor intent.

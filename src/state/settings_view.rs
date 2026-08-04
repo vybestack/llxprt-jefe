@@ -11,7 +11,6 @@
 use crate::domain::action_registry::ActionId;
 use crate::domain::agent_definition::AgentTypeId;
 use crate::domain::input_context::ContextId;
-use crate::domain::keymap::Chord;
 use crate::domain::{Id, ThemeId};
 use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 use crate::messages::settings::{RecoveryChoice, SettingsSection};
@@ -505,7 +504,7 @@ fn key_value(row: &crate::state::keys_editor_project::KeyEditorRow) -> String {
     } else {
         row.chords
             .iter()
-            .map(Chord::to_canonical_text)
+            .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(" ")
     };

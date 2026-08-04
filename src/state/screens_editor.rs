@@ -167,7 +167,7 @@ pub fn preview_layout(
     let candidate = with_layout(screen, layout.clone());
     resolve_layout(
         &candidate,
-        ScreenInstanceId::next(),
+        ScreenInstanceId::preview(),
         Rect::new(0, 0, cols, rows),
         &PanelState::all_visible(),
     )
@@ -242,15 +242,17 @@ fn composition(screen: &ScreenDescriptor, published: &PublishedSettings) -> Comp
 /// This screen's layout override, when the document carries one.
 ///
 /// The inner result separates "the document says nothing about this screen"
-/// from "the document says something this grammar cannot read", because those
-/// are different answers and only the second is a problem to report.
+/// from "the document says something the layout grammar cannot read", because
+/// those are different answers and only the second is a problem to report. The
+/// grammar is the workbench's own, so an override and a screen definition file
+/// are read by exactly one reader.
 fn layout_override(
     screen: &ScreenDescriptor,
     published: &PublishedSettings,
 ) -> Option<Result<LayoutNode, String>> {
     let id = Id::parse(screen.id.as_str()).ok()?;
     let values = published.workbench.layout_overrides.get(&id)?;
-    Some(super::screens_editor_layout::read(values, screen))
+    Some(crate::workbench::screen_lowering_layout::lower_settings_layout(values))
 }
 
 /// Where in the presented order this screen sits.

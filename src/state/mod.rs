@@ -137,8 +137,6 @@ mod persistence_effect_tests;
 pub mod persistence_ops;
 /// Pure projection of the Screens/Layout editor into rows (issue #388).
 pub mod screens_editor;
-/// Reading one layout override out of a settings document (issue #388).
-mod screens_editor_layout;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;
 /// The registry editors' half of the Settings reducer (issue #388).

@@ -122,9 +122,14 @@
       "modifiers": []
     },
     {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
       "op": "wait",
       "source": "frame",
-      "literal": ">>Dashboard",
+      "literal": ">>Repositories",
       "timeout_ms": 20000
     },
     {

@@ -249,18 +249,20 @@ fn the_add_chooser_offers_only_panels_the_tree_does_not_place() {
 // ── removal only when the invariants survive ──────────────────────────────
 
 #[test]
-fn removing_a_child_that_would_leave_a_panel_unplaced_is_refused() {
+fn removing_a_child_leaves_its_panel_unplaced_and_blocks_completion() {
     let screen = screen();
     let mut editor = editor(&screen);
     editor.selected = vec![0];
-    let before = editor.tree.clone();
 
     editor.remove_selected(&screen);
 
-    assert_eq!(editor.tree, before, "the tree is untouched");
     assert!(
         editor.notice.is_some(),
-        "the validator's refusal is reported"
+        "the validator says what is still unplaced"
+    );
+    assert!(
+        editor.complete(&screen).is_err(),
+        "and an unfinished tree cannot reach the draft"
     );
 }
 
@@ -347,4 +349,64 @@ fn tab_cycles_the_dialog_fields_and_wraps() {
     }
     dialog.next_field();
     assert_eq!(dialog.field, 0);
+}
+
+// ── a structural edit must be reachable from a valid layout ───────────────
+
+#[test]
+fn a_panel_can_be_moved_by_removing_it_and_placing_it_somewhere_else() {
+    let screen = screen();
+    let mut editor = editor(&screen);
+    let LayoutNode::Split { children, .. } = &editor.tree else {
+        panic!("this screen's layout is a split");
+    };
+    assert!(children.len() >= 2, "the fixture needs two children");
+
+    // Removing a child leaves its panel unplaced. That is an unfinished edit,
+    // not a refusal: it is the only way to move a panel anywhere else.
+    editor.selected = vec![0];
+    editor.remove_selected(&screen);
+    assert!(
+        editor.complete(&screen).is_err(),
+        "an unfinished edit cannot reach the draft"
+    );
+
+    let addable = editor.addable_panels(&screen);
+    assert_eq!(addable.len(), 1, "exactly the panel that was removed");
+
+    // Placing it again completes the edit.
+    editor.selected = Vec::new();
+    let mut dialog = NodeDialog::adding();
+    dialog.panel_choice = 0;
+    editor.dialog = Some(dialog);
+    editor.apply_dialog(&screen);
+
+    assert!(
+        editor.dialog.is_none(),
+        "the add applies: {:?}",
+        editor
+            .dialog
+            .as_ref()
+            .and_then(|dialog| dialog.error.clone())
+    );
+    assert!(
+        editor.complete(&screen).is_ok(),
+        "every declared panel is placed again"
+    );
+}
+
+#[test]
+fn a_removal_that_leaves_a_panel_unplaced_says_so_without_undoing_itself() {
+    let screen = screen();
+    let mut editor = editor(&screen);
+    let before = editor.tree.clone();
+    editor.selected = vec![0];
+
+    editor.remove_selected(&screen);
+
+    assert_ne!(editor.tree, before, "the removal happened");
+    assert!(
+        editor.notice.is_some(),
+        "and the user is told what still has to be placed"
+    );
 }

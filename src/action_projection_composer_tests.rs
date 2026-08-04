@@ -4,7 +4,7 @@ use super::*;
 use crate::domain::action_registry::Provenance;
 use crate::domain::default_action_inventory::display::FooterMode;
 use crate::state::ScreenId;
-use crate::state::keys_editor_project::project_keys;
+use crate::state::keys_editor_project::{ChordText, project_keys};
 
 struct ComposerFooterCase {
     context: &'static str,
@@ -179,7 +179,9 @@ fn list_send_remaps_project_to_footer_and_help_from_one_snapshot() {
         };
         assert_eq!(
             keys_row.chords,
-            vec![Chord::parse("F8").unwrap_or_else(|error| panic!("test chord: {error}"))]
+            vec![ChordText::Chord(
+                Chord::parse("F8").unwrap_or_else(|error| panic!("test chord: {error}"))
+            )]
         );
         assert!(
             !footer.contains("Ctrl-s/S send to agent"),

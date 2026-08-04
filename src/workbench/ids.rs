@@ -557,6 +557,18 @@ impl ScreenInstanceId {
         Self(NEXT_SCREEN_INSTANCE.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// The identity a preview resolves under.
+    ///
+    /// A preview is geometry nothing is drawn from and nothing compares
+    /// against, so it needs an identity that is stable rather than distinct:
+    /// allocating one per projection would make repeatedly projecting the same
+    /// state change the process. Zero is never allocated, so a preview can
+    /// never be mistaken for a live instance.
+    #[must_use]
+    pub const fn preview() -> Self {
+        Self(0)
+    }
+
     /// The raw counter value, for goldens and diagnostics.
     #[must_use]
     pub const fn get(self) -> u64 {

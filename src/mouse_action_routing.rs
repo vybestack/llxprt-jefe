@@ -7,7 +7,7 @@ use jefe::pane_content_projection::projected_pane_content;
 use jefe::persistence::settings_document::PublishedSettings;
 use jefe::selection::{SelectablePane, point_to_content_coords};
 use jefe::state::AppState;
-use jefe::state::keys_editor_project::project_keys;
+use jefe::state::keys_editor_project::{ChordText, project_keys};
 
 /// One mouse target after resolving its `ActionId` through the current snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,15 +85,23 @@ fn resolve_action(
     let rows = project_keys(snapshot, &PublishedSettings::default());
     let row = rows.iter().find(|row| &row.action == target)?;
     let stack = ContextStack::from_ordered([row.context.as_str()], false).ok()?;
-    row.chords.iter().find_map(|chord| {
-        let resolution = snapshot.resolve(chord, &stack);
-        resolution_targets(&resolution, target).then_some(MouseActionRoute {
-            chord: *chord,
-            resolution,
-            hit,
-            action: target.clone(),
+    // Only a chord the grammar read can be resolved; text it could not read
+    // names nothing to dispatch, which is exactly why the row keeps showing it.
+    row.chords
+        .iter()
+        .filter_map(|chord| match chord {
+            ChordText::Chord(chord) => Some(*chord),
+            ChordText::Unreadable(_) => None,
         })
-    })
+        .find_map(|chord| {
+            let resolution = snapshot.resolve(&chord, &stack);
+            resolution_targets(&resolution, target).then_some(MouseActionRoute {
+                chord,
+                resolution,
+                hit,
+                action: target.clone(),
+            })
+        })
 }
 
 fn resolution_targets(resolution: &Resolution, target: &ActionId) -> bool {

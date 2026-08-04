@@ -579,3 +579,59 @@ opaque = { bytes = "retained" }
 
     assert_eq!(candidate.bytes(), source);
 }
+
+#[test]
+fn replacing_a_header_form_layout_keeps_the_comments_around_it() {
+    let source = br#"settings_schema = 2
+[workbench.layout_overrides."core.dashboard"]
+type = "leaf"
+panel = "list"
+
+# this comment introduces appearance, not the override above it
+[appearance]
+theme = "dracula"
+"#;
+
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::ReplaceLayout {
+            screen: id("core.dashboard"),
+            layout: Box::new(LayoutNode::Leaf {
+                panel: panel("detail"),
+            }),
+        }],
+    );
+
+    let rendered = rendered(&candidate);
+    assert!(
+        rendered.contains("# this comment introduces appearance, not the override above it"),
+        "a comment outside the edited override survives it: {rendered}"
+    );
+    assert!(rendered.contains("theme = \"dracula\""), "{rendered}");
+}
+
+#[test]
+fn resetting_a_header_form_layout_keeps_a_trailing_comment() {
+    let source = br#"settings_schema = 2
+[appearance]
+theme = "dracula"
+[workbench.layout_overrides."core.dashboard"]
+type = "leaf"
+panel = "list"
+
+# a note somebody left at the end of the file
+"#;
+
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::Reset(SyntaxPath::LayoutOverride(id(
+            "core.dashboard",
+        )))],
+    );
+
+    let rendered = rendered(&candidate);
+    assert!(
+        rendered.contains("# a note somebody left at the end of the file"),
+        "a comment after the removed override survives it: {rendered}"
+    );
+}

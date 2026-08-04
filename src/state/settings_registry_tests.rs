@@ -684,3 +684,66 @@ fn saving_an_agent_toggle_says_a_restart_is_needed() {
         "composing the agent registry happens once, at startup"
     );
 }
+
+#[test]
+fn a_refused_reorder_leaves_the_cursor_where_it_was() {
+    let mut state = opened(b"settings_schema = 2\n");
+    let rows = project_screens(registry(), &published(&state));
+    let last = rows[rows.len() - 1].screen_id.as_str().to_owned();
+    state.settings_state.section = crate::messages::settings::SettingsSection::Screens;
+    state.settings_state.focus = super::settings_types::SettingsFocus::Detail;
+    state.settings_state.selected_row = rows.len() - 1;
+
+    // There is no row after the last one, so nothing anchors the move.
+    state.reduce_settings(SettingsMessage::ReorderRow(crate::messages::NavDir::Down));
+
+    assert_eq!(
+        state.settings_state.selected_row,
+        rows.len() - 1,
+        "the cursor stays on {last}"
+    );
+}
+
+#[test]
+fn opening_a_layout_the_grammar_cannot_read_says_so_rather_than_showing_another_tree() {
+    let descriptor = registry()
+        .screens()
+        .first()
+        .unwrap_or_else(|| panic!("a compiled screen"));
+    let source = format!(
+        r#"settings_schema = 2
+[workbench.layout_overrides]
+"{}" = {{ type = "leaf", panel = "list", nonsense = 1 }}
+"#,
+        descriptor.id.as_str()
+    );
+    let mut state = opened(source.as_bytes());
+
+    screen_intent(
+        &mut state,
+        ScreenIntent::ReplaceLayout {
+            screen_id: screen(descriptor.id.as_str()),
+            layout: Box::new(descriptor.layout.clone()),
+        },
+    );
+    state.settings_state.layout_editor = None;
+    state.reduce_settings(SettingsMessage::Screen(Box::new(
+        ScreenIntent::ResetLayout {
+            screen_id: screen(descriptor.id.as_str()),
+        },
+    )));
+
+    let mut fresh = opened(source.as_bytes());
+    fresh.apply_settings_activation(super::settings_view::SettingsActivation::OpenLayout {
+        screen_id: screen(descriptor.id.as_str()),
+    });
+
+    assert!(
+        fresh.settings_state.layout_editor.is_none(),
+        "an unreadable override does not open as some other tree"
+    );
+    assert!(
+        fresh.settings_state.notice.is_some(),
+        "and the reason is reported"
+    );
+}

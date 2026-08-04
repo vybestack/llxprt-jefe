@@ -21,6 +21,28 @@ mod keys_editor_project_tests;
 /// The action that leaves the session, which no capture may take.
 pub const EMERGENCY_EXIT_ACTION: &str = "core.emergency-exit";
 
+/// One chord a binding declares, readable or not.
+///
+/// The document is text a person can write by hand, so it can name something
+/// the chord grammar has no reading for. That text is what the resolver is
+/// refusing, so it is what the row shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChordText {
+    /// A chord the grammar read.
+    Chord(Chord),
+    /// Text the grammar has no reading for, exactly as the document spells it.
+    Unreadable(String),
+}
+
+impl std::fmt::Display for ChordText {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Chord(chord) => formatter.write_str(&chord.to_canonical_text()),
+            Self::Unreadable(text) => write!(formatter, "{text} (unreadable)"),
+        }
+    }
+}
+
 /// One action/context binding as the editor presents it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEditorRow {
@@ -31,7 +53,10 @@ pub struct KeyEditorRow {
     /// The action's label, from the inventory.
     pub label: String,
     /// The chords currently bound, in order; empty means unbound.
-    pub chords: Vec<Chord>,
+    ///
+    /// A chord the document spells but the grammar cannot read is kept as its
+    /// own text, so the value the resolver is refusing stays on screen.
+    pub chords: Vec<ChordText>,
     /// Whether the action can be dispatched at all.
     pub availability: Availability,
     /// Why this row is read-only, when it is.
@@ -214,15 +239,16 @@ fn source_of(provenance: &Provenance) -> &str {
 /// present the user's own unsaved rebinding as not having happened — and an
 /// unbind, which writes an empty list, would look like no change at all.
 ///
-/// A chord the candidate spells but this grammar cannot read is skipped rather
-/// than guessed at; the action/key resolver refuses the candidate for the same
-/// reason, and that refusal is what the user is shown.
+/// A chord the candidate spells but the grammar cannot read is kept as the text
+/// the document holds. Dropping it would show a shorter binding — or an unbound
+/// one — while the resolver refused the candidate over a chord the row no
+/// longer displays, leaving the user to correct something invisible.
 fn effective_chords(
     snapshot: &ActionRegistrySnapshot,
     published: &PublishedSettings,
     context: &ContextId,
     action: &ActionId,
-) -> Vec<Chord> {
+) -> Vec<ChordText> {
     if let Some(drafted) = published
         .keymap
         .get(context.as_str())
@@ -230,10 +256,20 @@ fn effective_chords(
     {
         return drafted
             .iter()
-            .filter_map(|text| Chord::parse(text).ok())
+            .map(|text| {
+                Chord::parse(text)
+                    .map_or_else(|_| ChordText::Unreadable(text.clone()), ChordText::Chord)
+            })
             .collect();
     }
-    binding(snapshot, context, action).map_or_else(Vec::new, |binding| binding.chords.clone())
+    binding(snapshot, context, action).map_or_else(Vec::new, |binding| {
+        binding
+            .chords
+            .iter()
+            .copied()
+            .map(ChordText::Chord)
+            .collect()
+    })
 }
 
 /// Where this binding's effective chords came from.
@@ -274,12 +310,22 @@ fn binding<'snapshot>(
         .find(|binding| &binding.context == context && &binding.action == action)
 }
 
+/// What the resolver says about this action.
+///
+/// A composed snapshot carries exactly one availability entry per action, so a
+/// missing one is the registry contradicting itself rather than an action that
+/// happens to be fine. Calling it available would let the editor offer a
+/// control the owner never approved, so the row reports what is actually
+/// known, which is nothing.
 fn availability(snapshot: &ActionRegistrySnapshot, action: &ActionId) -> Availability {
     snapshot
         .availability_entries()
         .iter()
         .find(|entry| entry.action() == action)
-        .map_or(Availability::Available, |entry| {
-            entry.availability().clone()
-        })
+        .map_or_else(
+            || Availability::Unavailable {
+                reason: "the action registry published no availability for this action".to_owned(),
+            },
+            |entry| entry.availability().clone(),
+        )
 }

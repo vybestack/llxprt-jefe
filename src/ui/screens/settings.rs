@@ -10,16 +10,17 @@ use crate::list_viewport::fit_text_to_width;
 use crate::messages::settings::RecoveryChoice;
 use crate::persistence::diagnostic::Severity;
 use crate::state::agent_types_editor::AgentAvailability;
-use crate::state::layout_editor::{NodeDialog, SizeKind};
+use crate::state::layout_editor::{NodeDialog, NodeDialogKind, SizeKind};
 use crate::state::navigation_dirty::{DirtyState, GuardPhase, SaveIntent};
 use crate::state::screens_editor::CompositionStatus;
+use crate::state::screens_editor::preview_layout;
 use crate::state::settings_types::DirtyChoiceCursor;
 use crate::state::settings_view::{
     SettingsRow, SettingsRowKind, detail_window, recovery_choices, section_rows,
 };
 use crate::state::{AppState, DraftStatus, SettingsDraft, SettingsFocus, SettingsState};
 use crate::theme::{ResolvedColors, ThemeColors};
-use crate::workbench::descriptor::{Axis, LayoutNode};
+use crate::workbench::descriptor::{Axis, LayoutNode, ScreenDescriptor};
 use crate::workbench::ids::PanelId;
 
 use super::super::components::{KeybindBar, StatusBar};
@@ -239,8 +240,20 @@ fn overflow_row(count: usize, side: &str, rc: &ResolvedColors) -> Option<AnyElem
 /// the tree, the open dialog, and whatever was refused on the screen.
 fn layout_pane(settings: &SettingsState, rc: &ResolvedColors) -> Option<AnyElement<'static>> {
     let editor = settings.layout_editor.as_ref()?;
+    let screen = crate::workbench::screen_registry()
+        .ok()
+        .and_then(|registry| {
+            registry
+                .screens()
+                .iter()
+                .find(|screen| screen.id.as_str() == editor.screen_id.as_str())
+        })?;
     let lines = layout_lines(&editor.tree, &editor.selected, &[], 0);
-    let dialog = editor.dialog.as_ref().map(dialog_lines);
+    let dialog = editor
+        .dialog
+        .as_ref()
+        .map(|dialog| dialog_lines(dialog, &editor.addable_panels(screen)));
+    let preview = preview_lines(screen, &editor.tree);
     Some(
         element! {
             Box(
@@ -262,11 +275,40 @@ fn layout_pane(settings: &SettingsState, rc: &ResolvedColors) -> Option<AnyEleme
                         Text(content: text, color: if error { rc.error } else { rc.fg })
                     }
                 }))
+                #(preview.into_iter().map(|text| element! {
+                    Box(width: 100pct, background_color: rc.bg) {
+                        Text(content: text, color: rc.dim)
+                    }
+                }))
                 Text(content: "q Back  Ctrl-Q quit", color: rc.dim)
             }
         }
         .into_any(),
     )
+}
+
+/// The geometry this tree resolves to, at normal and at reduced dimensions.
+///
+/// The resolver is the standard one, so what the preview shows and what a
+/// restart would build cannot disagree. It resolves under a preview identity
+/// and the result is drawn and discarded, so the session's own geometry is
+/// untouched.
+fn preview_lines(screen: &ScreenDescriptor, tree: &LayoutNode) -> Vec<String> {
+    const NORMAL: (u16, u16) = (120, 36);
+    const SMALL: (u16, u16) = (60, 18);
+    [NORMAL, SMALL]
+        .into_iter()
+        .map(
+            |(cols, rows)| match preview_layout(screen, tree, cols, rows) {
+                Ok(resolved) => {
+                    let visible = resolved.visible_panels().count();
+                    let fitted = resolved.too_small.as_ref().map_or("", |_| " (too small)");
+                    format!("preview {cols}x{rows}: {visible} panels{fitted}")
+                }
+                Err(_) => format!("preview {cols}x{rows}: does not resolve"),
+            },
+        )
+        .collect()
 }
 
 /// One line per node, marked where the selection is.
@@ -301,9 +343,25 @@ fn layout_lines(
 }
 
 /// The open node dialog's fields, and whatever it refused.
-fn dialog_lines(dialog: &NodeDialog) -> Vec<(String, bool)> {
+fn dialog_lines(dialog: &NodeDialog, addable: &[PanelId]) -> Vec<(String, bool)> {
     let focus = |index: usize| if dialog.field == index { ">>" } else { "  " };
-    let mut lines = vec![
+    let mut lines = Vec::new();
+    if dialog.kind == NodeDialogKind::AddLeaf {
+        // Which panel Enter places has to be visible, or the chooser is a
+        // hidden setting the user changes by feel.
+        lines.push((
+            format!(
+                "  panel: {}",
+                addable
+                    .get(dialog.panel_choice)
+                    .map_or("(this screen places every panel it declares)", |panel| {
+                        panel.as_str()
+                    })
+            ),
+            addable.is_empty(),
+        ));
+    }
+    lines.extend(vec![
         (
             format!(
                 "{}size kind: {}",
@@ -326,7 +384,7 @@ fn dialog_lines(dialog: &NodeDialog) -> Vec<(String, bool)> {
             format!("{}collapse order: {}", focus(5), dialog.collapse_priority),
             false,
         ),
-    ];
+    ]);
     if let Some(error) = dialog.error.as_ref() {
         lines.push((format!("! {error}"), true));
     }

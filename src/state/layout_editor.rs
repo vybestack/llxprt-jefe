@@ -369,14 +369,15 @@ impl LayoutEditorState {
             NodeDialogKind::AddLeaf => self.added(screen, &dialog),
             NodeDialogKind::EditChild => self.edited(&dialog),
         };
-        match outcome.and_then(|tree| match refusal(screen, &tree) {
-            Some(reason) => Err(reason),
-            None => Ok(tree),
-        }) {
+        // A dialog is refused only for what the dialog itself got wrong. The
+        // tree it produces may still be unfinished — placing one of three
+        // removed panels is progress, not a mistake — so the validator's answer
+        // becomes the notice rather than a reason to discard the edit.
+        match outcome {
             Ok(tree) => {
                 self.tree = tree;
                 self.dialog = None;
-                self.notice = None;
+                self.notice = refusal(screen, &self.tree);
             }
             Err(reason) => self.refuse(reason),
         }
@@ -470,7 +471,14 @@ impl LayoutEditorState {
         ));
     }
 
-    /// Remove the selected child, when the descriptor's invariants survive it.
+    /// Remove the selected child.
+    ///
+    /// A removal leaves the panel it held unplaced, and every valid layout
+    /// places each declared panel exactly once — so a removal that had to keep
+    /// the tree valid could never happen, and no panel could ever be moved.
+    /// The removal applies and the tree is left unfinished, which is what the
+    /// notice says; [`Self::complete`] is what refuses to hand an unfinished
+    /// tree to the draft.
     pub fn remove_selected(&mut self, screen: &ScreenDescriptor) {
         let Some((index, parent)) = self.selected.split_last() else {
             self.notice = Some("the root node cannot be removed".to_owned());
@@ -479,19 +487,16 @@ impl LayoutEditorState {
         let (index, parent) = (*index, parent.to_vec());
         let mut tree = self.tree.clone();
         let Some(LayoutNode::Split { children, .. }) = node_at_mut(&mut tree, &parent) else {
+            self.notice = Some("only a child of a split can be removed".to_owned());
             return;
         };
         if index >= children.len() {
             return;
         }
         children.remove(index);
-        if let Some(reason) = refusal(screen, &tree) {
-            self.notice = Some(reason);
-            return;
-        }
         self.tree = tree;
         self.selected = parent;
-        self.notice = None;
+        self.notice = refusal(screen, &self.tree);
     }
 
     /// The complete tree, when the validator accepts it.

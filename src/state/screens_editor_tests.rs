@@ -336,3 +336,45 @@ fn an_override_naming_a_declared_panel_but_dropping_the_others_is_refused() {
         row.composition
     );
 }
+
+#[test]
+fn an_override_declaring_an_unknown_field_is_refused_by_the_layout_grammar() {
+    let registry = registry();
+    let published = published(concat!(
+        "settings_schema = 2\n",
+        "[workbench.layout_overrides]\n",
+        "\"core.dashboard\" = { type = \"leaf\", panel = \"list\", nonsense = 1 }\n",
+    ));
+
+    let rows = project_screens(&registry, &published);
+
+    assert!(
+        matches!(
+            row(&rows, "core.dashboard").composition,
+            CompositionStatus::Invalid { .. }
+        ),
+        "the definition grammar refuses unknown fields, and so must an override"
+    );
+}
+
+#[test]
+fn an_override_declaring_both_size_variants_is_refused() {
+    let registry = registry();
+    let published = published(concat!(
+        "settings_schema = 2\n",
+        "[workbench.layout_overrides]\n",
+        "\"core.dashboard\" = { type = \"split\", axis = \"horizontal\", children = [",
+        "{ node = { type = \"leaf\", panel = \"list\" }, size = { fixed = 10, weight = 1 }, ",
+        "min = 1, collapsible = false }] }\n",
+    ));
+
+    let rows = project_screens(&registry, &published);
+
+    assert!(
+        matches!(
+            row(&rows, "core.dashboard").composition,
+            CompositionStatus::Invalid { .. }
+        ),
+        "a child claims cells one way, and declaring both is not a preference"
+    );
+}

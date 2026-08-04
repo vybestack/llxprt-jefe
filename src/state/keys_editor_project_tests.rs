@@ -10,8 +10,8 @@ use crate::domain::keymap::Chord;
 use crate::persistence::settings_document::PublishedSettings;
 
 use super::{
-    CaptureOutcome, EMERGENCY_EXIT_ACTION, KeyEditorRow, classify_capture, conflict_detail,
-    project_keys,
+    CaptureOutcome, ChordText, EMERGENCY_EXIT_ACTION, KeyEditorRow, classify_capture,
+    conflict_detail, project_keys,
 };
 
 fn snapshot(source: &str) -> ActionRegistrySnapshot {
@@ -93,7 +93,7 @@ fn a_binding_the_document_overrides_reports_that_provenance() {
     let rows = rows(source);
 
     let overridden = row(&rows, "core.open-settings");
-    assert_eq!(overridden.chords, vec![chord("F2")]);
+    assert_eq!(overridden.chords, vec![ChordText::Chord(chord("F2"))]);
     assert!(matches!(overridden.provenance, Provenance::Settings { .. }));
 }
 
@@ -112,7 +112,10 @@ fn a_row_shows_the_chords_the_candidate_names_rather_than_the_composed_ones() {
 
     let rows = project_keys(&snapshot, &published);
 
-    assert_eq!(row(&rows, "core.open-settings").chords, vec![chord("F2")]);
+    assert_eq!(
+        row(&rows, "core.open-settings").chords,
+        vec![ChordText::Chord(chord("F2"))]
+    );
 }
 
 #[test]
@@ -279,4 +282,22 @@ fn a_conflict_detail_names_the_chord_the_context_and_both_actions() {
     assert!(detail.contains("core.merge"), "{detail}");
     assert!(detail.contains("core.move"), "{detail}");
     assert!(detail.contains("settings"), "{detail}");
+}
+
+#[test]
+fn a_chord_the_grammar_cannot_read_stays_visible_as_the_text_it_was_written_as() {
+    // The resolver refuses this candidate. If the row dropped the offending
+    // text, the user would be told about a chord they could not see.
+    let snapshot = snapshot(DEFAULTS);
+    let published = published(&override_source("[\"F2\", \"nonsense-chord\"]"));
+
+    let rows = project_keys(&snapshot, &published);
+
+    assert_eq!(
+        row(&rows, "core.open-settings").chords,
+        vec![
+            ChordText::Chord(chord("F2")),
+            ChordText::Unreadable("nonsense-chord".to_owned()),
+        ]
+    );
 }
