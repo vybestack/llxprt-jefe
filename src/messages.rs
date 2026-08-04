@@ -9,6 +9,7 @@ use crate::domain::{
 use crate::list_viewport::PageItemCount;
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 mod issues_conversion;
+mod issues_conversion_close;
 mod issues_mutation_conversion;
 mod issues_property_conversion;
 mod issues_silent_refresh_conversion;
@@ -19,6 +20,7 @@ mod actions_conversion;
 mod prs;
 mod prs_changes_conversion;
 mod prs_conversion;
+mod prs_conversion_agent;
 mod prs_property_conversion;
 pub use actions::ActionsMessage;
 mod errors;
@@ -247,6 +249,11 @@ pub enum IssuesMessage {
         request_id: u64,
         error: String,
     },
+    DetailAuthRequired {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    },
     CommentsPageLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
@@ -463,6 +470,15 @@ pub enum IssuesMessage {
     },
     OpenAgentChooser {
         metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
+    BeginListSendDetail {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
+    CancelListSendDetail,
+    ListSendDetailReady {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
     },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,

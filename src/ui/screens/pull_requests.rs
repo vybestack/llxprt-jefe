@@ -103,8 +103,16 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let pr_detail = state.and_then(|s| s.prs_state.pr_detail.clone());
     let detail_subfocus = state.map_or_else(Default::default, |s| s.prs_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.prs_state.inline_state.clone());
-    let footer_mode = matches!(inline_state, crate::state::InlineState::Composer { .. })
-        .then_some(FooterMode::PullRequestsInlineComposer);
+    let footer_mode = if matches!(inline_state, crate::state::InlineState::Composer { .. }) {
+        Some(FooterMode::PullRequestsInlineComposer)
+    } else {
+        match pr_focus {
+            PrFocus::RepoList => Some(FooterMode::PullRequestsRepoList),
+            PrFocus::PrList => Some(FooterMode::PullRequestsList),
+            PrFocus::PrDetail => Some(FooterMode::PullRequestsDetail),
+            PrFocus::PrChanges => None,
+        }
+    };
     let comments_loading = state.is_some_and(|s| s.prs_state.loading.comments);
     let detail_loading = state.is_some_and(|s| s.prs_state.loading.detail);
     let detail_scroll_offset = state.map_or(0, |s| s.prs_state.detail_scroll_offset);

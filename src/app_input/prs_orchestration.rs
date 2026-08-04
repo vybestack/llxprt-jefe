@@ -117,6 +117,11 @@ fn route_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::PrListEnter);
             prs_dispatch::load_pr_detail_for_selection(app_state, ctx);
         }
+        PullRequestsMessage::OpenAgentChooser { metadata }
+            if app_state.read().prs_state.pr_focus == jefe::state::PrFocus::PrList =>
+        {
+            prs_dispatch::load_pr_detail_then_open_agent_chooser(app_state, ctx, metadata);
+        }
         // `route_changes_message` returns before these variants reach this match.
         PullRequestsMessage::OpenChanges | PullRequestsMessage::ChangesToggleView => {}
         m @ PullRequestsMessage::ScrollDetail(ScrollDir::Down | ScrollDir::PageDown) => {
@@ -130,14 +135,7 @@ fn route_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::from(m));
             prs_mutation::handle_pr_inline_submit(app_state, ctx);
         }
-        PullRequestsMessage::OpenInBrowser => {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::from(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser)),
-            );
-            prs_dispatch::dispatch_pr_open_in_browser(app_state, ctx);
-        }
+        PullRequestsMessage::OpenInBrowser => route_pr_open_in_browser(app_state, ctx),
         PullRequestsMessage::OpenMergeChooser | PullRequestsMessage::MergeConfirm => {
             route_prs_merge(app_state, ctx, message);
         }
@@ -158,6 +156,15 @@ fn route_prs_message(
         // route through the reducer only.
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+}
+
+fn route_pr_open_in_browser(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::from(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser)),
+    );
+    prs_dispatch::dispatch_pr_open_in_browser(app_state, ctx);
 }
 
 /// Route merge-chooser PR messages (issue #92).

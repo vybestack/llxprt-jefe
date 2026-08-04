@@ -31,6 +31,8 @@ impl AppState {
             self.remember_pr_preferences();
             self.prs_state.active = false;
             self.prs_state.pr_focus = PrFocus::PrList;
+            self.prs_state.detail_pending = None;
+            self.prs_state.loading.detail = false;
             self.prs_state.inline_state = InlineState::None;
             self.prs_state.agent_chooser = None;
             self.prs_state.merge_chooser = None;
@@ -95,6 +97,8 @@ impl AppState {
     fn exit_issues_mode(&mut self) {
         self.screen = ScreenId::Dashboard;
         self.issues_state.active = false;
+        self.issues_state.detail_pending = None;
+        self.issues_state.loading.detail = false;
         if self.issues_state.inline_state != InlineState::None {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
@@ -280,6 +284,7 @@ impl AppState {
         }
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
+        self.cancel_issue_list_send();
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
@@ -497,6 +502,7 @@ impl AppState {
             detail.comments.cancel_pending();
         }
         self.issues_state.issue_detail = None;
+        self.cancel_issue_list_send();
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
@@ -609,6 +615,15 @@ impl AppState {
     fn apply_agent_chooser_event(&mut self, event: AppEvent) -> bool {
         match event {
             AppEvent::OpenAgentChooser { metadata } => self.open_agent_chooser(metadata),
+            AppEvent::BeginIssueListSendDetail(metadata) => {
+                self.begin_issue_list_send_detail(metadata);
+            }
+            AppEvent::CancelIssueListSendDetail => self.cancel_issue_list_send(),
+            AppEvent::IssueListSendDetailReady {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => self.open_issue_list_send_chooser(&scope_repo_id, issue_number, request_id),
             AppEvent::AgentChooserNavigateUp => {
                 if let Some(chooser) = &mut self.issues_state.agent_chooser
                     && chooser.selected_index > 0
@@ -632,6 +647,55 @@ impl AppState {
         true
     }
 
+    fn open_issue_list_send_chooser(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    ) {
+        let exact_pending = self
+            .issues_state
+            .list_send_pending
+            .as_ref()
+            .is_some_and(|pending| {
+                pending.ready
+                    && pending.scope_repo_id == *scope_repo_id
+                    && pending.issue_number == issue_number
+                    && pending.request_id == request_id
+            });
+        let exact_context = self.screen == ScreenId::Issues
+            && self.modal == super::ModalState::None
+            && !self.terminal_focused
+            && self.issues_state.active
+            && self.issues_state.issue_focus == IssueFocus::IssueList
+            && self.issues_state.inline_state == InlineState::None
+            && self.issues_state.agent_chooser.is_none()
+            && self.issues_state.property_editor.is_none()
+            && self.issues_state.close_reason_chooser.is_none()
+            && self.issues_state.delete_confirm.is_none()
+            && self.issues_state.new_issue_form.is_none()
+            && !self.issues_state.search_input_focused
+            && !self.issues_state.filter_ui.controls_open
+            && self.selected_repository_id() == Some(scope_repo_id)
+            && self
+                .issues_state
+                .selected_issue_index()
+                .and_then(|index| self.issues_state.issues().get(index))
+                .is_some_and(|issue| issue.number == issue_number)
+            && self
+                .issues_state
+                .issue_detail
+                .as_ref()
+                .is_some_and(|detail| detail.number == issue_number);
+        if !exact_pending || !exact_context {
+            return;
+        }
+        let Some(pending) = self.issues_state.list_send_pending.take() else {
+            return;
+        };
+        self.open_agent_chooser(pending.metadata);
+    }
+
     /// Open the agent chooser using Git metadata joined with agents recomputed
     /// from current state.
     ///
@@ -642,6 +706,21 @@ impl AppState {
     /// Git metadata whose [`AgentId`] matches. Stale or injected metadata from
     /// a removed/running/cross-repo agent is silently dropped.
     fn open_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
+        let context_available = self.modal == super::ModalState::None
+            && matches!(
+                self.issues_state.issue_focus,
+                IssueFocus::IssueList | IssueFocus::IssueDetail
+            )
+            && self.issues_state.inline_state == InlineState::None
+            && self.issues_state.property_editor.is_none()
+            && self.issues_state.close_reason_chooser.is_none()
+            && self.issues_state.delete_confirm.is_none()
+            && self.issues_state.new_issue_form.is_none()
+            && !self.issues_state.search_input_focused
+            && !self.issues_state.filter_ui.controls_open;
+        if !context_available {
+            return;
+        }
         let repo_id = self.selected_repository_id().cloned();
         let entries = super::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
         let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
@@ -709,6 +788,7 @@ impl AppState {
         match event {
             AppEvent::IssueListLoadFailed { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
+            | AppEvent::IssueDetailAuthRequired(..)
             | AppEvent::IssueCommentsPageFailed { .. }
             | AppEvent::IssueListSilentRefreshFailed { .. }
             | AppEvent::IssueDetailSilentRefreshFailed { .. }

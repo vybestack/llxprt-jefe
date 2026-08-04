@@ -97,7 +97,11 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     } else if matches!(inline_state, crate::state::InlineState::Composer { .. }) {
         Some(FooterMode::IssuesInlineComposer)
     } else {
-        None
+        Some(match issue_focus {
+            IssueFocus::RepoList => FooterMode::IssuesRepoList,
+            IssueFocus::IssueList => FooterMode::IssuesList,
+            IssueFocus::IssueDetail => FooterMode::IssuesDetail,
+        })
     };
     let comments_loading = state.is_some_and(|s| s.issues_state.loading.comments);
     let detail_scroll_offset = state.map_or(0, |s| s.issues_state.detail_scroll_offset);

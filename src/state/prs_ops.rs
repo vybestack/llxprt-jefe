@@ -41,6 +41,8 @@ impl AppState {
             self.remember_issue_preferences();
             self.issues_state.active = false;
             self.issues_state.issue_focus = IssueFocus::IssueList;
+            self.issues_state.detail_pending = None;
+            self.issues_state.loading.detail = false;
             self.issues_state.inline_state = InlineState::None;
             self.issues_state.agent_chooser = None;
             self.issues_state.filter_ui.controls_open = false;
@@ -114,6 +116,8 @@ impl AppState {
     fn exit_prs_mode(&mut self) {
         self.screen = ScreenId::Dashboard;
         self.prs_state.active = false;
+        self.prs_state.detail_pending = None;
+        self.prs_state.loading.detail = false;
         if self.prs_state.inline_state != InlineState::None {
             self.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.prs_state.inline_state = InlineState::None;
@@ -164,6 +168,7 @@ impl AppState {
         }
         self.prs_state.pr_detail = None;
         self.prs_state.error = None;
+        self.cancel_pr_list_send();
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
@@ -443,6 +448,7 @@ impl AppState {
     /// @pseudocode component-001 lines 275-281
     fn reload_pr_list_for_filter_change(&mut self) {
         self.prs_state.list.clear();
+        self.cancel_pr_list_send();
         // Begin a fresh reload so `list_pending()` is observable before the
         // dispatch layer spawns the actual fetch (mirrors Actions).
         if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
@@ -461,6 +467,22 @@ impl AppState {
         match event {
             AppEvent::PrOpenAgentChooser { metadata } => {
                 self.open_pr_agent_chooser(metadata.clone());
+                true
+            }
+            AppEvent::BeginPrListSendDetail(metadata) => {
+                self.begin_pr_list_send_detail(metadata.clone());
+                true
+            }
+            AppEvent::CancelPrListSendDetail => {
+                self.cancel_pr_list_send();
+                true
+            }
+            AppEvent::PrListSendDetailReady {
+                scope_repo_id,
+                pr_number,
+                request_id,
+            } => {
+                self.open_pr_list_send_chooser(scope_repo_id, *pr_number, *request_id);
                 true
             }
             AppEvent::PrAgentChooserNavigateUp => {
@@ -489,6 +511,53 @@ impl AppState {
         }
     }
 
+    fn open_pr_list_send_chooser(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+    ) {
+        let exact_pending = self
+            .prs_state
+            .list_send_pending
+            .as_ref()
+            .is_some_and(|pending| {
+                pending.ready
+                    && pending.scope_repo_id == *scope_repo_id
+                    && pending.pr_number == pr_number
+                    && pending.request_id == request_id
+            });
+        let exact_context = self.screen == super::ScreenId::PullRequests
+            && self.modal == super::ModalState::None
+            && !self.terminal_focused
+            && self.prs_state.active
+            && self.prs_state.pr_focus == PrFocus::PrList
+            && self.prs_state.inline_state == InlineState::None
+            && self.prs_state.agent_chooser.is_none()
+            && self.prs_state.merge_chooser.is_none()
+            && self.prs_state.property_editor.is_none()
+            && !self.prs_state.search_input_focused
+            && !self.prs_state.filter_ui.controls_open
+            && self.selected_repository_id() == Some(scope_repo_id)
+            && self
+                .prs_state
+                .selected_pr_index()
+                .and_then(|index| self.prs_state.pull_requests().get(index))
+                .is_some_and(|pr| pr.number == pr_number)
+            && self
+                .prs_state
+                .pr_detail
+                .as_ref()
+                .is_some_and(|detail| detail.number == pr_number);
+        if !exact_pending || !exact_context {
+            return;
+        }
+        let Some(pending) = self.prs_state.list_send_pending.take() else {
+            return;
+        };
+        self.open_pr_agent_chooser(pending.metadata);
+    }
+
     /// Open the PR agent chooser using Git metadata joined with agents
     /// recomputed from current state (precondition: detail + no composer).
     ///
@@ -498,9 +567,14 @@ impl AppState {
     /// agents, then joins only the Git metadata whose [`AgentId`] matches.
     /// Stale or injected metadata is silently dropped.
     fn open_pr_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
-        if self.prs_state.pr_focus != PrFocus::PrDetail
-            || self.prs_state.inline_state != InlineState::None
-        {
+        let context_available = self.modal == super::ModalState::None
+            && matches!(self.prs_state.pr_focus, PrFocus::PrList | PrFocus::PrDetail)
+            && self.prs_state.inline_state == InlineState::None
+            && self.prs_state.merge_chooser.is_none()
+            && self.prs_state.property_editor.is_none()
+            && !self.prs_state.search_input_focused
+            && !self.prs_state.filter_ui.controls_open;
+        if !context_available {
             return;
         }
         let repo_id = self.selected_repository_id().cloned();
@@ -729,6 +803,7 @@ impl AppState {
             AppEvent::PrListLoadFailed { .. }
                 | AppEvent::PrListSilentRefreshFailed { .. }
                 | AppEvent::PrDetailLoadFailed { .. }
+                | AppEvent::PrDetailAuthRequired(..)
                 | AppEvent::PrDetailSilentRefreshFailed { .. }
                 | AppEvent::PrCommentsPageFailed { .. }
                 | AppEvent::PrCommentsPageDispatchFailed { .. }

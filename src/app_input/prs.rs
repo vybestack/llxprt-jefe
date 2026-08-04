@@ -208,6 +208,10 @@ fn resolve_prs_key_event_for_rows(
 mod tests;
 
 #[cfg(test)]
+#[path = "prs_list_send_key_tests.rs"]
+mod list_send_key_tests;
+
+#[cfg(test)]
 #[path = "prs_property_key_tests.rs"]
 mod prs_property_key_tests;
 

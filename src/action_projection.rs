@@ -327,13 +327,21 @@ pub fn project_footer(snapshot: &ActionRegistrySnapshot, input: FooterProjection
     } else {
         footer_hints(mode, input.actions_focus)
     };
+    let active_contexts = if input.shell_overlay_active {
+        &["shell-overlay"][..]
+    } else if input.terminal_focused {
+        &["terminal", "global"][..]
+    } else {
+        footer_contexts(mode, input.actions_focus)
+    };
     let mut parts = annotate_hints_with_status(
         snapshot,
         &hints,
         input.shell_resume_available && !input.shell_overlay_active,
+        active_contexts,
     );
     if !input.shell_overlay_active && !input.terminal_focused {
-        append_unlisted_unavailable_statuses(snapshot, mode, &mut parts);
+        append_unlisted_unavailable_statuses(snapshot, mode, input.actions_focus, &mut parts);
     }
     parts.join(" | ")
 }
@@ -362,7 +370,20 @@ fn footer_hints(mode: FooterMode, actions_focus: Option<ActionsFocus>) -> Vec<Fo
             .find(|group| group.focus == focus)
             .map_or_else(Vec::new, |group| sorted_hints(group.hints))
     } else {
-        sorted_hints(footer_hints_for_mode(mode))
+        sorted_hints(footer_hints_for_mode(footer_display_mode(mode)))
+    }
+}
+
+fn footer_display_mode(mode: FooterMode) -> FooterMode {
+    match mode {
+        FooterMode::IssuesRepoList | FooterMode::IssuesList | FooterMode::IssuesDetail => {
+            FooterMode::Issues
+        }
+        FooterMode::PullRequestsRepoList
+        | FooterMode::PullRequestsList
+        | FooterMode::PullRequestsDetail
+        | FooterMode::PullRequestsChanges => FooterMode::PullRequests,
+        other => other,
     }
 }
 
@@ -370,10 +391,13 @@ fn annotate_hints_with_status(
     snapshot: &ActionRegistrySnapshot,
     hints: &[FooterDisplayHint],
     use_resume_description: bool,
+    active_contexts: &[&str],
 ) -> Vec<String> {
     hints
         .iter()
-        .map(|hint| render_footer_hint(snapshot, hint, use_resume_description))
+        .filter_map(|hint| {
+            render_footer_hint(snapshot, hint, use_resume_description, active_contexts)
+        })
         .collect()
 }
 
@@ -381,16 +405,21 @@ fn render_footer_hint(
     snapshot: &ActionRegistrySnapshot,
     hint: &FooterDisplayHint,
     use_resume_description: bool,
-) -> String {
+    active_contexts: &[&str],
+) -> Option<String> {
     let description = if use_resume_description {
         hint.resume_description.unwrap_or(hint.description)
     } else {
         hint.description
     };
+    let actions = actions_for_contexts(snapshot, hint.actions, active_contexts);
+    if !hint.actions.is_empty() && actions.is_empty() {
+        return None;
+    }
     let mut rendered = if hint.actions.is_empty() {
         description.to_owned()
     } else {
-        let chords = format_action_chords(snapshot, hint.actions, ChordSurface::Footer);
+        let chords = format_action_chords(snapshot, &actions, ChordSurface::Footer);
         let prefix = if chords.is_empty() {
             "Unbound"
         } else {
@@ -398,19 +427,43 @@ fn render_footer_hint(
         };
         format!("{prefix} {description}")
     };
-    let statuses = unavailable_statuses_for_group_dedup(snapshot, hint.actions);
+    let statuses = unavailable_statuses_for_group_dedup(snapshot, &actions);
     if !statuses.is_empty() {
         let _ = write!(rendered, " [{}]", statuses.join(" / "));
     }
-    rendered
+    Some(rendered)
+}
+
+fn actions_for_contexts<'a>(
+    snapshot: &ActionRegistrySnapshot,
+    action_ids: &'a [&'a str],
+    active_contexts: &[&str],
+) -> Vec<&'a str> {
+    action_ids
+        .iter()
+        .copied()
+        .filter(|action_id| {
+            snapshot
+                .actions()
+                .iter()
+                .find(|action| action.id.as_str() == *action_id)
+                .is_some_and(|action| {
+                    action
+                        .contexts
+                        .iter()
+                        .any(|context| active_contexts.contains(&context.as_str()))
+                })
+        })
+        .collect()
 }
 
 fn append_unlisted_unavailable_statuses(
     snapshot: &ActionRegistrySnapshot,
     mode: FooterMode,
+    actions_focus: Option<ActionsFocus>,
     parts: &mut Vec<String>,
 ) {
-    let mode_contexts = footer_contexts(mode);
+    let mode_contexts = footer_contexts(mode, actions_focus);
     let rows = project_action_rows(snapshot);
     for row in rows.iter().filter(|row| {
         row.reason().is_some()
@@ -434,18 +487,32 @@ fn footer_hints_for_mode(mode: FooterMode) -> &'static [FooterDisplayHint] {
         .map_or(&[], |group| group.hints)
 }
 
-fn footer_contexts(mode: FooterMode) -> &'static [&'static str] {
+fn footer_contexts(
+    mode: FooterMode,
+    actions_focus: Option<ActionsFocus>,
+) -> &'static [&'static str] {
     match mode {
-        FooterMode::Dashboard => &["dashboard"],
-        FooterMode::Split => &["split"],
-        FooterMode::Issues => &["issues.list", "issues.detail"],
-        FooterMode::IssuesNewComposer => &["issues.new-form"],
-        FooterMode::IssuesInlineComposer => &["issues.inline"],
-        FooterMode::PullRequests => &["prs.repo-list", "prs.list", "prs.detail"],
-        FooterMode::PullRequestsInlineComposer => &["prs.inline"],
-        FooterMode::Actions => &["actions"],
-        FooterMode::Errors => &["errors"],
-        FooterMode::Terminals => &["terminal-manager"],
+        FooterMode::Dashboard => &["dashboard", "global"],
+        FooterMode::Split => &["split", "global"],
+        FooterMode::Issues => &["issues.list", "issues.detail", "issues", "global"],
+        FooterMode::IssuesRepoList => &["issues.repo-list", "issues", "global"],
+        FooterMode::IssuesList => &["issues.list", "issues", "global"],
+        FooterMode::IssuesDetail => &["issues.detail", "issues", "global"],
+        FooterMode::IssuesNewComposer => &["issues.new-form", "global"],
+        FooterMode::IssuesInlineComposer => &["issues.inline", "global"],
+        FooterMode::PullRequests => &["prs.repo-list", "prs.list", "prs.detail", "prs", "global"],
+        FooterMode::PullRequestsRepoList => &["prs.repo-list", "prs", "global"],
+        FooterMode::PullRequestsList => &["prs.list", "prs", "global"],
+        FooterMode::PullRequestsDetail => &["prs.detail", "prs", "global"],
+        FooterMode::PullRequestsChanges => &["prs.changes", "prs", "global"],
+        FooterMode::PullRequestsInlineComposer => &["prs.inline", "global"],
+        FooterMode::Actions => match actions_focus {
+            Some(ActionsFocus::RepoList) => &["actions.repo-list", "actions", "global"],
+            Some(ActionsFocus::Detail) => &["actions.detail", "actions", "global"],
+            Some(ActionsFocus::RunList) | None => &["actions.run-list", "actions", "global"],
+        },
+        FooterMode::Errors => &["errors", "global"],
+        FooterMode::Terminals => &["terminal-manager", "global"],
     }
 }
 
@@ -594,6 +661,24 @@ mod tests {
         assert!(footer.contains(STATUS));
         assert!(menu.iter().any(|row| row.status() == STATUS));
         assert!(keys.iter().any(|row| row.status() == STATUS));
+    }
+
+    #[test]
+    fn actions_footer_appends_unavailable_status_only_for_the_active_focus() {
+        let snapshot = fixture(Some("actions.run-up"));
+        let footer = project_footer(
+            &snapshot,
+            FooterProjectionInput {
+                screen: ScreenId::Actions,
+                terminal_focused: false,
+                shell_overlay_active: false,
+                shell_resume_available: false,
+                actions_focus: Some(ActionsFocus::Detail),
+                mode_override: None,
+            },
+        );
+
+        assert!(!footer.contains(STATUS));
     }
 
     #[test]

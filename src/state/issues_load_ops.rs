@@ -184,11 +184,15 @@ impl AppState {
         mut detail: crate::domain::IssueDetail,
     ) {
         let current_repo_id = self.selected_repository_id().cloned();
-        if current_repo_id.as_ref() == Some(&scope_repo_id)
-            && self.detail_pending_matches(&scope_repo_id, issue_number, request_id)
-        {
+        let request_matches =
+            if self.issue_list_send_request_is_pending(&scope_repo_id, issue_number, request_id) {
+                self.issue_list_send_request_is_current(&scope_repo_id, issue_number, request_id)
+            } else {
+                self.detail_pending_matches(&scope_repo_id, issue_number, request_id)
+            };
+        if current_repo_id.as_ref() == Some(&scope_repo_id) && request_matches {
             detail.comments.rebind_identity(CommentDetailIdentity {
-                scope_repo_id,
+                scope_repo_id: scope_repo_id.clone(),
                 number: issue_number,
             });
             self.hydrate_issue_type_name(&mut detail);
@@ -197,6 +201,7 @@ impl AppState {
             self.issues_state.loading.detail = false;
             self.issues_state.loading.comments = false;
             self.issues_state.detail_pending = None;
+            self.mark_issue_list_send_ready(&scope_repo_id, issue_number, request_id);
             self.issues_state.detail_subfocus = DetailSubfocus::Body;
             self.issues_state.detail_scroll_offset = 0;
         }
@@ -474,14 +479,7 @@ impl AppState {
         issue_number: u64,
         request_id: u64,
     ) -> bool {
-        self.issues_state
-            .detail_pending
-            .as_ref()
-            .is_some_and(|pending| {
-                pending.scope_repo_id == *scope_repo_id
-                    && pending.issue_number == issue_number
-                    && pending.request_id == request_id
-            })
+        self.issue_detail_request_is_current(scope_repo_id, issue_number, request_id)
     }
 
     fn update_draft_filter_field(&mut self, field: String, value: String) {
@@ -637,6 +635,7 @@ impl AppState {
         match event {
             AppEvent::IssueListLoadFailed { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
+            | AppEvent::IssueDetailAuthRequired(..)
             | AppEvent::IssueCommentsPageFailed { .. }
             | AppEvent::IssueListSilentRefreshFailed { .. }
             | AppEvent::IssueDetailSilentRefreshFailed { .. } => self.apply_issue_load_error(event),
@@ -693,6 +692,9 @@ impl AppState {
                     request_id,
                     error,
                 );
+            }
+            AppEvent::IssueDetailAuthRequired(scope_repo_id, issue_number, request_id) => {
+                self.clear_issue_detail_request(&scope_repo_id, issue_number, request_id);
             }
             AppEvent::IssueDetailSilentRefreshFailed {
                 scope_repo_id,
@@ -794,6 +796,7 @@ impl AppState {
         request_id: u64,
         error: String,
     ) {
+        self.clear_issue_list_send_request(scope_repo_id, issue_number, request_id);
         let current_repo_id = self.selected_repository_id().cloned();
         if current_repo_id.as_ref() == Some(scope_repo_id)
             && self.detail_pending_matches(scope_repo_id, issue_number, request_id)

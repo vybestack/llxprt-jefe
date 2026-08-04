@@ -85,6 +85,11 @@ pub enum PullRequestsMessage {
         request_id: u64,
         error: String,
     },
+    DetailAuthRequired {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+    },
     /// Silent background detail refresh succeeded (issue #128).
     DetailSilentRefreshed {
         scope_repo_id: RepositoryId,
@@ -166,6 +171,15 @@ pub enum PullRequestsMessage {
     ShowNotice(ReadOnlyHintKind),
     OpenAgentChooser {
         metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
+    BeginListSendDetail {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
+    CancelListSendDetail,
+    ListSendDetailReady {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
     },
     AgentChooserNavigate(NavDir),
     AgentChooserConfirm,

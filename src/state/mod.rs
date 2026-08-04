@@ -48,6 +48,7 @@ mod issues_mutation_ops;
 mod issues_ops;
 mod issues_property_ops;
 mod list_navigation_ops;
+mod list_send_continuation;
 mod modal_ops;
 mod new_issue_form_ops;
 pub mod observation_events;
@@ -366,6 +367,9 @@ impl AppState {
             return;
         }
 
+        let issue_list_send_context = self.issue_list_send_context();
+        let pr_list_send_context = self.pr_list_send_context();
+
         match message {
             AppMessage::UiNavigation(message) => self.apply_ui_navigation(message),
             AppMessage::Modal(message) => self.apply_modal_message(message),
@@ -400,6 +404,7 @@ impl AppState {
             }
         }
 
+        self.invalidate_changed_list_send_contexts(&issue_list_send_context, &pr_list_send_context);
         self.finalize_message(route);
     }
 
@@ -879,6 +884,9 @@ mod issues_tests_sort;
 #[cfg(test)]
 #[path = "issues_tests_subfocus.rs"]
 mod issues_tests_subfocus;
+#[cfg(test)]
+#[path = "list_send_reducer_guard_tests.rs"]
+mod list_send_reducer_guard_tests;
 #[cfg(test)]
 #[path = "preferences_tests.rs"]
 mod preferences_tests;

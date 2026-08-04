@@ -205,6 +205,10 @@ fn resolve_issues_key_event_for_rows(
 mod tests;
 
 #[cfg(test)]
+#[path = "issues_list_send_key_tests.rs"]
+mod list_send_key_tests;
+
+#[cfg(test)]
 #[path = "issues_rewrite_key_tests.rs"]
 mod rewrite_key_tests;
 
