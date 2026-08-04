@@ -104,6 +104,7 @@ ingress instead of rendering a confidently wrong checklist.
 |---|---|
 | New `MAX_TODO_STATE_BYTES` bound and specification §13 row | Every wire string in JSP/1 is bounded; an unbounded open-ended field would be the only hole |
 | Compliance fixtures/scenarios/traces edited wholesale | The retired field appears in each of them; a half-converted corpus would fail its own profiles |
+| `src/app_input/prs_lifecycle_key_tests.rs` restored to a compiling state | Unrelated to this issue and approved explicitly. `origin/main` at `6b6d9289` does not build its binary test target, so no gate and no CI run could pass on any branch cut from it. Two lines: the setup now moves the session with `enter_screen` instead of assigning the field #644 removed |
 
 ## Review counters
 
@@ -135,9 +136,13 @@ ingress instead of rendering a confidently wrong checklist.
 - `cargo test --test jsp_host_socket --test jsp_two_instance_identity
   --test jsp_launch_lifecycle` — 23 passed, 0 failed.
 
-### Mainline blocker (not caused by this change)
+- `cargo xtask ci` — every gate green on the candidate head: fmt,
+  check-clippy-allows, check-source-size, check-architecture,
+  check-multiplexer-surface, lint, complexity, coverage, build, test.
 
-`origin/main` at `6b6d9289` does not compile its binary test target:
+### Mainline blocker, fixed here with explicit approval
+
+`origin/main` at `6b6d9289` did not compile its binary test target:
 
     error[E0560]: struct `jefe::state::AppState` has no field named `screen`
       --> src/app_input/prs_lifecycle_key_tests.rs:24:9
@@ -148,10 +153,22 @@ constructs `AppState { screen: ScreenId::PullRequests, .. }`. Neither CI run
 saw the other. Reproduced on a clean stash of `origin/main` with no changes from
 this branch applied.
 
-This is the single root cause of both remaining failures: the signal-cleanup
-test spawns a child `cargo test` and reads its exit status, so it reports 101
-instead of 143. It also blocks `cargo clippy --all-targets`, `cargo test
---workspace`, and therefore `make ci-check` and CI on any branch cut from main.
+That one defect blocked every gate: `cargo clippy --all-targets`, `cargo test
+--workspace`, and `cargo xtask ci` on any branch cut from main. It was also the
+cause of the signal-cleanup failure, which spawns a child `cargo test` and
+reads its exit status, so it reported 101 instead of 143. The setup function
+now moves the session with `enter_screen` instead of assigning the removed
+field, and both symptoms are gone.
+
+### One load-sensitive test, not a regression
+
+The first `cargo xtask ci` run failed
+`harness_v1_fixtures::llxprt_continue_field_fixture_sends_one_exact_issue_prompt`
+("Issues Send must launch LLxprt once"). It passes alone, and the same
+`cargo test --workspace --all-features --locked` command passed immediately
+afterwards, as did a second complete `cargo xtask ci`. The test launches a real
+multiplexer session and counts launches, so it is sensitive to load rather than
+to anything in this change, which touches neither Issues Send nor the launcher.
 
 ## Deferred findings
 
