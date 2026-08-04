@@ -61,6 +61,7 @@ mod manager_passthrough;
 mod multiplexer;
 mod multiplexer_conformance;
 mod multiplexer_conformance_io;
+mod multiplexer_conformance_sweep;
 mod multiplexer_contract;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
@@ -243,6 +244,10 @@ mod multiplexer_tests;
 #[cfg(test)]
 #[path = "multiplexer_conformance_io_tests.rs"]
 mod multiplexer_conformance_io_tests;
+
+#[cfg(test)]
+#[path = "multiplexer_conformance_sweep_tests.rs"]
+mod multiplexer_conformance_sweep_tests;
 
 #[cfg(test)]
 #[path = "session_host_tests.rs"]

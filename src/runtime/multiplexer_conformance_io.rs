@@ -20,6 +20,7 @@ use super::multiplexer_conformance::{
     classify_contract_probe, probe_ordered_items, probe_plan_for, qualification_from_report,
     summarize_conformance,
 };
+use super::multiplexer_conformance_sweep::reclaim_stranded_conformance_namespaces;
 use super::multiplexer_contract::{ContractItem, ContractItemKind, contract_items};
 use super::{MultiplexerIsolation, MultiplexerPlan};
 
@@ -256,6 +257,10 @@ pub fn qualify_multiplexer(plan: &MultiplexerPlan) -> ConformanceReport {
 /// binary is qualified, never whether qualification applies.
 #[must_use]
 pub fn qualify_multiplexer_for_startup(plan: &MultiplexerPlan) -> MultiplexerQualification {
+    // Reclaim what earlier runs stranded before adding a namespace of our own,
+    // so an interrupted startup costs one generation of servers and not an
+    // unbounded accumulation of them (issue #613).
+    reclaim_stranded_conformance_namespaces(plan);
     let report = qualify_multiplexer(plan);
     qualification_from_report(plan.executable(), probe_version(plan), report)
 }
