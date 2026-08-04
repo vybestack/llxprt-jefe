@@ -783,3 +783,40 @@ fn an_agent_whose_repository_is_missing_is_held_not_buried() {
         "a repository we cannot find says nothing about whether the process is alive"
     );
 }
+
+/// An orphan is a dead pane whose validated worker descendants are still
+/// running, so it is the one terminal classification that has work to do
+/// before the agent is written off. The plain Dead route clears the runtime
+/// binding, and `reap_orphaned_agent` returns immediately without one, so
+/// folding Orphaned into Dead destroys the anchors the reap depends on and the
+/// leftover process tree survives every restart (issue #642).
+#[test]
+fn an_orphan_does_not_take_the_same_restore_route_as_a_plain_dead_agent() {
+    assert!(
+        !matches!(
+            terminal_restore_outcome(StartupClassification::Orphaned),
+            RestoreOneOutcome::Dead
+        ),
+        "Orphaned must stay distinguishable from Dead, or the reap is skipped"
+    );
+}
+
+/// The three classifications that carry no surviving descendants are genuinely
+/// finished and must keep taking the binding-clearing Dead route, so splitting
+/// the orphan out does not quietly strand ordinary dead agents.
+#[test]
+fn terminal_classifications_without_orphans_still_mark_the_agent_dead() {
+    for classification in [
+        StartupClassification::Stopped,
+        StartupClassification::Stale,
+        StartupClassification::Inconsistent,
+    ] {
+        assert!(
+            matches!(
+                terminal_restore_outcome(classification),
+                RestoreOneOutcome::Dead
+            ),
+            "{classification:?} has nothing left to reap and must still be marked Dead"
+        );
+    }
+}

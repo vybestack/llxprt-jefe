@@ -94,9 +94,31 @@ quality-gate configuration are planned.
 
 ## 7. Verification evidence
 
-To be recorded on the candidate head: `make ci-check` (fmt, clippy `-D warnings`,
-build, test, coverage `--fail-under-lines 30`) plus required CI including native
-Windows.
+### Slice 1 — persist the anchors (commit `717dc020`)
+
+| Step | Evidence |
+|---|---|
+| RED | `descendant_anchors_survive_the_durable_round_trip` failed: `left: []`, right held the two expected anchors |
+| GREEN | `cargo test --lib descendant` — 8 passed, 0 failed |
+| Regression | `cargo test --workspace --all-features` — 81 suites, 0 failures (lib: 3249 passed) |
+| Format | `cargo fmt --all --check` — exit 0 |
+
+### Slice 2 — reap before the binding is cleared
+
+| Step | Evidence |
+|---|---|
+| RED | `an_orphan_does_not_take_the_same_restore_route_as_a_plain_dead_agent` failed at `app_init_tests.rs:795` — "Orphaned must stay distinguishable from Dead, or the reap is skipped" |
+| GREEN | `cargo test --bin jefe` — 839 passed, 0 failed |
+| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` — exit 0 |
+| Regression | `cargo test --workspace --all-features` on the candidate head |
+
+REFACTOR note: extracting the classification loop into
+`classify_agents_for_restore` was required by the repo's 60-line function gate,
+which fired once the orphan arm was added. The extraction keeps the reap and the
+bury adjacent in one place rather than spread through the restore entry point.
+
+Required CI, including native Windows and coverage, is watched on the exact PR
+head.
 
 ## 8. Deferred findings
 
