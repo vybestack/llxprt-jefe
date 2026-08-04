@@ -149,6 +149,81 @@ fn a_missing_table_is_appended_without_disturbing_existing_bytes() {
 }
 
 #[test]
+fn an_insert_stays_out_of_a_nested_table_that_follows_its_own() {
+    // `[workbench.layout_overrides."x"]` is *inside* workbench by path, so
+    // anchoring on the last statement with a workbench prefix would put the
+    // assignment there, where it would mean something else entirely.
+    let source = br#"settings_schema = 2
+[workbench]
+enabled_screens = ["core.dashboard"]
+[workbench.layout_overrides."core.dashboard"]
+opaque = 1
+"#;
+
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::InitialScreen(screen("core.errors"))],
+    );
+
+    let expected = r#"settings_schema = 2
+[workbench]
+enabled_screens = ["core.dashboard"]
+initial_screen = "core.errors"
+[workbench.layout_overrides."core.dashboard"]
+opaque = 1
+"#;
+    assert_eq!(String::from_utf8_lossy(candidate.bytes()), expected);
+    assert_eq!(
+        candidate.published().workbench.initial_screen,
+        Some(screen("core.errors")),
+        "the edit the user asked for is the one that was written"
+    );
+}
+
+#[test]
+fn an_insert_after_a_final_statement_without_a_trailing_newline_starts_its_own_line() {
+    let source = b"settings_schema = 2\n[appearance]\ntheme = 'green-screen'";
+
+    let candidate = candidate(source, &[SettingsEdit::OverrideAgentTheme(true)]);
+
+    assert_eq!(
+        String::from_utf8_lossy(candidate.bytes()),
+        "settings_schema = 2\n[appearance]\ntheme = 'green-screen'\noverride_agent_theme = true\n"
+    );
+}
+
+#[test]
+fn a_leaf_inside_an_inline_table_is_refused_rather_than_silently_dropped() {
+    let source = b"settings_schema = 2
+appearance = { theme = 'green-screen' }
+";
+
+    for edit in [
+        SettingsEdit::OverrideAgentTheme(true),
+        SettingsEdit::Reset(SyntaxPath::Theme),
+    ] {
+        let catalog = catalog();
+        let Ok(migration) = migrate_settings(source, &catalog) else {
+            panic!("an inline-table document is a valid base");
+        };
+        let refusal = SettingsCandidate::from_edits(
+            &migration,
+            &catalog,
+            std::slice::from_ref(&edit),
+            ExpectedHash::Present(Sha256::digest(source)),
+        );
+
+        let Err(diagnostics) = refusal else {
+            panic!("{edit:?} has no syntax to write and must be refused");
+        };
+        let Some(first) = diagnostics.first() else {
+            panic!("a refusal must carry a diagnostic");
+        };
+        assert_eq!(first.code, CfgCode::E006);
+    }
+}
+
+#[test]
 fn a_dotted_root_assignment_is_patched_in_place() {
     let source = b"settings_schema = 2\nappearance.theme = 'green-screen'\n";
 
@@ -248,6 +323,27 @@ value = 1
     assert!(
         rendered.contains("[extensions.schema1.legacy_table]"),
         "the unknown table stays dormant: {rendered}"
+    );
+}
+
+#[test]
+fn a_schema_1_dotted_root_assignment_stays_dormant_through_the_save() {
+    let source = b"schema_version = 1\ntheme = \"dracula\"\nfuture.value = 1\n";
+
+    let candidate = candidate(source, &[SettingsEdit::OverrideAgentTheme(true)]);
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+
+    assert!(
+        rendered.contains("[extensions.schema1]"),
+        "a dotted root assignment moves with the rest of the root: {rendered}"
+    );
+    assert!(
+        rendered.contains("future.value = 1"),
+        "the dormant assignment is byte-preserved: {rendered}"
+    );
+    assert_eq!(
+        candidate.published().appearance.override_agent_theme,
+        Some(true)
     );
 }
 
@@ -488,9 +584,14 @@ fn an_external_edit_is_reported_as_a_conflict_carrying_the_disk_hash() {
 
     let outcome = manager(dir.path()).save_settings_candidate_revisioned(&candidate, 4, &current);
 
-    let SettingsSaveOutcome::Conflict { disk_hash } = outcome else {
+    let SettingsSaveOutcome::Conflict {
+        disk_hash,
+        revision,
+    } = outcome
+    else {
         panic!("a changed target conflicts, not {outcome:?}");
     };
+    assert_eq!(revision, 4, "every outcome names the revision it answers");
     assert_eq!(disk_hash, Some(Sha256::digest(external)));
     let Ok(written) = std::fs::read(&path) else {
         panic!("the target must be readable");

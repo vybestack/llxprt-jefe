@@ -5,13 +5,14 @@
 //! reducer cannot: read the settings bytes, write them, and make the theme
 //! manager show what the state says it should be showing.
 
-use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
+use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use jefe::domain::ThemeId;
 use jefe::messages::AppMessage;
 use jefe::messages::NavDir;
 use jefe::messages::settings::{
     RecoveryChoice, SettingsEnvironment, SettingsMessage, SettingsSource, ThemeChoice,
 };
+use jefe::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use jefe::persistence::settings_edit::{ExportPath, export_candidate};
 use jefe::persistence::writer::{ExpectedHash, Freshness};
 use jefe::persistence::{PersistenceManager, SettingsCandidate, SettingsSaveOutcome};
@@ -84,6 +85,11 @@ pub fn handle_dirty_guard_key(
 ) -> bool {
     if app_state.read().nav.guard().is_none() {
         return false;
+    }
+    if key_event.kind == KeyEventKind::Release {
+        // Terminals that report releases would otherwise answer the guard
+        // twice for one physical keypress.
+        return true;
     }
     if key_event.modifiers == KeyModifiers::CONTROL
         && matches!(key_event.code, KeyCode::Char('q' | 'Q'))
@@ -189,7 +195,13 @@ fn read_source(ctx: &SharedContext) -> Option<SettingsSource> {
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(_) => return None,
+        Err(error) => {
+            // An absent file is a normal base; anything else means the shell
+            // does not know what it would be editing, so it refuses to open
+            // rather than binding a draft to bytes it could not read.
+            tracing::warn!(%error, "settings: could not read the settings document");
+            return None;
+        }
     };
     let themes = context
         .theme_manager
@@ -260,12 +272,17 @@ fn write_pending(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let Some((revision, candidate)) = pending_save(app_state) else {
         return;
     };
-    let Some(context) = ctx else {
+    let Some(context) = ctx.as_ref().filter(|_| true) else {
+        report_save_unavailable(app_state, revision, "the settings context is unavailable");
         return;
     };
     let Ok(mut guard) = context.lock() else {
+        report_save_unavailable(app_state, revision, "the settings context lock failed");
         return;
     };
+    // The write happens here, on the input path, so no newer revision can be
+    // scheduled between the temporary file and the replacement. Supersession is
+    // the writer's answer for a concurrent scheduler, which this is not.
     let freshness = |_revision: u64| Freshness::Current;
     let outcome = guard
         .persistence
@@ -277,6 +294,21 @@ fn write_pending(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     }
     drop(guard);
     dispatch(app_state, SettingsMessage::SaveCompleted(Box::new(outcome)));
+}
+
+/// Report a save that never reached the writer.
+///
+/// A scheduled save that no completion ever answers leaves the draft stuck in
+/// `Saving` with every edit and retry disabled, so a boundary that cannot write
+/// has to say so rather than quietly returning.
+fn report_save_unavailable(app_state: &mut AppStateHandle, revision: u64, detail: &str) {
+    dispatch(
+        app_state,
+        SettingsMessage::SaveCompleted(Box::new(SettingsSaveOutcome::Failed {
+            revision,
+            diagnostic: Box::new(settings_failure(detail)),
+        })),
+    );
 }
 
 /// Ask for a reload, and perform it once nothing needs confirming.
@@ -315,13 +347,16 @@ fn export(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         .and_then(|context| context.lock().ok())
         .map(|context| context.persistence.export_directory())
     else {
+        report_export_unavailable(app_state, "the settings context is unavailable");
         return;
     };
     let Ok(catalog) = jefe::config_owners::builtin_owner_catalog() else {
+        report_export_unavailable(app_state, "the compiled owner catalog is unavailable");
         return;
     };
     let Ok(relative) = ExportPath::parse(&format!("settings-draft-{}.toml", candidate.sha256()))
     else {
+        report_export_unavailable(app_state, "the export target could not be named");
         return;
     };
     let result = export_candidate(&candidate, &directory, &relative, &catalog)
@@ -330,6 +365,30 @@ fn export(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         app_state,
         SettingsMessage::ExportCompleted(Box::new(result)),
     );
+}
+
+/// Report an export that never reached the filesystem.
+///
+/// A recovery choice that appears to do nothing is worse than one that says why
+/// it could not, because the user is already looking at a conflict.
+fn report_export_unavailable(app_state: &mut AppStateHandle, detail: &str) {
+    dispatch(
+        app_state,
+        SettingsMessage::ExportCompleted(Box::new(Err(settings_failure(detail)))),
+    );
+}
+
+/// A redacted `CFG-E104` naming the settings surface rather than a path.
+fn settings_failure(detail: &str) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E104,
+        Severity::Error,
+        DiagnosticPath::new("/settings"),
+        None,
+        "preserve the draft and retry once the session is healthy",
+    );
+    detail.clone_into(&mut diagnostic.redacted_detail);
+    diagnostic
 }
 
 /// Make the theme manager show what the state says it should be showing.

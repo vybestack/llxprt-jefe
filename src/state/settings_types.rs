@@ -289,7 +289,12 @@ impl SettingsDraft {
         self.pending_revision = None;
     }
 
-    /// Record one typed edit, or drop it when it restores the base value.
+    /// Record one typed edit for one leaf, replacing any edit already held for
+    /// that leaf.
+    ///
+    /// Whether the accumulated edits still differ from the base is decided by
+    /// rebuilding the candidate, so a draft is only known to be clean again
+    /// after the caller revalidates it.
     pub fn record(&mut self, edit: SettingsEdit) {
         self.edits.insert(edit.path(), edit);
     }
@@ -349,6 +354,14 @@ pub struct SettingsState {
     /// by clearing the token rather than by four separate undo paths. A
     /// successful save moves it to the theme that was saved.
     pub opened_theme: Option<crate::domain::ThemeId>,
+    /// The theme a closed screen left for the boundary to restore.
+    ///
+    /// A preview that was never saved must not outlive the screen showing it,
+    /// and the screen is gone by the time the boundary reconciles, so what to
+    /// go back to is left here rather than forgotten with the draft.
+    pub restore_theme: Option<crate::domain::ThemeId>,
+    /// The identity the host dirty guard is waiting on for this screen's save.
+    pub guard_correlation: Option<crate::domain::effects::Correlation>,
     /// The facts the read-only rows report.
     pub environment: Option<SettingsEnvironment>,
     /// The selected recovery choice, when a recovery is offered.
@@ -439,7 +452,7 @@ impl SettingsState {
     #[must_use]
     pub fn desired_theme(&self) -> Option<&crate::domain::ThemeId> {
         if !self.active {
-            return None;
+            return self.restore_theme.as_ref();
         }
         self.draft
             .as_ref()

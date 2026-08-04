@@ -241,17 +241,26 @@ fn terminal_manager_element(
 /// Every screen except the dashboard and the Terminal Manager renders from the
 /// same `(state, colors, theme_name)` triple; repeating it once per screen is
 /// what pushed this dispatch past the too-many-lines gate.
+/// Each screen builds in a frame of its own, so the dispatch does not carry the
+/// sum of every screen's props on one stack.
 macro_rules! screen_element {
-    ($component:ident, $snapshot:expr, $colors:expr, $theme_name:expr) => {
-        element! {
-            $component(
-                state: Some($snapshot.clone()),
-                colors: Some($colors.clone()),
-                theme_name: $theme_name.to_owned(),
-            )
+    ($component:ident, $snapshot:expr, $colors:expr, $theme_name:expr) => {{
+        fn build(
+            snapshot: &AppState,
+            colors: &ThemeColors,
+            theme_name: &str,
+        ) -> AnyElement<'static> {
+            element! {
+                $component(
+                    state: Some(snapshot.clone()),
+                    colors: Some(colors.clone()),
+                    theme_name: theme_name.to_owned(),
+                )
+            }
+            .into_any()
         }
-        .into_any()
-    };
+        build($snapshot, $colors, $theme_name)
+    }};
 }
 
 /// Build the screen element for the current active screen.

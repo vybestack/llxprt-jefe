@@ -84,12 +84,8 @@ fn schema1_format_candidate(migration: &SettingsMigration) -> Result<Vec<u8>, Ve
     let override_node = document.node(&["override_agent_theme"]);
     let mut replacement = schema2_known_block(migration, schema, theme, override_node)?;
     let mut patches = Vec::new();
-    for node in document
-        .syntax_nodes()
-        .iter()
-        .filter(|node| node.path.len() == 1)
-    {
-        if node.path[0] == "schema_version" {
+    for node in root_statements(document) {
+        if node.path.len() == 1 && node.path[0] == "schema_version" {
             patches.push((node.statement_span, replacement.clone()));
             replacement.clear();
         } else {
@@ -147,13 +143,34 @@ fn schema2_known_block(
     Ok(block)
 }
 
+/// The statements written before the first table header.
+///
+/// A root statement is not the same thing as a single-segment path: a dotted key
+/// such as `future.value = 1` is written at the root and has to move with the
+/// rest of the root, but its path has two segments. Selecting by path length
+/// would leave it behind, where the emitted `[appearance]` header would then
+/// swallow it and change what it means.
+fn root_statements(
+    document: &SettingsDocument,
+) -> impl Iterator<Item = &super::super::settings_syntax::SyntaxNode> {
+    let boundary = document
+        .table_nodes()
+        .iter()
+        .map(|table| table.span.start)
+        .min()
+        .unwrap_or_else(|| document.original_bytes().len() as u64);
+    document
+        .syntax_nodes()
+        .iter()
+        .filter(move |node| node.statement_span.start < boundary)
+}
+
 fn append_root_extensions(document: &SettingsDocument, block: &mut Vec<u8>) {
-    let unknown = document.syntax_nodes().iter().filter(|node| {
-        node.path.len() == 1
-            && !matches!(
-                node.path[0].as_str(),
-                "schema_version" | "theme" | "override_agent_theme"
-            )
+    let unknown = root_statements(document).filter(|node| {
+        !matches!(
+            node.path.first().map(String::as_str),
+            Some("schema_version" | "theme" | "override_agent_theme")
+        ) || node.path.len() > 1
     });
     let mut statements = unknown.peekable();
     if statements.peek().is_some() {

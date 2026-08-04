@@ -333,6 +333,101 @@ fn saving_at_the_guard_keeps_the_screen_until_the_save_succeeds() {
 }
 
 #[test]
+fn a_guard_save_that_succeeds_leaves_the_screen_and_releases_the_draft() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    apply(&mut state, SettingsMessage::Back);
+    apply(&mut state, SettingsMessage::ResolveDirty(DirtyChoice::Save));
+
+    complete_written(&mut state);
+
+    assert_ne!(state.screen(), ScreenId::Settings, "the guard let go");
+    assert!(state.nav.guard().is_none(), "the guard is not stuck");
+    assert!(!state.settings_state.active);
+    assert!(state.settings_state.draft.is_none());
+}
+
+#[test]
+fn a_guard_save_that_fails_keeps_the_user_with_their_work() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    apply(&mut state, SettingsMessage::Back);
+    apply(&mut state, SettingsMessage::ResolveDirty(DirtyChoice::Save));
+    let Some(revision) = state
+        .settings_state
+        .draft
+        .as_ref()
+        .and_then(super::SettingsDraft::pending_revision)
+    else {
+        panic!("the guard's save is scheduled");
+    };
+
+    apply(
+        &mut state,
+        SettingsMessage::SaveCompleted(Box::new(SettingsSaveOutcome::Conflict {
+            revision,
+            disk_hash: None,
+        })),
+    );
+
+    assert_eq!(
+        state.screen(),
+        ScreenId::Settings,
+        "the user keeps the screen"
+    );
+    assert!(state.settings_state.is_dirty(), "the draft survives");
+    assert!(
+        matches!(
+            state
+                .nav
+                .guard()
+                .map(super::navigation_dirty::DirtyGuard::phase),
+            Some(super::navigation_dirty::GuardPhase::Failed { .. })
+        ),
+        "the guard re-offers its choices instead of waiting forever"
+    );
+}
+
+#[test]
+fn a_guard_save_of_a_draft_that_cannot_be_saved_does_not_strand_the_guard() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    apply(&mut state, SettingsMessage::Back);
+    // The document goes bad underneath the draft, so there is nothing to save.
+    apply(
+        &mut state,
+        SettingsMessage::Reloaded(Box::new(source(Some(
+            b"settings_schema = 2
+[appearance]
+theme = 42
+",
+        )))),
+    );
+
+    apply(&mut state, SettingsMessage::ResolveDirty(DirtyChoice::Save));
+
+    assert!(
+        !matches!(
+            state
+                .nav
+                .guard()
+                .map(super::navigation_dirty::DirtyGuard::phase),
+            Some(super::navigation_dirty::GuardPhase::SaveRequested { .. })
+        ),
+        "a save that never runs still has to be answered"
+    );
+}
+
+#[test]
 fn the_guard_focus_cycles_through_save_discard_and_cancel() {
     let mut state = opened(Some(SCHEMA_2));
     assert_eq!(state.settings_state.dirty_choice, DirtyChoiceCursor::Save);

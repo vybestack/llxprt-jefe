@@ -208,7 +208,8 @@ impl SettingsCandidate {
                 &document,
                 &assignment(edit.path()),
                 edit.rendered().as_deref(),
-            );
+            )
+            .map_err(|_| vec![inline_ancestor_diagnostic(edit.path())])?;
         }
         let parsed = SettingsDocument::parse(&bytes).map_err(|diagnostic| vec![*diagnostic])?;
         let published = parsed.publish(catalog).map_err(sorted)?;
@@ -259,6 +260,20 @@ fn sorted(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
     diagnostics
 }
 
+/// The refusal for a leaf whose owning table is written as one inline value.
+fn inline_ancestor_diagnostic(path: SyntaxPath) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E006,
+        Severity::Error,
+        DiagnosticPath::new(path.diagnostic_path()),
+        None,
+        "rewrite the owning table as a [table] header, or edit this value in the file",
+    );
+    "the owning table is written as an inline table, which has no syntax for this leaf"
+        .clone_into(&mut diagnostic.redacted_detail);
+    diagnostic
+}
+
 /// What a durable settings save did.
 ///
 /// The four outcomes are the four the Settings shell must offer different
@@ -281,14 +296,36 @@ pub enum SettingsSaveOutcome {
     },
     /// The target changed since the draft was bound to it; nothing was written.
     Conflict {
+        /// The revision that was attempted.
+        revision: u64,
         /// The digest of the bytes now on disk, when they could be read.
         disk_hash: Option<Sha256>,
     },
     /// The durable write failed; the target is unchanged and the draft intact.
     Failed {
+        /// The revision that was attempted.
+        revision: u64,
         /// The typed reason, already redacted.
         diagnostic: Box<Diagnostic>,
     },
+}
+
+impl SettingsSaveOutcome {
+    /// The revision this outcome answers for.
+    ///
+    /// Every outcome names one, including the two that never reached
+    /// replacement: without it the shell could not tell a conflict answering
+    /// the save the user is waiting on from one answering a save they have
+    /// already replaced.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        match self {
+            Self::Written { revision, .. }
+            | Self::Superseded { revision }
+            | Self::Conflict { revision, .. }
+            | Self::Failed { revision, .. } => *revision,
+        }
+    }
 }
 
 impl FilePersistenceManager {
@@ -323,10 +360,12 @@ impl FilePersistenceManager {
             }
             Err(error) if error.diagnostic().code == CfgCode::E007 => {
                 SettingsSaveOutcome::Conflict {
+                    revision,
                     disk_hash: read_digest(&target),
                 }
             }
             Err(error) => SettingsSaveOutcome::Failed {
+                revision,
                 diagnostic: Box::new(error.diagnostic().clone()),
             },
         }

@@ -334,6 +334,10 @@ fn patch_bytes(
         },
         value.as_deref(),
     )
+    // A keymap context written as one inline value has no syntax for this
+    // binding; leaving the bytes alone keeps the document valid, and the
+    // complete-candidate check that follows reports that nothing changed.
+    .unwrap_or_else(|_| document.original_bytes().to_vec())
 }
 
 fn chord_array(chords: &[Chord]) -> Vec<u8> {

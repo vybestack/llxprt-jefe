@@ -313,18 +313,135 @@ fn a_failed_save_restores_the_theme_the_screen_opened_on() {
         SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
     );
     apply(&mut state, SettingsMessage::Save);
+    let revision = pending_revision(&state);
 
     complete(
         &mut state,
         SettingsSaveOutcome::Failed {
+            revision,
             diagnostic: Box::new(write_failure()),
         },
     );
-    apply(&mut state, SettingsMessage::Discard);
+
+    assert_eq!(
+        state.settings_state.desired_theme(),
+        Some(&theme("green-screen")),
+        "a save that did not happen leaves no theme behind"
+    );
+    assert!(state.settings_state.is_dirty(), "the draft still holds it");
+}
+
+#[test]
+fn a_conflict_restores_the_theme_the_screen_opened_on() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    apply(&mut state, SettingsMessage::Save);
+    let revision = pending_revision(&state);
+
+    complete(
+        &mut state,
+        SettingsSaveOutcome::Conflict {
+            revision,
+            disk_hash: None,
+        },
+    );
 
     assert_eq!(
         state.settings_state.desired_theme(),
         Some(&theme("green-screen"))
+    );
+}
+
+#[test]
+fn leaving_with_an_unsaved_preview_leaves_the_prior_theme_to_restore() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    apply(&mut state, SettingsMessage::Discard);
+    apply(&mut state, SettingsMessage::Back);
+
+    assert!(!state.settings_state.active);
+    assert_eq!(
+        state.settings_state.desired_theme(),
+        None,
+        "a draft that never previewed leaves nothing to undo"
+    );
+}
+
+#[test]
+fn a_reload_keeps_the_theme_the_screen_opened_on() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    // The boundary re-reads while the session is wearing the preview, so the
+    // source it reports as active is the preview, not where the user started.
+    let mut reloaded = source(Some(SCHEMA_2));
+    reloaded.active_theme = theme("dracula");
+
+    apply(&mut state, SettingsMessage::Reloaded(Box::new(reloaded)));
+
+    assert_eq!(
+        state.settings_state.desired_theme(),
+        Some(&theme("green-screen")),
+        "the theme the screen opened on survives a reload"
+    );
+}
+
+#[test]
+fn resetting_the_theme_previews_the_compiled_default_rather_than_what_was_showing() {
+    // The session is wearing what the document says, as it is after startup.
+    let mut opened_on = source(Some(
+        br"settings_schema = 2
+[appearance]
+theme = 'dracula'
+",
+    ));
+    opened_on.active_theme = theme("dracula");
+    let mut state = AppState::default();
+    apply(&mut state, SettingsMessage::Open(Box::new(opened_on)));
+    assert_eq!(
+        state.settings_state.desired_theme(),
+        Some(&theme("dracula"))
+    );
+
+    apply(&mut state, SettingsMessage::Reset(SyntaxPath::Theme));
+
+    assert_eq!(
+        state.settings_state.desired_theme(),
+        Some(&theme("green-screen")),
+        "removing the assignment means the compiled default, and the session shows it"
+    );
+}
+
+#[test]
+fn a_completion_for_a_superseded_conflict_leaves_the_newest_save_alone() {
+    let mut state = opened(Some(SCHEMA_2));
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
+    );
+    apply(&mut state, SettingsMessage::Save);
+    let newest = pending_revision(&state);
+
+    complete(
+        &mut state,
+        SettingsSaveOutcome::Conflict {
+            revision: newest - 1,
+            disk_hash: None,
+        },
+    );
+
+    assert_eq!(
+        draft_status(&state),
+        DraftStatus::Saving { revision: newest },
+        "a conflict answering superseded work is not the newest save's answer"
     );
 }
 
@@ -514,11 +631,13 @@ fn a_conflict_preserves_the_draft_and_offers_reload_export_and_retry() {
         SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
     );
     apply(&mut state, SettingsMessage::Save);
+    let revision = pending_revision(&state);
     let disk_hash = Sha256::digest(b"someone else's settings");
 
     complete(
         &mut state,
         SettingsSaveOutcome::Conflict {
+            revision,
             disk_hash: Some(disk_hash),
         },
     );
@@ -555,10 +674,12 @@ fn a_write_failure_offers_retry_export_and_discard() {
         SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
     );
     apply(&mut state, SettingsMessage::Save);
+    let revision = pending_revision(&state);
 
     complete(
         &mut state,
         SettingsSaveOutcome::Failed {
+            revision,
             diagnostic: Box::new(write_failure()),
         },
     );
@@ -590,7 +711,10 @@ fn retrying_after_a_conflict_reschedules_the_same_draft() {
     let first = pending_revision(&state);
     complete(
         &mut state,
-        SettingsSaveOutcome::Conflict { disk_hash: None },
+        SettingsSaveOutcome::Conflict {
+            revision: first,
+            disk_hash: None,
+        },
     );
 
     apply(&mut state, SettingsMessage::Save);

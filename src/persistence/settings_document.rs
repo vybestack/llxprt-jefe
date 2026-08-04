@@ -248,13 +248,22 @@ pub(super) struct Assignment<'a> {
 ///
 /// `Some(value)` replaces an existing value span or inserts a new statement;
 /// `None` removes an existing statement and is a no-op when there is none.
+/// Why one assignment could not be patched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PatchRefusal {
+    /// An ancestor of the leaf is written as one value — an inline table — so
+    /// the leaf has no syntax of its own to replace, and adding a table header
+    /// for it would redefine what the inline table already defines.
+    InlineAncestor,
+}
+
 pub(super) fn patch_assignment(
     document: &SettingsDocument,
     assignment: &Assignment<'_>,
     value: Option<&[u8]>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, PatchRefusal> {
     if let Some(node) = document.node(assignment.path) {
-        return match value {
+        return Ok(match value {
             // Writing the value that is already there must not disturb how it
             // was written: `'green-screen'` and `"green-screen"` are the same
             // value, and replacing one with the other would make an edit that
@@ -270,12 +279,27 @@ pub(super) fn patch_assignment(
                 document.original_bytes(),
                 vec![(node.statement_span, Vec::new())],
             ),
-        };
+        });
+    }
+    if let Some(depth) = inline_ancestor_depth(document, assignment.path) {
+        let _ = depth;
+        return Err(PatchRefusal::InlineAncestor);
     }
     let Some(value) = value else {
-        return document.original_bytes().to_vec();
+        return Ok(document.original_bytes().to_vec());
     };
-    insert_assignment(document, assignment, value)
+    Ok(insert_assignment(document, assignment, value))
+}
+
+/// The depth of the nearest ancestor written as one value, if there is one.
+///
+/// `appearance = { theme = "x" }` gives `appearance` a value span of its own, so
+/// `appearance.theme` has no syntax to replace and cannot be given a table
+/// header without redefining what the inline table already defines. Saying so is
+/// the only honest answer: silently doing nothing would lose the user's edit,
+/// and writing the header would produce a document that no longer parses.
+fn inline_ancestor_depth(document: &SettingsDocument, path: &[&str]) -> Option<usize> {
+    (1..path.len()).find(|depth| document.node(&path[..*depth]).is_some())
 }
 
 /// Whether two value fragments denote the same TOML value.
@@ -311,20 +335,34 @@ fn insert_assignment(
         String::from_utf8_lossy(value)
     );
     if let Some(table) = document.table_span(table_path) {
-        let owned = table_path
+        // A table's own statements are the ones between its header and the next
+        // header. Selecting by path prefix instead would reach into a nested
+        // table — `[workbench.layout_overrides.x]` is under `workbench` — and
+        // put the assignment inside it, where it means something else entirely.
+        let boundary = document
+            .table_nodes()
             .iter()
-            .map(|segment| (*segment).to_owned())
-            .collect::<Vec<_>>();
+            .map(|node| node.span.start)
+            .filter(|start| *start > table.start)
+            .min()
+            .unwrap_or_else(|| document.original_bytes().len() as u64);
         let end = document
             .syntax_nodes()
             .iter()
-            .filter(|node| node.path.starts_with(&owned))
+            .filter(|node| node.statement_span.start >= table.end)
+            .filter(|node| node.statement_span.end <= boundary)
             .map(|node| node.statement_span.end)
             .max()
             .unwrap_or(table.end);
-        // Immediately after a header there is no newline yet, so one is added;
-        // after a statement the previous line already ended.
-        let prefix = if end == table.end { "\n" } else { "" };
+        // The new assignment has to start its own line. A header never ends in
+        // a newline, and neither does the last statement of a file that has no
+        // trailing one, so the byte actually there is what decides.
+        let starts_a_line = usize::try_from(end)
+            .ok()
+            .and_then(|end| end.checked_sub(1))
+            .and_then(|index| document.original_bytes().get(index))
+            == Some(&b'\n');
+        let prefix = if starts_a_line { "" } else { "\n" };
         return apply_patches(
             document.original_bytes(),
             vec![(

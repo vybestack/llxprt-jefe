@@ -16,6 +16,7 @@
 //! - [`AppState::leave_screen`] is how a mode was closed, returning to
 //!   whatever was underneath.
 
+use crate::domain::effects::{Correlation, EffectError};
 use crate::workbench::{ActivationValues, ScreenId, screen_registry};
 
 use super::AppState;
@@ -95,6 +96,31 @@ impl AppState {
     /// Answer the dirty guard.
     pub fn resolve_dirty(&mut self, choice: DirtyChoice) -> DraftAction {
         self.navigate(NavMessage::ResolveDirty(choice))
+    }
+
+    /// Tell the dirty guard which save attempt the owner actually registered.
+    ///
+    /// The guard cannot distinguish two attempts at the same operation on the
+    /// same screen until it is told the identity of the running one.
+    pub fn report_save_started(&mut self, correlation: &Correlation) -> DraftAction {
+        self.navigate(NavMessage::SaveStarted {
+            correlation: correlation.clone(),
+        })
+    }
+
+    /// Tell the dirty guard how the save it asked for turned out.
+    ///
+    /// A success releases the navigation the guard was holding; a failure keeps
+    /// the user on the screen with their work and re-offers the choices.
+    pub fn report_save_completed(
+        &mut self,
+        correlation: &Correlation,
+        result: Result<(), EffectError>,
+    ) -> DraftAction {
+        self.navigate(NavMessage::SaveCompleted {
+            correlation: correlation.clone(),
+            result,
+        })
     }
 
     /// An activation for `screen`, computed from the live current instance.

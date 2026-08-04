@@ -184,8 +184,13 @@ fn appearance_rows(state: &SettingsState) -> Vec<SettingsRow> {
         .draft
         .as_ref()
         .and_then(|draft| draft.published().appearance.theme.clone());
+    // The active marker means "the theme this session is wearing", which is what
+    // the retired picker marked. A document naming a theme nobody can resolve
+    // does not make the session wear it, so that row is listed as unavailable
+    // rather than marked active.
+    let worn = state.desired_theme();
     for choice in &state.themes {
-        let active = drafted.as_deref() == Some(choice.id.as_str());
+        let active = worn == Some(&choice.id);
         rows.push(SettingsRow {
             label: choice.name.clone(),
             value: choice.id.to_string(),
@@ -197,12 +202,15 @@ fn appearance_rows(state: &SettingsState) -> Vec<SettingsRow> {
         });
     }
     if let Some(missing) = missing_theme(state, drafted.as_ref()) {
+        // The slug is shown as written, even when it is not a valid theme
+        // identity: a setting that vanished from the list would be harder to
+        // correct than one that says it cannot be resolved.
         rows.push(SettingsRow {
-            label: missing.to_string(),
+            label: missing.to_owned(),
             value: "unavailable: not installed".to_owned(),
             kind: SettingsRowKind::Theme {
-                id: missing,
-                active: true,
+                id: ThemeId::parse(missing).unwrap_or_default(),
+                active: false,
                 available: false,
             },
         });
@@ -224,12 +232,12 @@ fn appearance_rows(state: &SettingsState) -> Vec<SettingsRow> {
 }
 
 /// The theme the document names but the manager cannot resolve, if any.
-fn missing_theme(state: &SettingsState, drafted: Option<&String>) -> Option<ThemeId> {
+fn missing_theme<'a>(state: &SettingsState, drafted: Option<&'a String>) -> Option<&'a str> {
     let slug = drafted?;
     if state.themes.iter().any(|choice| choice.id.as_str() == slug) {
         return None;
     }
-    ThemeId::parse(slug).ok()
+    Some(slug.as_str())
 }
 
 fn diagnostic_rows(state: &SettingsState) -> Vec<SettingsRow> {

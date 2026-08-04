@@ -17,8 +17,10 @@
 use std::sync::Arc;
 
 use crate::config_owners::builtin_owner_catalog;
-use crate::domain::ThemeId;
-use crate::domain::effects::{EffectFamily, SemanticKey};
+use crate::domain::effects::{
+    Correlation, CorrelationId, EffectError, EffectErrorKind, EffectFamily, SemanticKey,
+};
+use crate::domain::{Id, ThemeId};
 use crate::messages::NavDir;
 use crate::messages::settings::{SettingsMessage, SettingsSection, SettingsSource};
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
@@ -99,7 +101,13 @@ impl AppState {
     fn bind_settings_source(&mut self, source: SettingsSource) {
         self.settings_state.themes = source.themes;
         self.settings_state.environment = Some(source.environment);
-        self.settings_state.opened_theme = Some(source.active_theme);
+        // The theme to go back to is the one the *screen* opened on. Sampling
+        // the manager again during a reload would record whatever preview it is
+        // currently wearing and lose the theme the user started from.
+        if self.settings_state.opened_theme.is_none() {
+            self.settings_state.opened_theme = Some(source.active_theme);
+        }
+        self.settings_state.restore_theme = None;
         let expected = source
             .bytes
             .as_deref()
@@ -127,16 +135,30 @@ impl AppState {
     }
 
     /// Release the draft and its preview when the screen closes.
+    ///
+    /// A preview that was never saved must not outlive the screen that was
+    /// showing it, so the theme to go back to is left for the boundary to
+    /// apply rather than being forgotten with the draft.
     fn close_settings(&mut self) -> bool {
         if !self.settings_state.active {
             return false;
         }
+        let unsaved_preview = self
+            .settings_state
+            .draft
+            .as_ref()
+            .and_then(SettingsDraft::preview)
+            .is_some();
         self.settings_state.active = false;
         self.settings_state.draft = None;
         self.settings_state.blocked.clear();
+        self.settings_state.restore_theme = unsaved_preview
+            .then(|| self.settings_state.opened_theme.clone())
+            .flatten();
         self.settings_state.opened_theme = None;
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = None;
+        self.settings_state.guard_correlation = None;
         let _ = self.mark_screen_clean();
         true
     }
@@ -218,32 +240,50 @@ impl AppState {
             self.settings_state.notice = Some(format!("{theme} is not installed"));
             return true;
         }
-        let preview = self.next_theme_preview(&edit);
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
         if draft.status().is_saving() {
             return false;
         }
+        let touches_theme = edit.path() == SyntaxPath::Theme;
         draft.record(edit);
-        if let Some(preview) = preview {
-            draft.set_preview(Some(preview));
-        }
         revalidate(draft);
+        if touches_theme {
+            self.refresh_theme_preview();
+        }
         self.settings_state.notice = None;
         self.publish_settings_dirty()
     }
 
-    /// The preview token this edit puts in flight, if it is a theme edit.
-    fn next_theme_preview(&self, edit: &SettingsEdit) -> Option<ThemePreviewToken> {
-        let theme = match edit {
-            SettingsEdit::Theme(theme) => theme.clone(),
-            SettingsEdit::Reset(SyntaxPath::Theme) => self.settings_state.opened_theme.clone()?,
-            _ => return None,
+    /// Show whatever theme the draft now describes.
+    ///
+    /// The preview follows the *candidate*, not the edit, so removing the
+    /// assignment previews the compiled default rather than whatever happened
+    /// to be showing — otherwise Reset would look like one thing while a
+    /// restart did another.
+    fn refresh_theme_preview(&mut self) {
+        let Some(opened) = self.settings_state.opened_theme.clone() else {
+            return;
         };
-        let draft = self.settings_state.draft.as_ref()?;
-        let active = self.settings_state.opened_theme.clone()?;
-        ThemePreviewToken::apply(draft.generation(), draft.preview(), &active, theme).ok()
+        let Some(draft) = self.settings_state.draft.as_ref() else {
+            return;
+        };
+        let wanted = draft
+            .published()
+            .appearance
+            .theme
+            .as_deref()
+            .and_then(|slug| ThemeId::parse(slug).ok())
+            .unwrap_or_default();
+        if !self.settings_theme_available(&wanted) {
+            return;
+        }
+        let token =
+            ThemePreviewToken::apply(draft.generation(), draft.preview(), &opened, wanted).ok();
+        if let Some(draft) = self.settings_state.draft.as_mut() {
+            draft.set_preview(token);
+        }
     }
 
     fn settings_theme_available(&self, theme: &ThemeId) -> bool {
@@ -260,7 +300,7 @@ impl AppState {
         };
         let (dirty, token) = (draft.is_dirty(), draft.token());
         if dirty {
-            let Ok(owner) = crate::domain::Id::parse(SETTINGS_OWNER) else {
+            let Ok(owner) = Id::parse(SETTINGS_OWNER) else {
                 return true;
             };
             let _ = self.mark_screen_dirty(
@@ -306,10 +346,7 @@ impl AppState {
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
-        let revision = completion_revision(&outcome);
-        if let Some(revision) = revision
-            && !draft.answers_pending(revision)
-        {
+        if !draft.answers_pending(outcome.revision()) {
             // A completion for a revision the user has already replaced is a
             // fact about superseded work, so the newest pending save stands.
             return false;
@@ -319,26 +356,60 @@ impl AppState {
             SettingsSaveOutcome::Superseded { .. } => {
                 draft.clear_pending();
                 draft.set_status(DraftStatus::Dirty);
-                true
+                self.report_guard_save(Err("the settings save was superseded".to_owned()))
             }
-            SettingsSaveOutcome::Conflict { disk_hash } => {
+            SettingsSaveOutcome::Conflict {
+                disk_hash,
+                revision: _,
+            } => {
                 draft.clear_pending();
                 draft.set_status(DraftStatus::Conflict { disk_hash });
                 self.settings_state.recovery_row = 0;
                 self.settings_state.notice =
                     Some("External edit detected: disk and draft preserved".to_owned());
-                true
+                self.restore_previewed_theme();
+                self.report_guard_save(Err(
+                    "the settings file changed since this draft was opened".to_owned()
+                ))
             }
-            SettingsSaveOutcome::Failed { diagnostic } => {
+            SettingsSaveOutcome::Failed {
+                diagnostic,
+                revision: _,
+            } => {
                 draft.clear_pending();
                 draft.set_status(DraftStatus::Failed {
                     code: diagnostic.code,
                 });
                 self.settings_state.recovery_row = 0;
                 self.settings_state.notice = Some(diagnostic.redacted_detail.clone());
-                true
+                self.restore_previewed_theme();
+                self.report_guard_save(Err(diagnostic.redacted_detail.clone()))
             }
         }
+    }
+
+    /// Abandon the theme preview, returning the session to the theme the screen
+    /// opened on.
+    ///
+    /// A save that did not happen must not leave the session wearing the theme
+    /// it would have saved.
+    fn restore_previewed_theme(&mut self) {
+        if let Some(draft) = self.settings_state.draft.as_mut() {
+            draft.set_preview(None);
+        }
+    }
+
+    /// Tell the host dirty guard how the save it asked for turned out.
+    ///
+    /// The guard only listens while it is holding a navigation back; when it is
+    /// not, this is the whole of what a completion has to do.
+    fn report_guard_save(&mut self, result: Result<(), String>) -> bool {
+        let Some(correlation) = self.settings_state.guard_correlation.take() else {
+            return true;
+        };
+        let result = result.map_err(|detail| EffectError::new(EffectErrorKind::Io, true, &detail));
+        let _ = self.report_save_completed(&correlation, result);
+        true
     }
 
     /// Make a completed save the new base.
@@ -364,16 +435,31 @@ impl AppState {
         }
         self.settings_state.last_scheduled_revision =
             self.settings_state.last_scheduled_revision.max(revision);
-        self.settings_state.notice = Some(if structural {
+        // A structural change only takes effect at startup, so what to do about
+        // it has to survive the screen that reported it — including the Save
+        // that leaves.
+        let notice = if structural {
             RESTART_NOTICE.to_owned()
         } else {
             "Saved".to_owned()
-        });
-        let _ = self.mark_screen_clean();
-        if exits {
-            let _ = self.leave_screen();
-            self.close_settings();
+        };
+        // The guard, if it is holding a navigation, performs it as part of
+        // being told the save succeeded; telling it first is what keeps this
+        // screen from leaving on its own while the guard still waits.
+        let guarded = self.settings_state.guard_correlation.is_some();
+        self.report_guard_save(Ok(()));
+        if guarded {
+            if self.screen() != ScreenId::Settings {
+                self.close_settings();
+            }
+        } else {
+            let _ = self.mark_screen_clean();
+            if exits {
+                let _ = self.leave_screen();
+                self.close_settings();
+            }
         }
+        self.settings_state.notice = Some(notice);
         true
     }
 
@@ -399,7 +485,11 @@ impl AppState {
     fn resolve_settings_dirty(&mut self, choice: DirtyChoice) -> bool {
         let before = self.screen();
         match self.resolve_dirty(choice) {
-            DraftAction::Save { .. } => self.save_settings(true),
+            DraftAction::Save {
+                owner,
+                semantic_key,
+                ..
+            } => self.save_for_guard(owner, semantic_key),
             DraftAction::RestoreBase { .. } => {
                 self.discard_settings();
                 if self.screen() != before {
@@ -418,6 +508,61 @@ impl AppState {
                 }
                 true
             }
+        }
+    }
+
+    /// Run the save the guard asked for, and tell the guard which attempt it is.
+    ///
+    /// The guard cannot tell two attempts at the same operation apart until it
+    /// is told the identity of the one that is running, and it will not release
+    /// the navigation it is holding for a completion it was never told about.
+    fn save_for_guard(&mut self, owner: Id, semantic_key: SemanticKey) -> bool {
+        if !self.save_settings(true) {
+            return false;
+        }
+        let Some(revision) = self
+            .settings_state
+            .draft
+            .as_ref()
+            .and_then(SettingsDraft::pending_revision)
+        else {
+            // Nothing was scheduled, so the guard is still waiting on a save
+            // that will never run; say so rather than leaving it stuck.
+            let correlation = self.guard_correlation(owner, semantic_key, 0);
+            let _ = self.report_save_started(&correlation);
+            let _ = self.report_save_completed(
+                &correlation,
+                Err(EffectError::new(
+                    EffectErrorKind::Validation,
+                    false,
+                    "the settings draft cannot be saved as it stands",
+                )),
+            );
+            return true;
+        };
+        let correlation = self.guard_correlation(owner, semantic_key, revision);
+        let _ = self.report_save_started(&correlation);
+        self.settings_state.guard_correlation = Some(correlation);
+        true
+    }
+
+    /// The identity one guard-requested settings save is registered under.
+    ///
+    /// Revisions are unique and increasing within a session, so a revision is
+    /// exactly what distinguishes two attempts at the same operation.
+    fn guard_correlation(
+        &self,
+        owner: Id,
+        semantic_key: SemanticKey,
+        revision: u64,
+    ) -> Correlation {
+        let (screen_generation, activation_generation) = self.nav.live_generations();
+        Correlation {
+            correlation_id: CorrelationId::new(revision),
+            owner,
+            screen_generation,
+            activation_generation,
+            semantic_key,
         }
     }
 
@@ -479,18 +624,6 @@ impl AppState {
             .settings_state
             .selected_row
             .min(count.saturating_sub(1));
-    }
-}
-
-/// The revision a completion answers for, when it names one.
-const fn completion_revision(outcome: &SettingsSaveOutcome) -> Option<u64> {
-    match outcome {
-        SettingsSaveOutcome::Written { revision, .. }
-        | SettingsSaveOutcome::Superseded { revision } => Some(*revision),
-        // A conflict or a write failure never reached replacement, so the
-        // writer has no revision of its own to report; the newest scheduled
-        // save is the one it answers.
-        SettingsSaveOutcome::Conflict { .. } | SettingsSaveOutcome::Failed { .. } => None,
     }
 }
 
