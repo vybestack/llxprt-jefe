@@ -189,10 +189,57 @@ Verified in the tree, not assumed:
 
 | Review | Budget | Used |
 |---|---|---|
-| Local OCR (pre-PR) | 2 | 0 |
+| Local OCR (pre-PR) | 2 | 1 |
 | PR OCR | 2 | 0 |
-| Subagent review cycles | 2 | 0 |
+| Subagent review cycles | 2 | 1 (`rustreviewer`, pre-PR) |
+
+### Triage of review round 1
+
+`rustreviewer` (7 Blockers, 3 Should-fix, 1 Nit) and OCR (12 findings) were
+triaged together; the two overlapped on the stuck dirty guard.
+
+**Fixed (Blocker-Fix)** — commit `029c7e96`:
+
+1. Insertion anchored on a path prefix reached into a nested table, so a save
+   could succeed while silently ignoring the edit.
+2. A leaf under an inline-table owner produced an unparseable document on Set
+   and did nothing on Reset; both are now refused with `CFG-E006`.
+3. Schema-1 migration selected root syntax by path length, stranding a dotted
+   dormant key for the emitted `[appearance]` header to swallow.
+4. `Conflict` and `Failed` carried no revision, so a superseded completion could
+   clobber the newest pending save.
+5. Guard Save never registered its attempt, leaving the guard permanently in
+   `SaveRequested` while the screen closed underneath it.
+6. The theme preview was never given back on leave, guard Discard, failed save
+   or conflict, and a reload resampled the manager while it wore the preview.
+7. Reset Theme previewed what was showing rather than the compiled default the
+   save would actually produce.
+8. An insertion after a final statement with no trailing newline concatenated
+   onto it (OCR).
+9. The restart notice was cleared by the screen it was reported on (OCR).
+
+**Fixed (In-scope-Fix)**: a save that could not reach the writer left the draft
+permanently saving; the guard acted twice on key releases; export preconditions
+failed silently; `read_source` swallowed I/O errors; the active-theme marker
+described the document rather than the session; an unparseable theme slug
+vanished from the list; `SettingsDraft::record`'s doc overstated what it does.
+
+**Rejected**: `ThemeId: FromStr` (the project's convention is `parse`, as in
+`Id::parse` and `Chord::parse`); `set_active` clobbering on its error path
+(`select` checks availability under the same `&mut self` borrow, so there is no
+window); `EDITED_PATH_LIMIT` runtime enforcement (the doc already states the
+bound is structural, and `SyntaxPath::ALL` proves it).
+
+**Deferred**: export leaving an empty directory behind (the only caller names a
+flat file, so `create_dir_all` is a no-op); CRLF and header-comment placement on
+insertion (presentation only, no bytes lost); the schema-2 header literal
+appearing in three modules.
 
 ## 7. Verification evidence
 
-_(filled in as slices land)_
+- `cargo xtask ci` green on `029c7e96`: fmt, clippy-allow policy, source size,
+  architecture, multiplexer surface, strict clippy, complexity, coverage
+  (71.93% lines against a 30% floor), locked build, locked workspace test.
+- `cargo test --workspace --all-features`: 3 700+ tests, 0 failures, including
+  the four new `dev-docs/tmux-scenarios/v1/settings-*.json` harness fixtures run
+  against a real PTY.
