@@ -47,6 +47,7 @@ fn base_def() -> AgentDefinition {
         schema: 1,
         id,
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),

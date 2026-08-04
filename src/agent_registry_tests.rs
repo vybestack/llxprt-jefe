@@ -29,6 +29,7 @@ fn definition(id: &str, candidate_name: &str) -> AgentDefinition {
         schema: DEFINITION_SCHEMA,
         id: parsed_id,
         display_name: id.to_string(),
+        minimum_version: String::new(),
         candidates: vec![path_name(candidate_name)],
         probe: ProbeSpec {
             argv: vec!["--version".to_string()],

@@ -31,7 +31,6 @@ Authored arguments are declared by the definition and assumed present. Each defi
 | AC6 | Remote target | Remote probe for a supported agent | Remote path spawns identity only, never a remote help command | Identity failures behave as before | Remote serialization unchanged | Remote probe contract test |
 | AC7 | Architecture and epic contract | Source scanned at feature-complete | No `CapabilityProbe`, required list, capability evaluation, or trusted flag remains, and no shim replaces them | n/a | n/a | Symbol-deletion proof plus existing shim-token scan |
 | AC8 | Repository after the change | Fixtures and suite scanned | No help capture remains under `tests/fixtures/agent-definitions/`, and nothing reads one | n/a | Version and probe captures unchanged | Fixture inventory assertion |
-| AC9 | Launch with a nonblank version selector | npm or uvx package candidate | Preparation runs and launch executes the prepared invocation; zero identity subprocesses; version comes from the resolved package | Preparation failure surfaces its existing error unchanged; #571 binding intact | Selector semantics, cache layout, generations unchanged | Process-capture test asserting zero identity spawns |
 
 ## Non-goals
 
@@ -55,7 +54,7 @@ Authored arguments are declared by the definition and assumed present. Each defi
 
 ### Slice 2: Delete the capability probe
 
-- Rows: AC1, AC2, AC6, AC7, AC9.
+- Rows: AC1, AC2, AC6, AC7.
 - Allowed paths: `src/domain/agent_definition/{probe,types}.rs`, `src/runtime/agent_probe*.rs`, `agent_remote_probe.rs`, `src/state/generated_form*.rs`, `src/selection/generated_form_content.rs`, `src/app_input/availability.rs`, `src/agent_status_view.rs`, focused tests. `package_runtime.rs` only to surface the already-resolved version.
 - RED: process-capture test asserts one spawn per candidate and observes two.
 - GREEN: help never spawned; removed types gone; capability-based field disabling gone.
@@ -78,7 +77,7 @@ Authored arguments are declared by the definition and assumed present. Each defi
 | LLxprt already skips via the trusted flag | In-scope: flag becomes unconditional and is deleted |
 | `resolve_flag_token` reads the definition, not the probe | In-scope: indirection dies with the probe |
 | Capability-based field disabling in the generated form | In-scope: its only input is deleted |
-| Package candidates spend a second subprocess on identity | In-scope as AC9 |
+| Package candidates spend a second subprocess on identity | Dropped: the premise was wrong. `prepare_managed_npm` returns `prefix: []`, so after preparation an npm identity probe executes the installed binary directly rather than re-entering `npm exec`. The 3.9s measured cost belongs to preparation, which stays either way. Only uvx stays runner-mediated, where the saving is marginal and the version string is a real signal. |
 | Identity probe, fingerprint, generations, stale-plan guard | Out of scope: process safety, not argument verification |
 | Managed package cache (#425 reproductions) | Out of scope: earned, untouched |
 | Executable fingerprint is checked against a stored copy and never re-stat'd | Out of scope: #571 owns the remedy |

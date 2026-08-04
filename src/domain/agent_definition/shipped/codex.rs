@@ -20,6 +20,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.codex",
         display_name: "Codex CLI",
+        minimum_version: "0.142.0",
         candidates: vec![
             path_candidate("codex"),
             npm_candidate("@openai/codex", "codex"),

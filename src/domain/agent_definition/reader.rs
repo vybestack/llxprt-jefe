@@ -21,6 +21,7 @@ const TOP_LEVEL_FIELDS: &[&str] = &[
     "agent_type_schema",
     "id",
     "display_name",
+    "minimum_version",
     "executable_candidates",
     "probe",
     "operations",
@@ -52,6 +53,7 @@ fn read_definition_from_json(
     let id_raw = require_string(object, "id")?;
     let id = AgentTypeId::parse(&id_raw)?;
     let display_name = require_string(object, "display_name")?;
+    let minimum_version = optional_string(object, "minimum_version").unwrap_or_default();
     let candidates = read_candidates(object)?;
     let probe = read_probe(object)?;
     let operations = read_operations(object)?;
@@ -63,6 +65,7 @@ fn read_definition_from_json(
         schema,
         id,
         display_name,
+        minimum_version,
         candidates,
         probe,
         operations,

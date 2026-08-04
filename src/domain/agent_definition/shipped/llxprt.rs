@@ -59,6 +59,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.llxprt",
         display_name: "LLxprt",
+        minimum_version: "0.10.0",
         candidates: vec![
             ExecutableCandidate {
                 kind: CandidateKind::RepositoryLlxprt,

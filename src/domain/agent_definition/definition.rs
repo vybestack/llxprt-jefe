@@ -31,6 +31,13 @@ pub struct AgentDefinition {
     pub id: AgentTypeId,
     /// Human-readable display name (1..=256 bytes).
     pub display_name: String,
+    /// Release the shipped argv mappings were authored against.
+    ///
+    /// Documentation only. It is displayed beside the resolved installation
+    /// and is never parsed, compared, or used to gate anything (issue #657):
+    /// support is decided by whether the executable can be reached, not by
+    /// its version.
+    pub minimum_version: String,
     /// Ordered executable candidates (1..=8).
     pub candidates: Vec<super::type_id::ExecutableCandidate>,
     /// Closed probe specification.

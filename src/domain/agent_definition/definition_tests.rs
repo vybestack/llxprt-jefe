@@ -135,6 +135,7 @@ fn validate_rejects_duplicate_candidate() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![
             ExecutableCandidate {
                 kind: CandidateKind::PathName {
@@ -184,6 +185,7 @@ fn validate_rejects_repository_fields_over_n() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),
@@ -223,6 +225,7 @@ fn validate_rejects_duplicate_field_id_in_scope() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),
@@ -259,6 +262,7 @@ fn validate_rejects_unknown_visible_when() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),
@@ -306,6 +310,7 @@ fn validate_rejects_visibility_cycle() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "x".to_string(),
@@ -331,6 +336,7 @@ fn validate_rejects_emitter_unknown_field() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),
@@ -370,6 +376,7 @@ fn validate_rejects_duplicate_emitter_field() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),
@@ -420,6 +427,7 @@ fn validate_rejects_emitters_over_n() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),
@@ -445,6 +453,7 @@ fn sha256_is_stable_across_field_order() {
         schema: 1,
         id: parse_test_id(),
         display_name: "Test".to_string(),
+        minimum_version: String::new(),
         candidates: vec![ExecutableCandidate {
             kind: CandidateKind::PathName {
                 name: "a".to_string(),

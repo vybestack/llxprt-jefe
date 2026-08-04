@@ -48,6 +48,7 @@ fn definition(id: &str, candidates: Vec<ExecutableCandidate>) -> AgentDefinition
         schema: DEFINITION_SCHEMA,
         id: parsed_id,
         display_name: id.to_string(),
+        minimum_version: String::new(),
         candidates,
         probe: valid_probe(),
         operations: OperationMatrix::default(),

@@ -30,6 +30,10 @@ pub fn definition_to_json(def: &AgentDefinition) -> BoundedJson {
             BoundedJson::Str(def.display_name.clone()),
         ),
         (
+            "minimum_version".to_string(),
+            BoundedJson::Str(def.minimum_version.clone()),
+        ),
+        (
             "executable_candidates".to_string(),
             candidates_to_json(&def.candidates),
         ),

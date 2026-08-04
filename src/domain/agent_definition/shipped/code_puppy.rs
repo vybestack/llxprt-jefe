@@ -19,6 +19,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.code-puppy",
         display_name: "Code Puppy",
+        minimum_version: "0.0.634",
         candidates: vec![
             path_candidate("code-puppy"),
             uvx_candidate("code-puppy", "code-puppy"),

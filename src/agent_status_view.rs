@@ -9,6 +9,7 @@ use crate::domain::agent_definition::{AgentDefinition, Availability};
 pub struct AgentAvailabilityObservation {
     type_id: AgentTypeId,
     display_name: String,
+    minimum_version: String,
     enabled: bool,
     availability: Availability,
     generation: u64,
@@ -25,6 +26,7 @@ impl AgentAvailabilityObservation {
         Self {
             type_id: definition.id.clone(),
             display_name: definition.display_name.clone(),
+            minimum_version: definition.minimum_version.clone(),
             enabled,
             availability,
             generation,
@@ -40,6 +42,7 @@ impl AgentAvailabilityObservation {
         Self {
             type_id: definition.id.clone(),
             display_name: definition.display_name.clone(),
+            minimum_version: definition.minimum_version.clone(),
             enabled,
             availability: Availability::NotFound,
             generation,
@@ -63,6 +66,7 @@ impl AgentAvailabilityObservation {
         Self {
             type_id: definition.id.clone(),
             display_name: definition.display_name.clone(),
+            minimum_version: definition.minimum_version.clone(),
             enabled,
             availability: Availability::NotFound,
             generation,
@@ -82,6 +86,12 @@ impl AgentAvailabilityObservation {
     #[must_use]
     pub fn display_name(&self) -> &str {
         &self.display_name
+    }
+
+    /// Release the shipped mappings were authored against, for display only.
+    #[must_use]
+    pub fn minimum_version(&self) -> &str {
+        &self.minimum_version
     }
 
     /// Durable definition enablement, separate from observed availability.
@@ -160,9 +170,14 @@ fn project_status(observation: &AgentAvailabilityObservation) -> AgentTypeStatus
                 Some("no executable candidate resolved".to_string()),
                 None,
             ),
-            Availability::InstalledCompatible { identity, .. } => {
-                ("Installed", Some(format!("identity: {identity}")), None)
-            }
+            Availability::InstalledCompatible { identity, .. } => (
+                "Installed",
+                Some(format!(
+                    "identity: {identity} (authored against {})",
+                    observation.minimum_version()
+                )),
+                None,
+            ),
             Availability::InstalledIncompatible { reason, .. } => {
                 ("Incompatible", Some(reason.clone()), None)
             }

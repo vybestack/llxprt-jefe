@@ -22,6 +22,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.claude-code",
         display_name: "Claude Code",
+        minimum_version: "2.1.212",
         candidates: vec![
             path_candidate("claude"),
             npm_candidate("@anthropic-ai/claude-code", "claude"),

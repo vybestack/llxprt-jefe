@@ -191,6 +191,8 @@ pub struct DefinitionParts {
     pub id: &'static str,
     /// Human-readable display name.
     pub display_name: &'static str,
+    /// Release the argv mappings were authored against (documentation only).
+    pub minimum_version: &'static str,
     /// Ordered executable candidates.
     pub candidates: Vec<ExecutableCandidate>,
     /// Closed probe specification.
@@ -213,6 +215,7 @@ pub fn assemble(parts: DefinitionParts) -> AgentDefinition {
         schema: DEFINITION_SCHEMA,
         id: super::super::type_id::AgentTypeId::from_validated(parts.id),
         display_name: parts.display_name.to_string(),
+        minimum_version: parts.minimum_version.to_string(),
         candidates: parts.candidates,
         probe: parts.probe,
         operations: parts.operations,
