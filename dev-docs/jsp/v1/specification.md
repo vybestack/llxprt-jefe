@@ -204,7 +204,7 @@ local monotonic receipt and never subtracts clocks across processes (decision
   "value": {
     "revision": <integer>,
     "items": [
-      { "text": "<string>", "completed": <bool> }
+      { "text": "<string>", "state": "<string>" }
     ]
   }
 }
@@ -214,6 +214,15 @@ Todos are full replacement with strictly increasing revision; patches are
 invalid (decision 8). `revision` must be positive (`>= 1`); zero fails with
 `JSP-E005`. `known` with an empty `items` array preserves the distinction
 between known-empty, unsupported, and unknown.
+
+`state` carries the producer's own task state so an observer never has to infer
+which item is active. JSP/1 recognizes `pending`, `in_progress`, and
+`completed`. Unlike `current_wait.reason`, `last_created_tool_call.phase`, and
+`turn.ended.outcome`, this vocabulary is open: a label outside the recognized
+set is accepted and read as "not completed and not active". It is never mapped
+onto one of the recognized states, because a guess presented as state is the
+defect this field exists to remove. `state` is required; omitting it fails with
+`JSP-E001`.
 
 ## 9. Last displayed assistant message
 
@@ -282,6 +291,7 @@ contract value is returned.
 | IDs (agent_id, source_epoch)       | 128 bytes  |
 | Todo list entries                  | 256        |
 | Todo text                          | 2 KiB      |
+| Todo task state                    | 64 bytes   |
 | Displayed assistant content        | 16 KiB     |
 | Source diagnostic summary          | 2 KiB      |
 | Tool label                         | 256 bytes  |

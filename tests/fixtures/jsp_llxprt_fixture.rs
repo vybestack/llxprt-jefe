@@ -109,7 +109,7 @@ fn register_snapshot(bootstrap: &serde_json::Value) {
         "current_turn": known(serde_json::json!({"elapsed_ms": 1000})),
         "todos": known(serde_json::json!({
             "revision": 1,
-            "items": [{"text": "Implement issue 522", "completed": false}]
+            "items": [{"text": "Implement issue 522", "state": "in_progress"}]
         })),
         "last_displayed_assistant_message": known(serde_json::json!({
             "content": "JSP preview is wired",

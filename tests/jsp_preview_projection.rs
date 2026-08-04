@@ -91,6 +91,41 @@ fn queued_process_is_starting_only_until_something_is_observed() {
     );
 }
 
+/// The active item is whatever the producer says is in progress. It is never
+/// inferred from position, so an agent working out of order, on several items,
+/// or with an item blocked is still rendered truthfully. A state JSP/1 does
+/// not recognize reads as "not completed" and is visibly not claimed to be
+/// pending.
+#[test]
+fn preview_marks_the_active_todo_from_the_published_state() {
+    let agent = preview_agent(AgentStatus::Running);
+    let observation = observation_from_json(&serde_json::json!({
+        "todos": known_field(serde_json::json!({
+            "revision": 1,
+            "items": [
+                {"text": "later work", "state": "pending"},
+                {"text": "finished work", "state": "completed"},
+                {"text": "current work", "state": "in_progress"},
+                {"text": "odd work", "state": "blocked"}
+            ]
+        }))
+    }));
+    let lines =
+        jefe::ui::components::preview_content_lines(Some(&agent), None, Some(&observation), 80);
+
+    for expected in [
+        "  [ ] later work",
+        "  [x] finished work",
+        "  [>] current work",
+        "  [?] odd work",
+    ] {
+        assert!(
+            lines.iter().any(|line| line == expected),
+            "preview must render {expected:?}: {lines:?}"
+        );
+    }
+}
+
 #[test]
 fn unsupported_and_unknown_todos_remain_distinct() {
     let agent = preview_agent(AgentStatus::Running);

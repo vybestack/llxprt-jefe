@@ -438,7 +438,7 @@ fn snapshot_with_epoch(epoch: &str) -> Vec<u8> {
         "current_turn": known_field(serde_json::json!({"elapsed_ms": 12000})),
         "todos": known_field(serde_json::json!({
             "revision": 3,
-            "items": [{"text": "Write parser", "completed": false}]
+            "items": [{"text": "Write parser", "state": "in_progress"}]
         })),
         "last_displayed_assistant_message": known_field(serde_json::json!({
             "content": "Done.",

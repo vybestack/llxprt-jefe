@@ -89,7 +89,7 @@ fn snapshot(
         "current_turn": known_field(serde_json::Value::Null),
         "todos": known_field(serde_json::json!({
             "revision": 1,
-            "items": [{"text": marker, "completed": false}]
+            "items": [{"text": marker, "state": "in_progress"}]
         })),
         "last_displayed_assistant_message": known_field(serde_json::json!({
             "content": marker,

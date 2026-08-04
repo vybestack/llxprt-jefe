@@ -711,7 +711,7 @@ mod tests {
                     text: crate::domain::observation::BoundedText(
                         "Implement issue 522".to_string(),
                     ),
-                    completed: false,
+                    state: crate::domain::observation::TodoState::InProgress,
                 }],
             },
         );

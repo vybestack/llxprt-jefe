@@ -3,7 +3,7 @@
   "kind": "scenario",
   "id": "S5",
   "name": "todo_list_replacement_and_completion",
-  "description": "Todo list is fully replaced with an increasing revision, then replaced again with completed items. A replacement whose revision does not exceed the applied revision is ignored as stale.",
+  "description": "Todo list is fully replaced with an increasing revision, then replaced again with every item completed. A replacement whose revision does not exceed the applied revision is ignored as stale.",
   "base_snapshot": {
     "schema": 1,
     "kind": "snapshot",
@@ -58,11 +58,11 @@
           "items": [
             {
               "text": "Step one",
-              "completed": false
+              "state": "in_progress"
             },
             {
               "text": "Step two",
-              "completed": false
+              "state": "pending"
             }
           ]
         }
@@ -122,11 +122,11 @@
           "items": [
             {
               "text": "Step one",
-              "completed": true
+              "state": "completed"
             },
             {
               "text": "Step two",
-              "completed": true
+              "state": "completed"
             }
           ]
         }
@@ -186,7 +186,7 @@
           "items": [
             {
               "text": "stale",
-              "completed": false
+              "state": "pending"
             }
           ]
         }

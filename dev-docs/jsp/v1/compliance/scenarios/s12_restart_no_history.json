@@ -42,7 +42,7 @@
         "items": [
           {
             "text": "historical",
-            "completed": true
+            "state": "completed"
           }
         ]
       },
@@ -182,7 +182,7 @@
             "items": [
               {
                 "text": "historical",
-                "completed": true
+                "state": "completed"
               }
             ]
           },

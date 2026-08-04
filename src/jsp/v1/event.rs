@@ -8,8 +8,8 @@
 
 use crate::domain::observation::{
     BoundedText, DiagnosticSummary, DisplayedAssistantMessage, EventRecord, HeartbeatRecord,
-    NativeActivityState, ObservationEvent, SourceErrorValue, TodoItem, TodoList, ToolCallValue,
-    ToolLabel, ToolPhase, TurnOutcome, WaitReason,
+    NativeActivityState, ObservationEvent, SourceErrorValue, TodoItem, TodoList, TodoState,
+    ToolCallValue, ToolLabel, ToolPhase, TurnOutcome, WaitReason,
 };
 
 use super::error::JspError;
@@ -140,9 +140,11 @@ fn convert_todos(revision: u64, items: &[TodoItemWire]) -> Result<ObservationEve
     let mut converted = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() {
         let path = format!("event.todos.replaced.items[{index}].text");
+        let state_path = format!("event.todos.replaced.items[{index}].state");
+        super::limits::check_bound(&state_path, item.state.len(), FieldLimits::TODO_STATE)?;
         converted.push(TodoItem {
             text: bounded(&path, &item.text, FieldLimits::TODO_TEXT, BoundedText)?,
-            completed: item.completed,
+            state: TodoState::from_wire(&item.state),
         });
     }
     Ok(ObservationEvent::TodosReplaced {

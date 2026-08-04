@@ -3,8 +3,8 @@
 use std::time::Instant;
 
 use crate::domain::observation::{
-    AgentObservation, Availability, FieldState, NativeActivityState, ObservationHealth, ToolPhase,
-    WaitReason,
+    AgentObservation, Availability, FieldState, NativeActivityState, ObservationHealth, TodoState,
+    ToolPhase, WaitReason,
 };
 use crate::domain::{Agent, AgentStatus};
 use crate::git_info::GitRepoInfo;
@@ -108,6 +108,21 @@ fn format_elapsed(elapsed_ms: u64) -> String {
     }
 }
 
+/// The checklist marker for a published task state.
+///
+/// The in-progress marker is the producer's own state, so the reader is being
+/// told what the agent is working on rather than shown a guess. A state JSP/1
+/// does not recognize gets its own marker: it is certainly not completed, and
+/// calling it pending would be the same guess in a different costume.
+const fn todo_marker(state: TodoState) -> &'static str {
+    match state {
+        TodoState::Completed => "x",
+        TodoState::InProgress => ">",
+        TodoState::Pending => " ",
+        TodoState::Unrecognized => "?",
+    }
+}
+
 fn append_todos(lines: &mut Vec<String>, observation: Option<&AgentObservation>) {
     let Some(observation) = observation else {
         lines.push("  (telemetry unavailable)".to_string());
@@ -126,10 +141,11 @@ fn append_todos(lines: &mut Vec<String>, observation: Option<&AgentObservation>)
             if todos.items.is_empty() {
                 lines.push("  (no tasks)".to_string());
             } else {
-                lines.extend(todos.items.iter().map(|todo| {
-                    let marker = if todo.completed { "x" } else { " " };
-                    format!("  [{marker}] {}", todo.text.as_str())
-                }));
+                lines.extend(
+                    todos.items.iter().map(|todo| {
+                        format!("  [{}] {}", todo_marker(todo.state), todo.text.as_str())
+                    }),
+                );
             }
         }
         FieldState::Supported {

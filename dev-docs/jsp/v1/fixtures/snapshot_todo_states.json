@@ -1,18 +1,18 @@
 {
   "schema": 1,
   "kind": "snapshot",
-  "agent_id": "a1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+  "agent_id": "agent-todo-states",
   "lifecycle_generation": 1,
-  "source_epoch": "epoch-005",
+  "source_epoch": "epoch-006",
   "source_sequence": 1,
   "cursor": 0,
-  "bridge_observed_ms": 1785921969000,
+  "bridge_observed_ms": 1785921970000,
   "native_session": {
     "repository": "vybestack/llxprt-jefe",
     "path": "/Users/dev/src/jefe",
     "agent_kind": "llxprt",
-    "pid": 55555,
-    "display_name": "max-id-worker"
+    "pid": 66666,
+    "display_name": "todo-state-worker"
   },
   "process_binding": "unsupported",
   "native_activity": "unsupported",
@@ -25,8 +25,24 @@
       "revision": 1,
       "items": [
         {
-          "text": "x",
+          "text": "Recognized as not started",
           "state": "pending"
+        },
+        {
+          "text": "Recognized as the active item",
+          "state": "in_progress"
+        },
+        {
+          "text": "Recognized as finished",
+          "state": "completed"
+        },
+        {
+          "text": "Outside the recognized vocabulary, so not completed and not active",
+          "state": "blocked"
+        },
+        {
+          "text": "At the inclusive 64-byte state bound",
+          "state": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
         }
       ]
     }

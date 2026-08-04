@@ -18,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use jefe::domain::observation::{
-    NativeActivityState, ObservationEvent, ToolPhase, TurnOutcome, WaitReason,
+    NativeActivityState, ObservationEvent, TodoState, ToolPhase, TurnOutcome, WaitReason,
 };
 use jefe::jsp::v1::error::JspCode;
 use jefe::jsp::v1::{parse_event, parse_heartbeat};
@@ -163,8 +163,98 @@ fn e4_todo_replacement_carries_revision_and_items() {
     };
     assert_eq!(todos.revision, 9);
     assert_eq!(todos.items.len(), 2);
-    assert!(todos.items[0].completed);
-    assert!(!todos.items[1].completed);
+    assert_eq!(todos.items[0].state, TodoState::Completed);
+    assert_eq!(todos.items[1].state, TodoState::InProgress);
+}
+
+/// Build a `todos.replaced` event document carrying the supplied raw item
+/// array.
+fn todos_replaced_document(items: &str) -> String {
+    format!(
+        concat!(
+            r#"{{"schema":1,"kind":"event","agent_id":"a","lifecycle_generation":1,"#,
+            r#""source_epoch":"e","source_sequence":1,"bridge_observed_ms":1,"#,
+            r#""event":{{"type":"todos.replaced","revision":1,"items":{items}}}}}"#
+        ),
+        items = items
+    )
+}
+
+/// The event path carries the same task state as the snapshot path, so the two
+/// cannot drift apart.
+#[test]
+fn e4_todo_replacement_carries_every_native_task_state() {
+    let document = todos_replaced_document(
+        r#"[{"text":"one","state":"pending"},{"text":"two","state":"in_progress"},{"text":"three","state":"completed"}]"#,
+    );
+    let Ok(record) = parse_event(document.as_bytes()) else {
+        panic!("native task states must parse on the event path");
+    };
+    let ObservationEvent::TodosReplaced { todos } = record.event else {
+        panic!("must produce a todo replacement");
+    };
+    let states: Vec<TodoState> = todos.items.iter().map(|item| item.state).collect();
+    assert_eq!(
+        states,
+        vec![
+            TodoState::Pending,
+            TodoState::InProgress,
+            TodoState::Completed
+        ]
+    );
+}
+
+/// An unknown producer state degrades on the event path too, rather than
+/// failing the whole replacement or being guessed.
+#[test]
+fn e4_unrecognized_todo_state_degrades_on_the_event_path() {
+    let document = todos_replaced_document(r#"[{"text":"one","state":"blocked"}]"#);
+    let Ok(record) = parse_event(document.as_bytes()) else {
+        panic!("an unknown producer state must not fail the replacement");
+    };
+    let ObservationEvent::TodosReplaced { todos } = record.event else {
+        panic!("must produce a todo replacement");
+    };
+    assert_eq!(todos.items[0].state, TodoState::Unrecognized);
+}
+
+/// The retired boolean is rejected closed on the event path.
+#[test]
+fn e4_retired_completed_boolean_fails_closed_on_the_event_path() {
+    let document = todos_replaced_document(r#"[{"text":"one","completed":false}]"#);
+    let error = parse_event(document.as_bytes())
+        .err()
+        .unwrap_or_else(|| panic!("the retired boolean must fail"));
+    assert_eq!(error.code(), JspCode::EClosedShape);
+}
+
+/// The state bound is inclusive on the event path and its diagnostic names the
+/// member without echoing the value.
+#[test]
+fn e4_todo_state_bound_is_inclusive_on_the_event_path() {
+    let at_limit = "s".repeat(64);
+    let document = todos_replaced_document(&format!(r#"[{{"text":"one","state":"{at_limit}"}}]"#));
+    assert!(
+        parse_event(document.as_bytes()).is_ok(),
+        "an at-limit state is accepted"
+    );
+
+    let over_limit = "s".repeat(65);
+    let document =
+        todos_replaced_document(&format!(r#"[{{"text":"one","state":"{over_limit}"}}]"#));
+    let error = parse_event(document.as_bytes())
+        .err()
+        .unwrap_or_else(|| panic!("an over-limit state must fail"));
+    assert_eq!(error.code(), JspCode::EBound);
+    let detail = error.detail();
+    assert!(
+        detail.contains("event.todos.replaced.items[0].state"),
+        "diagnostic must point at the offending member: {detail}"
+    );
+    assert!(
+        !detail.contains(&over_limit),
+        "diagnostic must not echo the payload value: {detail}"
+    );
 }
 
 #[test]
