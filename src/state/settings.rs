@@ -535,6 +535,15 @@ impl AppState {
             return false;
         };
         apply_layout_message(editor, &screen, message);
+        // A structural refusal belongs on the screen's own notice row, not
+        // inside the layout pane: the pane is a narrow column beside two
+        // others, and a validator's reason wrapped across it is harder to read
+        // than the tree it is about.
+        self.settings_state.notice = self
+            .settings_state
+            .layout_editor
+            .as_ref()
+            .and_then(|editor| editor.notice.clone());
         true
     }
 

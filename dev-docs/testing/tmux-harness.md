@@ -494,6 +494,23 @@ nonempty declared secret byte sequence with `<redacted>` in frames,
 streams, env, error text, the report, and stderr before anything is
 persisted or printed, and reports the replacement count.
 
+- `settings-agent-types-*.json`, `settings-screens-*.json`, and
+  `settings-keys-*.json` (21 scenarios): the Settings registry editors in each
+  of the seven states — NORMAL, FOCUSED, UNAVAILABLE, ERROR, DIRTY, RECOVERY,
+  and SMALL. Each editor runs its own seven, because a shared scenario would not
+  prove that an editor reports its own unavailability and its own refusals: a
+  probe that found nothing, a compiled screen that cannot be turned off, and a
+  protected control are three different sentences.
+
+  Every state is reached by keystroke alone. The harness launches jefe with its
+  own isolated `--config` directory, so a scenario's declared workspace files
+  are not the settings document the session reads and a fixture cannot be
+  seeded. The ERROR and RECOVERY states are therefore produced by editing:
+  capturing a chord another action already claims leaves the whole candidate
+  refused, and `r` returns the binding to its compiled chord and clears the
+  refusal. Every scenario ends on Ctrl-Q and `finish`, which is what proves the
+  protected exit still works in that state (issue #388).
+
 ### Rule for feature scenarios
 
 Feature scenarios must synchronize with bounded literal `wait` operations

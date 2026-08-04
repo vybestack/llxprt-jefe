@@ -241,7 +241,6 @@ fn layout_pane(settings: &SettingsState, rc: &ResolvedColors) -> Option<AnyEleme
     let editor = settings.layout_editor.as_ref()?;
     let lines = layout_lines(&editor.tree, &editor.selected, &[], 0);
     let dialog = editor.dialog.as_ref().map(dialog_lines);
-    let notice = editor.notice.clone();
     Some(
         element! {
             Box(
@@ -261,11 +260,6 @@ fn layout_pane(settings: &SettingsState, rc: &ResolvedColors) -> Option<AnyEleme
                 #(dialog.into_iter().flatten().map(|(text, error)| element! {
                     Box(width: 100pct, background_color: rc.bg) {
                         Text(content: text, color: if error { rc.error } else { rc.fg })
-                    }
-                }))
-                #(notice.map(|notice| element! {
-                    Box(width: 100pct, background_color: rc.bg) {
-                        Text(content: notice, color: rc.error)
                     }
                 }))
                 Text(content: "q Back  Ctrl-Q quit", color: rc.dim)

@@ -404,14 +404,23 @@ to hold need list and detail space. It is opened with `,` from anywhere.
 | `,` | Open Settings |
 | `j` / `k` / Up / Down | Move the selection in the focused pane |
 | Tab / Shift-Tab | Move focus between the section list and the detail pane |
-| Enter / Space | Apply the focused row, confirm a reload, or take the offered recovery |
+| Enter | Apply the focused row, open what it leads to, confirm a reload, or take the offered recovery |
+| Space | Flip what the focused row holds, when it holds something that flips |
+| `K` / Alt-Up | Move the focused screen one place earlier |
+| `J` / Alt-Down | Move the focused screen one place later |
+| Delete | Bind nothing to the focused action |
 | Left / Right | Step the recovery choices, or move the same selection |
 | `s` | Save |
 | `S` | Save and exit |
 | `r` | Return the focused row's setting to its compiled default |
 | `q` / `Esc` | Back, or withdraw a reload that is waiting to be confirmed |
 | `?` / F1 | Help |
-| Ctrl-Q | Protected exit, never aliased to Back |
+| Ctrl-Q | Protected exit, never aliased to Back and never taken by a capture |
+
+Enter and Space are separate actions. Enter opens what a row leads to — a
+screen's layout tree, an action's chord capture — and Space changes what the row
+holds. Binding both to one action would make "open this screen's layout" and
+"stop composing this screen" the same keystroke.
 
 ### Sections
 
@@ -422,9 +431,59 @@ to hold need list and detail space. It is opened with `,` from anywhere.
   embedded agent output. A theme the document names but the manager cannot
   resolve is listed as `unavailable: not installed` and cannot be selected: it
   is never silently substituted.
+- **Agent Types** lists every agent type the inventory declares, with the
+  enablement the candidate document describes and the status the startup probe
+  observed: `Compatible`, `Incompatible` with the probe's own reason,
+  `Not found`, or the probe's error code and reason. Enablement may be drafted
+  for a type this machine cannot run — what is installed is a fact about now,
+  and what the document offers is a decision that outlives it. A document naming
+  an owner no definition declares keeps its bytes and has no row: the editor has
+  nothing true to say about a type it cannot name, describe, or probe.
+- **Screens** lists every screen the registry composed, in the order the
+  document asks for, with the layout override's composition status. A compiled
+  screen is always composed, so its membership is read-only and says so rather
+  than offering a toggle nothing reads. Enter opens the layout tree editor.
+- **Keys** lists every action in every context it is declared for, with the
+  chords the candidate describes. A protected control is read-only and carries
+  the registry's exact reason. Enter captures exactly the next chord.
 - **Diagnostics** is read-only. It reports each diagnostic's code, severity,
   path, redacted detail, and correction, sorted error, warning, info and then by
   path, span, and code. A diagnostic never carries a value from the document.
+
+A section's rows are windowed around the selection and each is fitted to one
+line. The Keys section lists hundreds of rows, and a pane that drew all of them
+would put most of the list where `j` could reach it and nothing could show it —
+and a wrapped row would push the notice line and the keybind bar off the bottom,
+hiding the very reasons a long row was trying to explain. The window reports how
+many rows sit above and below it.
+
+### The layout tree editor
+
+Enter on a screen opens its layout as a tree. The editor holds text, not a
+tree: a half-typed size or a split with one child is a normal moment in an edit,
+and only a complete tree the descriptor validator accepts reaches the draft.
+
+| Key | Effect |
+|---|---|
+| `j` / `k` / Down / Up | Move between siblings |
+| `h` / Left | Move to the parent node |
+| `l` / Right | Move to the first child |
+| `a` | Add a leaf, choosing from the panels this screen declares but does not place |
+| `x` | Remove the selected child, when the descriptor's invariants survive it |
+| `e` | Edit the selected child's axis, size, minimum, maximum, collapsibility, and collapse order |
+| `H` / `V` | Wrap the selected node in a horizontal or vertical split |
+| Enter | Apply the dialog, or apply the whole tree to the draft |
+| Esc | Cancel the node dialog, or abandon the whole edit |
+| `r` | Remove this screen's override entirely |
+| `q` | Back |
+| Ctrl-Q | Protected exit |
+
+The add chooser offers only panels the tree does not already place, because a
+layout must place each declared panel exactly once. That is what makes the
+chooser closed rather than free text, and it is also what stops a document from
+growing the identifier table. A node dialog that does not parse stays open with
+its reason; a structural change the validator refuses leaves the tree exactly as
+it was and reports the validator's own words on the screen's notice line.
 
 ### Draft behaviour
 
@@ -449,7 +508,17 @@ Nothing active changes until a save succeeds:
   The base, hash, and dirty status are unchanged either way.
 - A saved change that only takes effect at startup displays exactly
   `Restart Jefe to apply structural changes`. Nothing hot reloads and nothing
-  restarts itself.
+  restarts itself. Every registry leaf is structural: agent enablement, screen
+  membership and order, layout overrides, and key bindings are all read once
+  while a session builds a registry.
+- A document that publishes but that a registry owner refuses is not the same as
+  a document that cannot be read. Its values stay on screen, because a screen
+  that fell back to the file on disk would report a chord conflict while showing
+  the binding that does not conflict, leaving the user to correct something they
+  cannot see. Save stays blocked either way.
+- The editors never start a provider, probe anything, or change an active
+  registry. Toggling an agent type, reordering a screen, previewing a layout,
+  and rebinding a key all change the draft and nothing else.
 
 ### Distinct states
 
@@ -490,6 +559,33 @@ SMALL
 
 Every state is keyboard reachable and every marker is text: selection is `>>`,
 the active choice is `*`, and unavailability says so in words.
+
+The Agent Types, Screens, and Keys editors each carry the same seven states, and
+each is exercised separately — a shared scenario would not prove that an editor
+reports its own unavailability and its own refusals:
+
+```text
+UNAVAILABLE (Agent Types)      UNAVAILABLE (Screens)
++ Agent Types --------------+ + Screens ------------------+
+|>>Claude Code: [x] Not found| |>>Dashboard: [x]          |
+| Codex CLI: [x] Not found  | | compiled screens are     |
+|                           | | always composed          |
++---------------------------+ +---------------------------+
+```
+
+```text
+ERROR (Keys)                   ERROR (Screens/Layout)
++ Keys ---------------------+ + Layout -------------------+
+|>>actions Focus search: d  | | split H                  |
+| Diagnostics (1)  KEY-E401 | | declares panel but never |
++---------------------------+ | places it in the layout  |
+                               +---------------------------+
+```
+
+The 21 scenarios under `dev-docs/tmux-scenarios/settings-*.json` drive these
+states through the real TUI. Each reaches its state by keystroke alone, because
+the harness launches jefe with its own isolated `--config` directory and a
+scenario cannot seed a settings document.
 
 ---
 
