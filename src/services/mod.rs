@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use crate::domain::{
     Agent, AgentId, AgentLaunchRequest, AgentStatus, QuickResume, Repository, TypedMap, TypedValue,
+    apply_sandbox_form_values,
 };
 
 pub(crate) use normalize::{expand_tilde, normalize_profile};
@@ -138,6 +139,20 @@ fn selected_version(params: &CreateAgentParams<'_>) -> String {
         .to_owned()
 }
 
+fn insert_sandbox_values(
+    values: &mut TypedMap,
+    definition: &crate::domain::agent_definition::AgentDefinition,
+    params: &CreateAgentParams<'_>,
+) -> Option<()> {
+    apply_sandbox_form_values(
+        values,
+        definition,
+        params.sandbox_enabled,
+        params.sandbox_engine,
+        params.sandbox_flags,
+    )
+}
+
 fn creation_values(
     params: &CreateAgentParams<'_>,
     definition: &crate::domain::agent_definition::AgentDefinition,
@@ -200,6 +215,7 @@ fn creation_values(
         "continue",
         TypedValue::Bool(params.pass_continue),
     )?;
+    insert_sandbox_values(&mut values, definition, params)?;
     Some(values)
 }
 

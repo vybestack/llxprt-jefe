@@ -6,10 +6,69 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::agent_definition::AgentDefinition;
+use super::{Id, TypedMap, TypedValue};
+
 /// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
 ///
 /// Memory is expressed in MiB to avoid unitless podman/crun interpretation issues.
 pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12288m --pids-limit=256";
+
+/// Project the fixed LLxprt sandbox form controls into definition-owned values.
+///
+/// Disabled forms remove dependent values so ordinary option/environment
+/// emitters remain silent. Enabled forms reject unknown engines before either
+/// preview or persistence can observe an invalid enum value.
+pub fn apply_sandbox_form_values(
+    values: &mut TypedMap,
+    definition: &AgentDefinition,
+    enabled: bool,
+    engine: &str,
+    flags: &str,
+) -> Option<()> {
+    set_declared_value(
+        values,
+        definition,
+        "sandbox_enabled",
+        Some(TypedValue::Bool(enabled)),
+    )?;
+    let engine = enabled
+        .then(|| SandboxEngine::from_form_value(engine))
+        .flatten()
+        .map(|engine| TypedValue::String(engine.as_llxprt_arg().to_owned()));
+    if enabled && engine.is_none() {
+        return None;
+    }
+    set_declared_value(values, definition, "sandbox_engine", engine)?;
+    let flags = enabled
+        .then(|| flags.trim())
+        .filter(|flags| !flags.is_empty())
+        .map(|flags| TypedValue::String(flags.to_owned()));
+    set_declared_value(values, definition, "sandbox_flags", flags)
+}
+
+fn set_declared_value(
+    values: &mut TypedMap,
+    definition: &AgentDefinition,
+    field_id: &str,
+    value: Option<TypedValue>,
+) -> Option<()> {
+    let declared = definition
+        .repository_fields
+        .iter()
+        .chain(definition.agent_fields.iter())
+        .any(|field| field.id == field_id);
+    if !declared {
+        return Some(());
+    }
+    let key = Id::parse(&field_id.replace('_', "-")).ok()?;
+    if let Some(value) = value {
+        values.insert(key, value);
+    } else {
+        values.remove(&key);
+    }
+    Some(())
+}
 
 /// Sandbox engine to use when launching llxprt sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

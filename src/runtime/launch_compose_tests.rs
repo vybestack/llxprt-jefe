@@ -112,6 +112,46 @@ fn prepare_fresh_plan(operation: Operation) -> AgentLaunchPlan {
 }
 
 #[test]
+fn llxprt_sandbox_does_not_require_image_preflight() {
+    let definition = llxprt();
+    let mut values = typed_values(true);
+    values.insert(
+        Id::parse("sandbox-enabled").unwrap_or_else(|error| panic!("valid key: {error}")),
+        TypedValue::Bool(true),
+    );
+    values.insert(
+        Id::parse("sandbox-engine").unwrap_or_else(|error| panic!("valid key: {error}")),
+        TypedValue::String("podman".to_owned()),
+    );
+
+    let preflight = preflight_contract(&definition, &values)
+        .unwrap_or_else(|error| panic!("sandbox values must project: {error}"));
+
+    assert!(!preflight.required);
+    assert!(!preflight.is_unavailable());
+}
+
+#[test]
+fn launch_values_reject_unknown_enum_member() {
+    let definition = llxprt();
+    let mut values = typed_values(true);
+    values.insert(
+        Id::parse("sandbox-engine").unwrap_or_else(|error| panic!("valid key: {error}")),
+        TypedValue::String("unknown".to_owned()),
+    );
+
+    let error = launch_values(&definition, &values, Operation::Normal)
+        .err()
+        .unwrap_or_else(|| panic!("unknown enum member must fail"));
+
+    assert!(
+        error
+            .to_string()
+            .contains("not a valid value for sandbox_engine")
+    );
+}
+
+#[test]
 fn fresh_llxprt_plan_emits_one_prompt_without_continuation() {
     for operation in [Operation::FreshIssue, Operation::FreshPullRequest] {
         let plan = prepare_fresh_plan(operation);

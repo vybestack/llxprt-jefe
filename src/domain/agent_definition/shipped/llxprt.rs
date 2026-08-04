@@ -13,8 +13,8 @@ use super::super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
 };
 use super::common::{
-    DefinitionParts, assemble, bool_field_with_default, line_version_probe, npm_candidate,
-    path_candidate, sig_string_field, trusted_capability_probe,
+    DefinitionParts, assemble, bool_field, bool_field_with_default, enum_field, line_version_probe,
+    npm_candidate, path_candidate, sig_string_field, trusted_capability_probe,
 };
 
 fn emitters() -> Vec<Emitter> {
@@ -35,6 +35,17 @@ fn emitters() -> Vec<Emitter> {
         },
         Emitter::Flag {
             field: "continue".to_string(),
+        },
+        Emitter::Flag {
+            field: "sandbox_enabled".to_string(),
+        },
+        Emitter::Option {
+            name: "--sandbox-engine".to_string(),
+            field: "sandbox_engine".to_string(),
+        },
+        Emitter::Environment {
+            name: "SANDBOX_FLAGS".to_string(),
+            field: "sandbox_flags".to_string(),
         },
     ]
 }
@@ -88,6 +99,9 @@ pub fn build() -> AgentDefinition {
             sig_string_field("prompt"),
             bool_field_with_default("prompt_interactive", Some(true)),
             bool_field_with_default("continue", Some(true)),
+            bool_field("sandbox_enabled"),
+            enum_field("sandbox_engine", &["podman", "docker", "sandbox-exec"]),
+            sig_string_field("sandbox_flags"),
         ],
         emitters: emitters(),
     })
@@ -100,7 +114,7 @@ fn llxprt_probe() -> super::super::probe::ProbeSpec {
             &[
                 ("prompt-interactive", "--prompt-interactive"),
                 ("profile", "--profile-load"),
-                ("sandbox", "--sandbox"),
+                ("sandbox-enabled", "--sandbox"),
                 ("sandbox-engine", "--sandbox-engine"),
                 ("yolo", "--yolo"),
                 ("approval", "--approval-mode"),

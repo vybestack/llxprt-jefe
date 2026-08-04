@@ -98,7 +98,6 @@ impl AppState {
             return;
         }
 
-        self.enforce_shortcut_uniqueness(id, fields.shortcut_slot);
         let repository = self.repository_for_agent(id).cloned();
         if let Some(repository) = repository {
             if Self::validated_agent_work_dir(&repository, &fields.work_dir).is_none() {
@@ -109,9 +108,13 @@ impl AppState {
                 return;
             }
             if let Some(agent) = self.agents.iter_mut().find(|agent| &agent.id == id) {
+                if !Self::update_agent_from_fields(agent, &repository, fields) {
+                    self.error_message = Some("invalid agent launch configuration".to_owned());
+                    return;
+                }
                 self.error_message = None;
-                Self::update_agent_from_fields(agent, &repository, fields);
             }
+            self.enforce_shortcut_uniqueness(id, fields.shortcut_slot);
         }
         self.remember_selected_agent_for_current_repo();
         self.modal = ModalState::None;

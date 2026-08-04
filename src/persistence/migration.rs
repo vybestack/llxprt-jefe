@@ -595,6 +595,14 @@ fn agent_values(
             json!(agent_version_selector(source, definition)),
         )?;
     }
+    crate::domain::apply_sandbox_form_values(
+        &mut values,
+        definition,
+        source.sandbox_enabled,
+        &source.sandbox_engine,
+        &source.sandbox_flags,
+    )
+    .ok_or_else(|| "schema-1 sandbox engine is invalid".to_owned())?;
     Ok(values)
 }
 

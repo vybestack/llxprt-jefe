@@ -25,6 +25,11 @@ impl AppState {
         if has_internal_whitespace(&fields.code_puppy_version) {
             return Err("Code Puppy version must not contain whitespace or newlines".to_owned());
         }
+        if fields.sandbox_enabled
+            && crate::domain::SandboxEngine::from_form_value(&fields.sandbox_engine).is_none()
+        {
+            return Err("Sandbox engine must be Podman, Docker, or Seatbelt".to_owned());
+        }
         Ok(())
     }
 

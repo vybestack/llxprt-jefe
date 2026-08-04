@@ -3,7 +3,7 @@
 use crate::domain::agent_definition::{AgentDefinition, AgentTypeId, FieldKind, FieldValue};
 use crate::domain::{
     Agent, AgentId, AgentStatus, Id, RemoteRepositorySettings, Repository, RepositoryId, TypedMap,
-    TypedValue, is_valid_github_component,
+    TypedValue, apply_sandbox_form_values, is_valid_github_component,
 };
 use tracing::warn;
 
@@ -204,7 +204,7 @@ impl AppState {
         } else {
             default_values(&definition)
         };
-        merge_agent_values(&definition, fields, &mut values);
+        merge_agent_values(&definition, fields, &mut values)?;
         let mut agent = Agent::new(
             AgentId(generate_id("agent")),
             repository.id.clone(),
@@ -229,16 +229,28 @@ impl AppState {
         agent: &mut Agent,
         repository: &Repository,
         fields: &AgentFormFields,
-    ) {
+    ) -> bool {
         let Some(type_id) = active_type_id(&fields.agent_type_id) else {
-            return;
+            return false;
         };
         let Some(definition) = definition_for_type(&type_id) else {
-            return;
+            return false;
         };
         let trimmed_name = fields.name.trim();
         if trimmed_name.is_empty() {
-            return;
+            return false;
+        }
+        let mut values = if agent.type_id == type_id {
+            let mut values = agent.values.clone();
+            remove_replaced_agent_values(&definition, &mut values);
+            values
+        } else if repository.default_type_id == type_id {
+            repository.default_values.clone()
+        } else {
+            default_values(&definition)
+        };
+        if merge_agent_values(&definition, fields, &mut values).is_none() {
+            return false;
         }
         trimmed_name.clone_into(&mut agent.name);
         agent.shortcut_slot = fields.shortcut_slot;
@@ -255,18 +267,9 @@ impl AppState {
             }
             agent.work_dir = std::path::PathBuf::from(new_dir);
         }
-        let mut values = if agent.type_id == type_id {
-            let mut values = agent.values.clone();
-            remove_replaced_agent_values(&definition, &mut values);
-            values
-        } else if repository.default_type_id == type_id {
-            repository.default_values.clone()
-        } else {
-            default_values(&definition)
-        };
-        merge_agent_values(&definition, fields, &mut values);
         agent.type_id = type_id;
         agent.values = values;
+        true
     }
 }
 
@@ -358,7 +361,7 @@ fn merge_agent_values(
     definition: &AgentDefinition,
     fields: &AgentFormFields,
     values: &mut TypedMap,
-) {
+) -> Option<()> {
     for field in &definition.repository_fields {
         let value = match field.id.as_str() {
             "profile" => Some(FieldValue::String(fields.profile.trim().to_owned())),
@@ -405,6 +408,13 @@ fn merge_agent_values(
             insert_field_value(values, &field.id, value);
         }
     }
+    apply_sandbox_form_values(
+        values,
+        definition,
+        fields.sandbox_enabled,
+        &fields.sandbox_engine,
+        &fields.sandbox_flags,
+    )
 }
 
 fn insert_field_value(values: &mut TypedMap, field: &str, value: FieldValue) {

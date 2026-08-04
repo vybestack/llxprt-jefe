@@ -140,6 +140,44 @@ fn create_agent_maps_declared_yolo_input_to_typed_values() {
 }
 
 #[test]
+fn create_agent_maps_enabled_sandbox_to_typed_values() {
+    let repo = local_repository();
+    let agent = created(CreateAgentParams {
+        sandbox_enabled: true,
+        sandbox_engine: "Docker",
+        sandbox_flags: "  --network none  ",
+        ..params(&repo, "Agent", "/tmp/agent")
+    });
+    assert_eq!(
+        typed_field(&agent.values, "sandbox_enabled"),
+        Some(&TypedValue::Bool(true))
+    );
+    assert_eq!(
+        typed_field(&agent.values, "sandbox_engine"),
+        Some(&TypedValue::String("docker".to_owned()))
+    );
+    assert_eq!(
+        typed_field(&agent.values, "sandbox_flags"),
+        Some(&TypedValue::String("--network none".to_owned()))
+    );
+}
+
+#[test]
+fn create_agent_clears_sandbox_configuration_when_disabled() {
+    let repo = local_repository();
+    let agent = created(CreateAgentParams {
+        sandbox_engine: "Docker",
+        sandbox_flags: "--network none",
+        ..params(&repo, "Agent", "/tmp/agent")
+    });
+    assert_eq!(
+        typed_field(&agent.values, "sandbox_enabled"),
+        Some(&TypedValue::Bool(false))
+    );
+    assert_eq!(typed_field(&agent.values, "sandbox_engine"), None);
+    assert_eq!(typed_field(&agent.values, "sandbox_flags"), None);
+}
+#[test]
 fn create_agent_expands_tilde_for_local_repository() {
     let Some(home) = std::env::var_os("HOME") else {
         // No HOME set in this environment; tilde expansion is a no-op, which is

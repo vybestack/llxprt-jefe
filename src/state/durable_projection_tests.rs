@@ -386,6 +386,43 @@ fn inverse_restores_runtime_fields_from_projection() {
 }
 
 #[test]
+fn llxprt_sandbox_values_survive_durable_projection_and_restore() {
+    let mut state = sample_state();
+    let values = &mut state.agents[0].values;
+    values.insert(
+        Id::parse("sandbox-enabled").value_or_panic("sandbox enabled key"),
+        crate::domain::TypedValue::Bool(true),
+    );
+    values.insert(
+        Id::parse("sandbox-engine").value_or_panic("sandbox engine key"),
+        crate::domain::TypedValue::String("docker".to_owned()),
+    );
+    values.insert(
+        Id::parse("sandbox-flags").value_or_panic("sandbox flags key"),
+        crate::domain::TypedValue::String("--network none".to_owned()),
+    );
+
+    let projected = to_durable_state(&state).value_or_panic("projection succeeds");
+    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored_values = &restored.agents[0].values;
+
+    assert_eq!(
+        restored_values.get(&Id::parse("sandbox-enabled").value_or_panic("enabled key")),
+        Some(&crate::domain::TypedValue::Bool(true))
+    );
+    assert_eq!(
+        restored_values.get(&Id::parse("sandbox-engine").value_or_panic("engine key")),
+        Some(&crate::domain::TypedValue::String("docker".to_owned()))
+    );
+    assert_eq!(
+        restored_values.get(&Id::parse("sandbox-flags").value_or_panic("flags key")),
+        Some(&crate::domain::TypedValue::String(
+            "--network none".to_owned()
+        ))
+    );
+}
+
+#[test]
 fn inverse_restores_remote_settings_including_base_dir() {
     let state = sample_state();
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
