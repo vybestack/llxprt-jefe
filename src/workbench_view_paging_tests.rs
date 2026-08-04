@@ -520,3 +520,129 @@ fn stable_sort_across_pages() {
         assert!(!names1.contains(n), "agent {n} appeared on both pages");
     }
 }
+
+// ---------------------------------------------------------------------------
+// 12. Authoritative active item (issue #625)
+// ---------------------------------------------------------------------------
+
+/// The active item is the one the producer says is in progress, wherever it
+/// sits. An agent working out of order used to be misreported, because the
+/// first item that was merely not finished was marked as the one being worked
+/// on (issue #625).
+#[test]
+fn active_item_is_the_published_one_even_out_of_order() {
+    let items = vec![
+        (TodoState::Pending, "not started"),
+        (TodoState::Pending, "also not started"),
+        (TodoState::InProgress, "actually being worked on"),
+    ];
+    let obs = todo_observation(&items);
+    let agent = agent_with(AgentStatus::Running, "a", "repo");
+    let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
+    let TodoRender::Known(window) = &view.cards[0].todos else {
+        panic!("expected Known todos");
+    };
+
+    let marked: Vec<&str> = window
+        .visible
+        .iter()
+        .filter(|line| line.is_current)
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(
+        marked.len(),
+        1,
+        "exactly the published in-progress item is active: {:?}",
+        window.visible
+    );
+    assert!(
+        marked[0].contains("actually being worked on"),
+        "the active marker must sit on the published item, not the first unfinished one: {:?}",
+        marked[0]
+    );
+}
+
+/// A list with nothing in progress has no active item. Marking the first
+/// unfinished entry would be a guess presented as fact.
+#[test]
+fn nothing_in_progress_means_no_active_item() {
+    let items = vec![
+        (TodoState::Completed, "done"),
+        (TodoState::Pending, "blocked on review"),
+        (TodoState::Pending, "later"),
+    ];
+    let obs = todo_observation(&items);
+    let agent = agent_with(AgentStatus::Running, "a", "repo");
+    let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
+    let TodoRender::Known(window) = &view.cards[0].todos else {
+        panic!("expected Known todos");
+    };
+
+    assert!(
+        window.current.is_none(),
+        "an unfinished item is not evidence that it is being worked on"
+    );
+    assert!(
+        window.visible.iter().all(|line| !line.is_current),
+        "no line may claim to be active: {:?}",
+        window.visible
+    );
+    assert_eq!(window.done, 1, "the counter still reflects the whole list");
+    assert_eq!(window.total, 3);
+}
+
+/// An agent working several items at once has every one of them marked. Each
+/// marker is something the producer said, so none of them is an inference.
+#[test]
+fn several_items_in_progress_are_all_marked() {
+    let items = vec![
+        (TodoState::InProgress, "first strand"),
+        (TodoState::Completed, "finished"),
+        (TodoState::InProgress, "second strand"),
+    ];
+    let obs = todo_observation(&items);
+    let agent = agent_with(AgentStatus::Running, "a", "repo");
+    let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
+    let TodoRender::Known(window) = &view.cards[0].todos else {
+        panic!("expected Known todos");
+    };
+
+    assert_eq!(
+        window.visible.iter().filter(|line| line.is_current).count(),
+        2,
+        "both published strands are active: {:?}",
+        window.visible
+    );
+}
+
+/// A state JSP/1 does not recognize is not completed and is not active, and
+/// the card says so rather than passing it off as either.
+#[test]
+fn unrecognized_state_is_neither_done_nor_active() {
+    let items = vec![
+        (TodoState::Completed, "done"),
+        (TodoState::Unrecognized, "odd"),
+    ];
+    let obs = todo_observation(&items);
+    let agent = agent_with(AgentStatus::Running, "a", "repo");
+    let view = project(vec![(agent, Some(git("repo")), Some(obs))], 200, 52);
+    let TodoRender::Known(window) = &view.cards[0].todos else {
+        panic!("expected Known todos");
+    };
+
+    assert_eq!(window.done, 1, "an unrecognized state is not completed");
+    assert!(
+        window.current.is_none(),
+        "an unrecognized state is not the active item"
+    );
+    let odd = window
+        .visible
+        .iter()
+        .find(|line| line.text.contains("odd"))
+        .unwrap_or_else(|| panic!("the unrecognized item must render"));
+    assert!(
+        odd.text.contains("[?]"),
+        "an unrecognized state gets its own marker: {:?}",
+        odd.text
+    );
+}
