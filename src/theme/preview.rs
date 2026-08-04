@@ -23,7 +23,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::domain::ThemeId;
 
 /// Process-unique identity of one theme preview.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Identity only. Previews are compared for sameness, never ordered: the
+/// counter they are drawn from says when one was issued, which is not a fact
+/// about previews worth exposing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PreviewId(u64);
 
 static NEXT_PREVIEW: AtomicU64 = AtomicU64::new(1);

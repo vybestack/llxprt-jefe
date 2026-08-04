@@ -245,6 +245,11 @@ impl SettingsDraft {
     }
 
     /// Whether this draft holds unsaved work.
+    ///
+    /// An edit is only held while it still changes something: rebuilding the
+    /// candidate forgets every edit once the bytes match the base again, so
+    /// after the revalidation the reducer performs on each edit, "holds edits"
+    /// and "would change the file" are the same statement.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
         !self.edits.is_empty()

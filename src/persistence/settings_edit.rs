@@ -492,6 +492,12 @@ fn create_user_only(path: &Path) -> std::io::Result<std::fs::File> {
         .open(path)
 }
 
+/// Mirrors the `unix` arm so the caller stays platform-agnostic.
+///
+/// These platforms have no mode bits to set at creation, so the export inherits
+/// whatever the containing directory grants. `create_new` still guarantees the
+/// two properties the export depends on: the file is this process's own, and no
+/// existing file is replaced.
 #[cfg(not(unix))]
 fn create_user_only(path: &Path) -> std::io::Result<std::fs::File> {
     std::fs::OpenOptions::new()
