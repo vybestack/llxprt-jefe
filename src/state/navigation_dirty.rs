@@ -21,7 +21,8 @@
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::domain::effects::SemanticKey;
+use crate::domain::Id;
+use crate::domain::effects::{Correlation, SemanticKey};
 use crate::workbench::PanelId;
 
 use super::navigation::NavIntent;
@@ -68,9 +69,11 @@ pub enum SaveIntent {
         /// Why Save cannot be offered, shown beside the disabled control.
         reason: &'static str,
     },
-    /// The owner will save this draft, and a completion carrying this semantic
-    /// key resolves the guard.
+    /// The owner will save this draft, and only a completion carrying this
+    /// exact identity resolves the guard.
     Owner {
+        /// Who is saving. A completion from anything else is not this save.
+        owner: Id,
         /// The operation the owner will run, and the key its completion carries.
         semantic_key: SemanticKey,
     },
@@ -135,10 +138,32 @@ pub enum DirtyChoice {
 pub enum GuardPhase {
     /// Awaiting the user's choice.
     Choosing,
-    /// The owner's save is running; a completion carrying this key resolves it.
-    Saving {
-        /// The key the resolving completion must carry.
+    /// The owner has been asked to save and has not yet said what it registered.
+    ///
+    /// The reducer cannot allocate a correlation identifier — the pending
+    /// ledger does that, after this transition commits — so there is a moment
+    /// where the guard knows what it asked for but not yet which attempt is
+    /// running. Nothing can resolve the guard during it.
+    SaveRequested {
+        /// Who was asked.
+        owner: Id,
+        /// The operation that was asked for.
         semantic_key: SemanticKey,
+        /// The draft the request was for.
+        draft: DraftToken,
+    },
+    /// A specific save attempt is running; only its exact identity resolves it.
+    ///
+    /// Owner, semantic key, and both generations are not enough on their own:
+    /// a retry of the same operation on the same screen matches all of them, so
+    /// a late answer from the abandoned attempt would resolve the live one. The
+    /// correlation identifier is what distinguishes two attempts, which is why
+    /// the guard waits to be told it rather than guessing.
+    Saving {
+        /// The exact identity the resolving completion must carry.
+        expected: Box<Correlation>,
+        /// The draft this attempt is saving.
+        draft: DraftToken,
     },
     /// The save failed; the draft is intact and Retry, Discard, and Cancel remain.
     Failed {
@@ -185,8 +210,40 @@ impl DirtyGuard {
     }
 
     /// Move to awaiting the owner's save.
-    pub(super) fn saving(&mut self, semantic_key: SemanticKey) {
-        self.phase = GuardPhase::Saving { semantic_key };
+    pub(super) fn save_requested(
+        &mut self,
+        owner: Id,
+        semantic_key: SemanticKey,
+        draft: DraftToken,
+    ) {
+        self.phase = GuardPhase::SaveRequested {
+            owner,
+            semantic_key,
+            draft,
+        };
+    }
+
+    /// Record which attempt the owner actually registered.
+    ///
+    /// Refuses anything that does not answer the request that was made, so a
+    /// stray registration cannot take over the guard.
+    pub(super) fn save_started(&mut self, correlation: &Correlation) -> bool {
+        let GuardPhase::SaveRequested {
+            owner,
+            semantic_key,
+            draft,
+        } = &self.phase
+        else {
+            return false;
+        };
+        if &correlation.owner != owner || &correlation.semantic_key != semantic_key {
+            return false;
+        }
+        self.phase = GuardPhase::Saving {
+            expected: Box::new(correlation.clone()),
+            draft: *draft,
+        };
+        true
     }
 
     /// Move to the recovery state, keeping the draft and the pending navigation.
@@ -194,13 +251,25 @@ impl DirtyGuard {
         self.phase = GuardPhase::Failed { detail };
     }
 
-    /// The key a completion must carry to resolve this guard, if one is running.
+    /// Whether `correlation` is the answer this guard is waiting for.
+    ///
+    /// `held` is the draft the instance still holds; a save whose draft has
+    /// since been replaced is answering about work that no longer exists.
     #[must_use]
-    pub(super) fn awaited_key(&self) -> Option<&SemanticKey> {
-        match &self.phase {
-            GuardPhase::Saving { semantic_key } => Some(semantic_key),
-            GuardPhase::Choosing | GuardPhase::Failed { .. } => None,
-        }
+    pub(super) fn awaits(&self, correlation: &Correlation, held: Option<DraftToken>) -> bool {
+        let GuardPhase::Saving { expected, draft } = &self.phase else {
+            return false;
+        };
+        expected.matches(correlation) && held == Some(*draft)
+    }
+
+    /// Whether a save attempt is in flight, by request or by registration.
+    #[must_use]
+    pub(super) const fn is_saving(&self) -> bool {
+        matches!(
+            self.phase,
+            GuardPhase::SaveRequested { .. } | GuardPhase::Saving { .. }
+        )
     }
 }
 
@@ -213,10 +282,14 @@ impl DirtyGuard {
 pub enum DraftAction {
     /// Nothing is required of the owner.
     None,
-    /// Run the declared save; its completion must carry this semantic key.
+    /// Run the declared save; its completion must carry this exact identity.
     Save {
+        /// Who is saving.
+        owner: Id,
         /// The operation to run.
         semantic_key: SemanticKey,
+        /// The draft being saved.
+        draft: DraftToken,
     },
     /// Abandon this draft and restore the base it was taken from.
     RestoreBase {

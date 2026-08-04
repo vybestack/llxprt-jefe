@@ -33,7 +33,7 @@ use crate::workbench::{
 };
 
 use super::navigation_dirty::{
-    DirtyChoice, DirtyGuard, DirtyState, DraftAction, DraftToken, GuardPhase, SaveIntent,
+    DirtyChoice, DirtyGuard, DirtyState, DraftAction, DraftToken, SaveIntent,
 };
 
 /// Maximum number of suspended instances the navigation stack may hold.
@@ -362,6 +362,15 @@ pub enum NavMessage {
     MarkClean,
     /// Answer the dirty guard.
     ResolveDirty(DirtyChoice),
+    /// Report which attempt the owner registered for the save it was asked to run.
+    ///
+    /// Two attempts at the same operation on the same screen are identical in
+    /// every other field, so the guard cannot tell them apart until it is told
+    /// the correlation the ledger allocated.
+    SaveStarted {
+        /// The exact identity the owner registered.
+        correlation: Correlation,
+    },
     /// Report the outcome of the owner's declared save.
     SaveCompleted {
         /// The exact identity of the completed work.
@@ -407,6 +416,7 @@ pub fn reduce_navigation(
         NavMessage::MarkDirty { draft, save } => mark_dirty(state, draft, save),
         NavMessage::MarkClean => mark_clean(state),
         NavMessage::ResolveDirty(choice) => resolve_dirty(state, registry, choice),
+        NavMessage::SaveStarted { correlation } => save_started(state, &correlation),
         NavMessage::SaveCompleted {
             correlation,
             result,
@@ -447,7 +457,7 @@ fn mark_dirty(mut state: NavState, draft: DraftToken, save: SaveIntent) -> NavTr
     if state
         .guard
         .as_ref()
-        .is_some_and(|guard| matches!(guard.phase(), GuardPhase::Saving { .. }))
+        .is_some_and(super::navigation_dirty::DirtyGuard::is_saving)
     {
         // The owner is saving the draft the guard is holding. Replacing it now
         // would let the running save's completion clear work it never saw.
@@ -461,7 +471,7 @@ fn mark_clean(mut state: NavState) -> NavTransition {
     if state
         .guard
         .as_ref()
-        .is_some_and(|guard| matches!(guard.phase(), GuardPhase::Saving { .. }))
+        .is_some_and(super::navigation_dirty::DirtyGuard::is_saving)
     {
         return NavTransition::plain(state, NavOutcome::GuardRaised);
     }
@@ -479,30 +489,38 @@ fn resolve_dirty(
     };
     match choice {
         DirtyChoice::Save => {
-            if matches!(guard.phase(), GuardPhase::Saving { .. }) {
+            if guard.is_saving() {
                 // A save is already running. Asking for a second one would run
                 // the owner's write twice and leave two completions racing for
                 // one guard.
                 return NavTransition::plain(state, NavOutcome::GuardRaised);
             }
-            let DirtyState::Dirty { save, .. } = &state.current.dirty else {
+            let DirtyState::Dirty { save, draft } = &state.current.dirty else {
                 // Nothing is held any more, so there is nothing to save and the
                 // navigation the guard was holding can proceed.
                 let pending = guard.pending().clone();
                 state.guard = None;
                 return commit(state, registry, pending);
             };
-            let SaveIntent::Owner { semantic_key } = save else {
+            let SaveIntent::Owner {
+                owner,
+                semantic_key,
+            } = save
+            else {
                 // Save is not offered for this draft; the guard stays up so the
                 // user can still choose Discard or Cancel.
                 return NavTransition::plain(state, NavOutcome::GuardRaised);
             };
-            let semantic_key = semantic_key.clone();
-            guard.saving(semantic_key.clone());
+            let (owner, semantic_key, draft) = (owner.clone(), semantic_key.clone(), *draft);
+            guard.save_requested(owner.clone(), semantic_key.clone(), draft);
             NavTransition {
                 state,
                 outcome: NavOutcome::GuardRaised,
-                draft: DraftAction::Save { semantic_key },
+                draft: DraftAction::Save {
+                    owner,
+                    semantic_key,
+                    draft,
+                },
             }
         }
         DirtyChoice::Discard => {
@@ -534,6 +552,20 @@ fn resolve_dirty(
     }
 }
 
+fn save_started(mut state: NavState, correlation: &Correlation) -> NavTransition {
+    if !state.answers_live_work(
+        correlation.screen_generation,
+        correlation.activation_generation,
+    ) {
+        return NavTransition::plain(state, NavOutcome::Unchanged);
+    }
+    let Some(guard) = state.guard.as_mut() else {
+        return NavTransition::plain(state, NavOutcome::Unchanged);
+    };
+    let _ = guard.save_started(correlation);
+    NavTransition::plain(state, NavOutcome::GuardRaised)
+}
+
 fn save_completed(
     mut state: NavState,
     registry: &ScreenRegistry,
@@ -546,10 +578,11 @@ fn save_completed(
     ) {
         return NavTransition::plain(state, NavOutcome::Unchanged);
     }
+    let held = state.current.dirty.draft();
     let Some(guard) = state.guard.as_mut() else {
         return NavTransition::plain(state, NavOutcome::Unchanged);
     };
-    if guard.awaited_key() != Some(&correlation.semantic_key) {
+    if !guard.awaits(correlation, held) {
         return NavTransition::plain(state, NavOutcome::Unchanged);
     }
     match result {

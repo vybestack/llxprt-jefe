@@ -193,6 +193,44 @@ fn a_mode_the_user_left_cannot_change_what_back_does_here() {
 }
 
 #[test]
+fn leaving_a_screen_makes_its_in_flight_work_unanswerable() {
+    // Navigation decides which work is still wanted. Advancing the counters
+    // alone would not be enough: a pending record carries the correlation it
+    // was registered with, so its own completion would still match it exactly.
+    use crate::domain::effects::{Effect, EffectFamily, RetryPolicy, SemanticKey, TimerEffect};
+
+    let mut state = issues();
+    let (screen_generation, activation_generation) = state.nav.live_generations();
+    state.pending_effects.screen_generation = screen_generation;
+    state.pending_effects.activation_generation = activation_generation;
+    let owner = crate::domain::Id::parse("github.issues")
+        .unwrap_or_else(|_| unreachable!("valid identifier"));
+    let key = SemanticKey::new(EffectFamily::Timer, "issue-refresh");
+    let Ok(correlation) = state.register_pending_effect(
+        owner,
+        key,
+        Effect::Timer(TimerEffect::Wakeup { after_ms: 10 }),
+        RetryPolicy::Never,
+    ) else {
+        panic!("the pending store has room");
+    };
+    assert_eq!(state.pending_effects.len(), 1);
+
+    let _ = state.enter_screen(ScreenId::PullRequests);
+
+    assert_eq!(
+        state.pending_effects.len(),
+        0,
+        "work started on the screen the session left must not still be pending"
+    );
+    assert_eq!(
+        state.apply_effect_completion(&correlation),
+        crate::state::transition::CompletionOutcome::StaleIgnored,
+        "its own completion must no longer be applied to whatever replaced it"
+    );
+}
+
+#[test]
 fn every_layer_is_reachable_from_some_real_screen_state() {
     // A layer nothing can open is a layer the precedence cannot be trusted
     // about, so each one has to be produced by an actual state.

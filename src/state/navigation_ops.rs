@@ -24,6 +24,14 @@ use super::navigation::{
 };
 use super::navigation_dirty::{DirtyChoice, DraftAction, DraftToken, SaveIntent};
 
+/// Whether an outcome actually changed which instance is current.
+const fn moved(outcome: &NavOutcome) -> bool {
+    matches!(
+        outcome,
+        NavOutcome::Pushed { .. } | NavOutcome::Replaced { .. } | NavOutcome::Restored { .. }
+    )
+}
+
 impl AppState {
     /// The screen the session is on.
     ///
@@ -120,6 +128,23 @@ impl AppState {
         self.nav = transition.state;
         if let NavOutcome::Refused(refusal) = &transition.outcome {
             self.error_message = Some(refusal.to_string());
+        }
+        if moved(&transition.outcome) {
+            // The pending ledger has to learn what navigation just decided,
+            // otherwise work started on the screen the session left would still
+            // match its own record and be applied to whatever replaced it.
+            let (screen_generation, activation_generation) = self.nav.live_generations();
+            let dropped = self
+                .pending_effects
+                .adopt_live_generations(screen_generation, activation_generation);
+            if dropped > 0 {
+                tracing::debug!(
+                    dropped,
+                    screen_generation,
+                    activation_generation,
+                    "dropped pending work belonging to a screen the session left"
+                );
+            }
         }
         transition.draft
     }

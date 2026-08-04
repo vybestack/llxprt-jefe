@@ -51,6 +51,7 @@ fn savable() -> NavState {
         NavMessage::MarkDirty {
             draft: DraftToken::next(),
             save: SaveIntent::Owner {
+                owner: owner(),
                 semantic_key: owner_key(),
             },
         },
@@ -73,15 +74,51 @@ fn unsavable() -> NavState {
     .state
 }
 
-/// The completion the guard is waiting for, at the live generations.
-fn completion(state: &NavState, key: SemanticKey) -> Correlation {
+/// One attempt's identity, at the live generations.
+fn attempt(state: &NavState, key: SemanticKey, id: u64) -> Correlation {
     let (screen_generation, activation_generation) = state.live_generations();
     Correlation {
-        correlation_id: CorrelationId::new(1),
+        correlation_id: CorrelationId::new(id),
         owner: owner(),
         screen_generation,
         activation_generation,
         semantic_key: key,
+    }
+}
+
+/// The completion the guard is waiting for, at the live generations.
+fn completion(state: &NavState, key: SemanticKey) -> Correlation {
+    attempt(state, key, 1)
+}
+
+/// Drive a guard all the way to a registered, running save attempt.
+fn saving_attempt(state: NavState, id: u64) -> (NavState, Correlation) {
+    let requested = send(state, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let correlation = attempt(&requested, owner_key(), id);
+    let running = send(
+        requested,
+        NavMessage::SaveStarted {
+            correlation: correlation.clone(),
+        },
+    )
+    .state;
+    (running, correlation)
+}
+
+/// Assert the owner was asked to save exactly this draft.
+fn assert_asked_to_save(action: &DraftAction, expected_draft: Option<DraftToken>) {
+    let DraftAction::Save {
+        owner: asked_owner,
+        semantic_key,
+        draft,
+    } = action
+    else {
+        panic!("the guard must ask the owner to save: {action:?}");
+    };
+    assert_eq!(asked_owner, &owner());
+    assert_eq!(semantic_key, &owner_key());
+    if let Some(expected) = expected_draft {
+        assert_eq!(*draft, expected, "the save must name the held draft");
     }
 }
 
@@ -155,20 +192,14 @@ fn choosing_save_asks_the_owner_and_does_not_navigate_yet() {
 
     let transition = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save));
 
-    assert_eq!(
-        transition.draft,
-        DraftAction::Save {
-            semantic_key: owner_key()
-        },
-        "the guard asks the owner to save; it never saves anything itself"
-    );
+    assert_asked_to_save(&transition.draft, None);
     assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
     assert!(matches!(
         transition
             .state
             .guard()
             .map(super::navigation_dirty::DirtyGuard::phase),
-        Some(GuardPhase::Saving { .. })
+        Some(GuardPhase::SaveRequested { .. })
     ));
 }
 
@@ -177,8 +208,7 @@ fn a_matching_successful_completion_performs_the_pending_navigation() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
-    let correlation = completion(&saving, owner_key());
+    let (saving, correlation) = saving_attempt(guarded, 1);
 
     let transition = send(
         saving,
@@ -201,7 +231,7 @@ fn a_completion_for_another_operation_changes_nothing() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let (saving, _started) = saving_attempt(guarded, 1);
     let other = SemanticKey::new(EffectFamily::GitHub, "something-else");
     let correlation = completion(&saving, other);
     let expected = saving.clone();
@@ -223,7 +253,7 @@ fn a_completion_naming_a_stale_generation_changes_nothing() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let (saving, _started) = saving_attempt(guarded, 1);
     let mut correlation = completion(&saving, owner_key());
     correlation.screen_generation = correlation.screen_generation.saturating_add(7);
     let expected = saving.clone();
@@ -266,8 +296,7 @@ fn a_failed_save_retains_the_draft_the_screen_and_the_choices() {
     let held = state.current().dirty.clone();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent.clone())).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
-    let correlation = completion(&saving, owner_key());
+    let (saving, correlation) = saving_attempt(guarded, 1);
 
     let transition = send(
         saving,
@@ -296,8 +325,7 @@ fn retrying_after_a_failed_save_asks_the_owner_again() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
-    let correlation = completion(&saving, owner_key());
+    let (saving, correlation) = saving_attempt(guarded, 1);
     let failed = send(
         saving,
         NavMessage::SaveCompleted {
@@ -309,18 +337,13 @@ fn retrying_after_a_failed_save_asks_the_owner_again() {
 
     let transition = send(failed, NavMessage::ResolveDirty(DirtyChoice::Save));
 
-    assert_eq!(
-        transition.draft,
-        DraftAction::Save {
-            semantic_key: owner_key()
-        }
-    );
+    assert_asked_to_save(&transition.draft, None);
     assert!(matches!(
         transition
             .state
             .guard()
             .map(super::navigation_dirty::DirtyGuard::phase),
-        Some(GuardPhase::Saving { .. })
+        Some(GuardPhase::SaveRequested { .. })
     ));
 }
 
@@ -329,8 +352,7 @@ fn discarding_after_a_failed_save_still_leaves() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
-    let correlation = completion(&saving, owner_key());
+    let (saving, correlation) = saving_attempt(guarded, 1);
     let failed = send(
         saving,
         NavMessage::SaveCompleted {
@@ -529,7 +551,7 @@ fn asking_to_save_again_while_a_save_is_running_does_not_run_it_twice() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let (saving, _started) = saving_attempt(guarded, 1);
 
     let transition = send(saving, NavMessage::ResolveDirty(DirtyChoice::Save));
 
@@ -553,7 +575,7 @@ fn a_draft_cannot_be_replaced_while_the_guard_is_saving_it() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
     let guarded = send(state, NavMessage::Navigate(intent)).state;
-    let saving = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let (saving, _started) = saving_attempt(guarded, 1);
     let held = saving.current().dirty.clone();
 
     let transition = send(
@@ -579,6 +601,165 @@ fn the_instance_left_behind_does_not_carry_a_draft_that_was_abandoned() {
         panic!("the previous instance was suspended");
     };
     assert_eq!(suspended.instance().dirty, DirtyState::Clean);
+}
+
+#[test]
+fn a_completion_from_a_different_owner_changes_nothing() {
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let (saving, _started) = saving_attempt(guarded, 1);
+    let mut correlation = completion(&saving, owner_key());
+    correlation.owner =
+        Id::parse("core.somethingelse").unwrap_or_else(|_| unreachable!("valid identifier"));
+    let expected = saving.clone();
+
+    let transition = send(
+        saving,
+        NavMessage::SaveCompleted {
+            correlation,
+            result: Ok(()),
+        },
+    );
+
+    assert_eq!(transition.state, expected);
+    assert_eq!(transition.outcome, NavOutcome::Unchanged);
+}
+
+#[test]
+fn a_completion_for_a_draft_that_has_since_been_replaced_changes_nothing() {
+    // The guard has to survive a failed save, a fresh draft, and a late answer
+    // about the draft that is gone.
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let (saving, correlation) = saving_attempt(guarded, 1);
+    let failed = send(
+        saving,
+        NavMessage::SaveCompleted {
+            correlation: correlation.clone(),
+            result: Err(failure()),
+        },
+    )
+    .state;
+    let replaced = send(
+        failed,
+        NavMessage::MarkDirty {
+            draft: DraftToken::next(),
+            save: SaveIntent::Owner {
+                owner: owner(),
+                semantic_key: owner_key(),
+            },
+        },
+    )
+    .state;
+    let retrying = send(replaced, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+
+    // The completion above named the draft that has since been replaced.
+    let transition = send(
+        retrying,
+        NavMessage::SaveCompleted {
+            correlation,
+            result: Ok(()),
+        },
+    );
+
+    assert_eq!(
+        transition.state.current().screen,
+        ScreenId::Dashboard,
+        "an answer about a replaced draft must not navigate"
+    );
+    assert!(transition.state.current().dirty.is_dirty());
+}
+
+#[test]
+fn the_save_the_owner_is_asked_to_run_names_the_draft_being_held() {
+    let state = savable();
+    let held = state.current().dirty.draft();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+
+    let transition = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save));
+
+    assert_asked_to_save(&transition.draft, held);
+}
+
+#[test]
+fn a_late_answer_from_an_abandoned_attempt_does_not_resolve_the_retry() {
+    // Owner, operation, screen, and both generations are identical across
+    // attempts, so only the correlation the owner registered tells them apart.
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let (first_running, first) = saving_attempt(guarded, 1);
+    let failed = send(
+        first_running,
+        NavMessage::SaveCompleted {
+            correlation: first.clone(),
+            result: Err(failure()),
+        },
+    )
+    .state;
+    let (retrying, second) = saving_attempt(failed, 2);
+    assert_ne!(first.correlation_id, second.correlation_id);
+
+    let transition = send(
+        retrying,
+        NavMessage::SaveCompleted {
+            correlation: first,
+            result: Ok(()),
+        },
+    );
+
+    assert_eq!(
+        transition.state.current().screen,
+        ScreenId::Dashboard,
+        "the abandoned attempt must not navigate on the retry's behalf"
+    );
+    assert!(transition.state.current().dirty.is_dirty());
+    assert!(matches!(
+        transition
+            .state
+            .guard()
+            .map(super::navigation_dirty::DirtyGuard::phase),
+        Some(GuardPhase::Saving { .. })
+    ));
+}
+
+#[test]
+fn nothing_resolves_the_guard_before_the_owner_says_what_it_registered() {
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let requested = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save)).state;
+    let correlation = completion(&requested, owner_key());
+
+    let transition = send(
+        requested,
+        NavMessage::SaveCompleted {
+            correlation,
+            result: Ok(()),
+        },
+    );
+
+    assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
+    assert!(transition.state.current().dirty.is_dirty());
+}
+
+#[test]
+fn a_registration_that_answers_no_request_is_ignored() {
+    let state = savable();
+    let intent = push_to(&state, ScreenId::Issues);
+    let guarded = send(state, NavMessage::Navigate(intent)).state;
+    let expected = guarded.clone();
+    let correlation = attempt(&guarded, owner_key(), 9);
+
+    let transition = send(guarded, NavMessage::SaveStarted { correlation });
+
+    assert_eq!(
+        transition.state, expected,
+        "no save was asked for, so nothing may claim the guard"
+    );
 }
 
 #[test]
