@@ -11,6 +11,7 @@
 //! the shipped data) so each deterministic property is isolated and the test
 //! has no dependency on any product token.
 
+use crate::domain::agent_definition::normalize::Normalize;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -62,12 +63,11 @@ fn valid_probe() -> ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
         framing: ProbeFraming::Utf8Text,
+        normalize: Normalize::None,
         identity: IdentityRecognizer::Line {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
-        capabilities: None,
-        required: vec!["x".to_string()],
         timeout_ms: 5_000,
         max_bytes: 65_536,
     }

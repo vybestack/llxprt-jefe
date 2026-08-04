@@ -43,10 +43,6 @@ case "$last" in
     if [ -f "$dir/identity.sleep" ]; then sleep "$(cat "$dir/identity.sleep")"; fi
     cat "$dir/identity.stdout"
     ;;
---help)
-    if [ -f "$dir/help.sleep" ]; then sleep "$(cat "$dir/help.sleep")"; fi
-    cat "$dir/help.stdout"
-    ;;
 *)
     exit 64
     ;;
@@ -55,7 +51,6 @@ exit 0
 "#;
 
 const IDENTITY_LINE: &[u8] = b"0.0.600\n";
-const HELP_TEXT: &[u8] = b"--interactive --model --resume --quick-resume --yolo\n";
 
 /// One resolved fixture installation plus the definition that probes it.
 struct Fixture {
@@ -86,7 +81,6 @@ impl Fixture {
         }
         let executable = temp.path().join(program);
         write_file(temp.path(), "identity.stdout", IDENTITY_LINE);
-        write_file(temp.path(), "help.stdout", HELP_TEXT);
 
         let mut definition = shipped("core.code-puppy");
         definition.probe.timeout_ms = SHORT_PROBE_TIMEOUT_MS;
@@ -201,20 +195,6 @@ fn direct_identity_probe_remains_bounded_by_the_authored_probe_timeout() {
     assert!(reason.contains("timed out"), "reason {reason:?}");
 }
 
-/// A3: once identity has run, the package runner environment is materialized,
-/// so every later phase is bounded by the ordinary authored probe timeout.
-#[test]
-fn runner_mediated_capability_probe_uses_the_ordinary_probe_budget() {
-    let fixture = Fixture::package_runner();
-    fixture.delay("help.sleep");
-
-    let reason = probe_error_reason(&fixture.run(3));
-    assert!(reason.contains("timed out"), "reason {reason:?}");
-    assert!(
-        reason.contains("capability"),
-        "the capability phase owns this failure: {reason:?}"
-    );
-}
 /// A4: a timeout must identify the phase, the executable that was run, how long
 /// it actually took, and the budget it exceeded.
 #[test]

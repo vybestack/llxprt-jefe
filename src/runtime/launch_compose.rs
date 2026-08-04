@@ -523,13 +523,16 @@ fn preflight_contract(
     definition: &AgentDefinition,
     values: &TypedMap,
 ) -> Result<Preflight, RuntimeError> {
-    let sandbox_capable = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .and_then(|probe| probe.token_for("sandbox"))
-        .is_some();
-    let required = sandbox_capable && bool_value(values, "sandbox_enabled")?.unwrap_or(false);
+    // Preflight inspects a sandbox *image*, so only a definition that declares
+    // one participates. LLxprt sandboxes through an engine with no image to
+    // pull or inspect, so enabling its sandbox must not demand preflight
+    // (issue #652).
+    let inspectable_image = definition
+        .agent_fields
+        .iter()
+        .chain(definition.repository_fields.iter())
+        .any(|field| field.id == "sandbox_image");
+    let required = inspectable_image && bool_value(values, "sandbox_enabled")?.unwrap_or(false);
     if !required {
         return Ok(Preflight::default());
     }

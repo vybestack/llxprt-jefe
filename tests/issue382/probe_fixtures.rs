@@ -3,9 +3,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use jefe::domain::agent_definition::normalize::{Normalize, strip_ansi_escape};
+use jefe::domain::agent_definition::normalize::Normalize;
 use jefe::domain::agent_definition::probe::{
-    AnchoredPattern, IdentityRecognizer, evaluate_capabilities, evaluate_identity, token_present,
+    AnchoredPattern, IdentityRecognizer, evaluate_identity,
 };
 use jefe::domain::agent_definition::{AgentDefinition, FieldKind};
 use serde_json::Value;
@@ -28,13 +28,12 @@ pub fn assert_all_retained_probe_fixtures() {
             .find(|candidate| candidate.id.as_str() == type_id)
             .unwrap_or_else(|| panic!("fixture {type_id} must have a shipped definition"));
         assert_exact_capture_contract(&fixture_dir, &provenance, definition);
-        assert_authored_capability_contract(&fixture_dir, &provenance, definition);
         if definition
             .repository_fields
             .iter()
             .any(|field| field.id == "permission_mode")
         {
-            assert_claude_permission_modes(&fixture_dir, &provenance, definition);
+            assert_claude_permission_modes(&provenance, definition);
         }
     }
     let shipped_ids: BTreeSet<String> = definitions
@@ -73,12 +72,7 @@ fn dynamic_identity_stream(definition: &AgentDefinition) -> Vec<u8> {
         other => panic!("unexpected shipped identity pattern {other:?}"),
     };
     let text = format!("{prefix}{line}\n");
-    let normalize = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .map_or(Normalize::None, |probe| probe.normalize);
-    if normalize == Normalize::StripAnsi {
+    if definition.probe.normalize == Normalize::StripAnsi {
         format!("\x1b]11;#000000\x07{text}\x1b]104\x07").into_bytes()
     } else {
         text.into_bytes()
@@ -126,99 +120,22 @@ fn assert_exact_capture_contract(
     );
     assert_eq!(read_bytes(&fixture_dir.join("version.stderr")), b"");
     assert_eq!(read_bytes(&fixture_dir.join("probe.stderr")), b"");
-    assert_eq!(read_bytes(&fixture_dir.join("help.stderr")), b"");
     assert_eq!(definition.probe.argv, ["--version"]);
     assert_capture_argv(provenance, "probe", &definition.probe.argv);
     assert_capture_argv(provenance, "version", &definition.probe.argv);
-
-    let capability_probe = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .unwrap_or_else(|| panic!("{} must author a capability probe", definition.id));
-    assert_eq!(capability_probe.argv, ["--help"]);
-    assert_capture_argv(provenance, "help", &capability_probe.argv);
 
     let parsed = evaluate_identity(&probe_stdout, &definition.probe)
         .unwrap_or_else(|error| panic!("{} identity parse: {error}", definition.id));
     let identity = parsed.unwrap_or_else(|| panic!("{} fixture identity", definition.id));
     let release = json_str(&provenance["release"], "version");
     assert!(
-        token_present(&identity, release),
+        identity.contains(release),
         "{} identity {identity:?} must contain release token {release:?}",
         definition.id
     );
 }
 
-fn assert_authored_capability_contract(
-    fixture_dir: &Path,
-    provenance: &Value,
-    definition: &AgentDefinition,
-) {
-    let help_bytes = read_bytes(&fixture_dir.join("help.stdout"));
-    let help = std::str::from_utf8(&help_bytes)
-        .unwrap_or_else(|error| panic!("{} help UTF-8: {error}", definition.id));
-    let probe = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .unwrap_or_else(|| panic!("{} capability probe", definition.id));
-    let evaluated = evaluate_capabilities(help, probe, &definition.probe.required);
-    assert!(
-        evaluated.all_required_present(),
-        "{} missing required {:?}",
-        definition.id,
-        evaluated.missing_required
-    );
-    let authored_ids: BTreeSet<&str> = probe.tokens.iter().map(|token| token.id.as_str()).collect();
-    let present_ids: BTreeSet<&str> = evaluated.present.iter().map(String::as_str).collect();
-    assert_eq!(present_ids, authored_ids, "every authored token is present");
-
-    let normalized = match probe.normalize {
-        Normalize::None => help.to_string(),
-        Normalize::StripAnsi => strip_ansi_escape(help.as_bytes()),
-    };
-    let provenance_literals = verified_help_literals(provenance, &normalized);
-    let authored_literals: BTreeSet<&str> = probe
-        .tokens
-        .iter()
-        .map(|token| token.token.as_str())
-        .collect();
-    assert_eq!(
-        authored_literals, provenance_literals,
-        "{} capability tokens must be exactly the authored, captured help literals",
-        definition.id
-    );
-    let expected_required = probe
-        .tokens
-        .iter()
-        .filter(|token| matches!(token.id.as_str(), "prompt-interactive" | "interactive"))
-        .map(|token| token.id.clone())
-        .collect::<Vec<_>>();
-    assert_eq!(definition.probe.required, expected_required);
-}
-
-fn verified_help_literals<'a>(provenance: &'a Value, help: &str) -> BTreeSet<&'a str> {
-    provenance["verified_mappings"]
-        .as_object()
-        .unwrap_or_else(|| panic!("verified_mappings object"))
-        .values()
-        .flat_map(|mapping| {
-            mapping
-                .as_array()
-                .unwrap_or_else(|| panic!("mapping array"))
-        })
-        .filter_map(Value::as_str)
-        .filter(|literal| !literal.starts_with('<'))
-        .filter(|literal| token_present(help, literal))
-        .collect()
-}
-
-fn assert_claude_permission_modes(
-    fixture_dir: &Path,
-    provenance: &Value,
-    definition: &AgentDefinition,
-) {
+fn assert_claude_permission_modes(provenance: &Value, definition: &AgentDefinition) {
     let expected = [
         "acceptEdits",
         "auto",
@@ -253,15 +170,6 @@ fn assert_claude_permission_modes(
     assert!(
         provenance["official_reference"]["url"].is_string(),
         "Claude modes require an official reference"
-    );
-    let help = String::from_utf8(read_bytes(&fixture_dir.join("help.stdout")))
-        .unwrap_or_else(|error| panic!("Claude help UTF-8: {error}"));
-    let flattened = help.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        flattened.contains(
-            "(choices: \"acceptEdits\", \"auto\", \"bypassPermissions\", \"manual\", \"dontAsk\", \"plan\")"
-        ),
-        "all authored Claude modes must be present in captured help"
     );
 }
 

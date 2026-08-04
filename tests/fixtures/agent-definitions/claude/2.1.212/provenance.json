@@ -19,35 +19,26 @@
     "accessed": "2026-07-26"
   },
   "captures": {
-    "help": {
-      "argv": ["claude", "--help"],
-      "cwd": "/Volumes/XS1000/acoliver/projects/jefe/branch-1",
-      "exit_code": 0,
-      "stdout": "help.stdout",
-      "stderr": "help.stderr"
-    },
     "probe": {
-      "argv": ["claude", "--version"],
+      "argv": [
+        "claude",
+        "--version"
+      ],
       "cwd": "/Volumes/XS1000/acoliver/projects/jefe/branch-1",
       "exit_code": 0,
       "stdout": "probe.stdout",
       "stderr": "probe.stderr"
     },
     "version": {
-      "argv": ["claude", "--version"],
+      "argv": [
+        "claude",
+        "--version"
+      ],
       "cwd": "/Volumes/XS1000/acoliver/projects/jefe/branch-1",
       "exit_code": 0,
       "stdout": "version.stdout",
       "stderr": "version.stderr"
     }
-  },
-  "verified_mappings": {
-    "initial_interactive_prompt": ["<prompt>"],
-    "continue": ["--continue"],
-    "resume": ["--resume", "<session-id-or-name>"],
-    "model": ["--model", "<model>"],
-    "permission_mode": ["--permission-mode", "<mode>"],
-    "bypass_permissions": ["--dangerously-skip-permissions"]
   },
   "permission_modes": [
     "default",
@@ -62,5 +53,28 @@
     "Fixture bytes prove the mapping existed in the captured release; they are not a runtime version allow-list.",
     "The official reference states that --help does not list every supported flag.",
     "Both the official reference and captured help reproduce every verified mapping flag listed here."
-  ]
+  ],
+  "verified_mappings": {
+    "initial_interactive_prompt": [
+      "<prompt>"
+    ],
+    "continue": [
+      "--continue"
+    ],
+    "resume": [
+      "--resume",
+      "<session-id-or-name>"
+    ],
+    "model": [
+      "--model",
+      "<model>"
+    ],
+    "permission_mode": [
+      "--permission-mode",
+      "<mode>"
+    ],
+    "bypass_permissions": [
+      "--dangerously-skip-permissions"
+    ]
+  }
 }

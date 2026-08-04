@@ -29,10 +29,9 @@ fn claude_definition() -> AgentDefinition {
         .unwrap_or_else(|| panic!("Claude definition must be shipped"))
 }
 
-fn compatible_with_capability(capability: &str) -> Availability {
+fn compatible_with_capability(_capability: &str) -> Availability {
     Availability::InstalledCompatible {
         identity: "0.10.0".to_string(),
-        capabilities: vec![capability.to_string()],
         generation: 1,
     }
 }
@@ -40,7 +39,6 @@ fn compatible_with_capability(capability: &str) -> Availability {
 fn compatible_without_capabilities() -> Availability {
     Availability::InstalledCompatible {
         identity: "2.1.212 (Claude Code)".to_string(),
-        capabilities: Vec::new(),
         generation: 9,
     }
 }

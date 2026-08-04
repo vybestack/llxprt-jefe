@@ -2,9 +2,9 @@
 
 use super::super::diagnostics::DefinitionError;
 use super::super::fields::{Emitter, Field, FieldKind};
+use super::super::normalize::Normalize;
 use super::super::probe::{
-    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
-    ProbeStream,
+    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
 };
 use super::super::type_id::{AgentTypeId, CandidateKind, ExecutableCandidate};
 use super::super::types::{OperationMatrix, TargetMatrix};
@@ -27,13 +27,7 @@ fn valid_definition_json() -> String {
                 "prefix": "",
                 "anchored_pattern": {"kind": "version_token"}
             },
-            "capability_probe": {
-                "argv": ["--help"],
-                "stream": "stdout",
-                "normalize": "none",
-                "tokens": [{"id": "interactive", "token": "--interactive"}]
-            },
-            "required": ["interactive"],
+            "normalize": "none",
             "timeout_ms": 5000,
             "max_bytes": 65536
         },
@@ -446,33 +440,6 @@ fn validate_rejects_emitters_over_n() {
 }
 
 #[test]
-fn validate_rejects_probe_with_duplicate_capability() {
-    let mut probe = valid_probe();
-    probe.required = vec!["interactive".to_string(), "interactive".to_string()];
-    let def = AgentDefinition {
-        schema: 1,
-        id: parse_test_id(),
-        display_name: "Test".to_string(),
-        candidates: vec![ExecutableCandidate {
-            kind: CandidateKind::PathName {
-                name: "a".to_string(),
-            },
-            value: std::path::PathBuf::from("a"),
-        }],
-        probe,
-        operations: OperationMatrix::default(),
-        targets: TargetMatrix::default(),
-        repository_fields: vec![],
-        agent_fields: vec![],
-        emitters: vec![],
-    };
-    let Err(err) = def.validate() else {
-        panic!("duplicate capability rejected");
-    };
-    assert!(matches!(err, DefinitionError::Probe(_)));
-}
-
-#[test]
 fn sha256_is_stable_across_field_order() {
     let def_a = AgentDefinition {
         schema: 1,
@@ -522,21 +489,11 @@ fn valid_probe() -> ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
         framing: ProbeFraming::Utf8Text,
+        normalize: Normalize::None,
         identity: IdentityRecognizer::Line {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
-        capabilities: Some(CapabilityProbe {
-            argv: vec!["--help".to_string()],
-            stream: ProbeStream::Stdout,
-            normalize: super::super::normalize::Normalize::None,
-            tokens: vec![CapabilityToken {
-                id: "interactive".to_string(),
-                token: "--interactive".to_string(),
-            }],
-            trusted: false,
-        }),
-        required: vec!["interactive".to_string()],
         timeout_ms: super::super::limits::LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: super::super::limits::PROBE_STREAM_LIMIT,
     }

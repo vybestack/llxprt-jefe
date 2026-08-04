@@ -26,7 +26,6 @@ fn codex() -> AgentDefinition {
 fn compatible(generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity: "id".to_string(),
-        capabilities: Vec::new(),
         generation,
     }
 }

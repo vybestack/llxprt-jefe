@@ -24,7 +24,6 @@ fn llxprt_definition() -> AgentDefinition {
 fn compatible_llxprt() -> Availability {
     Availability::InstalledCompatible {
         identity: "0.10.0".to_string(),
-        capabilities: vec!["prompt-interactive".to_string(), "continue".to_string()],
         generation: 1,
     }
 }

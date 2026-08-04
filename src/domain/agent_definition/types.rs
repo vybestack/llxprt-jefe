@@ -286,14 +286,12 @@ pub enum Availability {
     InstalledCompatible {
         /// Recognized identity token.
         identity: String,
-        /// Sorted, deduplicated capabilities.
-        capabilities: Vec<String>,
         /// Probe generation stamp.
         generation: u64,
     },
-    /// Executable present but a required capability is absent.
+    /// Executable present but its identity was not recognized.
     InstalledIncompatible {
-        /// Exact reason (including the missing capability).
+        /// Exact reason.
         reason: String,
         /// Probe generation stamp.
         generation: u64,

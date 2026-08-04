@@ -11,8 +11,7 @@ use super::super::fields::{Emitter, Field, FieldKind, FieldValue};
 use super::super::limits::{LOCAL_PROBE_TIMEOUT_MS, PROBE_STREAM_LIMIT};
 use super::super::normalize::Normalize;
 use super::super::probe::{
-    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
-    ProbeStream,
+    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
 };
 use super::super::type_id::{CandidateKind, ExecutableCandidate};
 use super::super::types::{OperationMatrix, Support, TargetMatrix, TargetSupport};
@@ -115,100 +114,40 @@ pub fn uvx_candidate(package: &str, binary: &str) -> ExecutableCandidate {
 }
 
 /// Build a line-prefix identity probe spec.
-pub fn line_prefix_probe(
-    prefix: &str,
-    capability_probe: CapabilityProbe,
-    required: &[&str],
-) -> ProbeSpec {
-    ProbeSpec {
-        argv: vec!["--version".to_string()],
-        stream: ProbeStream::Stdout,
-        framing: ProbeFraming::Utf8Text,
-        identity: IdentityRecognizer::Line {
-            prefix: String::new(),
-            anchored_pattern: AnchoredPattern::Prefix {
-                prefix: prefix.to_string(),
-            },
-        },
-        capabilities: Some(capability_probe),
-        required: required.iter().map(|s| (*s).to_string()).collect(),
-        timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
-        max_bytes: PROBE_STREAM_LIMIT,
-    }
+pub fn line_prefix_probe(prefix: &str) -> ProbeSpec {
+    identity_probe(AnchoredPattern::Prefix {
+        prefix: prefix.to_string(),
+    })
 }
 
 /// Build a line-suffix identity probe spec.
-pub fn line_suffix_probe(
-    suffix: &str,
-    capability_probe: CapabilityProbe,
-    required: &[&str],
-) -> ProbeSpec {
-    ProbeSpec {
-        argv: vec!["--version".to_string()],
-        stream: ProbeStream::Stdout,
-        framing: ProbeFraming::Utf8Text,
-        identity: IdentityRecognizer::Line {
-            prefix: String::new(),
-            anchored_pattern: AnchoredPattern::Suffix {
-                suffix: suffix.to_string(),
-            },
-        },
-        capabilities: Some(capability_probe),
-        required: required.iter().map(|s| (*s).to_string()).collect(),
-        timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
-        max_bytes: PROBE_STREAM_LIMIT,
-    }
+pub fn line_suffix_probe(suffix: &str) -> ProbeSpec {
+    identity_probe(AnchoredPattern::Suffix {
+        suffix: suffix.to_string(),
+    })
 }
 
 /// Build a version-token identity probe spec.
-pub fn line_version_probe(
-    normalize: Normalize,
-    mut capability_probe: CapabilityProbe,
-    required: &[&str],
-) -> ProbeSpec {
-    capability_probe.normalize = normalize;
+pub fn line_version_probe(normalize: Normalize) -> ProbeSpec {
+    ProbeSpec {
+        normalize,
+        ..identity_probe(AnchoredPattern::VersionToken)
+    }
+}
+
+/// Build the shared `--version` identity probe for a recognizer.
+fn identity_probe(anchored_pattern: AnchoredPattern) -> ProbeSpec {
     ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
         framing: ProbeFraming::Utf8Text,
+        normalize: Normalize::None,
         identity: IdentityRecognizer::Line {
             prefix: String::new(),
-            anchored_pattern: AnchoredPattern::VersionToken,
+            anchored_pattern,
         },
-        capabilities: Some(capability_probe),
-        required: required.iter().map(|s| (*s).to_string()).collect(),
         timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: PROBE_STREAM_LIMIT,
-    }
-}
-
-/// Build a capability probe from authored (id, token) pairs.
-pub fn capability_probe(normalize: Normalize, tokens: &[(&str, &str)]) -> CapabilityProbe {
-    trusted_capability_probe(normalize, tokens, false)
-}
-
-/// Build a trusted capability probe from authored (id, token) pairs.
-///
-/// A trusted probe skips the runtime `--help` verification and reports every
-/// authored token as present. Used for agents whose every release supports all
-/// authored arguments, where the `--help` gate adds launch fragility.
-pub fn trusted_capability_probe(
-    normalize: Normalize,
-    tokens: &[(&str, &str)],
-    trusted: bool,
-) -> CapabilityProbe {
-    CapabilityProbe {
-        argv: vec!["--help".to_string()],
-        stream: ProbeStream::Stdout,
-        normalize,
-        trusted,
-        tokens: tokens
-            .iter()
-            .map(|(id, token)| CapabilityToken {
-                id: (*id).to_string(),
-                token: (*token).to_string(),
-            })
-            .collect(),
     }
 }
 

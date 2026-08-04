@@ -2,9 +2,9 @@
 
 use super::super::definition::AgentDefinition;
 use super::super::fields::{Emitter, Field, FieldKind};
+use super::super::normalize::Normalize;
 use super::super::probe::{
-    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
-    ProbeStream,
+    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
 };
 use super::super::type_id::{AgentTypeId, CandidateKind, ExecutableCandidate};
 use super::super::types::{OperationMatrix, TargetMatrix};
@@ -15,21 +15,11 @@ fn valid_probe() -> ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
         framing: ProbeFraming::Utf8Text,
+        normalize: Normalize::None,
         identity: IdentityRecognizer::Line {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
-        capabilities: Some(CapabilityProbe {
-            argv: vec!["--help".to_string()],
-            stream: ProbeStream::Stdout,
-            normalize: super::super::normalize::Normalize::None,
-            tokens: vec![CapabilityToken {
-                id: "interactive".to_string(),
-                token: "--interactive".to_string(),
-            }],
-            trusted: false,
-        }),
-        required: vec!["interactive".to_string()],
         timeout_ms: super::super::limits::LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: super::super::limits::PROBE_STREAM_LIMIT,
     }

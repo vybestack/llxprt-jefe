@@ -10,8 +10,8 @@ use super::super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
 };
 use super::common::{
-    DefinitionParts, assemble, bool_field, capability_probe, line_version_probe,
-    optional_bool_field, path_candidate, sig_string_field, uvx_candidate,
+    DefinitionParts, assemble, bool_field, line_version_probe, optional_bool_field, path_candidate,
+    sig_string_field, uvx_candidate,
 };
 
 /// Build the core.code-puppy shipped definition.
@@ -80,18 +80,7 @@ pub fn build() -> AgentDefinition {
 }
 
 fn code_puppy_probe() -> super::super::probe::ProbeSpec {
-    line_version_probe(
-        Normalize::StripAnsi,
-        capability_probe(
-            Normalize::StripAnsi,
-            &[
-                ("interactive", "--interactive"),
-                ("model", "--model"),
-                ("resume", "--resume"),
-                ("quick-resume", "--quick-resume"),
-                ("yolo", "--yolo"),
-            ],
-        ),
-        &["interactive"],
-    )
+    // `code-puppy --version` wraps its version in OSC colour sequences, so the
+    // identity stream must be stripped before the version token is recognized.
+    line_version_probe(Normalize::StripAnsi)
 }

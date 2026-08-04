@@ -16,12 +16,12 @@ use crate::agent_candidate_path::AgentWrapperKind;
 use crate::domain::agent_definition::limits::{
     LOCAL_PROBE_TIMEOUT_MS, PACKAGE_MATERIALIZATION_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS,
 };
-use crate::domain::agent_definition::probe::{CapabilityProbe, ProbeStream};
+use crate::domain::agent_definition::probe::ProbeStream;
 use crate::domain::agent_definition::{
     AgentDefinition, Availability, DefinitionSha256, ProbeErrorCode,
 };
 
-use super::agent_probe_parse::{ProbeEvidenceError, parse_capabilities, parse_identity};
+use super::agent_probe_parse::{ProbeEvidenceError, parse_identity};
 use super::agent_probe_process::{ProbeProcessError, ProbeProcessOutput, run_probe_process};
 
 /// Windows `STATUS_DLL_INIT_FAILED` (`0xC0000142`) as a signed `i32`.
@@ -342,10 +342,7 @@ fn probe_resolved(
     if fingerprint_changed(candidate) {
         return stale_error(generation);
     }
-    // Materialization is complete once identity has run, so every later phase
-    // is bounded by the ordinary probe budget.
-    let capability_phase = ProbePhase::start("capability", target.executable(), probe_budget);
-    run_capabilities(definition, &target, identity, &capability_phase, generation)
+    compatible(identity, generation)
 }
 
 fn run_identity(
@@ -356,60 +353,6 @@ fn run_identity(
     let output = execute_probe(target, &definition.probe.argv, phase)?;
     let selected = select_stream(&output, definition.probe.stream)?;
     parse_identity(&selected, &definition.probe).map_err(ProbeFailure::Evidence)
-}
-
-fn run_capabilities(
-    definition: &AgentDefinition,
-    target: &ProbeTarget<'_>,
-    identity: String,
-    phase: &ProbePhase<'_>,
-    generation: u64,
-) -> Availability {
-    let Some(probe) = &definition.probe.capabilities else {
-        return compatible(identity, Vec::new(), generation);
-    };
-    // A trusted capability probe skips the `--help` subprocess entirely and
-    // reports every authored token as present (issue #534). This eliminates
-    // the dominant source of Windows launch failures for agents whose every
-    // release supports all authored arguments.
-    if probe.trusted {
-        let capabilities = probe.authored_capability_ids();
-        if fingerprint_changed(target.candidate) {
-            return stale_error(generation);
-        }
-        return compatible(identity, capabilities, generation);
-    }
-    let evaluation = match execute_capability_probe(definition, target, probe, phase) {
-        Ok(evaluation) => evaluation,
-        Err(failure) => return failure.into_availability(phase, generation),
-    };
-    if fingerprint_changed(target.candidate) {
-        return stale_error(generation);
-    }
-    if let Some(missing) = evaluation.missing_required.first() {
-        return Availability::InstalledIncompatible {
-            reason: format!("missing required capability: {missing}"),
-            generation,
-        };
-    }
-    compatible(identity, evaluation.present, generation)
-}
-
-fn execute_capability_probe(
-    definition: &AgentDefinition,
-    target: &ProbeTarget<'_>,
-    probe: &CapabilityProbe,
-    phase: &ProbePhase<'_>,
-) -> Result<crate::domain::agent_definition::CapabilityEvaluation, ProbeFailure> {
-    let output = execute_probe(target, &probe.argv, phase)?;
-    let selected = select_stream(&output, probe.stream)?;
-    parse_capabilities(
-        &selected,
-        definition.probe.max_bytes,
-        probe,
-        &definition.probe.required,
-    )
-    .map_err(ProbeFailure::Evidence)
 }
 
 fn execute_probe(
@@ -585,10 +528,9 @@ fn fingerprint_changed(candidate: &ResolvedCandidate) -> bool {
     }
 }
 
-fn compatible(identity: String, capabilities: Vec<String>, generation: u64) -> Availability {
+fn compatible(identity: String, generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity,
-        capabilities,
         generation,
     }
 }

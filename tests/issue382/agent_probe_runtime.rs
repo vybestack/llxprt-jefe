@@ -14,8 +14,7 @@ use jefe::agent_candidate::{AgentCandidateResolver, CandidateResolution, Resolve
 use jefe::agent_candidate_path::PathSnapshot;
 #[cfg(unix)]
 use jefe::domain::agent_definition::probe::{
-    AnchoredPattern, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeStream,
-    evaluate_capabilities,
+    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeStream,
 };
 #[cfg(unix)]
 use jefe::domain::agent_definition::{AgentDefinition, Availability, ProbeErrorCode};
@@ -40,12 +39,6 @@ if [ "$1" = "--version" ]; then
     if [ -f "$dir/identity.nonzero" ]; then exit 7; fi
     exit 0
 fi
-if [ "$1" = "--help" ]; then
-    cat "$dir/help.stdout"
-    cat "$dir/help.stderr" >&2
-    if [ -f "$dir/help.nonzero" ]; then exit 9; fi
-    exit 0
-fi
 exit 64
 "#;
 
@@ -59,16 +52,14 @@ struct FakeInstallation {
 
 #[cfg(unix)]
 impl FakeInstallation {
-    fn new(definition: AgentDefinition, identity: &[u8], help: &[u8]) -> Self {
-        Self::with_streams(definition, identity, b"", help, b"")
+    fn new(definition: AgentDefinition, identity: &[u8]) -> Self {
+        Self::with_streams(definition, identity, b"")
     }
 
     fn with_streams(
         definition: AgentDefinition,
         identity_stdout: &[u8],
         identity_stderr: &[u8],
-        help_stdout: &[u8],
-        help_stderr: &[u8],
     ) -> Self {
         let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
         let name = direct_candidate_name(&definition);
@@ -76,8 +67,6 @@ impl FakeInstallation {
         write_executable(&executable, FAKE_PROBE.as_bytes());
         write_file(temp.path(), "identity.stdout", identity_stdout);
         write_file(temp.path(), "identity.stderr", identity_stderr);
-        write_file(temp.path(), "help.stdout", help_stdout);
-        write_file(temp.path(), "help.stderr", help_stderr);
         let snapshot = PathSnapshot::for_platform(
             jefe::runtime::AgentExecutablePlatform::current(),
             vec![temp.path().to_path_buf()],
@@ -206,50 +195,26 @@ fn assert_one_fixture(definitions: &[AgentDefinition], fixture: &Path, generatio
         definition,
         &read_bytes(&fixture.join("probe.stdout")),
         &read_bytes(&fixture.join("probe.stderr")),
-        &read_bytes(&fixture.join("help.stdout")),
-        &read_bytes(&fixture.join("help.stderr")),
     );
-    let expected = expected_capabilities(&install.definition, fixture);
     let result = install.run(generation);
-    assert_compatible(&result, generation, &expected);
+    assert_compatible(&result, generation);
     assert_eq!(result.definition_sha256(), &install.definition.sha256());
     assert_eq!(
         result.executable_fingerprint(),
         Some(install.resolved().fingerprint())
     );
-    // Trusted capability probes skip the `--help` subprocess (#534) and run only
-    // the `--version` identity probe; a missing capability probe also skips
-    // `--help`; an untrusted probe still verifies `--help`.
-    let expected_invocations: &[&str] = match install.definition.probe.capabilities.as_ref() {
-        None => &["--version"],
-        Some(probe) if probe.trusted => &["--version"],
-        Some(_) => &["--version", "--help"],
-    };
-    assert_eq!(install.invocations(), expected_invocations);
+    // Identity is the only probe (#657).
+    assert_eq!(install.invocations(), ["--version"]);
 }
 
 #[cfg(unix)]
-fn expected_capabilities(definition: &AgentDefinition, fixture: &Path) -> Vec<String> {
-    let probe = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .value_or_panic("capability probe");
-    let bytes = read_bytes(&fixture.join("help.stdout"));
-    let help = std::str::from_utf8(&bytes).unwrap_or_else(|error| panic!("help utf8: {error}"));
-    evaluate_capabilities(help, probe, &definition.probe.required).present
-}
-
-#[cfg(unix)]
-fn assert_compatible(result: &AgentProbeResult, generation: u64, expected: &[String]) {
+fn assert_compatible(result: &AgentProbeResult, generation: u64) {
     match result.availability() {
         Availability::InstalledCompatible {
             identity,
-            capabilities,
             generation: actual,
         } => {
             assert!(!identity.is_empty());
-            assert_eq!(capabilities, expected);
             assert_eq!(*actual, generation);
         }
         other => panic!("expected compatible, got {other:?}"),
@@ -284,29 +249,10 @@ fn drains_stdout_and_stderr_concurrently() {
     for _ in 0..1_000 {
         stderr.extend_from_slice(b"diagnostic diagnostic diagnostic diagnostic diagnostic\n");
     }
-    let install = FakeInstallation::with_streams(
-        shipped("core.codex"),
-        b"codex-cli 9.8.7\n",
-        &stderr,
-        b"--model resume --profile --sandbox --ask-for-approval --dangerously-bypass-approvals-and-sandbox --cd\n",
-        b"",
-    );
+    let install =
+        FakeInstallation::with_streams(shipped("core.codex"), b"codex-cli 9.8.7\n", &stderr);
     let result = install.run(7);
-    assert_compatible(&result, 7, &expected_from_help(&install));
-}
-
-#[cfg(unix)]
-fn expected_from_help(install: &FakeInstallation) -> Vec<String> {
-    let probe = install
-        .definition
-        .probe
-        .capabilities
-        .as_ref()
-        .value_or_panic("capability probe");
-    let bytes = fs::read(install.executable.with_file_name("help.stdout"))
-        .unwrap_or_else(|error| panic!("read help: {error}"));
-    let text = std::str::from_utf8(&bytes).unwrap_or_else(|error| panic!("utf8: {error}"));
-    evaluate_capabilities(text, probe, &install.definition.probe.required).present
+    assert_compatible(&result, 7);
 }
 
 #[cfg(unix)]
@@ -314,12 +260,12 @@ fn expected_from_help(install: &FakeInstallation) -> Vec<String> {
 fn timeout_and_nonzero_exit_are_probe_errors() {
     let mut timeout_definition = shipped("core.codex");
     timeout_definition.probe.timeout_ms = 100;
-    let timeout = FakeInstallation::new(timeout_definition, b"codex-cli 9.8.7\n", b"");
+    let timeout = FakeInstallation::new(timeout_definition, b"codex-cli 9.8.7\n");
 
     timeout.marker("identity.sleep");
     assert_probe_error(&timeout.run(8), "timed out");
 
-    let nonzero = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n", b"");
+    let nonzero = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n");
     nonzero.marker("identity.nonzero");
     assert_probe_error(&nonzero.run(9), "status 7");
 }
@@ -374,7 +320,7 @@ fn sequential_probe_processes_each_receive_the_authored_timeout() {
             result.availability(),
             Availability::InstalledCompatible { .. }
         ),
-        "identity and capability each finish within 3.5s and must not share one 3.5s deadline: {:?}",
+        "identity finishes within its own 3.5s deadline: {:?}",
         result.availability(),
     );
 }
@@ -382,71 +328,21 @@ fn sequential_probe_processes_each_receive_the_authored_timeout() {
 #[cfg(unix)]
 #[test]
 fn signal_exit_is_a_probe_error() {
-    let signaled = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n", b"");
+    let signaled = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n");
     signaled.marker("identity.signal");
     assert_probe_error(&signaled.run(10), "signal");
 }
 
 #[cfg(unix)]
 #[test]
-fn trusted_probe_runs_only_version_and_reports_authored_capabilities() {
-    // A trusted capability probe must skip the `--help` subprocess entirely
-    // and report every authored token as present (issue #534).
-    let mut definition = shipped("core.llxprt");
-    let probe = definition
-        .probe
-        .capabilities
-        .as_mut()
-        .value_or_panic("LLxprt must have a capability probe");
-    assert!(
-        probe.trusted,
-        "LLxprt shipped definition must mark its capability probe trusted"
-    );
-    // Give the fake installation a help file that would FAIL capability
-    // verification (empty help) — a trusted probe must not read it.
-    let install = FakeInstallation::with_streams(definition, b"0.10.0\n", b"", b"", b"");
-    let result = install.run(5);
-    match result.availability() {
-        Availability::InstalledCompatible {
-            identity,
-            capabilities,
-            generation,
-        } => {
-            assert!(!identity.is_empty(), "identity must be recognized");
-            assert_eq!(*generation, 5);
-            // Capabilities must be exactly the authored token ids, sorted.
-            let probe = install
-                .definition
-                .probe
-                .capabilities
-                .as_ref()
-                .value_or_panic("capability probe");
-            assert_eq!(
-                *capabilities,
-                probe.authored_capability_ids(),
-                "trusted probe must report authored token ids as present"
-            );
-        }
-        other => panic!("trusted probe must be compatible, got {other:?}"),
-    }
-    // The single most important assertion: only `--version` was invoked.
-    assert_eq!(
-        install.invocations(),
-        ["--version"],
-        "trusted probe must never spawn --help"
-    );
-}
-
-#[cfg(unix)]
-#[test]
 fn truncation_invalid_utf8_and_overlong_line_are_probe_errors() {
-    let truncated = FakeInstallation::new(shipped("core.codex"), &vec![b'x'; 65_537], b"");
+    let truncated = FakeInstallation::new(shipped("core.codex"), &vec![b'x'; 65_537]);
     assert_probe_error(&truncated.run(10), "truncated");
 
-    let invalid = FakeInstallation::new(shipped("core.codex"), &[0xff], b"");
+    let invalid = FakeInstallation::new(shipped("core.codex"), &[0xff]);
     assert_probe_error(&invalid.run(11), "UTF-8");
 
-    let overlong = FakeInstallation::new(shipped("core.codex"), &vec![b'x'; 4_097], b"");
+    let overlong = FakeInstallation::new(shipped("core.codex"), &vec![b'x'; 4_097]);
     assert_probe_error(&overlong.run(12), "line");
 }
 
@@ -462,11 +358,10 @@ fn malformed_framing_and_identity_mismatch_are_probe_errors() {
     let malformed = FakeInstallation::new(
         malformed_definition,
         br#"{"version":"1.2.3","version":"2.3.4"}"#,
-        b"",
     );
     assert_probe_error(&malformed.run(13), "framing");
 
-    let mismatch = FakeInstallation::new(shipped("core.codex"), b"different 1.2.3\n", b"");
+    let mismatch = FakeInstallation::new(shipped("core.codex"), b"different 1.2.3\n");
     // Every AGT-E202 reason now names its phase (issue #553), so an identity
     // mismatch must be asserted by its own wording rather than by the phase.
     assert_probe_error(&mismatch.run(14), "unrecognized identity");
@@ -478,16 +373,14 @@ fn single_json_and_json_lines_framing_parse_identity() {
     let single = FakeInstallation::new(
         json_definition(ProbeFraming::SingleJson),
         br#"{"version":"1.2.3"}"#,
-        b"",
     );
-    assert_compatible(&single.run(20), 20, &[]);
+    assert_compatible(&single.run(20), 20);
 
     let lines = FakeInstallation::new(
         json_definition(ProbeFraming::JsonLines),
         b"{\"version\":\"bad\"}\n{\"version\":\"2.3.4\"}\n",
-        b"",
     );
-    assert_compatible(&lines.run(21), 21, &[]);
+    assert_compatible(&lines.run(21), 21);
 }
 
 #[cfg(unix)]
@@ -498,49 +391,13 @@ fn json_definition(framing: ProbeFraming) -> AgentDefinition {
         pointer: "/version".to_string(),
         anchored_pattern: AnchoredPattern::VersionToken,
     };
-    definition.probe.capabilities = None;
-    definition.probe.required.clear();
     definition
-}
-#[cfg(unix)]
-#[test]
-fn required_missing_is_exact_and_optional_missing_is_compatible() {
-    let required = FakeInstallation::new(
-        shipped("core.code-puppy"),
-        b"9.8.7\n",
-        b"--model --resume --quick-resume --yolo\n",
-    );
-    match required.run(15).availability() {
-        Availability::InstalledIncompatible { reason, generation } => {
-            assert_eq!(reason, "missing required capability: interactive");
-            assert_eq!(*generation, 15);
-        }
-        other => panic!("expected incompatible, got {other:?}"),
-    }
-
-    let mut optional_definition = shipped("core.codex");
-    let probe = optional_definition
-        .probe
-        .capabilities
-        .as_mut()
-        .value_or_panic("capability probe");
-    probe.tokens.push(CapabilityToken {
-        id: "optional-unknown".to_string(),
-        token: "--future-optional".to_string(),
-    });
-    let optional = FakeInstallation::new(
-        optional_definition,
-        b"codex-cli 9.8.7\n",
-        b"--model resume --profile --sandbox --ask-for-approval --dangerously-bypass-approvals-and-sandbox --cd --not-authored\n",
-    );
-    let result = optional.run(16);
-    assert_compatible(&result, 16, &expected_from_help(&optional));
 }
 
 #[cfg(unix)]
 #[test]
 fn fingerprint_change_is_stale_and_generations_are_preserved() {
-    let install = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n", b"");
+    let install = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n");
     write_executable(
         &install.executable.with_file_name("replacement"),
         FAKE_PROBE.as_bytes(),
@@ -556,11 +413,7 @@ fn fingerprint_change_is_stale_and_generations_are_preserved() {
         other => panic!("expected stale probe error, got {other:?}"),
     }
 
-    let stable = FakeInstallation::new(
-        shipped("core.codex"),
-        b"codex-cli 9.8.7\n",
-        b"--model resume --profile --sandbox --ask-for-approval --dangerously-bypass-approvals-and-sandbox --cd\n",
-    );
+    let stable = FakeInstallation::new(shipped("core.codex"), b"codex-cli 9.8.7\n");
     assert_eq!(stable.run(42).availability().generation(), Some(42));
     assert_eq!(stable.run(43).availability().generation(), Some(43));
 }
@@ -570,49 +423,49 @@ fn fingerprint_change_is_stale_and_generations_are_preserved() {
 fn stream_selection_is_deterministic() {
     let mut definition = shipped("core.codex");
     definition.probe.stream = ProbeStream::Stderr;
-    let install = FakeInstallation::with_streams(
-        definition,
-        b"wrong\n",
-        b"codex-cli 9.8.7\n",
-        b"--model resume --profile --sandbox --ask-for-approval --dangerously-bypass-approvals-and-sandbox --cd\n",
-        b"",
-    );
-    assert_compatible(&install.run(44), 44, &expected_from_help(&install));
+    let install = FakeInstallation::with_streams(definition, b"wrong\n", b"codex-cli 9.8.7\n");
+    assert_compatible(&install.run(44), 44);
 }
 
-// ---- Issue #534: trusted capability probe ----
 // Kept beside the other probe tests so the parent target stays within the
 // 1000-line source-size limit.
 
+/// Issue #657: the `--help` capability probe is deleted, so every shipped
+/// definition probes with exactly one subprocess regardless of agent.
+///
+/// Help is never spawned, so a help stream that would previously have produced
+/// `AGT-E202` cannot fail a launch that identity accepted.
+#[cfg(unix)]
 #[test]
-fn shipped_llxprt_definition_marks_capability_probe_trusted() {
-    let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
-        .into_iter()
-        .find(|definition| definition.id.as_str() == "core.llxprt")
-        .unwrap_or_else(|| panic!("LLxprt definition must be shipped"));
-    let probe = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .unwrap_or_else(|| panic!("LLxprt must have a capability probe"));
-    assert!(
-        probe.trusted,
-        "LLxprt shipped definition must mark its capability probe trusted (issue #534)"
-    );
+fn every_shipped_agent_probes_with_exactly_one_subprocess() {
+    for definition in AgentDefinition::shipped() {
+        let id = definition.id.as_str().to_owned();
+        let identity = identity_line_for(&id);
+        // A help stream that the old gate would have rejected outright.
+        let install = FakeInstallation::new(definition, identity.as_bytes());
+        let result = install.run(1);
+        assert!(
+            matches!(
+                result.availability(),
+                jefe::domain::agent_definition::Availability::InstalledCompatible { .. }
+            ),
+            "{id} must be compatible from identity alone, got {:?}",
+            result.availability()
+        );
+        assert_eq!(
+            install.invocations(),
+            ["--version"],
+            "{id} must spawn only the identity probe"
+        );
+    }
 }
 
-#[test]
-fn shipped_non_llxprt_definitions_remain_untrusted() {
-    for name in ["core.claude-code", "core.code-puppy", "core.codex"] {
-        let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
-            .into_iter()
-            .find(|definition| definition.id.as_str() == name)
-            .unwrap_or_else(|| panic!("{name} definition must be shipped"));
-        if let Some(probe) = &definition.probe.capabilities {
-            assert!(
-                !probe.trusted,
-                "{name} must remain untrusted (only LLxprt is trusted)"
-            );
-        }
+/// Identity bytes each shipped definition's recognizer accepts.
+#[cfg(unix)]
+fn identity_line_for(type_id: &str) -> String {
+    match type_id {
+        "core.claude-code" => "2.1.220 (Claude Code)\n".to_owned(),
+        "core.codex" => "codex-cli 0.146.0\n".to_owned(),
+        _ => "0.0.634\n".to_owned(),
     }
 }

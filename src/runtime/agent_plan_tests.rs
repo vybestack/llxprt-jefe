@@ -14,7 +14,6 @@ fn llxprt() -> AgentDefinition {
 fn compatible(generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity: "id".to_string(),
-        capabilities: Vec::new(),
         generation,
     }
 }
@@ -108,7 +107,7 @@ fn default_field_values_are_used_when_not_provided() {
 }
 
 #[test]
-fn flag_resolves_token_from_capability_probe() {
+fn flag_emitters_produce_declared_tokens_in_order() {
     let definition = llxprt();
     let mut values = LaunchFieldValues::new();
     values.set_agent("continue", FieldValue::Boolean(true));
@@ -154,13 +153,11 @@ fn flag_resolves_token_from_capability_probe() {
     );
 }
 
-/// A flag emitter carries its own argv token, so argv does not depend on the
-/// capability map that issue #657 deletes.
+/// A flag emitter carries its own argv token: nothing outside the emitter
+/// decides what a flag emits (issue #657).
 #[test]
-fn flag_emits_its_own_token_without_a_capability_probe() {
-    let mut definition = llxprt();
-    definition.probe.capabilities = None;
-    definition.probe.required = Vec::new();
+fn flag_emits_its_own_declared_token() {
+    let definition = llxprt();
     let mut values = LaunchFieldValues::new();
     values.set_agent("continue", FieldValue::Boolean(true));
     let request = PlanRequest {

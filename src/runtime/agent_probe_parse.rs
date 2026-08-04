@@ -5,8 +5,7 @@ use crate::domain::agent_definition::json_pointer::JsonPointer;
 use crate::domain::agent_definition::limits::STRING_VALUE_BYTE_LIMIT;
 use crate::domain::agent_definition::normalize::{Normalize, strip_ansi_escape};
 use crate::domain::agent_definition::probe::{
-    AnchoredPattern, CapabilityProbe, IdentityRecognizer, ProbeFraming, ProbeSpec,
-    evaluate_capabilities, parse_text_identity,
+    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, parse_text_identity,
 };
 
 /// Runtime parse failure mapped to AGT-E202 by the adapter.
@@ -27,18 +26,6 @@ pub(super) fn parse_identity(bytes: &[u8], spec: &ProbeSpec) -> Result<String, P
         ProbeFraming::SingleJson => parse_single_json(normalized.as_bytes(), &spec.identity),
         ProbeFraming::JsonLines => parse_json_lines(&normalized, &spec.identity),
     }
-}
-
-/// Parse and evaluate one selected capability stream.
-pub(super) fn parse_capabilities(
-    bytes: &[u8],
-    max_bytes: usize,
-    probe: &CapabilityProbe,
-    required: &[String],
-) -> Result<crate::domain::agent_definition::CapabilityEvaluation, ProbeEvidenceError> {
-    let text = bounded_text(bytes, max_bytes)?;
-    validate_line_bounds(text)?;
-    Ok(evaluate_capabilities(text, probe, required))
 }
 
 fn bounded_text(bytes: &[u8], max_bytes: usize) -> Result<&str, ProbeEvidenceError> {
@@ -64,11 +51,7 @@ fn validate_line_bounds(text: &str) -> Result<(), ProbeEvidenceError> {
 }
 
 fn normalize_identity(text: &str, spec: &ProbeSpec) -> String {
-    let normalization = spec
-        .capabilities
-        .as_ref()
-        .map_or(Normalize::None, |probe| probe.normalize);
-    match normalization {
+    match spec.normalize {
         Normalize::None => text.to_string(),
         Normalize::StripAnsi => strip_ansi_escape(text.as_bytes()),
     }

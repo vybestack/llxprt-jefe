@@ -15,7 +15,7 @@ use crate::domain::agent_definition::{AgentDefinition, Availability, CandidateKi
 use crate::ssh::{SSH_OPERATION_TIMEOUT, SshMode, SshPlan};
 
 use super::RuntimeError;
-use super::agent_probe_parse::{parse_capabilities, parse_identity};
+use super::agent_probe_parse::parse_identity;
 use super::agent_remote_plan::posix_single_quote;
 
 const RESOLVED_SENTINEL: &str = "JEFE_REMOTE_CANDIDATE_V1";
@@ -79,7 +79,10 @@ pub fn run_remote_agent_probe(
         parse_identity(&bytes, &definition.probe)
             .map_err(|_| RuntimeError::SpawnFailed("remote identity probe was malformed".into()))
     })?;
-    let availability = probe_capabilities(definition, settings, &selected, identity, generation)?;
+    let availability = Availability::InstalledCompatible {
+        identity,
+        generation,
+    };
     let recaptured = resolve_candidate(settings, selected.spec.clone())?.ok_or_else(|| {
         RuntimeError::SpawnFailed("remote executable disappeared after probe".into())
     })?;
@@ -245,50 +248,6 @@ fn parse_resolved_candidate(
         executable,
         fingerprint,
     }))
-}
-
-fn probe_capabilities(
-    definition: &AgentDefinition,
-    settings: &RemoteRepositorySettings,
-    candidate: &ResolvedRemoteCandidate,
-    identity: String,
-    generation: u64,
-) -> Result<Availability, RuntimeError> {
-    let Some(probe) = &definition.probe.capabilities else {
-        return Ok(Availability::InstalledCompatible {
-            identity,
-            capabilities: Vec::new(),
-            generation,
-        });
-    };
-    // A trusted capability probe skips the remote `--help` subprocess and
-    // reports every authored token as present (issue #534).
-    if probe.trusted {
-        return Ok(Availability::InstalledCompatible {
-            identity,
-            capabilities: probe.authored_capability_ids(),
-            generation,
-        });
-    }
-    let bytes = run_probe_command(settings, candidate, &probe.argv, probe.stream)?;
-    let evaluation = parse_capabilities(
-        &bytes,
-        definition.probe.max_bytes,
-        probe,
-        &definition.probe.required,
-    )
-    .map_err(|_| RuntimeError::SpawnFailed("remote capability probe was malformed".into()))?;
-    if let Some(missing) = evaluation.missing_required.first() {
-        return Ok(Availability::InstalledIncompatible {
-            reason: format!("missing required capability: {missing}"),
-            generation,
-        });
-    }
-    Ok(Availability::InstalledCompatible {
-        identity,
-        capabilities: evaluation.present,
-        generation,
-    })
 }
 
 fn run_probe_command(

@@ -13,16 +13,9 @@ use jefe::runtime::agent_remote_plan::{
 };
 
 /// Build a compatible probe availability for a definition.
-pub fn probe_compatible(definition: &AgentDefinition, generation: u64) -> Availability {
-    let capabilities: Vec<String> = definition
-        .probe
-        .capabilities
-        .as_ref()
-        .map(|probe| probe.tokens.iter().map(|token| token.id.clone()).collect())
-        .unwrap_or_default();
+pub fn probe_compatible(_definition: &AgentDefinition, generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity: "fixture-identity".to_string(),
-        capabilities,
         generation,
     }
 }

@@ -201,7 +201,6 @@ fn validate_rejects_empty_and_overlong_argv() {
 #[test]
 fn validate_rejects_capability_bounds_duplicates_and_missing_token() {
     let over = ProbeSpec {
-        required: vec!["cap".to_string(); CAPABILITY_LIMIT + 1],
         ..valid_probe()
     };
     assert!(matches!(
@@ -210,7 +209,6 @@ fn validate_rejects_capability_bounds_duplicates_and_missing_token() {
     ));
 
     let duplicate = ProbeSpec {
-        required: vec!["interactive".to_string(), "interactive".to_string()],
         ..valid_probe()
     };
     assert!(matches!(
@@ -219,7 +217,6 @@ fn validate_rejects_capability_bounds_duplicates_and_missing_token() {
     ));
 
     let missing = ProbeSpec {
-        required: vec!["missing".to_string()],
         ..valid_probe()
     };
     assert_eq!(
@@ -331,12 +328,12 @@ fn valid_probe() -> ProbeSpec {
         argv: vec!["--version".to_string()],
         stream: ProbeStream::Stdout,
         framing: ProbeFraming::Utf8Text,
+        normalize: Normalize::None,
         identity: IdentityRecognizer::Line {
             prefix: String::new(),
             anchored_pattern: AnchoredPattern::VersionToken,
         },
         capabilities: Some(capability_probe(&[("interactive", "--interactive")])),
-        required: vec!["interactive".to_string()],
         timeout_ms: LOCAL_PROBE_TIMEOUT_MS,
         max_bytes: PROBE_STREAM_LIMIT,
     }

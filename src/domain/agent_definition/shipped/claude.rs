@@ -7,28 +7,14 @@
 
 use super::super::definition::AgentDefinition;
 use super::super::fields::Emitter;
-use super::super::normalize::Normalize;
 use super::common::{
-    DefinitionParts, assemble, capability_probe, enum_field, line_suffix_probe, local_only_targets,
-    npm_candidate, path_candidate, sig_string_field,
+    DefinitionParts, assemble, enum_field, line_suffix_probe, local_only_targets, npm_candidate,
+    path_candidate, sig_string_field,
 };
 
 /// Build the core.claude-code shipped definition.
 pub fn build() -> AgentDefinition {
-    let probe = line_suffix_probe(
-        "(Claude Code)",
-        capability_probe(
-            Normalize::None,
-            &[
-                ("continue", "--continue"),
-                ("resume", "--resume"),
-                ("model", "--model"),
-                ("permission-mode", "--permission-mode"),
-                ("bypass-permissions", "--dangerously-skip-permissions"),
-            ],
-        ),
-        &[],
-    );
+    let probe = line_suffix_probe("(Claude Code)");
     // `help.stdout` in the fixture declares `claude [options] [command] [prompt]`
     // with `prompt  Your prompt`, and an interactive session by default, so the
     // prompt shape below is fixture-proven for every prompt-bearing operation.

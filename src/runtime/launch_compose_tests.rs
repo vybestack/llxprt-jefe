@@ -65,12 +65,6 @@ fn local_plan(
         argv_prefix: Vec::new(),
         probe: Availability::InstalledCompatible {
             identity: "0.10.0".to_owned(),
-            capabilities: vec![
-                "prompt-interactive".to_owned(),
-                "profile".to_owned(),
-                "yolo".to_owned(),
-                "continue".to_owned(),
-            ],
             generation: 1,
         },
         probe_generation: 1,
@@ -254,12 +248,6 @@ fn remote_plan(
         argv_prefix: Vec::new(),
         probe: Availability::InstalledCompatible {
             identity: "0.10.0".to_owned(),
-            capabilities: vec![
-                "prompt-interactive".to_owned(),
-                "profile".to_owned(),
-                "yolo".to_owned(),
-                "continue".to_owned(),
-            ],
             generation: 1,
         },
         probe_generation: 1,
