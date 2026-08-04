@@ -109,8 +109,13 @@ ingress instead of rendering a confidently wrong checklist.
 ## Review counters
 
 - Local OCR runs: 1 / 2 (0 findings)
-- Post-PR OCR runs: 0 / 2
+- Post-PR OCR runs: 1 / 2 (CI OpenCodeReview on `90d9c13`, coverage
+  `complete_best_effort`, 0 findings)
 - Rust review: 1 (one finding, triaged below)
+- LLxprt PR Review walkthrough: title, description, linked issues and scope all
+  pass. Its one finding — the description did not follow the repository PR
+  template — was fixed by restructuring the PR body.
+- CodeRabbit: skipped by the repository's label configuration.
 
 ## Review triage
 
@@ -139,6 +144,10 @@ ingress instead of rendering a confidently wrong checklist.
 - `cargo xtask ci` — every gate green on the candidate head: fmt,
   check-clippy-allows, check-source-size, check-architecture,
   check-multiplexer-surface, lint, complexity, coverage, build, test.
+- CI on PR #647 at exact head `90d9c13` — 19 checks pass, 2 skipping (the
+  optional TUI smoke and the main-flake baseline record). Native Windows,
+  Windows Clippy, Windows coverage floors and the coverage gate are among the
+  passing set. `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
 
 ### Mainline blocker, fixed here with explicit approval
 
