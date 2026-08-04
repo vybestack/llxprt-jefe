@@ -162,13 +162,16 @@ Destructive actions (delete agent, delete repository, kill agent) require explic
 | `↑` / `↓` | Move the status-filter cursor in the left rail  |
 | `space`    | Toggle the status bucket under the cursor      |
 | `PgDn` / `PgUp` | Page through agents when more exist than fit |
+| `Alt`+`1`-`9` | Jump to the agent holding that shortcut slot |
 | `r`        | Focus repository filter sidebar                |
 | `m`        | Return to dashboard with terminal focused      |
 | `Esc`      | Return to dashboard without terminal focus     |
 
+Shortcut jump is a global binding, so it works here as it does everywhere else; the slot each agent holds is shown in its card header.
+
 Reordering is not available here; it lives on the dashboard, where `space` grabs an entry, arrows move it, and `space` or `Enter` drops it.
 
-Attaching to an agent from the workbench, and jumping to one by its shortcut slot, are not wired yet — use the dashboard for both.
+Attaching to an agent directly from a card is not wired yet: the workbench has no per-card selection, so use shortcut jump or the dashboard.
 
 ### Forms
 

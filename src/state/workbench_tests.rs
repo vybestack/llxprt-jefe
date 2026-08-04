@@ -122,6 +122,25 @@ fn filter_cursor_keys_resolve_in_the_workbench_context() {
             .map(|b| b.action.as_str().to_owned())
     };
 
+    // Shortcut jump is a global action, and the workbench context stack is
+    // ["split", "global"], so it already reaches this screen without a
+    // split-scoped binding of its own.
+    let global_action_for = |text: &str| {
+        let Ok(chord) = Chord::parse(text) else {
+            panic!("chord {text:?} must parse");
+        };
+        inventory
+            .bindings
+            .iter()
+            .find(|b| b.context.as_str() == "global" && b.chords.contains(&chord))
+            .map(|b| b.action.as_str().to_owned())
+    };
+    assert_eq!(
+        global_action_for("Alt+2").as_deref(),
+        Some("core.jump-agent.2"),
+        "Alt+N must jump to the agent in shortcut slot N"
+    );
+
     assert_eq!(action_for("Down").as_deref(), Some("split.navigate-down"));
     assert_eq!(action_for("Up").as_deref(), Some("split.navigate-up"));
     assert_eq!(
