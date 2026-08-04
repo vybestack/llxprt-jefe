@@ -17,6 +17,21 @@ const ACTION_AVAILABILITY_OWNER: &str = "core.keymap";
 const ACTION_AVAILABILITY_SUBJECT: &str = "action-availability";
 
 impl AppState {
+    /// Record a refused action in the global warning and the active work-item
+    /// screen's existing notice band.
+    pub fn record_unavailable_action(&mut self, reason: String) {
+        match self.screen() {
+            super::ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
+            super::ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
+            super::ScreenId::Dashboard
+            | super::ScreenId::Repositories
+            | super::ScreenId::Actions
+            | super::ScreenId::Errors
+            | super::ScreenId::Terminals => {}
+        }
+        self.warning_message = Some(reason);
+    }
+
     pub(super) fn stage_action_availability_projection(&mut self) {
         let Some(snapshot) = self.action_registry_snapshot.as_ref() else {
             return;

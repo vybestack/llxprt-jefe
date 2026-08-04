@@ -838,27 +838,6 @@ impl AppState {
             auth => self.apply_auth_message(auth),
         }
     }
-
-    /// Record that a key press resolved to an action the current state cannot
-    /// perform.
-    ///
-    /// The status-bar warning alone is easy to miss: on the Issues and Pull
-    /// Requests screens the eye is on the workspace banner, so a refused
-    /// `Shift+S` read as "the key did nothing" (issue #633). The same reason
-    /// is therefore mirrored into the owning screen's notice band, which is
-    /// where those screens already report `No agents available`.
-    pub fn record_unavailable_action(&mut self, reason: String) {
-        match self.screen() {
-            ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
-            ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
-            ScreenId::Dashboard
-            | ScreenId::Repositories
-            | ScreenId::Actions
-            | ScreenId::Errors
-            | ScreenId::Terminals => {}
-        }
-        self.warning_message = Some(reason);
-    }
 }
 
 #[cfg(test)]
