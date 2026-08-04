@@ -526,6 +526,9 @@ fn migrate_agent_record(
             // here; reconciliation re-observes them (issue #543).
             pane_identity: None,
             worker_identity: None,
+            // Schema-1 recorded no descendants either, so a migrated document
+            // starts with no orphan anchors (issue #642).
+            worker_identities: Vec::new(),
         },
     })
 }

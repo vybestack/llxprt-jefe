@@ -610,6 +610,7 @@ fn runtime_record_roundtrips_pane_and_worker_identities_separately() {
         last_known: crate::domain::state_contract::LastKnownRuntime::Running,
         pane_identity: Some(PaneProcessIdentity::new(1111, 7)),
         worker_identity: Some(WorkerProcessIdentity::new(2222, 9)),
+        worker_identities: Vec::new(),
     };
 
     let encoded = serde_json::to_string(&record)

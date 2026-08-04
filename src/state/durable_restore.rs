@@ -267,9 +267,10 @@ fn restore_agent(record: &AgentRecord, repository: &Repository) -> Projected<Age
             // re-observes liveness; these are anchors, not proof of life.
             pane_identity: record.runtime.pane_identity,
             worker_identity: record.runtime.worker_identity,
-            // The durable document records no descendant anchors (issue #332);
-            // startup reconciliation re-observes them.
-            worker_identities: Vec::new(),
+            // Restored from the document because nothing re-observes them: a
+            // restart is exactly when the reaper needs the anchors to tell a
+            // dead-launcher orphan tree from a stopped agent (issue #642).
+            worker_identities: record.runtime.worker_identities.clone(),
             lifecycle_generation: record.runtime.invocation_generation,
         });
     agent.persisted_launch_signature = Some(record.launch_signature.clone());
