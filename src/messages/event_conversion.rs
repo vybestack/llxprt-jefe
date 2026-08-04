@@ -124,6 +124,45 @@ impl AppMessage {
         }
     }
 
+    /// Convert a grouped theme-picker event into the typed message bus.
+    fn from_theme_picker_event(event: crate::state::ThemePickerEvent) -> Self {
+        use crate::state::ThemePickerEvent as P;
+        match event {
+            P::Open {
+                available_themes,
+                active_slug,
+            } => Self::Theme(ThemeMessage::OpenThemePicker {
+                available_themes,
+                active_slug,
+            }),
+            P::NavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
+            P::NavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
+            P::Confirm => Self::Theme(ThemeMessage::PickerConfirm),
+            P::ToggleOverride => Self::Theme(ThemeMessage::ToggleAgentThemeOverride),
+            P::Close => Self::Theme(ThemeMessage::PickerCancel),
+        }
+    }
+
+    /// Convert multi-agent workbench [`AppEvent`] variants into UI-navigation
+    /// messages (issue #626). Split out so the top-level converter stays within
+    /// the clippy line budget.
+    fn from_workbench_event(event: AppEvent) -> Self {
+        use UiNavigationMessage as U;
+        match event {
+            AppEvent::ToggleWorkbenchStatusBucket(bucket) => {
+                Self::UiNavigation(U::ToggleWorkbenchStatusBucket(bucket))
+            }
+            AppEvent::WorkbenchNextPage => Self::UiNavigation(U::WorkbenchNextPage),
+            AppEvent::WorkbenchPrevPage => Self::UiNavigation(U::WorkbenchPrevPage),
+            AppEvent::WorkbenchFilterCursorPrev => Self::UiNavigation(U::WorkbenchFilterCursorPrev),
+            AppEvent::WorkbenchFilterCursorNext => Self::UiNavigation(U::WorkbenchFilterCursorNext),
+            AppEvent::WorkbenchSelectPrev => Self::UiNavigation(U::WorkbenchSelectPrev),
+            AppEvent::WorkbenchSelectNext => Self::UiNavigation(U::WorkbenchSelectNext),
+            AppEvent::WorkbenchAttach => Self::UiNavigation(U::WorkbenchAttach),
+            _ => unreachable!("non-workbench AppEvent routed to from_workbench_event"),
+        }
+    }
+
     /// Convert modal/form [`AppEvent`] variants into modal messages. Split out
     /// so the top-level converter stays within the clippy line budget.
     fn from_modal_event(event: AppEvent) -> Self {
@@ -192,6 +231,14 @@ impl AppMessage {
     /// within the clippy line budget without a complexity suppression.
     fn from_non_ui_nav_event(event: AppEvent) -> Self {
         match event {
+            AppEvent::ToggleWorkbenchStatusBucket(_)
+            | AppEvent::WorkbenchNextPage
+            | AppEvent::WorkbenchPrevPage
+            | AppEvent::WorkbenchFilterCursorPrev
+            | AppEvent::WorkbenchFilterCursorNext
+            | AppEvent::WorkbenchSelectPrev
+            | AppEvent::WorkbenchSelectNext
+            | AppEvent::WorkbenchAttach => Self::from_workbench_event(event),
             AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
             AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
             AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
@@ -218,20 +265,7 @@ impl AppMessage {
             }
             AppEvent::SetTheme(theme) => Self::Theme(ThemeMessage::SetTheme(theme)),
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
-            AppEvent::OpenThemePicker {
-                available_themes,
-                active_slug,
-            } => Self::Theme(ThemeMessage::OpenThemePicker {
-                available_themes,
-                active_slug,
-            }),
-            AppEvent::ThemePickerNavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
-            AppEvent::ThemePickerNavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
-            AppEvent::ThemePickerConfirm => Self::Theme(ThemeMessage::PickerConfirm),
-            AppEvent::ThemePickerToggleOverride => {
-                Self::Theme(ThemeMessage::ToggleAgentThemeOverride)
-            }
-            AppEvent::CloseThemePicker => Self::Theme(ThemeMessage::PickerCancel),
+            AppEvent::ThemePicker(picker) => Self::from_theme_picker_event(picker),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
@@ -675,6 +709,16 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::CloseShellOverlay => Self::CloseShellOverlay,
             UiNavigationMessage::HideShellOverlay => Self::HideShellOverlay,
             UiNavigationMessage::ResumeShellOverlay(agent_id) => Self::ResumeShellOverlay(agent_id),
+            UiNavigationMessage::ToggleWorkbenchStatusBucket(bucket) => {
+                Self::ToggleWorkbenchStatusBucket(bucket)
+            }
+            UiNavigationMessage::WorkbenchNextPage => Self::WorkbenchNextPage,
+            UiNavigationMessage::WorkbenchPrevPage => Self::WorkbenchPrevPage,
+            UiNavigationMessage::WorkbenchFilterCursorPrev => Self::WorkbenchFilterCursorPrev,
+            UiNavigationMessage::WorkbenchFilterCursorNext => Self::WorkbenchFilterCursorNext,
+            UiNavigationMessage::WorkbenchSelectPrev => Self::WorkbenchSelectPrev,
+            UiNavigationMessage::WorkbenchSelectNext => Self::WorkbenchSelectNext,
+            UiNavigationMessage::WorkbenchAttach => Self::WorkbenchAttach,
         }
     }
 }
@@ -753,21 +797,22 @@ impl From<PersistenceMessage> for AppEvent {
 
 impl From<ThemeMessage> for AppEvent {
     fn from(message: ThemeMessage) -> Self {
+        use crate::state::ThemePickerEvent as P;
         match message {
             ThemeMessage::SetTheme(theme) => Self::SetTheme(theme),
             ThemeMessage::ResolveFailed(error) => Self::ThemeResolveFailed(error),
             ThemeMessage::OpenThemePicker {
                 available_themes,
                 active_slug,
-            } => Self::OpenThemePicker {
+            } => Self::ThemePicker(P::Open {
                 available_themes,
                 active_slug,
-            },
-            ThemeMessage::PickerNavigateUp => Self::ThemePickerNavigateUp,
-            ThemeMessage::PickerNavigateDown => Self::ThemePickerNavigateDown,
-            ThemeMessage::PickerConfirm => Self::ThemePickerConfirm,
-            ThemeMessage::ToggleAgentThemeOverride => Self::ThemePickerToggleOverride,
-            ThemeMessage::PickerCancel => Self::CloseThemePicker,
+            }),
+            ThemeMessage::PickerNavigateUp => Self::ThemePicker(P::NavigateUp),
+            ThemeMessage::PickerNavigateDown => Self::ThemePicker(P::NavigateDown),
+            ThemeMessage::PickerConfirm => Self::ThemePicker(P::Confirm),
+            ThemeMessage::ToggleAgentThemeOverride => Self::ThemePicker(P::ToggleOverride),
+            ThemeMessage::PickerCancel => Self::ThemePicker(P::Close),
         }
     }
 }

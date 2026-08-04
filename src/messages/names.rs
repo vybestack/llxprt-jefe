@@ -62,6 +62,14 @@ message_names!(UiNavigationMessage {
     Self::CloseShellOverlay => "CloseShellOverlay",
     Self::HideShellOverlay => "HideShellOverlay",
     Self::ResumeShellOverlay(_) => "ResumeShellOverlay",
+    Self::ToggleWorkbenchStatusBucket(_) => "ToggleWorkbenchStatusBucket",
+    Self::WorkbenchNextPage => "WorkbenchNextPage",
+    Self::WorkbenchPrevPage => "WorkbenchPrevPage",
+    Self::WorkbenchFilterCursorPrev => "WorkbenchFilterCursorPrev",
+    Self::WorkbenchFilterCursorNext => "WorkbenchFilterCursorNext",
+    Self::WorkbenchSelectPrev => "WorkbenchSelectPrev",
+    Self::WorkbenchSelectNext => "WorkbenchSelectNext",
+    Self::WorkbenchAttach => "WorkbenchAttach",
 });
 
 message_names!(KeysEditorMessage {

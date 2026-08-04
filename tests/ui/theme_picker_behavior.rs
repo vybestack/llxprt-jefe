@@ -9,7 +9,7 @@
 
 use jefe::state::theme_picker_view::{theme_picker_override_view, theme_picker_view};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState};
+use jefe::state::{AppEvent, AppState, ModalState, ThemePickerEvent};
 
 fn picker_state(themes: &[&str], selected: usize) -> AppState {
     AppState {
@@ -64,14 +64,14 @@ fn picker_state_with_override(themes: &[&str], selected: usize, override_theme: 
 #[test]
 fn open_theme_picker_sets_modal_with_active_theme_selected() {
     let state = AppState::default()
-        .apply(AppEvent::OpenThemePicker {
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Open {
             available_themes: vec![
                 ("green-screen".to_string(), "Green Screen".to_string()),
                 ("dracula".to_string(), "Dracula".to_string()),
                 ("atom-one-dark".to_string(), "Atom One Dark".to_string()),
             ],
             active_slug: "dracula".to_string(),
-        })
+        }))
         .committed_pure();
 
     match state.modal {
@@ -85,10 +85,10 @@ fn open_theme_picker_sets_modal_with_active_theme_selected() {
 #[test]
 fn open_theme_picker_defaults_to_first_when_active_not_found() {
     let state = AppState::default()
-        .apply(AppEvent::OpenThemePicker {
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Open {
             available_themes: vec![("green-screen".to_string(), "Green Screen".to_string())],
             active_slug: "nonexistent".to_string(),
-        })
+        }))
         .committed_pure();
 
     match state.modal {
@@ -104,7 +104,7 @@ fn open_theme_picker_defaults_to_first_when_active_not_found() {
 #[test]
 fn navigate_down_increments_selection() {
     let state = picker_state(&["a", "b", "c"], 0)
-        .apply(AppEvent::ThemePickerNavigateDown)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::NavigateDown))
         .committed_pure();
     let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
     assert!(!rows[0].selected, "row 0 should not be selected");
@@ -114,7 +114,7 @@ fn navigate_down_increments_selection() {
 #[test]
 fn navigate_up_decrements_selection() {
     let state = picker_state(&["a", "b", "c"], 2)
-        .apply(AppEvent::ThemePickerNavigateUp)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::NavigateUp))
         .committed_pure();
     let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
     assert!(rows[1].selected, "row 1 should be selected");
@@ -124,7 +124,7 @@ fn navigate_up_decrements_selection() {
 #[test]
 fn navigate_down_clamps_at_last_theme() {
     let state = picker_state(&["a", "b"], 1)
-        .apply(AppEvent::ThemePickerNavigateDown)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::NavigateDown))
         .committed_pure();
     let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
     assert!(
@@ -136,7 +136,7 @@ fn navigate_down_clamps_at_last_theme() {
 #[test]
 fn navigate_up_clamps_at_first_theme() {
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::ThemePickerNavigateUp)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::NavigateUp))
         .committed_pure();
     let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
     assert!(
@@ -148,7 +148,7 @@ fn navigate_up_clamps_at_first_theme() {
 #[test]
 fn navigation_is_noop_when_picker_not_open() {
     let state = AppState::default()
-        .apply(AppEvent::ThemePickerNavigateDown)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::NavigateDown))
         .committed_pure();
     assert_eq!(state.modal, ModalState::None);
 }
@@ -160,7 +160,7 @@ fn navigation_is_noop_when_picker_not_open() {
 #[test]
 fn confirm_closes_the_picker_modal() {
     let state = picker_state(&["a", "b"], 1)
-        .apply(AppEvent::ThemePickerConfirm)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Confirm))
         .committed_pure();
     assert_eq!(state.modal, ModalState::None);
 }
@@ -168,7 +168,7 @@ fn confirm_closes_the_picker_modal() {
 #[test]
 fn close_theme_picker_cancels() {
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::CloseThemePicker)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Close))
         .committed_pure();
     assert_eq!(state.modal, ModalState::None);
 }
@@ -210,7 +210,7 @@ fn view_marks_active_theme_independently_of_selection() {
 #[test]
 fn toggle_override_flips_override_flag() {
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure();
     let override_val = theme_picker_override_view(&state)
         .unwrap_or_else(|| panic!("picker should be open with override field"));
@@ -223,9 +223,9 @@ fn toggle_override_flips_override_flag() {
 #[test]
 fn toggle_override_twice_returns_to_false() {
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure()
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure();
     let override_val =
         theme_picker_override_view(&state).unwrap_or_else(|| panic!("picker should still be open"));
@@ -245,7 +245,7 @@ fn toggle_override_is_noop_when_picker_not_open() {
         ..AppState::default()
     };
     let next = state
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure();
     assert_eq!(
         next.modal,
@@ -267,10 +267,10 @@ fn open_picker_initializes_override_from_app_state() {
         ..AppState::default()
     };
     let state = base
-        .apply(AppEvent::OpenThemePicker {
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Open {
             available_themes: vec![("a".to_string(), "A".to_string())],
             active_slug: "a".to_string(),
-        })
+        }))
         .committed_pure();
     let override_val =
         theme_picker_override_view(&state).unwrap_or_else(|| panic!("picker should be open"));
@@ -285,9 +285,9 @@ fn confirm_closes_picker_after_override_toggle() {
     // Toggling override then confirming still closes the modal (existing
     // behavior unchanged by the new field).
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure()
-        .apply(AppEvent::ThemePickerConfirm)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Confirm))
         .committed_pure();
     assert_eq!(state.modal, ModalState::None);
 }
@@ -297,9 +297,9 @@ fn confirm_commits_override_to_app_state() {
     // The in-dialog override toggle is committed to the runtime mirror on
     // confirm (issue #179). The reducer owns this transition deterministically.
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure()
-        .apply(AppEvent::ThemePickerConfirm)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Confirm))
         .committed_pure();
     assert!(
         state.override_agent_theme,
@@ -312,9 +312,9 @@ fn confirm_commits_override_false_to_app_state() {
     // Reverse direction (issue #179 symmetry): starting with the in-dialog
     // override ON, toggling it OFF and confirming must commit false.
     let state = picker_state_with_override(&["a", "b"], 0, true)
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure()
-        .apply(AppEvent::ThemePickerConfirm)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Confirm))
         .committed_pure();
     assert!(
         !state.override_agent_theme,
@@ -326,9 +326,9 @@ fn confirm_commits_override_false_to_app_state() {
 fn cancel_does_not_commit_override_toggle() {
     // Cancel discards the in-dialog toggle; the runtime mirror is unchanged.
     let state = picker_state(&["a", "b"], 0)
-        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::ToggleOverride))
         .committed_pure()
-        .apply(AppEvent::CloseThemePicker)
+        .apply(AppEvent::ThemePicker(ThemePickerEvent::Close))
         .committed_pure();
     assert_eq!(state.modal, ModalState::None);
     assert!(

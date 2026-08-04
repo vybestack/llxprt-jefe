@@ -359,11 +359,24 @@ const SPECS: &[Spec] = &[
         H::EnterSplitGrab,
         ["g", "Shift+G"]
     ),
-    spec!("split", "split.navigate-up", H::NavigateUp, ["Up", "k"]),
+    spec!(
+        "split",
+        "split.toggle-status-filter",
+        H::WorkbenchToggleFilter,
+        [" "]
+    ),
+    // On the workbench the status rail is the navigable list, so the vertical
+    // keys move the filter cursor and `space` toggles the bucket it lands on.
+    spec!(
+        "split",
+        "split.navigate-up",
+        H::WorkbenchFilterPrev,
+        ["Up", "k"]
+    ),
     spec!(
         "split",
         "split.navigate-down",
-        H::NavigateDown,
+        H::WorkbenchFilterNext,
         ["Down", "j"]
     ),
     spec!(protected "errors", "errors.back", H::ErrorsBack, ["Esc"]),

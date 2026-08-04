@@ -126,7 +126,10 @@ fn s3_inventory_covers_audited_split_errors_and_pre_mode_rows() {
         })
     };
 
-    assert!(has("split", "PageDown", H::NavigatePageDown));
+    // On the workbench a page is a page of agent cards, not a list scroll
+    // (issue #626).
+    assert!(has("split", "PageDown", H::WorkbenchNextPage));
+    assert!(has("split", "PageUp", H::WorkbenchPrevPage));
     assert!(has("split", "Ctrl+R", H::RestartSelectedAgent));
     assert!(has("split", "F12", H::ToggleTerminalFocus));
     assert!(has("actions", "F12", H::ToggleTerminalFocus));
