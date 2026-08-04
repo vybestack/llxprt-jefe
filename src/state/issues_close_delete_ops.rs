@@ -437,6 +437,7 @@ impl AppState {
             | ReadOnlyHintKind::NoSelectionToOpen
             | ReadOnlyHintKind::NoPrToMerge
             | ReadOnlyHintKind::PrNotMergeable
+            | ReadOnlyHintKind::NoPrToDelete
             | ReadOnlyHintKind::ReadOnlyResolveOnThread => "Action not available".to_string(),
         };
         self.issues_state.draft_notice = Some(text);

@@ -69,15 +69,23 @@ pub fn write_launch_plan(
     worker_report: Option<&Path>,
 ) -> Result<PathBuf, AgentLauncherError> {
     let script_launch = script_launch_for(executable, wrapper);
+    let mut launch_path = executable.to_path_buf();
+    let mut launch_wrapper = wrapper;
     if script_launch.is_none()
         && wrapper == AgentWrapperKind::CommandScript
         && args.iter().any(argument_defeats_cmd_exe)
     {
-        return Err(AgentLauncherError::CommandScriptArgumentUnsupported);
+        match powershell_sibling_for(executable) {
+            Some(sibling) => {
+                launch_path = sibling;
+                launch_wrapper = AgentWrapperKind::PowerShellScript;
+            }
+            None => return Err(AgentLauncherError::CommandScriptArgumentUnsupported),
+        }
     }
     let payload = AgentLaunchPayload {
-        path: executable.to_path_buf(),
-        wrapper: wrapper.into(),
+        path: launch_path,
+        wrapper: launch_wrapper.into(),
         script_launch,
         args: args.to_vec(),
         environment: environment.to_vec(),
@@ -126,6 +134,22 @@ fn script_launch_for(executable: &Path, wrapper: AgentWrapperKind) -> Option<Scr
             entrypoint: plan.entrypoint().to_path_buf(),
         }
     })
+}
+
+/// The PowerShell shim npm installed alongside a `.cmd` wrapper, if present.
+///
+/// npm's `cmd-shim` emits `<name>.cmd`, `<name>.ps1`, and an extensionless
+/// shell script together for the same command, so the sibling is the same
+/// installer's shim for the same binary rather than a guessed neighbouring
+/// runtime. PowerShell parses its own command line and carries an argument
+/// containing CR/LF intact, which `cmd.exe` cannot do at all (issue #620).
+fn powershell_sibling_for(executable: &Path) -> Option<PathBuf> {
+    let extension = executable.extension()?.to_str()?;
+    if !extension.eq_ignore_ascii_case("cmd") && !extension.eq_ignore_ascii_case("bat") {
+        return None;
+    }
+    let sibling = executable.with_extension("ps1");
+    sibling.is_file().then_some(sibling)
 }
 
 /// Whether an argument cannot survive a `cmd.exe` command line.
@@ -412,7 +436,60 @@ mod tests {
     }
 
     #[test]
-    fn unmarked_command_script_refuses_a_newline_argument_instead_of_truncating() {
+    fn command_script_with_a_powershell_sibling_delivers_the_multiline_prompt() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
+        let wrapper = dir.path().join("agent.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\nexit /b 0\r\n")
+            .unwrap_or_else(|error| panic!("could not write launcher fixture: {error}"));
+        let sibling = dir.path().join("agent.ps1");
+        std::fs::write(&sibling, b"# npm cmd-shim sibling\r\n")
+            .unwrap_or_else(|error| panic!("could not write sibling fixture: {error}"));
+
+        let plan_path = super::write_launch_plan(
+            &wrapper,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from(MULTILINE_PROMPT)],
+            &[],
+            dir.path(),
+            None,
+        )
+        .unwrap_or_else(|error| {
+            panic!("a wrapper with a PowerShell sibling must launch, got {error}")
+        });
+
+        let payload = payload_from_written_plan(&plan_path);
+        let command = command_for_payload(&payload);
+        let args = command
+            .get_args()
+            .map(std::ffi::OsStr::to_os_string)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            args[..4],
+            [
+                OsString::from("-NoLogo"),
+                OsString::from("-NoProfile"),
+                OsString::from("-NonInteractive"),
+                OsString::from("-File"),
+            ],
+            "the sibling must be launched through the existing PowerShell contract"
+        );
+        assert_eq!(
+            PathBuf::from(&args[4])
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("agent.ps1"),
+            "the sibling shim npm installed for this same command must be used"
+        );
+        assert_eq!(
+            args[5],
+            OsString::from(MULTILINE_PROMPT),
+            "PowerShell carries a multi-line argument intact where cmd.exe cannot (issue #620)"
+        );
+    }
+
+    #[test]
+    fn command_script_without_a_powershell_sibling_refuses_a_newline_argument() {
         let dir = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("could not create launcher fixture: {error}"));
         let wrapper = dir.path().join("agent.cmd");

@@ -275,7 +275,7 @@ pub fn parse_issue_node_id_json(stdout: &str) -> Result<String, GhError> {
     // GitHub's GraphQL API returns HTTP 200 with a top-level `errors` array on
     // validation/auth/resource failures. Surface those messages rather than a
     // generic "not found" so duplicate-close failures are diagnosable.
-    if let Some(messages) = graphql_error_messages(&value) {
+    if let Some(messages) = super::graphql_errors::error_messages(&value) {
         return Err(GhError::ApiError(format!(
             "GraphQL error resolving issue node id: {}",
             messages.join("; ")
@@ -303,33 +303,7 @@ pub fn parse_issue_node_id_json(stdout: &str) -> Result<String, GhError> {
 /// found). Without this check, `run_gh` returns `Ok(())` on a failed
 /// mutation, causing state desynchronization between the TUI and GitHub.
 fn parse_graphql_errors(stdout: &str) -> Result<(), GhError> {
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return Ok(());
-    }
-    let value: serde_json::Value = serde_json::from_str(trimmed)
-        .map_err(|e| GhError::ParseError(format!("invalid JSON in closeIssue response: {e}")))?;
-    if let Some(messages) = graphql_error_messages(&value) {
-        return Err(GhError::ApiError(format!(
-            "GraphQL closeIssue mutation failed: {}",
-            messages.join("; ")
-        )));
-    }
-    Ok(())
-}
-
-/// Extract non-empty GraphQL error messages from a parsed response, if any.
-fn graphql_error_messages(value: &serde_json::Value) -> Option<Vec<String>> {
-    let errors = value.get("errors")?.as_array()?;
-    let messages: Vec<String> = errors
-        .iter()
-        .filter_map(|e| e.get("message").and_then(|m| m.as_str()).map(String::from))
-        .collect();
-    if messages.is_empty() {
-        None
-    } else {
-        Some(messages)
-    }
+    super::graphql_errors::reject_mutation_errors(stdout, "closeIssue")
 }
 
 #[cfg(test)]

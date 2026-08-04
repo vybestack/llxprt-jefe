@@ -37,6 +37,7 @@ impl AppState {
         // Finding 1: deactivate Issues mode if active so both list modes are
         // never simultaneously active (which would corrupt per-repo
         // preferences on a repo change).
+        let from_sibling_list_mode = self.issues_state.active;
         if self.issues_state.active {
             self.remember_issue_preferences();
             self.issues_state.active = false;
@@ -63,7 +64,13 @@ impl AppState {
         // active in a list-mode render.
         self.terminal_focused = false;
         self.pane_focus = PaneFocus::Agents;
-        self.screen = ScreenId::PullRequests;
+        // The cross-mode jump takes the place of the screen it came from, so
+        // Back still returns to whatever opened the first list mode.
+        let _ = if from_sibling_list_mode {
+            self.switch_screen(ScreenId::PullRequests)
+        } else {
+            self.show_screen(ScreenId::PullRequests)
+        };
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
         self.prs_state.list.clear();
@@ -114,7 +121,7 @@ impl AppState {
     /// @requirement REQ-PR-005
     /// @pseudocode component-001 lines 77-87
     fn exit_prs_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.prs_state.active = false;
         self.prs_state.detail_pending = None;
         self.prs_state.loading.detail = false;
@@ -527,7 +534,7 @@ impl AppState {
                     && pending.pr_number == pr_number
                     && pending.request_id == request_id
             });
-        let exact_context = self.screen == super::ScreenId::PullRequests
+        let exact_context = self.screen() == super::ScreenId::PullRequests
             && self.modal == super::ModalState::None
             && !self.terminal_focused
             && self.prs_state.active
@@ -681,6 +688,18 @@ impl AppState {
     /// @requirement REQ-PR-001
     /// @requirement REQ-PR-005
     /// @pseudocode component-001 lines 66-87
+    /// Unwrap the boxed PR lifecycle-mutation family and apply it (issue #183).
+    fn apply_pr_lifecycle_mutation_wrapper(&mut self, event: &AppEvent) -> bool {
+        match event {
+            AppEvent::PrLifecycle(inner) => {
+                self.apply_pr_lifecycle_mutation(inner)
+                    || self.apply_pr_delete_event(inner)
+                    || self.apply_new_pr_form_event(inner)
+            }
+            _ => false,
+        }
+    }
+
     fn apply_pr_lifecycle_event(&mut self, event: &AppEvent) -> bool {
         match event {
             AppEvent::EnterPrsMode => {
@@ -736,7 +755,7 @@ impl AppState {
             || self.apply_pr_inline_dispatch(&event)
             || self.apply_pr_mutation_event(event.clone())
             || self.apply_pr_agent_chooser_event(&event)
-            || self.apply_pr_merge_event(&event)
+            || self.apply_pr_lifecycle_mutation_wrapper(&event)
             || self.apply_pr_property_event(&event)
             || self.apply_prs_data_wrapper(&event)
             || self.apply_prs_load_error_wrapper(&event)

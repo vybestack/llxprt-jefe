@@ -371,6 +371,52 @@ fn no_flexible_child_reserves_a_minimum_it_does_not_need() {
     }
 }
 
+#[test]
+fn initial_focus_agrees_with_every_descriptor() {
+    // The compiled table lets a screen instance be created without a fallible
+    // registry lookup, which is only safe while the two agree exactly.
+    for screen in super::ids::ScreenId::ALL {
+        let compiled = registry();
+        let Some(descriptor) = compiled.get(screen) else {
+            panic!("every compiled screen has a descriptor");
+        };
+        assert_eq!(
+            super::screens::initial_focus(screen),
+            descriptor.initial_focus,
+            "the compiled initial focus for {screen} has drifted from its descriptor"
+        );
+    }
+}
+
+#[test]
+fn route_agrees_with_every_descriptor() {
+    for screen in super::ids::ScreenId::ALL {
+        let compiled = registry();
+        let Some(descriptor) = compiled.get(screen) else {
+            panic!("every compiled screen has a descriptor");
+        };
+        assert_eq!(
+            super::screens::route_of(screen),
+            descriptor.route,
+            "the compiled route for {screen} has drifted from its descriptor"
+        );
+        assert_eq!(super::screens::route_of(screen).check(), Ok(()));
+    }
+}
+
+#[test]
+fn every_compiled_initial_focus_satisfies_the_identifier_grammar() {
+    // `initial_focus` builds its panel ids with the unchecked const
+    // constructor, so the grammar is asserted here instead.
+    for screen in super::ids::ScreenId::ALL {
+        assert_eq!(
+            super::screens::initial_focus(screen).check(),
+            Ok(()),
+            "the compiled initial focus for {screen} is not a valid identifier"
+        );
+    }
+}
+
 fn assert_children(node: &LayoutNode, check: &mut impl FnMut(&LayoutChild)) {
     if let LayoutNode::Split { children, .. } = node {
         for child in children {

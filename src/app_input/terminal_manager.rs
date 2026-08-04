@@ -295,7 +295,7 @@ pub async fn complete_pending_shell_focus(
     let Some(pending) = pending else {
         return;
     };
-    if app_state.read().screen != expected_focus_screen(pending.origin) {
+    if app_state.read().screen() != expected_focus_screen(pending.origin) {
         return;
     }
     if pending.agent_id != attached_agent_id {

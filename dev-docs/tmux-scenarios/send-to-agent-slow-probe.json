@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "name": "send-to-agent-slow-probe",
+  "platform": "macos",
+  "terminal": {
+    "cols": 160,
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      },
+      {
+        "path": "bin",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "bin/llxprt",
+        "content": {
+          "utf8": "#!/bin/sh\n# Issue #633: emulate the Windows npm shim, which spawns Node and takes\n# seconds to answer --version. The startup availability probe is therefore\n# still in flight when the user reaches the issue screen and presses Shift+S.\nsleep 9\nexec /bin/false\n"
+        },
+        "mode": 493
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "PATH",
+          "value": "${workspace}/bin"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "i",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Issues",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#230",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": ["shift"]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Send to Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Send to Agent"
+      ],
+      "absent": [
+        "No agents available"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": ["control"]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

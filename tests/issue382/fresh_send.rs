@@ -9,9 +9,8 @@ use jefe::domain::agent_definition::{
     AgentDefinition, AgentLaunchPlan, LaunchSignatureV1, Operation, Preflight, PromptShape, Target,
 };
 use jefe::runtime::{
-    AuthorizationResult, ExecutionEvidence, FreshSendRejection, PreparationOutcome,
-    ProcessSandboxInspector, authorize_execution, fresh_send_support, prepare_execution,
-    prepare_fresh_send,
+    AuthorizationResult, ExecutionEvidence, PreparationOutcome, ProcessSandboxInspector,
+    authorize_execution, prepare_execution, prepare_fresh_send,
 };
 
 const ISSUE_PROMPT: &str = "issue prompt\nexact bytes";
@@ -102,24 +101,6 @@ fn assert_supported(definition: &AgentDefinition, operation: Operation, prompt: 
     }
 }
 
-fn assert_unsupported(definition: &AgentDefinition, operation: Operation) {
-    let target = Target::Local {
-        canonical_cwd: PathBuf::from("/srv/project"),
-    };
-    let expected = definition
-        .operations
-        .support_for(operation)
-        .supported
-        .reason()
-        .unwrap_or_else(|| panic!("fixture must declare unsupported"));
-    assert_eq!(
-        fresh_send_support(definition, operation, &target),
-        Err(FreshSendRejection::Unsupported {
-            reason: expected.to_owned()
-        })
-    );
-}
-
 pub fn assert_operation(operation: Operation) {
     let prompt = match operation {
         Operation::FreshIssue => ISSUE_PROMPT,
@@ -129,10 +110,13 @@ pub fn assert_operation(operation: Operation) {
         }
     };
 
-    for id in ["core.llxprt", "core.code-puppy"] {
+    // Every shipped agent declares a fixture-proven prompt shape (issue #620).
+    for id in [
+        "core.llxprt",
+        "core.code-puppy",
+        "core.codex",
+        "core.claude-code",
+    ] {
         assert_supported(&definition(id), operation, prompt);
-    }
-    for id in ["core.codex", "core.claude-code"] {
-        assert_unsupported(&definition(id), operation);
     }
 }

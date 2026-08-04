@@ -224,30 +224,25 @@ pub fn local_only_targets(remote_reason: &str) -> TargetMatrix {
     }
 }
 
-/// Build an operation matrix where normal and resume are supported but
-/// fresh-issue and fresh-PR are unsupported with the given reasons.
-pub fn unsupported_only_operations(
-    fresh_issue_reason: &str,
-    fresh_pull_request_reason: &str,
-) -> OperationMatrix {
+/// Build an operation matrix for an agent whose help declares a single optional
+/// positional prompt that starts an interactive session.
+///
+/// Every prompt-bearing operation therefore shares one shape; only resume takes
+/// no prompt.
+pub fn positional_prompt_operations() -> OperationMatrix {
     use super::super::types::{OperationSupport, PromptShape};
+    let initial_positional = || OperationSupport {
+        supported: Support::supported(),
+        prompt: PromptShape::InitialPositional,
+    };
     OperationMatrix {
-        normal: OperationSupport {
-            supported: Support::supported(),
-            prompt: PromptShape::InitialPositional,
-        },
+        normal: initial_positional(),
         resume: OperationSupport {
             supported: Support::supported(),
             prompt: PromptShape::None,
         },
-        fresh_issue: OperationSupport {
-            supported: Support::unsupported(fresh_issue_reason),
-            prompt: PromptShape::None,
-        },
-        fresh_pull_request: OperationSupport {
-            supported: Support::unsupported(fresh_pull_request_reason),
-            prompt: PromptShape::None,
-        },
+        fresh_issue: initial_positional(),
+        fresh_pull_request: initial_positional(),
     }
 }
 

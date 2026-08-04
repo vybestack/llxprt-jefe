@@ -477,14 +477,14 @@ fn toggle_terminal_focus_clears_terminal_focused() {
 #[test]
 fn enter_split_mode_changes_active_screen() {
     let state = AppState {
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         ..AppState::default()
     };
 
     let next = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
     assert_eq!(
-        next.screen,
+        next.screen(),
         ScreenId::Repositories,
         "EnterSplitMode should change to Split"
     );
@@ -493,14 +493,14 @@ fn enter_split_mode_changes_active_screen() {
 #[test]
 fn exit_split_mode_returns_to_dashboard() {
     let state = AppState {
-        screen: ScreenId::Repositories,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Repositories),
         ..AppState::default()
     };
 
     let next = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
     assert_eq!(
-        next.screen,
+        next.screen(),
         ScreenId::Dashboard,
         "ExitSplitMode should return to Dashboard"
     );

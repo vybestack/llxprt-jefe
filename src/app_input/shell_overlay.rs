@@ -158,7 +158,7 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::
     let Ok(mut guard) = ctx_arc.lock() else {
         return;
     };
-    let layout = if state.shell_overlay_active() && state.screen == ScreenId::Terminals {
+    let layout = if state.shell_overlay_active() && state.screen() == ScreenId::Terminals {
         jefe::layout::compute_terminal_manager_pty_layout(cols, rows)
     } else if state.shell_overlay_active() {
         jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
@@ -374,7 +374,7 @@ fn read_local_agent(
     require_running: bool,
 ) -> Option<(jefe::domain::AgentId, std::path::PathBuf)> {
     let state = app_state.read();
-    if state.screen != ScreenId::Dashboard {
+    if state.screen() != ScreenId::Dashboard {
         return None;
     }
     let agent = state.selected_agent()?;

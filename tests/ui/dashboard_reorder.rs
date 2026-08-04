@@ -68,7 +68,7 @@ fn create_dashboard_test_state() -> AppState {
     a3.status = AgentStatus::Running;
 
     AppState {
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         repositories: vec![repo1, repo2, repo3],
         agents: vec![a1, a2, a3],
         selected_repository_index: Some(0),
@@ -271,7 +271,7 @@ fn create_multi_agent_dashboard_state() -> AppState {
     a3.status = AgentStatus::Running;
 
     AppState {
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         repositories: vec![repo],
         agents: vec![a1, a2, a3],
         selected_repository_index: Some(0),
@@ -433,7 +433,7 @@ fn agent_grab_only_affects_agents_within_selected_repository() {
     let b2 = running_agent("b2", "bravo-two", &repo2.id);
 
     let mut state = AppState {
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         repositories: vec![repo1, repo2],
         agents: vec![a1, a2, b1, b2],
         selected_repository_index: Some(0),
@@ -506,7 +506,7 @@ fn enter_split_mode_clears_dashboard_grab() {
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen, ScreenId::Repositories);
+    assert_eq!(state.screen(), ScreenId::Repositories);
     assert_eq!(state.dashboard_grab, None);
 }
 
@@ -672,7 +672,7 @@ fn enter_issues_mode_clears_dashboard_grab_via_finalize() {
     // validation must clear the stale grab.
     state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
 
-    assert_ne!(state.screen, ScreenId::Dashboard);
+    assert_ne!(state.screen(), ScreenId::Dashboard);
     assert_eq!(state.dashboard_grab, None);
 }
 

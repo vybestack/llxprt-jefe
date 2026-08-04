@@ -37,7 +37,7 @@ fn dashboard_s_emits_enter_split_mode_via_registry() {
 #[test]
 fn split_esc_emits_exit_split_mode_via_registry() {
     let state = AppState {
-        screen: ScreenId::Repositories,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
         ..AppState::default()
     };
     assert!(matches!(

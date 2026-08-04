@@ -87,7 +87,7 @@ fn pull_request(number: u64) -> PullRequest {
 
 fn issue_list_state() -> AppState {
     let mut state = eligible_state();
-    state.screen = crate::state::ScreenId::Issues;
+    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.list.replace_items(vec![issue(621)]);
@@ -97,7 +97,7 @@ fn issue_list_state() -> AppState {
 
 fn pr_list_state() -> AppState {
     let mut state = eligible_state();
-    state.screen = crate::state::ScreenId::PullRequests;
+    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::PullRequests);
     state.prs_state.active = true;
     state.prs_state.pr_focus = PrFocus::PrList;
     state.prs_state.list.replace_items(vec![pull_request(621)]);
@@ -290,7 +290,7 @@ fn assert_pr_chooser_rejected(state: AppState) {
 #[test]
 fn issue_chooser_open_is_ignored_under_every_competing_interaction() {
     let mut base = eligible_state();
-    base.screen = crate::state::ScreenId::Issues;
+    base.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
     base.issues_state.active = true;
     base.issues_state.issue_focus = IssueFocus::IssueList;
     let guards: &[fn(&mut AppState)] = &[
@@ -326,7 +326,7 @@ fn issue_chooser_open_is_ignored_under_every_competing_interaction() {
 #[test]
 fn pr_chooser_open_is_ignored_under_every_competing_interaction() {
     let mut base = eligible_state();
-    base.screen = crate::state::ScreenId::PullRequests;
+    base.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::PullRequests);
     base.prs_state.active = true;
     base.prs_state.pr_focus = PrFocus::PrList;
     let guards: &[fn(&mut AppState)] = &[

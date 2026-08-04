@@ -214,32 +214,32 @@ fn f12_focus_blocks_non_terminal_navigation() {
 #[test]
 fn enter_split_mode_changes_active_screen() {
     let mut state = create_test_state();
-    state.screen = ScreenId::Dashboard;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen, ScreenId::Repositories);
+    assert_eq!(state.screen(), ScreenId::Repositories);
 }
 
 #[test]
 fn enter_split_mode_focuses_the_visible_repository_list() {
     let mut state = create_test_state();
-    state.screen = ScreenId::Dashboard;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
     state.pane_focus = PaneFocus::Agents;
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen, ScreenId::Repositories);
+    assert_eq!(state.screen(), ScreenId::Repositories);
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 }
 #[test]
 fn exit_split_mode_returns_to_dashboard() {
     let mut state = create_test_state();
-    state.screen = ScreenId::Repositories;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
 
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 // ============================================================================

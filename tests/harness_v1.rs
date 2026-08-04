@@ -153,10 +153,13 @@ fn restart_preserves_durable_files_and_replaces_process() {
 
 #[test]
 fn capture_records_exact_process_boundary_fields() {
+    // The probe prints EXIT before it replays the captured stdout, so waiting
+    // for EXIT and then asserting on the OUT line races the write of that line.
+    // Wait for the last line the run emits; EXIT is necessarily on screen by then.
     let steps = r#"{"op":"wait","source":"frame","literal":"PROBE READY","timeout_ms":10000},
            {"op":"text","text":"run gh pr view\n"},
-           {"op":"wait","source":"frame","literal":"RUN[1] EXIT 0","timeout_ms":10000},
-           {"op":"assert-frame","contains":["RUN[1] OUT gh-says-hello"],"absent":[]},
+           {"op":"wait","source":"frame","literal":"RUN[1] OUT gh-says-hello","timeout_ms":10000},
+           {"op":"assert-frame","contains":["RUN[1] EXIT 0","RUN[1] OUT gh-says-hello"],"absent":[]},
            {"op":"finish"}"#;
     let probe = bin_path("jefe-harness-probe");
     let json = format!(

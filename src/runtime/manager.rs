@@ -7,6 +7,7 @@
 use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
+use super::key_pacing::PtyInputKind;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::agent_definition::AgentLaunchPlan;
@@ -171,7 +172,14 @@ pub trait RuntimeManager: Send {
     /// Forward input bytes to the attached session.
     ///
     /// @pseudocode component-002 lines 15-20
-    fn write_input(&mut self, bytes: &[u8]) -> Result<(), RuntimeError>;
+    fn write_input(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
+        self.write_input_kind(bytes, PtyInputKind::Other)
+    }
+
+    /// Forward input bytes to the attached session, telling the transport what
+    /// kind of input this is so an Enter chord can be kept out of the preceding
+    /// keystroke's burst (issue #627).
+    fn write_input_kind(&mut self, bytes: &[u8], kind: PtyInputKind) -> Result<(), RuntimeError>;
 
     /// Resize the attached terminal.
     fn resize(&mut self, rows: u16, cols: u16) -> Result<(), RuntimeError>;
@@ -853,9 +861,9 @@ impl RuntimeManager for TmuxRuntimeManager {
         self.viewer.as_ref().and_then(AttachedViewer::snapshot)
     }
 
-    fn write_input(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
+    fn write_input_kind(&mut self, bytes: &[u8], kind: PtyInputKind) -> Result<(), RuntimeError> {
         let viewer = self.viewer.as_ref().ok_or(RuntimeError::NoAttachedViewer)?;
-        viewer.write_input(bytes)
+        viewer.write_input_kind(bytes, kind)
     }
 
     fn resize(&mut self, rows: u16, cols: u16) -> Result<(), RuntimeError> {

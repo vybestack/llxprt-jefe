@@ -53,10 +53,8 @@ fn selected_definition_generates_visible_unsupported_cells_and_fields() {
         form.operation_support(Operation::Resume).reason(),
         Some("installed Claude Code lacks required capability `resume`")
     );
-    assert_eq!(
-        form.operation_support(Operation::FreshIssue).reason(),
-        Some("Claude fresh-issue prompt is not fixture-verified")
-    );
+    // Fixture-proven positional prompt, so fresh-issue carries no reason (#620).
+    assert_eq!(form.operation_support(Operation::FreshIssue).reason(), None);
     assert_eq!(
         form.target_support(GeneratedTarget::Remote).reason(),
         Some("Claude remote/setup is not fixture-verified")

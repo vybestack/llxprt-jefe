@@ -93,7 +93,7 @@ impl AppState {
 
     pub(super) fn issue_list_send_context(&self) -> IssueListSendContext {
         IssueListSendContext {
-            screen: self.screen,
+            screen: self.screen(),
             modal: self.modal.clone(),
             pane_focus: self.pane_focus,
             focus: self.issues_state.issue_focus,
@@ -136,7 +136,7 @@ impl AppState {
 
     pub(super) fn pr_list_send_context(&self) -> PrListSendContext {
         PrListSendContext {
-            screen: self.screen,
+            screen: self.screen(),
             modal: self.modal.clone(),
             pane_focus: self.pane_focus,
             focus: self.prs_state.pr_focus,

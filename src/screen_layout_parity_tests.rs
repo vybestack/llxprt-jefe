@@ -14,7 +14,7 @@ use crate::workbench::{PanelId, ScreenId};
 
 fn dashboard() -> AppState {
     AppState {
-        screen: ScreenId::Dashboard,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Dashboard),
         ..AppState::default()
     }
 }

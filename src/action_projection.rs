@@ -506,6 +506,7 @@ fn footer_contexts(
         FooterMode::PullRequestsDetail => &["prs.detail", "prs", "global"],
         FooterMode::PullRequestsChanges => &["prs.changes", "prs", "global"],
         FooterMode::PullRequestsInlineComposer => &["prs.inline", "global"],
+        FooterMode::PullRequestsNewComposer => &["prs.new-form", "global"],
         FooterMode::Actions => match actions_focus {
             Some(ActionsFocus::RepoList) => &["actions.repo-list", "actions", "global"],
             Some(ActionsFocus::Detail) => &["actions.detail", "actions", "global"],

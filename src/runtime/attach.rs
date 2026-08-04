@@ -4,16 +4,14 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 07-14
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::grid::{Dimensions, Indexed};
 use alacritty_terminal::selection::SelectionRange;
-use alacritty_terminal::term::Config as TermConfig;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::{RenderableCursor, Term, TermMode};
@@ -23,7 +21,10 @@ use portable_pty::{
 };
 use tracing::{debug, trace, warn};
 
+use super::attach_listener::PendingReplies;
+use super::attach_listener::{RuntimeListener, embedded_term_config};
 use super::errors::RuntimeError;
+use super::key_pacing::{PacedPtyInput, PtyInputKind};
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
 /// Simple dimensions struct for terminal sizing.
@@ -46,42 +47,13 @@ impl Dimensions for TermDimensions {
     }
 }
 
-/// Runtime event listener for alacritty_terminal.
-///
-/// Handles OSC52 clipboard-store events so llxprt copy propagates to the host
-/// clipboard when running inside jefe's embedded PTY.
-#[derive(Clone, Copy, Debug)]
-pub struct RuntimeListener;
-
-// ClipboardStore uses the same OSC 52 boundary as Jefe selections. This keeps
-// provider policy centralized; unsupported outer terminals may ignore OSC 52.
-fn forward_clipboard_store<F>(text: &str, mut writer: F) -> std::io::Result<()>
-where
-    F: FnMut(&str) -> std::io::Result<()>,
-{
-    if text.is_empty() {
-        return Ok(());
-    }
-    writer(text)
-}
-
-impl EventListener for RuntimeListener {
-    fn send_event(&self, event: TermEvent) {
-        if let TermEvent::ClipboardStore(_, text) = event {
-            debug!(len = text.len(), "received OSC52 ClipboardStore event");
-            if let Err(error) = forward_clipboard_store(&text, crate::clipboard::write_osc52) {
-                warn!(%error, "failed to forward OSC52 clipboard store");
-            }
-        }
-    }
-}
-
 /// An attached viewer representing a PTY connected to a tmux session.
 pub struct AttachedViewer {
     /// PTY master handle for resize.
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
-    /// Write end for sending input.
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// The single writing end of the child's PTY input, with the pacing state
+    /// that keeps an Enter chord out of the preceding write's burst (#627).
+    input: Arc<Mutex<PacedPtyInput>>,
     /// Terminal state model.
     term: Arc<Mutex<Term<RuntimeListener>>>,
     /// Liveness flag.
@@ -602,32 +574,41 @@ impl AttachedViewer {
             .map_err(|e| RuntimeError::SpawnFailed(format!("take writer: {e}")))?;
 
         let master = Arc::new(Mutex::new(pty_pair.master));
-        let writer = Arc::new(Mutex::new(writer));
+        let input = Arc::new(Mutex::new(PacedPtyInput::new(writer)));
+        let pending_replies: PendingReplies = Arc::new(Mutex::new(Vec::new()));
 
         // Create terminal model
-        let config = TermConfig::default();
+        let config = embedded_term_config();
         let term_size = TermDimensions {
             cols: cols as usize,
             rows: rows as usize,
         };
-        let term = Term::new(config, &term_size, RuntimeListener);
+        let term = Term::new(
+            config,
+            &term_size,
+            RuntimeListener::new(Arc::clone(&pending_replies)),
+        );
         let term = Arc::new(Mutex::new(term));
 
         let alive = Arc::new(AtomicBool::new(true));
         let dirty = Arc::new(AtomicBool::new(false));
 
         // Spawn reader thread
-        let term_clone = Arc::clone(&term);
-        let alive_clone = Arc::clone(&alive);
-        let dirty_clone = Arc::clone(&dirty);
+        let reader_context = ReaderContext {
+            term: Arc::clone(&term),
+            alive: Arc::clone(&alive),
+            dirty: Arc::clone(&dirty),
+            input: Arc::clone(&input),
+            pending_replies,
+        };
         let reader_thread = thread::spawn(move || {
-            reader_loop(reader, term_clone, alive_clone, dirty_clone);
+            reader_loop(reader, &reader_context);
         });
 
         debug!(session_name = %session_name, "AttachedViewer::spawn ready");
         Ok(Self {
             master,
-            writer,
+            input,
             term,
             alive,
             dirty,
@@ -668,25 +649,29 @@ impl AttachedViewer {
     ///
     /// @pseudocode component-002 lines 18-20
     pub fn write_input(&self, bytes: &[u8]) -> Result<(), RuntimeError> {
+        self.write_input_kind(bytes, PtyInputKind::Other)
+    }
+
+    /// Write input bytes to the PTY, separating an Enter chord from whatever
+    /// jefe wrote just before it (issue #627).
+    ///
+    /// The pacing state lives behind the same lock as the writer, so no other
+    /// input source — keystroke, mouse report, paste, or terminal-query reply —
+    /// can slip a byte in between the moment the separation is computed and the
+    /// moment these bytes reach the child.
+    pub fn write_input_kind(&self, bytes: &[u8], kind: PtyInputKind) -> Result<(), RuntimeError> {
         if !self.is_alive() {
             return Err(RuntimeError::WriteFailed("viewer not alive".into()));
         }
 
-        let mut writer = self
-            .writer
+        let mut input = self
+            .input
             .lock()
             .map_err(|_| RuntimeError::WriteFailed("lock poisoned".into()))?;
 
-        writer
-            .write_all(bytes)
-            .map_err(|e| RuntimeError::WriteFailed(e.to_string()))?;
-
-        writer
-            .flush()
-            .map_err(|e| RuntimeError::WriteFailed(format!("flush: {e}")))?;
-        drop(writer);
-
-        Ok(())
+        input
+            .write(bytes, kind)
+            .map_err(|error| RuntimeError::WriteFailed(error.to_string()))
     }
 
     /// Resize the terminal.
@@ -839,16 +824,20 @@ impl Drop for AttachedViewer {
     }
 }
 
+/// Everything the reader thread needs to service one attached PTY.
+struct ReaderContext {
+    term: Arc<Mutex<Term<RuntimeListener>>>,
+    alive: Arc<AtomicBool>,
+    dirty: Arc<AtomicBool>,
+    input: Arc<Mutex<PacedPtyInput>>,
+    pending_replies: PendingReplies,
+}
+
 /// Reader loop that feeds PTY output into the terminal model.
 ///
 /// On every successful read, the `dirty` flag is set so the render loop knows
 /// new terminal data is available and should trigger a re-render.
-fn reader_loop(
-    mut reader: Box<dyn Read + Send>,
-    term: Arc<Mutex<Term<RuntimeListener>>>,
-    alive: Arc<AtomicBool>,
-    dirty: Arc<AtomicBool>,
-) {
+fn reader_loop(mut reader: Box<dyn Read + Send>, context: &ReaderContext) {
     let mut buf = [0u8; 4096];
     let mut parser: Processor<StdSyncHandler> = Processor::new();
 
@@ -856,18 +845,46 @@ fn reader_loop(
         match reader.read(&mut buf) {
             Ok(0) => {
                 // EOF - viewer died
-                alive.store(false, Ordering::Relaxed);
+                context.alive.store(false, Ordering::Relaxed);
                 break;
             }
             Ok(n) => {
-                process_pty_read(&buf[..n], &mut parser, &term, &dirty);
+                process_pty_read(&buf[..n], &mut parser, &context.term, &context.dirty);
+                flush_pending_replies(&context.pending_replies, &context.input);
             }
             Err(_) => {
                 // Reader error - mark viewer as dead
-                alive.store(false, Ordering::Relaxed);
+                context.alive.store(false, Ordering::Relaxed);
                 break;
             }
         }
+    }
+}
+
+/// Write the terminal-query replies the parser queued.
+///
+/// Runs after `process_pty_read` has released the terminal model, so a child
+/// that has stopped reading its input can never block the reader thread while
+/// it holds the lock every render needs.
+fn flush_pending_replies(pending: &PendingReplies, input: &Mutex<PacedPtyInput>) {
+    // Both locks are recovered rather than abandoned. Dropping a reply leaves
+    // the hosted client waiting for an answer that will never arrive, which is
+    // a worse outcome than proceeding with state a panicking thread left behind.
+    let mut pending = pending.lock().unwrap_or_else(|poisoned| {
+        warn!("recovering poisoned pending-reply queue");
+        poisoned.into_inner()
+    });
+    let replies = std::mem::take(&mut *pending);
+    drop(pending);
+    if replies.is_empty() {
+        return;
+    }
+    let mut input = input.lock().unwrap_or_else(|poisoned| {
+        warn!("recovering poisoned pty input lock to answer a terminal query");
+        poisoned.into_inner()
+    });
+    if let Err(error) = input.write(&replies, PtyInputKind::Other) {
+        warn!(%error, "failed to answer terminal query on client input");
     }
 }
 
@@ -922,3 +939,7 @@ fn mouse_reporting_bits(mode: TermMode) -> (bool, bool, bool) {
 #[cfg(test)]
 #[path = "attach_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attach_query_tests.rs"]
+mod query_tests;

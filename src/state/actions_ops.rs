@@ -25,7 +25,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        self.screen = ScreenId::Actions;
+        let _ = self.show_screen(ScreenId::Actions);
         self.actions_state.active = true;
         self.actions_state.focus = ActionsFocus::RunList;
         self.actions_state.list.clear();
@@ -59,7 +59,7 @@ impl AppState {
 
     /// Exit actions mode, restoring prior focus state.
     fn exit_actions_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.actions_state.active = false;
         if let Some(prior) = self.actions_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;

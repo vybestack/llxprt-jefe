@@ -295,7 +295,7 @@ fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneCo
         .iter()
         .map(|repo| state.visible_agent_count_for_repository(&repo.id))
         .collect();
-    let (pane_rows, content_width) = if state.screen == crate::state::ScreenId::Repositories {
+    let (pane_rows, content_width) = if state.screen() == crate::state::ScreenId::Repositories {
         let layout = crate::layout::split_layout_for_render_size(render_cols, render_rows);
         (layout.sidebar_rows, layout.sidebar_content_cols)
     } else {
@@ -308,7 +308,7 @@ fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneCo
         repositories,
         agent_counts: counts,
         selected: state.selected_repository_visible_index().unwrap_or(0),
-        grabbed: if state.screen == crate::state::ScreenId::Repositories {
+        grabbed: if state.screen() == crate::state::ScreenId::Repositories {
             state.split_grab_index
         } else {
             state.dashboard_grab.as_ref().and_then(|grab| match grab {
@@ -407,14 +407,14 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 /// process-identity label (pid + commit) is appended so mouse-selection copy
 /// captures it (issue #223).
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
-    let actions_focus = (state.screen == ScreenId::Actions).then_some(state.actions_state.focus);
+    let actions_focus = (state.screen() == ScreenId::Actions).then_some(state.actions_state.focus);
     let hints = state
         .action_registry_snapshot
         .as_ref()
         .map_or_else(String::new, |snapshot| {
             crate::ui::components::keybind_bar::keybind_hints_for(
                 snapshot,
-                state.screen,
+                state.screen(),
                 false,
                 actions_focus,
             )

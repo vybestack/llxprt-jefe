@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn inline_text_is_raw_but_submit_and_cancel_are_not() {
         let state = AppState {
-            screen: ScreenId::Issues,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
             issues_state: IssuesState {
                 active: true,
                 inline_state: InlineState::Composer {

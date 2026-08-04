@@ -134,7 +134,7 @@ fn focused_terminal_state(kind: AgentTypeId) -> AppState {
 #[test]
 fn terminal_pane_resolves_in_dashboard_mode() {
     let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
-    state.screen = ScreenId::Dashboard;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Dashboard);
     // terminal_input_enabled=false means the terminal pane IS selectable
     // (it's not occupied by PTY input routing in this context).
     match resolve_pane(&state, 30, 20, 120, 40, false) {
@@ -149,7 +149,7 @@ fn terminal_pane_not_routed_in_issues_mode() {
     // terminal_focused is true. The terminal pane should not resolve as a
     // selectable terminal in Issues mode (there is no TerminalView there).
     let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
-    state.screen = ScreenId::Issues;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     // In Issues mode, the coordinate would map to IssueList/IssueDetail, not
     // TerminalView. This test verifies the geometry doesn't produce a
     // TerminalView (which would be a ghost selection).
@@ -381,7 +381,7 @@ fn stray_left_down_while_pending_flushes_buffered_down() {
 #[test]
 fn resolve_pane_terminal_input_enabled_excludes_terminal() {
     let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
-    state.screen = ScreenId::Dashboard;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Dashboard);
     // When terminal_input_enabled=true (focused terminal), the dashboard
     // terminal region returns None (pane_at excludes it).
     assert!(
@@ -393,7 +393,7 @@ fn resolve_pane_terminal_input_enabled_excludes_terminal() {
 #[test]
 fn resolve_pane_terminal_not_enabled_includes_terminal() {
     let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
-    state.screen = ScreenId::Dashboard;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Dashboard);
     // When terminal_input_enabled=false (unfocused/preview), the terminal
     // region resolves to TerminalView.
     match resolve_pane(&state, 30, 20, 120, 40, false) {

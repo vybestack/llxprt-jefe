@@ -756,7 +756,7 @@ pub(super) fn resume_issue_post_mutation_refresh(
 ) {
     let ready = {
         let state = app_state.read();
-        state.screen == jefe::state::ScreenId::Issues && state.issue_post_mutation_refresh_ready()
+        state.screen() == jefe::state::ScreenId::Issues && state.issue_post_mutation_refresh_ready()
     };
     if !ready {
         return;

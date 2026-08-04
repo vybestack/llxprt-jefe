@@ -59,7 +59,7 @@ fn dashboard_state() -> AppState {
         selected_repository_index: Some(0),
         selected_agent_index: Some(0),
         pane_focus: PaneFocus::Repositories,
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         ..AppState::default()
     };
     state.normalize_selection_indices();
@@ -120,7 +120,7 @@ fn repo_search_is_case_insensitive() {
     let state = AppState {
         repositories: vec![repository("r1", "Alpha"), repository("r2", "BETA")],
         selected_repository_index: Some(0),
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         ..AppState::default()
     };
 
@@ -195,7 +195,7 @@ fn search_composes_with_active_only() {
         agents: vec![running_agent("a1", "alpha-agent", "r1")],
         selected_repository_index: Some(0),
         pane_focus: PaneFocus::Repositories,
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         ..AppState::default()
     };
     state.normalize_selection_indices();
@@ -419,7 +419,7 @@ fn selection_normalizes_when_filtered() {
 fn dashboard_search_does_not_open_split_search_modal() {
     use jefe::state::ModalState;
     let mut state = dashboard_state();
-    state.screen = ScreenId::Repositories;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
     // FocusDashboardSearch must NOT open the split's ModalState::Search.
     let after = state.apply(AppEvent::FocusDashboardSearch).committed_pure();
     // The split screen's search is a ModalState::Search; the dashboard search

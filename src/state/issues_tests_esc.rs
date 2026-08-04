@@ -8,7 +8,7 @@ use crate::state::types::{AgentChooserState, ComposerTarget, EditorTarget, Inlin
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     }
 }
@@ -102,7 +102,7 @@ fn test_esc_exits_issues_mode() {
     state.issues_state.search_input_focused = false;
 
     let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(new_state.screen, ScreenId::Dashboard);
+    assert_eq!(new_state.screen(), ScreenId::Dashboard);
 }
 
 /// Test 23: OpenInlineEditor is blocked when another inline control is active.

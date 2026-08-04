@@ -220,7 +220,7 @@ fn route_app_owned(
 }
 
 fn record_unavailable(state: &mut AppState, reason: String) {
-    state.warning_message = Some(reason);
+    state.record_unavailable_action(reason);
 }
 
 fn rapid_quit_eligible(input_mode: InputMode) -> bool {
@@ -289,7 +289,7 @@ pub fn execute_mouse_resolution(
 fn dashboard_page_items(app_state: &HookState<AppState>) -> PageItemCount {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let state = app_state.read();
-    crate::app_input::dashboard_page_item_count(&state, state.screen, cols, rows)
+    crate::app_input::dashboard_page_item_count(&state, state.screen(), cols, rows)
 }
 
 #[cfg(test)]

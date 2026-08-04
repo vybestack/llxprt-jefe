@@ -438,7 +438,7 @@ fn project_selection(
         // The stable screen identity, so a restored session reopens where it
         // left off. Written as the identity string rather than an ordinal, so
         // the document survives any reordering of `ScreenId`.
-        screen_id: Id::parse(state.screen.as_str()).ok(),
+        screen_id: Id::parse(state.screen().as_str()).ok(),
     }
 }
 

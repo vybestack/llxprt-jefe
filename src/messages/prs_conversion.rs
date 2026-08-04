@@ -439,71 +439,12 @@ impl PullRequestsMessage {
             AppEvent::PrAgentChooserCancel => Self::AgentChooserCancel,
             AppEvent::PrSendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::PrSendToAgentFailed { error } => Self::SendToAgentFailed { error },
-            other => Self::from_app_event_merge(other),
-        }
-    }
-
-    /// Merge chooser and merge-lifecycle variants (issue #92).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-009
-    fn from_app_event_merge(event: AppEvent) -> Self {
-        if let Some(msg) = Self::from_app_event_thread(&event) {
-            return msg;
-        }
-        match event {
-            AppEvent::PrOpenMergeChooser => Self::OpenMergeChooser,
-            AppEvent::PrMergeNavigateUp => Self::MergeNavigate(NavDir::Up),
-            AppEvent::PrMergeNavigateDown => Self::MergeNavigate(NavDir::Down),
-            AppEvent::PrMergeConfirm => Self::MergeConfirm,
-            AppEvent::PrMergeCancel => Self::MergeCancel,
-            AppEvent::PrMerged {
-                scope_repo_id,
-                pr_number,
-                method,
-            } => Self::Merged {
-                scope_repo_id,
-                pr_number,
-                method,
-            },
-            AppEvent::PrMergeFailed {
-                scope_repo_id,
-                pr_number,
-                mutation_id,
-                error,
-            } => Self::MergeFailed {
-                scope_repo_id,
-                pr_number,
-                mutation_id,
-                error,
-            },
-            AppEvent::PrMergeMethodsLoaded {
-                scope_repo_id,
-                pr_number,
-                allowed_methods,
-            } => Self::MergeMethodsLoaded {
-                scope_repo_id,
-                pr_number,
-                allowed_methods,
-            },
-            AppEvent::PrMergeMethodsLoadFailed {
-                scope_repo_id,
-                pr_number,
-                error,
-            } => Self::MergeMethodsLoadFailed {
-                scope_repo_id,
-                pr_number,
-                error,
-            },
-            property if Self::is_pr_property_app_event(&property) => {
-                Self::from_app_event_property(property)
-            }
-            _ => unreachable!("non-PR AppEvent routed to PR converter"),
+            other => Self::from_app_event_lifecycle(other),
         }
     }
 
     /// Whether an `AppEvent` is a PR property-editor event.
-    fn is_pr_property_app_event(event: &AppEvent) -> bool {
+    pub(super) fn is_pr_property_app_event(event: &AppEvent) -> bool {
         matches!(
             event,
             AppEvent::PrOpenPropertyEditor { .. }

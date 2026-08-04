@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 fn selected_issue_list_state() -> AppState {
     let mut state = AppState {
-        screen: ScreenId::Issues,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state: IssuesState {
             active: true,
             issue_focus: IssueFocus::IssueList,

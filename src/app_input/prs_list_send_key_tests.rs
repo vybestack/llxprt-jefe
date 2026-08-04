@@ -4,7 +4,7 @@ use jefe::state::{AppEvent, AppState, PrFocus, PullRequestsState, ScreenId};
 
 fn selected_pr_list_state() -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             active: true,
             pr_focus: PrFocus::PrList,

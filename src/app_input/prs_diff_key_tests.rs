@@ -11,7 +11,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn state_with_focus(focus: PrFocus) -> AppState {
     AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             active: true,
             pr_focus: focus,

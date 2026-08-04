@@ -214,6 +214,8 @@ pub enum ReadOnlyHintKind {
     PrNotMergeable,
     /// `R` pressed outside a review thread (resolve only valid on a review thread).
     ReadOnlyResolveOnThread,
+    /// A delete was requested with no pull request focused (issue #183).
+    NoPrToDelete,
     /// `C` pressed on an already-closed issue (issue #182).
     IssueAlreadyClosed,
     /// `C`/`D` pressed with no issue focused (issue #182).
@@ -235,6 +237,7 @@ impl ReadOnlyHintKind {
             Self::ReadOnlyResolveOnThread => {
                 "Select a review thread to resolve (read-only context)"
             }
+            Self::NoPrToDelete => "No pull request selected to delete",
             Self::IssueAlreadyClosed => "Issue is already closed",
             Self::NoIssueFocused => "No issue selected",
             Self::NoDuplicateTarget => "Select an issue to mark as duplicate",
@@ -280,6 +283,14 @@ pub struct PullRequestsState {
     pub merge_chooser: Option<PrMergeChooserState>,
     /// Pending merge mutation staleness guard (issue #92).
     pub merge_mutation_pending: Option<PrMergeMutationPending>,
+    /// Destructive-confirm overlay for deleting a pull request (issue #183).
+    pub delete_confirm: Option<PrDeleteConfirmState>,
+    /// In-flight pull-request delete (issue #183).
+    pub delete_mutation_pending: Option<PrDeleteMutationPending>,
+    /// New PR composer draft (issue #183).
+    pub new_pr_form: Option<NewPrFormState>,
+    /// In-flight pull-request creation (issue #183).
+    pub create_mutation_pending: Option<PrCreateMutationPending>,
     pub filter_ui: PrFilterUiState,
     pub search_input_focused: bool,
     pub prior_agent_focus: Option<PriorAgentFocus>,
@@ -389,6 +400,121 @@ pub struct PrMutationPending {
     pub scope_repo_id: RepositoryId,
     pub mutation_id: u64,
     pub target: ComposerTarget,
+}
+
+/// Destructive-confirm overlay for deleting a pull request (issue #183).
+///
+/// Mirrors `IssueDeleteConfirmState`: the overlay opens unarmed, the first
+/// confirmation arms it, and the second dispatches. It carries the branch names
+/// resolved when it opened so the confirmation cannot act on a different pull
+/// request than the one the user read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrDeleteConfirmState {
+    pub pr_number: u64,
+    /// The branch that would be removed.
+    pub head_ref: String,
+    /// The branch the pull request targets, which must never be removed.
+    pub base_ref: String,
+    /// Whether the pull request is still open, and so must be closed first.
+    pub is_open: bool,
+    pub awaiting_confirmation: bool,
+}
+
+/// In-flight pull-request delete (issue #183).
+///
+/// Mirrors `PrMergeMutationPending`. The full identity is carried so a result
+/// that arrives after the selection moved cannot retire the wrong operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrDeleteMutationPending {
+    pub scope_repo_id: RepositoryId,
+    pub mutation_id: u64,
+    pub pr_number: u64,
+    pub head_ref: String,
+    /// Whether the pull request must be closed before its branch is removed.
+    pub close_first: bool,
+}
+
+/// Which field the New PR composer is editing (issue #183).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NewPrFormFocus {
+    /// The branch the pull request is opened from.
+    #[default]
+    Head,
+    /// The branch the pull request is opened against.
+    Base,
+    Title,
+    Body,
+}
+
+impl NewPrFormFocus {
+    /// The next field, wrapping at the end.
+    #[must_use]
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Head => Self::Base,
+            Self::Base => Self::Title,
+            Self::Title => Self::Body,
+            Self::Body => Self::Head,
+        }
+    }
+
+    /// The previous field, wrapping at the start.
+    #[must_use]
+    pub const fn previous(self) -> Self {
+        match self {
+            Self::Head => Self::Body,
+            Self::Base => Self::Head,
+            Self::Title => Self::Base,
+            Self::Body => Self::Title,
+        }
+    }
+}
+
+/// Draft state for the New PR composer (issue #183).
+///
+/// Mirrors `NewIssueFormState`: pure reducer state with no I/O. The boundary
+/// layer reads it on submit and drives the create call.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NewPrFormState {
+    /// The repository's branches, alphabetically ascending. Empty while the
+    /// background load is in flight.
+    pub branches: Vec<String>,
+    /// Index into `branches` for the head branch.
+    pub head_index: usize,
+    /// Index into `branches` for the base branch.
+    pub base_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub body_text: String,
+    pub body_cursor: usize,
+    pub focus: NewPrFormFocus,
+    /// Footer error: a load failure or a refused submit. Blankable.
+    pub error: Option<String>,
+    /// Whether the branch load is still in flight. Submit is blocked while set.
+    pub branches_loading: bool,
+    /// Correlates the branch load so a stale answer cannot fill this composer.
+    pub load_request_id: u64,
+}
+
+impl NewPrFormState {
+    /// The selected head branch, if the branch list has arrived.
+    #[must_use]
+    pub fn head_branch(&self) -> Option<&str> {
+        self.branches.get(self.head_index).map(String::as_str)
+    }
+
+    /// The selected base branch, if the branch list has arrived.
+    #[must_use]
+    pub fn base_branch(&self) -> Option<&str> {
+        self.branches.get(self.base_index).map(String::as_str)
+    }
+}
+
+/// In-flight pull-request creation (issue #183).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrCreateMutationPending {
+    pub scope_repo_id: RepositoryId,
+    pub mutation_id: u64,
 }
 
 /// Merge-method chooser overlay state (issue #92; mirrors AgentChooserState).
