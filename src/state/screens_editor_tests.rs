@@ -307,3 +307,32 @@ fn projecting_the_same_registry_and_document_twice_produces_the_same_rows() {
         "the projection is a pure function of its inputs"
     );
 }
+
+#[test]
+fn an_override_naming_a_declared_panel_but_dropping_the_others_is_refused() {
+    let registry = registry();
+    let screen = registry
+        .screens()
+        .iter()
+        .find(|screen| screen.id.as_str() == "core.dashboard")
+        .unwrap_or_else(|| panic!("the dashboard is compiled in"));
+    let published = published(concat!(
+        "settings_schema = 2\n",
+        "[workbench.layout_overrides]\n",
+        "\"core.dashboard\" = { type = \"leaf\", panel = \"search\" }\n",
+    ));
+
+    assert!(
+        !published.workbench.layout_overrides.is_empty(),
+        "the override publishes: {:?}",
+        published.workbench
+    );
+
+    let rows = project_screens(&registry, &published);
+    let row = row(&rows, screen.id.as_str());
+    assert!(
+        matches!(row.composition, CompositionStatus::Invalid { .. }),
+        "an override leaving declared panels unplaced is refused, got {:?}",
+        row.composition
+    );
+}

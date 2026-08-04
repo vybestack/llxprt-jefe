@@ -13,6 +13,7 @@ use crate::domain::agent_definition::AgentTypeId;
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::Chord;
 use crate::domain::{Id, ThemeId};
+use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 use crate::messages::settings::{RecoveryChoice, SettingsSection};
 use crate::persistence::diagnostic::{CfgCode, Severity};
 use crate::persistence::settings_document::PublishedSettings;
@@ -352,6 +353,47 @@ pub fn detail_rows(state: &SettingsState) -> Vec<SettingsRow> {
         SettingsSection::Screens => screen_rows(state),
         SettingsSection::Keys => key_rows(state),
         SettingsSection::Diagnostics => diagnostic_rows(state),
+    }
+}
+
+/// The slice of a section's rows that fits, with the selection kept in view.
+///
+/// The Keys section lists every action in every context — hundreds of rows —
+/// so a pane that drew them all would put most of the list off the bottom of
+/// the terminal where `j` could reach it but nothing could show it. The window
+/// follows the selection, which is what makes "move down" and "see where I am"
+/// the same thing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailWindow {
+    /// The rows to draw, each with its index in the whole section.
+    pub rows: Vec<(usize, SettingsRow)>,
+    /// How many rows sit above the window.
+    pub above: usize,
+    /// How many rows sit below it.
+    pub below: usize,
+}
+
+/// Window one section's rows around the selection.
+#[must_use]
+pub fn detail_window(state: &SettingsState, content_rows: usize) -> DetailWindow {
+    let rows = detail_rows(state);
+    let viewport = ListViewport::uniform(
+        rows.len(),
+        Some(state.selected_row),
+        ContentRows::new(content_rows),
+        RowsPerItem::new(1),
+    );
+    let range = viewport.visible_range();
+    let above = range.start;
+    let below = rows.len().saturating_sub(range.end);
+    DetailWindow {
+        rows: rows
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| range.contains(index))
+            .collect(),
+        above,
+        below,
     }
 }
 
