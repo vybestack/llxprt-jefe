@@ -972,4 +972,10 @@ pub enum AppEvent {
     WorkbenchFilterCursorPrev,
     /// Move the workbench status-filter cursor to the next bucket.
     WorkbenchFilterCursorNext,
+    /// Move the agent selection one card back along the workbench order.
+    WorkbenchSelectPrev,
+    /// Move the agent selection one card forward along the workbench order.
+    WorkbenchSelectNext,
+    /// Leave the workbench for the selected agent's terminal.
+    WorkbenchAttach,
 }

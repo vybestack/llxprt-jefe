@@ -119,6 +119,9 @@ pub enum UiNavigationMessage {
     WorkbenchPrevPage,
     WorkbenchFilterCursorPrev,
     WorkbenchFilterCursorNext,
+    WorkbenchSelectPrev,
+    WorkbenchSelectNext,
+    WorkbenchAttach,
 }
 #[derive(Debug, Clone)]
 pub enum ModalMessage {

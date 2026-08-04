@@ -67,6 +67,9 @@ message_names!(UiNavigationMessage {
     Self::WorkbenchPrevPage => "WorkbenchPrevPage",
     Self::WorkbenchFilterCursorPrev => "WorkbenchFilterCursorPrev",
     Self::WorkbenchFilterCursorNext => "WorkbenchFilterCursorNext",
+    Self::WorkbenchSelectPrev => "WorkbenchSelectPrev",
+    Self::WorkbenchSelectNext => "WorkbenchSelectNext",
+    Self::WorkbenchAttach => "WorkbenchAttach",
 });
 
 message_names!(KeysEditorMessage {

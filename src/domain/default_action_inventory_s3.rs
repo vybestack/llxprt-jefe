@@ -16,8 +16,8 @@ pub(super) const SPECS: &[Spec] = &[
     ),
     spec!("split", "split.home", H::NavigateHome, ["Home"]),
     spec!("split", "split.end", H::NavigateEnd, ["End"]),
-    spec!("split", "split.left", H::NavigateLeft, ["Left"]),
-    spec!("split", "split.right", H::NavigateRight, ["Right"]),
+    spec!("split", "split.left", H::WorkbenchSelectPrev, ["Left"]),
+    spec!("split", "split.right", H::WorkbenchSelectNext, ["Right"]),
     spec!("split", "split.cycle-pane", H::CyclePaneFocus, ["Tab"]),
     spec!("split", "split.new", H::NewAgentOrRepository, ["n"]),
     spec!(
@@ -77,8 +77,10 @@ pub(super) const SPECS: &[Spec] = &[
     ),
     spec!(
         "split",
+        // On the workbench, Enter attaches to the selected card's agent rather
+        // than opening its edit form (issue #626).
         "split.activate-selection",
-        H::ActivateDashboardSelection,
+        H::WorkbenchAttach,
         ["Enter"]
     ),
     spec!(

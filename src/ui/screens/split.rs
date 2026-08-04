@@ -10,6 +10,7 @@
 
 use iocraft::prelude::*;
 
+use crate::domain::AgentId;
 use crate::git_info::GitRepoInfo;
 use crate::state::{AppState, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
@@ -91,6 +92,9 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
 
     // Build the workbench view from the current state.
     let view = build_workbench_view_from_state(state, render_cols, render_rows);
+    // Which card Enter would attach to. Drawn with a double border so the
+    // target is never ambiguous.
+    let selected_agent_id = state.and_then(|s| s.selected_agent().map(|agent| agent.id.clone()));
     let status_filter = state.map_or(StatusFilterMask::all_on(), |s| {
         s.workbench.status_filter.mask()
     });
@@ -183,7 +187,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                     background_color: rc.bg,
                     padding: 0u32,
                 ) {
-                    #(card_grid_elements(&view, &colors))
+                    #(card_grid_elements(&view, &colors, selected_agent_id.as_ref()))
                 }
             }
 
@@ -286,14 +290,18 @@ fn status_block_elements(
 }
 
 /// Build the card grid elements (or the empty-state message).
-fn card_grid_elements(view: &WorkbenchView, colors: &ThemeColors) -> Vec<AnyElement<'static>> {
+fn card_grid_elements(
+    view: &WorkbenchView,
+    colors: &ThemeColors,
+    selected: Option<&AgentId>,
+) -> Vec<AnyElement<'static>> {
     if let Some(reason) = &view.empty_reason {
         return vec![empty_state_element(reason)];
     }
 
     let columns = view.layout.columns.max(1);
     let todo_window = view.layout.todo_window;
-    let mut elements = render_card_rows(view, columns, todo_window, colors);
+    let mut elements = render_card_rows(view, columns, todo_window, colors, selected);
 
     if view.layout.page_count > 1 {
         elements.push(page_position_element(view));
@@ -318,10 +326,11 @@ fn render_card_rows(
     columns: usize,
     todo_window: usize,
     colors: &ThemeColors,
+    selected: Option<&AgentId>,
 ) -> Vec<AnyElement<'static>> {
     view.cards
         .chunks(columns)
-        .map(|chunk| render_card_row(chunk, view.layout.card_width, todo_window, colors))
+        .map(|chunk| render_card_row(chunk, view.layout.card_width, todo_window, colors, selected))
         .collect()
 }
 
@@ -331,16 +340,18 @@ fn render_card_row(
     card_width: usize,
     todo_window: usize,
     colors: &ThemeColors,
+    selected: Option<&AgentId>,
 ) -> AnyElement<'static> {
     let row_children: Vec<AnyElement<'static>> = chunk
         .iter()
         .map(|card| {
+            let is_selected = selected.is_some_and(|id| *id == card.agent_id);
             element! {
                 WorkbenchCard(
                     card: Some(card.clone()),
                     card_width: card_width,
                     todo_window: todo_window,
-                    selected: false,
+                    selected: is_selected,
                     colors: colors.clone(),
                 )
             }

@@ -171,7 +171,7 @@ Shortcut jump is a global binding, so it works here as it does everywhere else; 
 
 Reordering is not available here; it lives on the dashboard, where `space` grabs an entry, arrows move it, and `space` or `Enter` drops it.
 
-Attaching to an agent directly from a card is not wired yet: the workbench has no per-card selection, so use shortcut jump or the dashboard.
+`Left` and `Right` move the selection between cards, and the selected card is drawn with a double border so the target is unambiguous. `Enter` attaches to it: the workbench closes and focus lands on that agent's terminal. Because the grid spans repositories, attaching also moves the repository selection to the one that owns the agent.
 
 ### Forms
 

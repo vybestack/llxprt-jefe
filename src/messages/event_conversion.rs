@@ -156,6 +156,9 @@ impl AppMessage {
             AppEvent::WorkbenchPrevPage => Self::UiNavigation(U::WorkbenchPrevPage),
             AppEvent::WorkbenchFilterCursorPrev => Self::UiNavigation(U::WorkbenchFilterCursorPrev),
             AppEvent::WorkbenchFilterCursorNext => Self::UiNavigation(U::WorkbenchFilterCursorNext),
+            AppEvent::WorkbenchSelectPrev => Self::UiNavigation(U::WorkbenchSelectPrev),
+            AppEvent::WorkbenchSelectNext => Self::UiNavigation(U::WorkbenchSelectNext),
+            AppEvent::WorkbenchAttach => Self::UiNavigation(U::WorkbenchAttach),
             _ => unreachable!("non-workbench AppEvent routed to from_workbench_event"),
         }
     }
@@ -232,7 +235,10 @@ impl AppMessage {
             | AppEvent::WorkbenchNextPage
             | AppEvent::WorkbenchPrevPage
             | AppEvent::WorkbenchFilterCursorPrev
-            | AppEvent::WorkbenchFilterCursorNext => Self::from_workbench_event(event),
+            | AppEvent::WorkbenchFilterCursorNext
+            | AppEvent::WorkbenchSelectPrev
+            | AppEvent::WorkbenchSelectNext
+            | AppEvent::WorkbenchAttach => Self::from_workbench_event(event),
             AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
             AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
             AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
@@ -703,6 +709,9 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::WorkbenchPrevPage => Self::WorkbenchPrevPage,
             UiNavigationMessage::WorkbenchFilterCursorPrev => Self::WorkbenchFilterCursorPrev,
             UiNavigationMessage::WorkbenchFilterCursorNext => Self::WorkbenchFilterCursorNext,
+            UiNavigationMessage::WorkbenchSelectPrev => Self::WorkbenchSelectPrev,
+            UiNavigationMessage::WorkbenchSelectNext => Self::WorkbenchSelectNext,
+            UiNavigationMessage::WorkbenchAttach => Self::WorkbenchAttach,
         }
     }
 }

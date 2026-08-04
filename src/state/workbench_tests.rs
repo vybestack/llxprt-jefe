@@ -185,6 +185,39 @@ fn cursor_move_then_toggle_affects_the_second_bucket() {
     );
 }
 
+/// Enter is bound on the workbench, and it attaches rather than opening the
+/// edit form the dashboard opens.
+#[test]
+fn enter_attaches_on_the_workbench() {
+    use crate::domain::default_action_inventory::compiled_inventory;
+    use crate::domain::keymap::Chord;
+
+    let Ok(inventory) = compiled_inventory() else {
+        panic!("the default action inventory must compile");
+    };
+    let Ok(enter) = Chord::parse("Enter") else {
+        panic!("Enter must parse");
+    };
+    let action = inventory
+        .bindings
+        .iter()
+        .find(|b| b.context.as_str() == "split" && b.chords.contains(&enter))
+        .map(|b| b.action.as_str().to_owned());
+    assert_eq!(action.as_deref(), Some("split.activate-selection"));
+}
+
+/// Attaching with nothing selected must not strand the user on a dashboard
+/// with a focused terminal and no agent.
+#[test]
+fn attach_without_a_selection_is_inert() {
+    let state = AppState::default();
+    let after = state.apply(AppEvent::WorkbenchAttach).committed_pure();
+    assert!(
+        !after.terminal_focused,
+        "an empty grid must not focus a terminal"
+    );
+}
+
 #[test]
 fn prev_page_clamps_at_zero() {
     let state = AppState::default();
