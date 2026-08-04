@@ -715,12 +715,13 @@ fn unrecognized_todo_state_degrades_instead_of_failing() {
 }
 
 /// The retired `completed` boolean is not a synonym for the state field. It is
-/// rejected closed like any other member outside the payload shape.
+/// rejected closed like any other member outside the payload shape, naming the
+/// todos payload and echoing nothing the producer sent.
 #[test]
 fn retired_completed_boolean_fails_closed() {
     let retired = [
-        r#"[{"text":"one","completed":false}]"#,
-        r#"[{"text":"one","state":"pending","completed":false}]"#,
+        r#"[{"text":"SENTINEL","completed":false}]"#,
+        r#"[{"text":"SENTINEL","state":"pending","completed":false}]"#,
     ];
     for items in retired {
         let bytes = snapshot_with_todo_items(items);
@@ -728,17 +729,35 @@ fn retired_completed_boolean_fails_closed() {
             .err()
             .unwrap_or_else(|| panic!("the retired boolean must fail: {items}"));
         assert_eq!(error.code(), JspCode::EClosedShape);
+        let detail = error.detail();
+        assert_eq!(
+            detail, "snapshot.todos.value: value shape does not match the closed contract",
+            "the diagnostic must locate the rejected payload"
+        );
+        assert!(
+            !detail.contains("SENTINEL"),
+            "diagnostic must not echo the payload value: {detail}"
+        );
     }
 }
 
 /// A missing state is a missing required member, not an implicit `pending`.
 #[test]
 fn todo_without_a_state_fails_closed() {
-    let bytes = snapshot_with_todo_items(r#"[{"text":"one"}]"#);
+    let bytes = snapshot_with_todo_items(r#"[{"text":"SENTINEL"}]"#);
     let error = parse_snapshot(&bytes)
         .err()
         .unwrap_or_else(|| panic!("a stateless todo must fail"));
     assert_eq!(error.code(), JspCode::EClosedShape);
+    let detail = error.detail();
+    assert_eq!(
+        detail, "snapshot.todos.value: value shape does not match the closed contract",
+        "the diagnostic must locate the rejected payload"
+    );
+    assert!(
+        !detail.contains("SENTINEL"),
+        "diagnostic must not echo the payload value: {detail}"
+    );
 }
 
 /// The state string is bounded like every other string on the wire, and the

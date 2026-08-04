@@ -218,14 +218,27 @@ fn e4_unrecognized_todo_state_degrades_on_the_event_path() {
     assert_eq!(todos.items[0].state, TodoState::Unrecognized);
 }
 
-/// The retired boolean is rejected closed on the event path.
+/// The retired boolean is rejected closed on the event path, as is a todo with
+/// no state at all, and neither diagnostic echoes what the producer sent.
 #[test]
 fn e4_retired_completed_boolean_fails_closed_on_the_event_path() {
-    let document = todos_replaced_document(r#"[{"text":"one","completed":false}]"#);
-    let error = parse_event(document.as_bytes())
-        .err()
-        .unwrap_or_else(|| panic!("the retired boolean must fail"));
-    assert_eq!(error.code(), JspCode::EClosedShape);
+    let rejected = [
+        r#"[{"text":"SENTINEL","completed":false}]"#,
+        r#"[{"text":"SENTINEL","state":"pending","completed":false}]"#,
+        r#"[{"text":"SENTINEL"}]"#,
+    ];
+    for items in rejected {
+        let document = todos_replaced_document(items);
+        let error = parse_event(document.as_bytes())
+            .err()
+            .unwrap_or_else(|| panic!("the retired shape must fail: {items}"));
+        assert_eq!(error.code(), JspCode::EClosedShape);
+        assert!(
+            !error.detail().contains("SENTINEL"),
+            "diagnostic must not echo the payload value: {}",
+            error.detail()
+        );
+    }
 }
 
 /// The state bound is inclusive on the event path and its diagnostic names the

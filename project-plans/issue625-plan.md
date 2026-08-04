@@ -56,9 +56,9 @@ ingress instead of rendering a confidently wrong checklist.
 |---|---|---|---|---|---|---|---|
 | A1 | Snapshot parse | `todos` known, item `state` is `pending`, `in_progress` or `completed` | `TodoItem.state` is the matching `TodoState` variant, so the three native states stay distinguishable | n/a | None | Those three labels are the recognized vocabulary | `tests/jsp_v1_snapshot_compliance.rs` |
 | A2 | Snapshot parse | item `state` is any other string, e.g. `blocked`, or empty | Parses; state is `TodoState::Unrecognized`; neither completed nor active | n/a | None | New producer vocabulary never breaks an older observer | `tests/jsp_v1_snapshot_compliance.rs` |
-| A3 | Snapshot parse | item carries the retired `completed` boolean, with or without `state` | `JSP-E001`, diagnostic names `snapshot.todos.items[i]` and echoes no payload value | Nothing is returned to the caller | The retired shape is rejected, not downgraded | `tests/jsp_v1_snapshot_compliance.rs` |
+| A3 | Snapshot parse | item carries the retired `completed` boolean, with or without `state`, or carries no `state` at all | `JSP-E001` naming `snapshot.todos.value`, echoing no payload value | Nothing is returned to the caller | The retired shape is rejected, not downgraded | `tests/jsp_v1_snapshot_compliance.rs` |
 | A4 | Snapshot parse | `state` of exactly 64 bytes / 65 bytes | 64 accepted | 65 fails `JSP-E002` naming `items[i].state` and no value | None | Inclusive bound, like every other bound | `tests/jsp_v1_snapshot_compliance.rs` |
-| A5 | Event parse (`todos.replaced`) | The same four cases as A1–A4 | Identical results on the event path | Identical | None | The two paths cannot drift | `tests/jsp_v1_event_compliance.rs` |
+| A5 | Event parse (`todos.replaced`) | The same four cases as A1–A4 | Identical typed results on the event path; rejections are `JSP-E001` echoing no payload value | Identical | None | The two paths cannot drift | `tests/jsp_v1_event_compliance.rs` |
 | A6 | Preview render, known todos | items in each of the four states | `[x]` completed, `[>]` in progress, `[ ]` pending, `[?]` unrecognized | n/a | None | The active item is authoritative, never derived from position | `tests/jsp_preview_projection.rs` |
 | A7 | Preview render, degraded/unknown/unsupported todos | as today | Unchanged `[stale]`, `(unknown)`, `(unsupported)`, `(no tasks)` output | n/a | None | No regression | `tests/jsp_preview_projection.rs` |
 | A8 | External implementation consuming the published corpus | Whole `dev-docs/jsp/v1` tree | Specification §8/§13, both executable schemas, schema cases, the 15 scenarios, the producer trace, and every fixture describe exactly the `state` shape | A stale artifact fails the compliance profiles | None | The corpus stays the single language-neutral contract | `tests/jsp_v1_compliance*.rs`, `tests/jsp_v1_*_compliance.rs` |
@@ -107,8 +107,19 @@ ingress instead of rendering a confidently wrong checklist.
 
 ## Review counters
 
-- Local OCR runs: 0 / 2
+- Local OCR runs: 1 / 2 (0 findings)
 - Post-PR OCR runs: 0 / 2
+- Rust review: 1 (one finding, triaged below)
+
+## Review triage
+
+| Finding | Disposition | Action |
+|---|---|---|
+| The retired-boolean and missing-state tests asserted only the error code, so the diagnostic they claimed was never checked | In-scope—Fix | Both paths now assert the exact snapshot diagnostic and that no producer value is echoed, using a sentinel |
+| Acceptance row A3 claimed a diagnostic naming `snapshot.todos.items[i]`, which the parser has never produced | In-scope—Fix | Row corrected to the measured behavior: `JSP-E001` naming `snapshot.todos.value`, no echoed value |
+| Structural rejection inside a payload should name the offending member, and an event should not label itself a snapshot | Defer | Protocol-wide and pre-existing: measured identically on `snapshot.current_wait.value`, and the event label comes from the shared entry point this change does not touch. Filed as #646 |
+| Add a direct unit test for `TodoState::from_wire` | Reject | Every recognized mapping and the degrade are already proven through both public parse paths; a match-arm test would restate the implementation |
+| Add a multibyte state case | Reject | The bound is a byte bound, `str::len()` is bytes, both paths exercise 64 and 65 bytes, and the schema oracle verifies `x-jsp-maxUtf8Bytes` separately |
 
 ## Verification evidence
 
@@ -145,4 +156,7 @@ instead of 143. It also blocks `cargo clippy --all-targets`, `cargo test
 ## Deferred findings
 
 - Producer amendment in `vybestack/llxprt-code`
-  (`jspRedaction.ts` `buildTodoItems`/`mapTodoCompleted`, `jspDocuments.ts`).
+  (`jspRedaction.ts` `buildTodoItems`/`mapTodoCompleted`, `jspDocuments.ts`) —
+  filed as vybestack/llxprt-code#3003. It must land with this change.
+- Protocol-wide diagnostic precision for structural rejections, and the event
+  document that names itself a snapshot — filed as #646.
