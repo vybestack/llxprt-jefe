@@ -31,6 +31,7 @@ use crate::persistence::{SettingsCandidate, SettingsEdit, SettingsSaveOutcome, S
 use crate::theme::ThemePreviewToken;
 use crate::workbench::ScreenId;
 
+use super::agent_types_editor::AgentIntent;
 use super::navigation_dirty::{DirtyChoice, DraftAction, SaveIntent};
 use super::settings_types::{DraftCandidate, DraftStatus, SettingsDraft, SettingsFocus};
 use super::{AppState, settings_view};
@@ -61,6 +62,7 @@ impl AppState {
             SettingsMessage::Activate => self.activate_settings_row(),
             SettingsMessage::Edit(edit) => self.edit_settings(edit),
             SettingsMessage::Reset(path) => self.edit_settings(SettingsEdit::Reset(path)),
+            SettingsMessage::Agent(intent) => self.draft_agent(intent),
             SettingsMessage::Save => self.save_settings(false),
             SettingsMessage::SaveAndExit => self.save_settings(true),
             SettingsMessage::Discard => self.discard_settings(),
@@ -253,6 +255,33 @@ impl AppState {
             .and_then(settings_view::SettingsRow::activation)
         else {
             return false;
+        };
+        self.edit_settings(edit)
+    }
+
+    /// Draft one Agent Types editor intent.
+    ///
+    /// Enablement may be drafted for a type the probe could not find: what is
+    /// installed is a fact about this machine now, and what the document offers
+    /// is a decision that outlives it. The candidate the agent registry
+    /// validates decides whether the whole document still stands.
+    fn draft_agent(&mut self, intent: AgentIntent) -> bool {
+        let type_id = match &intent {
+            AgentIntent::SetEnabled { type_id, .. } | AgentIntent::Reset { type_id } => type_id,
+        };
+        let Ok(agent) = Id::parse(type_id.as_str()) else {
+            // A definition whose identity the configuration grammar cannot
+            // spell has no syntax to write. Saying so is the only honest
+            // answer: the type stays at its compiled default.
+            self.settings_state.notice =
+                Some(format!("{type_id} cannot be named in settings syntax"));
+            return true;
+        };
+        let edit = match intent {
+            AgentIntent::SetEnabled { enabled, .. } => {
+                SettingsEdit::AgentEnabled { agent, enabled }
+            }
+            AgentIntent::Reset { .. } => SettingsEdit::Reset(SyntaxPath::AgentEnabled(agent)),
         };
         self.edit_settings(edit)
     }

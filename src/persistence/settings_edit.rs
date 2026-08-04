@@ -287,9 +287,9 @@ impl SettingsEdit {
             }
             Self::AgentEnabled { enabled, .. } => Some(enabled.to_string().into_bytes()),
             Self::ReplaceLayout { layout, .. } => Some(super::settings_layout::render(layout)),
-            Self::Keymap { chords, .. } => Some(toml_string_array(
-                chords.iter().map(ToString::to_string).collect::<Vec<_>>(),
-            )),
+            Self::Keymap { chords, .. } => {
+                Some(toml_string_array(chords.iter().map(ToString::to_string)))
+            }
             Self::Reset(_) => None,
         }
     }

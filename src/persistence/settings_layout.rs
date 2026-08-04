@@ -12,6 +12,8 @@
 //! Nothing here validates. The descriptor/layout validator decides whether a
 //! tree is usable; this only writes down the tree it is given.
 
+use std::fmt::Write as _;
+
 use crate::workbench::descriptor::{Axis, LayoutChild, LayoutNode, Size};
 
 /// Render one complete layout tree as a single inline TOML value.
@@ -56,17 +58,19 @@ fn write_child(out: &mut String, child: &LayoutChild) {
     out.push_str("{ node = ");
     write_node(out, &child.node);
     out.push_str(", size = ");
-    match child.size {
-        Size::Fixed(cells) => out.push_str(&format!("{{ fixed = {cells} }}")),
-        Size::Weight(share) => out.push_str(&format!("{{ weight = {share} }}")),
-    }
-    out.push_str(&format!(", min = {}", child.min));
+    // Writing into a `String` cannot fail, and the layout is already in memory,
+    // so there is no partial write to recover from.
+    let _ = match child.size {
+        Size::Fixed(cells) => write!(out, "{{ fixed = {cells} }}"),
+        Size::Weight(share) => write!(out, "{{ weight = {share} }}"),
+    };
+    let _ = write!(out, ", min = {}", child.min);
     if let Some(max) = child.max {
-        out.push_str(&format!(", max = {max}"));
+        let _ = write!(out, ", max = {max}");
     }
-    out.push_str(&format!(", collapsible = {}", child.collapsible));
+    let _ = write!(out, ", collapsible = {}", child.collapsible);
     if let Some(priority) = child.collapse_priority {
-        out.push_str(&format!(", collapse-priority = {priority}"));
+        let _ = write!(out, ", collapse-priority = {priority}");
     }
     out.push_str(" }");
 }

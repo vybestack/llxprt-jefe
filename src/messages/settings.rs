@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use crate::domain::ThemeId;
 use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome, SyntaxPath};
+use crate::state::agent_types_editor::AgentIntent;
 use crate::state::navigation_dirty::DirtyChoice;
 
 use super::NavDir;
@@ -114,6 +115,8 @@ pub enum SettingsMessage {
     Edit(SettingsEdit),
     /// Remove one leaf's assignment so the compiled default is inherited.
     Reset(SyntaxPath),
+    /// Draft one change to an agent type's enablement.
+    Agent(AgentIntent),
     /// Make the draft authoritative.
     Save,
     /// Make the draft authoritative and then leave the screen.
@@ -156,6 +159,7 @@ impl SettingsMessage {
             Self::Activate => "SettingsActivate",
             Self::Edit(_) => "SettingsEdit",
             Self::Reset(_) => "SettingsReset",
+            Self::Agent(_) => "SettingsAgentIntent",
             Self::Save => "SettingsSave",
             Self::SaveAndExit => "SettingsSaveAndExit",
             Self::Discard => "SettingsDiscard",

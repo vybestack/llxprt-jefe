@@ -130,6 +130,30 @@ impl AgentTypeRegistry {
     }
 }
 
+/// Whether published settings offer one agent type.
+///
+/// This is the registry's rule and lives here so that startup composition and
+/// the Settings editor cannot answer it differently. An unmentioned type is
+/// offered: settings are sparse, and a document that says nothing about a type
+/// is saying it is happy with the shipped answer. An identity the
+/// configuration grammar cannot even spell is likewise offered rather than
+/// silently withdrawn — the definition itself is what declares the type, and
+/// nothing in the document contradicts it.
+#[must_use]
+pub fn agent_type_enabled(
+    settings: &crate::persistence::settings_document::PublishedSettings,
+    type_id: &AgentTypeId,
+) -> bool {
+    let Ok(owner_id) = crate::domain::Id::parse(type_id.as_str()) else {
+        return true;
+    };
+    settings
+        .agents
+        .get(&owner_id)
+        .and_then(|owner| owner.enabled)
+        .unwrap_or(true)
+}
+
 /// Error returned when registry publication fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegistryPublishError {

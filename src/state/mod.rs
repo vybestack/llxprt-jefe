@@ -14,6 +14,8 @@ mod actions_tests;
 #[cfg(test)]
 #[path = "actions_tests_sort.rs"]
 mod actions_tests_sort;
+/// Pure projection of the Agent Types editor into rows (issue #388).
+pub mod agent_types_editor;
 mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
@@ -138,6 +140,9 @@ mod persistence_effect_tests;
 pub mod persistence_ops;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;
+#[cfg(test)]
+#[path = "settings_registry_tests.rs"]
+mod settings_registry_tests;
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod settings_tests;
