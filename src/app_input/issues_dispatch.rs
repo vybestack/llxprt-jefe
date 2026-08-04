@@ -116,6 +116,10 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
 
     if let Some(detail) = preview {
         let mut state = app_state.write();
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            AppEvent::CancelIssueListSendDetail.into(),
+        );
         if let Some(previous_detail) = &mut state.issues_state.issue_detail {
             previous_detail.comments.cancel_pending();
         }
@@ -140,13 +144,40 @@ fn preview_body_from_list(body: &str) -> String {
     }
 }
 
+enum DetailLoadCompletion {
+    None,
+    OpenAgentChooser(Vec<jefe::domain::AgentChooserGitMetadata>),
+}
+
 /// Load issue detail for the currently selected issue in the list.
 /// Used by IssuesEnter to get the full detail with comments.
 pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    load_issue_detail(app_state, ctx, DetailLoadCompletion::None);
+}
+
+fn load_issue_detail_then_open_agent_chooser(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    metadata: Vec<jefe::domain::AgentChooserGitMetadata>,
+) {
+    load_issue_detail(
+        app_state,
+        ctx,
+        DetailLoadCompletion::OpenAgentChooser(metadata),
+    );
+}
+
+fn load_issue_detail(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    completion: DetailLoadCompletion,
+) {
     let Some(mut params) = detail_load_params(app_state) else {
         return;
     };
-    mark_detail_loading(app_state, &mut params);
+    if !begin_detail_loading(app_state, ctx, &mut params, &completion) {
+        return;
+    }
     if params.owner.is_empty() || params.repo.is_empty() {
         let error = params
             .malformed_message
@@ -158,6 +189,7 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
 
     let panic_params = params.clone();
     let report_params = params.clone();
+    let ready_params = params.clone();
     let Some(deliveries) =
         gh_async::delivery_handle_or_report(app_state, ctx, move |app_state, ctx, message| {
             apply_and_persist(
@@ -173,15 +205,7 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
         &deliveries,
         ctx,
         move |ctx| detail_load_event(ctx, params),
-        move |app_state, ctx, event| {
-            // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
-            if let AppEvent::IssueDetailLoadFailed { error, .. } = &event
-                && super::auth_remediation::offer_auth_remediation(app_state, ctx, error)
-            {
-                return;
-            }
-            apply_and_persist(app_state, ctx, event);
-        },
+        issue_detail_delivery(completion, ready_params),
         move |app_state, ctx, message| {
             apply_and_persist(
                 app_state,
@@ -190,6 +214,71 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
             );
         },
     );
+}
+
+fn issue_detail_delivery(
+    completion: DetailLoadCompletion,
+    ready_params: DetailLoadParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, AppEvent) {
+    move |app_state, ctx, event| {
+        let failure_is_current = match &event {
+            AppEvent::IssueDetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                ..
+            } => {
+                let state = app_state.read();
+                match &completion {
+                    DetailLoadCompletion::None => state.issue_detail_request_is_current(
+                        scope_repo_id,
+                        *issue_number,
+                        *request_id,
+                    ),
+                    DetailLoadCompletion::OpenAgentChooser(_) => state
+                        .issue_list_send_request_is_current(
+                            scope_repo_id,
+                            *issue_number,
+                            *request_id,
+                        ),
+                }
+            }
+            _ => false,
+        };
+        let auth_error = match &event {
+            AppEvent::IssueDetailLoadFailed { error, .. } if failure_is_current => {
+                Some(error.clone())
+            }
+            _ => None,
+        };
+        let detail_loaded = matches!(&event, AppEvent::IssueDetailLoaded { .. });
+        let event = if auth_error.as_ref().is_some_and(|error| {
+            super::auth_remediation::should_offer_auth_remediation(error, app_state)
+        }) {
+            AppEvent::IssueDetailAuthRequired(
+                ready_params.scope_repo_id.clone(),
+                ready_params.issue_number,
+                ready_params.request_id,
+            )
+        } else {
+            event
+        };
+        apply_and_persist(app_state, ctx, event);
+        if detail_loaded && matches!(completion, DetailLoadCompletion::OpenAgentChooser(_)) {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::IssueListSendDetailReady {
+                    scope_repo_id: ready_params.scope_repo_id,
+                    issue_number: ready_params.issue_number,
+                    request_id: ready_params.request_id,
+                },
+            );
+        }
+        if let Some(error) = auth_error {
+            super::auth_remediation::offer_auth_remediation(app_state, ctx, &error);
+        }
+    }
 }
 
 /// Silently refresh issue detail for the currently selected issue (issue #175).
@@ -320,16 +409,48 @@ fn resolve_gh_repo_or_triple(state: &jefe::state::AppState) -> (String, String, 
     }
 }
 
-fn mark_detail_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
-    let mut state = app_state.write();
-    let request_id = state.next_issue_detail_request_id();
-    state.mark_issue_detail_loading_with_request_id(
-        params.scope_repo_id.clone(),
-        params.issue_number,
-        request_id,
-    );
-    drop(state);
-    params.request_id = request_id;
+fn begin_detail_loading(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    params: &mut DetailLoadParams,
+    completion: &DetailLoadCompletion,
+) -> bool {
+    match completion {
+        DetailLoadCompletion::None => {
+            let mut state = app_state.write();
+            let request_id = state.next_issue_detail_request_id();
+            state.mark_issue_detail_loading_with_request_id(
+                params.scope_repo_id.clone(),
+                params.issue_number,
+                request_id,
+            );
+            drop(state);
+            params.request_id = request_id;
+            true
+        }
+        DetailLoadCompletion::OpenAgentChooser(metadata) => {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::BeginIssueListSendDetail(metadata.clone()),
+            );
+            let request_id = app_state
+                .read()
+                .issues_state
+                .list_send_pending
+                .as_ref()
+                .filter(|pending| {
+                    pending.scope_repo_id == params.scope_repo_id
+                        && pending.issue_number == params.issue_number
+                })
+                .map(|pending| pending.request_id);
+            let Some(request_id) = request_id else {
+                return false;
+            };
+            params.request_id = request_id;
+            true
+        }
+    }
 }
 
 fn detail_load_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent {
@@ -493,6 +614,11 @@ pub(super) fn dispatch_issues_message(
         }
         IssuesMessage::Enter => {
             dispatch_issues_enter(app_state, ctx);
+        }
+        IssuesMessage::OpenAgentChooser { metadata }
+            if app_state.read().issues_state.issue_focus == jefe::state::IssueFocus::IssueList =>
+        {
+            load_issue_detail_then_open_agent_chooser(app_state, ctx, metadata);
         }
         message @ (IssuesMessage::ScrollDetailDown
         | IssuesMessage::ScrollDetailPageDown

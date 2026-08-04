@@ -104,7 +104,7 @@ ingress instead of rendering a confidently wrong checklist.
 |---|---|
 | New `MAX_TODO_STATE_BYTES` bound and specification §13 row | Every wire string in JSP/1 is bounded; an unbounded open-ended field would be the only hole |
 | Compliance fixtures/scenarios/traces edited wholesale | The retired field appears in each of them; a half-converted corpus would fail its own profiles |
-| `src/app_input/prs_lifecycle_key_tests.rs` restored to a compiling state | Unrelated to this issue and approved explicitly. `origin/main` at `6b6d9289` does not build its binary test target, so no gate and no CI run could pass on any branch cut from it. Two lines: the setup now moves the session with `enter_screen` instead of assigning the field #644 removed |
+| ~~`src/app_input/prs_lifecycle_key_tests.rs` restored to a compiling state~~ | Withdrawn. Approved as an unrelated exception while `origin/main` at `6b6d9289` could not build its binary test target, then superseded: #645 fixed the same defect on main with `NavState::rooted`, which states the session's screen exactly instead of pushing it onto the dashboard. Integrating main resolved the conflict in main's favour, so the branch no longer changes this file at all |
 
 ## Review counters
 
@@ -149,7 +149,7 @@ ingress instead of rendering a confidently wrong checklist.
   Windows Clippy, Windows coverage floors and the coverage gate are among the
   passing set. `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
 
-### Mainline blocker, fixed here with explicit approval
+### Mainline blocker, fixed here and then superseded by main
 
 `origin/main` at `6b6d9289` did not compile its binary test target:
 
@@ -165,9 +165,15 @@ this branch applied.
 That one defect blocked every gate: `cargo clippy --all-targets`, `cargo test
 --workspace`, and `cargo xtask ci` on any branch cut from main. It was also the
 cause of the signal-cleanup failure, which spawns a child `cargo test` and
-reads its exit status, so it reported 101 instead of 143. The setup function
-now moves the session with `enter_screen` instead of assigning the removed
-field, and both symptoms are gone.
+reads its exit status, so it reported 101 instead of 143. It was fixed here
+with explicit approval, which unblocked verification.
+
+#645 then landed the same fix on main using
+`NavState::rooted(ScreenId::PullRequests)`. That is the better statement — a key
+test wants the session to *be* on the pull-requests screen, not to have pushed
+it on top of the dashboard — so integrating main resolved the conflict in main's
+favour and the branch stopped touching the file. The exception is withdrawn
+rather than carried.
 
 ### One load-sensitive test, not a regression
 

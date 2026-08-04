@@ -79,6 +79,7 @@ pub struct IssuesState {
     /// Pending delete mutation.
     pub delete_mutation_pending: Option<IssueLifecycleMutationPending>,
     pub detail_pending: Option<IssueDetailPending>,
+    pub list_send_pending: Option<IssueListSendPending>,
     pub next_issue_detail_request_id: u64,
     /// High-water mark retained across replaceable issue-detail snapshots.
     pub last_comments_page_request_id: ListRequestId,
@@ -95,6 +96,15 @@ pub struct IssueDetailPending {
     pub scope_repo_id: RepositoryId,
     pub issue_number: u64,
     pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueListSendPending {
+    pub scope_repo_id: RepositoryId,
+    pub issue_number: u64,
+    pub request_id: u64,
+    pub metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

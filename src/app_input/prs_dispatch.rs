@@ -91,6 +91,11 @@ pub(super) fn current_pr_scope_repo_id(state: &jefe::state::AppState) -> Reposit
 
 // ── PR detail loading ─────────────────────────────────────────────────────
 
+enum PrDetailLoadCompletion {
+    None,
+    OpenAgentChooser(Vec<jefe::domain::AgentChooserGitMetadata>),
+}
+
 /// Load PR detail for the currently selected PR in the list.
 /// Used by `PrListEnter` to get the full detail with comments.
 ///
@@ -98,10 +103,32 @@ pub(super) fn current_pr_scope_repo_id(state: &jefe::state::AppState) -> Reposit
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 138-146
 pub(super) fn load_pr_detail_for_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    load_pr_detail(app_state, ctx, PrDetailLoadCompletion::None);
+}
+
+pub(super) fn load_pr_detail_then_open_agent_chooser(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    metadata: Vec<jefe::domain::AgentChooserGitMetadata>,
+) {
+    load_pr_detail(
+        app_state,
+        ctx,
+        PrDetailLoadCompletion::OpenAgentChooser(metadata),
+    );
+}
+
+fn load_pr_detail(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    completion: PrDetailLoadCompletion,
+) {
     let Some(mut params) = pr_detail_load_params(app_state) else {
         return;
     };
-    mark_pr_detail_loading(app_state, &mut params);
+    if !begin_pr_detail_loading(app_state, ctx, &mut params, &completion) {
+        return;
+    }
     if params.owner.is_empty() || params.repo.is_empty() {
         let error = params
             .malformed_message
@@ -117,21 +144,71 @@ pub(super) fn load_pr_detail_for_selection(app_state: &mut AppStateHandle, ctx: 
         return;
     };
     let panic_params = params.clone();
+    let ready_params = params.clone();
     gh_async::spawn_gh_work(
         &deliveries,
         ctx,
         move |ctx| pr_detail_load_event(ctx, &params),
-        move |app_state, ctx, event| {
-            // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
-            if let AppEvent::PrDetailLoadFailed { error, .. } = &event
-                && super::auth_remediation::offer_auth_remediation(app_state, ctx, error)
-            {
-                return;
-            }
-            apply_and_persist(app_state, ctx, event);
-        },
+        pr_detail_delivery(completion, ready_params),
         detail_load_abandoned(panic_params),
     );
+}
+
+fn pr_detail_delivery(
+    completion: PrDetailLoadCompletion,
+    ready_params: PrDetailLoadParams,
+) -> impl FnOnce(&mut AppStateHandle, &SharedContext, AppEvent) {
+    move |app_state, ctx, event| {
+        let failure_is_current = match &event {
+            AppEvent::PrDetailLoadFailed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+                ..
+            } => {
+                let state = app_state.read();
+                match &completion {
+                    PrDetailLoadCompletion::None => {
+                        state.pr_detail_request_is_current(scope_repo_id, *pr_number, *request_id)
+                    }
+                    PrDetailLoadCompletion::OpenAgentChooser(_) => state
+                        .pr_list_send_request_is_current(scope_repo_id, *pr_number, *request_id),
+                }
+            }
+            _ => false,
+        };
+        let auth_error = match &event {
+            AppEvent::PrDetailLoadFailed { error, .. } if failure_is_current => Some(error.clone()),
+            _ => None,
+        };
+        let detail_loaded = matches!(&event, AppEvent::PrDetailLoaded { .. });
+        let event = if auth_error.as_ref().is_some_and(|error| {
+            super::auth_remediation::should_offer_auth_remediation(error, app_state)
+        }) {
+            AppEvent::PrDetailAuthRequired(
+                ready_params.scope_repo_id.clone(),
+                ready_params.pr_number,
+                ready_params.request_id,
+            )
+        } else {
+            event
+        };
+        apply_and_persist(app_state, ctx, event);
+        if detail_loaded && matches!(completion, PrDetailLoadCompletion::OpenAgentChooser(_)) {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::PrListSendDetailReady {
+                    scope_repo_id: ready_params.scope_repo_id,
+                    pr_number: ready_params.pr_number,
+                    request_id: ready_params.request_id,
+                },
+            );
+        }
+        if let Some(error) = auth_error {
+            super::auth_remediation::offer_auth_remediation(app_state, ctx, &error);
+        }
+    }
 }
 
 /// Report an abandoned PR detail load so the pending marker is cleared.
@@ -198,12 +275,48 @@ pub(super) fn pr_detail_load_params(app_state: &AppStateHandle) -> Option<PrDeta
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 139-145
-fn mark_pr_detail_loading(app_state: &mut AppStateHandle, params: &mut PrDetailLoadParams) {
-    let mut state = app_state.write();
-    let request_id = state.next_pr_detail_request_id();
-    state.mark_pr_detail_loading(params.scope_repo_id.clone(), params.pr_number, request_id);
-    drop(state);
-    params.request_id = request_id;
+fn begin_pr_detail_loading(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    params: &mut PrDetailLoadParams,
+    completion: &PrDetailLoadCompletion,
+) -> bool {
+    match completion {
+        PrDetailLoadCompletion::None => {
+            let mut state = app_state.write();
+            let request_id = state.next_pr_detail_request_id();
+            state.mark_pr_detail_loading(
+                params.scope_repo_id.clone(),
+                params.pr_number,
+                request_id,
+            );
+            drop(state);
+            params.request_id = request_id;
+            true
+        }
+        PrDetailLoadCompletion::OpenAgentChooser(metadata) => {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::BeginPrListSendDetail(metadata.clone()),
+            );
+            let request_id = app_state
+                .read()
+                .prs_state
+                .list_send_pending
+                .as_ref()
+                .filter(|pending| {
+                    pending.scope_repo_id == params.scope_repo_id
+                        && pending.pr_number == params.pr_number
+                })
+                .map(|pending| pending.request_id);
+            let Some(request_id) = request_id else {
+                return false;
+            };
+            params.request_id = request_id;
+            true
+        }
+    }
 }
 
 /// Build the detail-loaded/failed event from the gh result (background thread).
@@ -378,6 +491,10 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         Ok(None) => return,
         Err(error) => {
             let mut state = app_state.write();
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                AppEvent::CancelPrListSendDetail.into(),
+            );
             state.prs_state.error = Some(error.message);
             state.prs_state.loading.detail = false;
             state.prs_state.loading.comments = false;
@@ -397,6 +514,10 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         if !selected_pr_still_matches(&state, &preview_scope_repo_id, preview_pr_number) {
             return;
         }
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            AppEvent::CancelPrListSendDetail.into(),
+        );
         if let Some(previous_detail) = &mut state.prs_state.pr_detail {
             previous_detail.comments.cancel_pending();
         }

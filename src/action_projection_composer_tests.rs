@@ -105,3 +105,203 @@ fn unbound_composer_submit_is_discoverable() {
 
     assert!(footer.contains("Unbound submit"), "footer: {footer}");
 }
+
+struct ListSendProjectionCase {
+    context: &'static str,
+    action: &'static str,
+    mode: FooterMode,
+    screen: ScreenId,
+}
+
+fn project_list_send_footer(
+    snapshot: &ActionRegistrySnapshot,
+    case: &ListSendProjectionCase,
+) -> String {
+    project_footer(
+        snapshot,
+        FooterProjectionInput {
+            screen: case.screen,
+            terminal_focused: false,
+            shell_overlay_active: false,
+            shell_resume_available: false,
+            actions_focus: None,
+            mode_override: Some(case.mode),
+        },
+    )
+}
+
+#[test]
+fn list_send_remaps_project_to_footer_and_help_from_one_snapshot() {
+    for case in [
+        ListSendProjectionCase {
+            context: "issues.list",
+            action: "issues.list-send-agent",
+            mode: FooterMode::IssuesList,
+            screen: ScreenId::Issues,
+        },
+        ListSendProjectionCase {
+            context: "prs.list",
+            action: "prs.list-send-agent",
+            mode: FooterMode::PullRequestsList,
+            screen: ScreenId::PullRequests,
+        },
+    ] {
+        let snapshot = snapshot_with_submit_override(case.context, case.action, &["F8"]);
+        let footer = project_list_send_footer(&snapshot, &case);
+        let help = project_help_lines(&snapshot).join("\n");
+        let help_description = if case.context == "issues.list" {
+            "Send selected issue to agent"
+        } else {
+            "Send selected pull request to agent"
+        };
+        let Some(help_line) = help.lines().find(|line| line.contains(help_description)) else {
+            panic!("help did not project list send-to-agent: {help}");
+        };
+
+        assert!(footer.contains("F8 send to agent"), "footer: {footer}");
+        assert!(!footer.contains("/S send to agent"), "footer: {footer}");
+        assert!(help_line.contains("F8"), "help: {help}");
+        let keys = crate::state::KeysEditorState::from_snapshot(&snapshot, None);
+        let Some(keys_row) = keys
+            .rows
+            .iter()
+            .find(|row| row.action.as_str() == case.action)
+        else {
+            panic!("Keys did not project list send-to-agent: {keys:?}");
+        };
+        assert_eq!(
+            keys_row.effective_chords,
+            vec![Chord::parse("F8").unwrap_or_else(|error| panic!("test chord: {error}"))]
+        );
+        assert!(
+            !footer.contains("Ctrl-s/S send to agent"),
+            "footer: {footer}"
+        );
+    }
+}
+
+#[test]
+fn unbound_list_send_is_discoverable_in_footer_and_help() {
+    for case in [
+        ListSendProjectionCase {
+            context: "issues.list",
+            action: "issues.list-send-agent",
+            mode: FooterMode::IssuesList,
+            screen: ScreenId::Issues,
+        },
+        ListSendProjectionCase {
+            context: "prs.list",
+            action: "prs.list-send-agent",
+            mode: FooterMode::PullRequestsList,
+            screen: ScreenId::PullRequests,
+        },
+    ] {
+        let snapshot = snapshot_with_submit_override(case.context, case.action, &[]);
+        let footer = project_list_send_footer(&snapshot, &case);
+        let help = project_help_lines(&snapshot).join("\n");
+        let help_description = if case.context == "issues.list" {
+            "Send selected issue to agent"
+        } else {
+            "Send selected pull request to agent"
+        };
+        let Some(help_line) = help.lines().find(|line| line.contains(help_description)) else {
+            panic!("help did not project list send-to-agent: {help}");
+        };
+
+        assert!(footer.contains("Unbound send to agent"), "footer: {footer}");
+        assert!(help_line.contains("Unbound"), "help: {help}");
+        let keys = crate::state::KeysEditorState::from_snapshot(&snapshot, None);
+        let Some(keys_row) = keys
+            .rows
+            .iter()
+            .find(|row| row.action.as_str() == case.action)
+        else {
+            panic!("Keys did not project unbound list send-to-agent: {keys:?}");
+        };
+        assert!(keys_row.effective_chords.is_empty());
+        assert!(
+            keys_row.settings_override,
+            "an explicit empty settings binding must remain identified as an override"
+        );
+        assert!(
+            !footer.contains("Ctrl-s/S send to agent"),
+            "footer: {footer}"
+        );
+    }
+}
+
+#[test]
+fn list_and_detail_footers_project_only_their_active_send_action() {
+    for (context, action, screen, list_mode, detail_mode) in [
+        (
+            "issues.list",
+            "issues.list-send-agent",
+            ScreenId::Issues,
+            FooterMode::IssuesList,
+            FooterMode::IssuesDetail,
+        ),
+        (
+            "prs.list",
+            "prs.list-send-agent",
+            ScreenId::PullRequests,
+            FooterMode::PullRequestsList,
+            FooterMode::PullRequestsDetail,
+        ),
+    ] {
+        let snapshot = snapshot_with_submit_override(context, action, &["F8"]);
+        let list_footer = project_footer(
+            &snapshot,
+            FooterProjectionInput {
+                screen,
+                terminal_focused: false,
+                shell_overlay_active: false,
+                shell_resume_available: false,
+                actions_focus: None,
+                mode_override: Some(list_mode),
+            },
+        );
+        let detail_footer = project_footer(
+            &snapshot,
+            FooterProjectionInput {
+                screen,
+                terminal_focused: false,
+                shell_overlay_active: false,
+                shell_resume_available: false,
+                actions_focus: None,
+                mode_override: Some(detail_mode),
+            },
+        );
+
+        assert!(list_footer.contains("F8 send to agent"), "{list_footer}");
+        assert!(!list_footer.contains("/S send to agent"), "{list_footer}");
+        assert!(detail_footer.contains("S send to agent"), "{detail_footer}");
+        assert!(
+            !detail_footer.contains("F8 send to agent"),
+            "{detail_footer}"
+        );
+    }
+}
+
+#[test]
+fn non_item_focus_footers_do_not_advertise_list_send() {
+    let snapshot = test_snapshot();
+    for (screen, mode) in [
+        (ScreenId::Issues, FooterMode::IssuesRepoList),
+        (ScreenId::PullRequests, FooterMode::PullRequestsRepoList),
+        (ScreenId::PullRequests, FooterMode::PullRequestsChanges),
+    ] {
+        let footer = project_footer(
+            &snapshot,
+            FooterProjectionInput {
+                screen,
+                terminal_focused: false,
+                shell_overlay_active: false,
+                shell_resume_available: false,
+                actions_focus: None,
+                mode_override: Some(mode),
+            },
+        );
+
+        assert!(!footer.contains("send to agent"), "{mode:?}: {footer}");
+    }
+}

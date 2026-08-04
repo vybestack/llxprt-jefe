@@ -20,18 +20,15 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn prs_list_state() -> AppState {
-    let mut state = AppState {
+    AppState {
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             active: true,
             pr_focus: PrFocus::PrList,
             ..PullRequestsState::default()
         },
         ..AppState::default()
-    };
-    // Navigation is the only authority for screen identity (issue #386), so the
-    // session has to be moved rather than have a field assigned.
-    let _ = state.enter_screen(ScreenId::PullRequests);
-    state
+    }
 }
 
 // ── Closing from the list (A1) ─────────────────────────────────────────────

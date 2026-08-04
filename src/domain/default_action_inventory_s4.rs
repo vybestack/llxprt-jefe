@@ -136,6 +136,12 @@ pub(super) const SPECS: &[Spec] = &[
     spec!("issues.list", "issues.list-home", H::NavigateHome, ["Home"]),
     spec!("issues.list", "issues.list-end", H::NavigateEnd, ["End"]),
     spec!("issues.list", "issues.open", H::IssuesOpen, ["Enter"]),
+    spec!(
+        "issues.list",
+        "issues.list-send-agent",
+        H::IssuesSendToAgent,
+        ["Ctrl+S"]
+    ),
     spec!("issues.list", "issues.new", H::IssuesNew, ["n", "Shift+N"]),
     spec!(
         "issues.list",
@@ -479,6 +485,12 @@ pub(super) const SPECS: &[Spec] = &[
     spec!("prs.list", "prs.list-home", H::NavigateHome, ["Home"]),
     spec!("prs.list", "prs.list-end", H::NavigateEnd, ["End"]),
     spec!("prs.list", "prs.open", H::PullRequestsOpen, ["Enter"]),
+    spec!(
+        "prs.list",
+        "prs.list-send-agent",
+        H::PullRequestsSendToAgent,
+        ["Ctrl+S"]
+    ),
     spec!(
         "prs.list",
         "prs.list-browser",
