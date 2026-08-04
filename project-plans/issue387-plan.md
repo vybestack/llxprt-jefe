@@ -190,7 +190,7 @@ Verified in the tree, not assumed:
 | Review | Budget | Used |
 |---|---|---|
 | Local OCR (pre-PR) | 2 | 1 |
-| PR OCR | 2 | 0 |
+| PR OCR | 2 | 1 |
 | Subagent review cycles | 2 | 1 (`rustreviewer`, pre-PR) |
 
 ### Triage of review round 1
@@ -234,6 +234,55 @@ bound is structural, and `SyntaxPath::ALL` proves it).
 flat file, so `create_dir_all` is a no-op); CRLF and header-comment placement on
 insertion (presentation only, no bytes lost); the schema-2 header literal
 appearing in three modules.
+
+### Triage of review round 2 (PR OpenCodeReview, 19 threads)
+
+**Fixed (Blocker-Fix)** — commit `a15bdd3d`:
+
+1. `adopt_saved` returned without telling the dirty guard when the bytes it had
+   just written failed to load back, stranding the guard forever.
+
+**Fixed (In-scope-Fix)**: an unreadable settings target made `,` do nothing at
+all — the screen now opens on Diagnostics with the reason, and Reload does the
+same; a reload that produced no editable draft claimed to have succeeded; theme
+slugs that are not valid identities were dropped silently; an unavailable theme
+row carried the identity of an installed theme, and now carries none; a non-UTF-8
+assignment value was written through a lossy conversion and now leaves the file
+untouched; the reload prompt's wording and double space; a discarded `depth`
+binding; the misleading `current` parameter in a preview test helper.
+
+**Fixed (test quality)**: both stale-completion tests reported a superseded
+revision that had never been scheduled, so they proved nothing. They now
+conflict or fail a save, retry it, and deliver the first attempt's answer
+afterwards — the interleaving the rule exists for. `ThemeId`'s grammar test now
+enumerates every path-shaped input (`..`, `.`, `/`, ``, percent-encoded, NUL)
+rather than one.
+
+**Rejected**:
+
+- *`keymap_recovery`/`keymap_snapshot` were not renamed alongside the document
+  fields.* They are keymap-specific — a keymap composition diagnostic and the
+  composed action registry — while the document, its hash and its revision are
+  shared by both editors. Renaming them would claim a relationship that is not
+  there.
+- *Removing `InputMode::ThemePicker` is a breaking API change.* `jefe` has no
+  external consumers; this is a coordinated in-workspace cutover, and every
+  match arm in the workspace is updated in the same change.
+- *`active_theme_id`'s `unwrap_or_default` tolerates an invalid slug.* The
+  invariant is enforced at both entry points (built-ins are covered by a test,
+  custom definitions are filtered at load) and stated in the doc comment. A
+  render path may not panic.
+- *`select()` collapses every `set_active` failure into `Unavailable`.*
+  `ThemeError::ParseError` is never produced by `set_active`, whose only failure
+  is an unknown slug.
+- *Index-based row selection in the renderer is brittle.* The reducer clamps
+  against the same projection the renderer draws, which is the single-authority
+  arrangement the projection exists to provide.
+
+**Deferred**: holding the context lock across the settings write (identical to
+the keymap editor's existing save, which the same lock already covers; changing
+one and not the other would be worse than either); more specific `PreviewError`
+variants for hypothetical future theme-loading failures.
 
 ## 7. Verification evidence
 
