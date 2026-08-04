@@ -527,7 +527,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 vec![element! {
                     Box(height: 1u32, width: 100pct) {
                         KeybindBar(
-                            screen: state.map_or(ScreenId::PullRequests, |s| s.screen),
+                            screen: state.map_or(ScreenId::PullRequests, crate::state::AppState::screen),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                             terminal_focused: state.is_some_and(|s| s.terminal_focused),
                             actions_focus: None,

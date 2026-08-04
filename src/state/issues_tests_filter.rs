@@ -8,7 +8,7 @@ use crate::state::transition::TransitionExt;
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     }
 }
@@ -304,7 +304,7 @@ fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
         state.issues_state.committed_filter.author,
         "committed-author"
     );
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
     assert!(state.issues_state.active);
     assert!(state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.filter_ui.field_index, 5);

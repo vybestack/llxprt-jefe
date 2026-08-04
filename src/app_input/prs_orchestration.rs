@@ -303,7 +303,7 @@ pub fn request_pr_background_refresh(
     let should_refresh = {
         let state = app_state.read();
         should_background_refresh(BackgroundRefreshGuard {
-            screen: state.screen,
+            screen: state.screen(),
             list_reload_pending: state.prs_state.list.has_pending_request(),
             detail_pending: state.prs_state.detail_pending.is_some(),
             is_idle,
@@ -319,7 +319,7 @@ pub fn request_pr_background_refresh(
 pub(super) fn resume_pr_post_mutation_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let ready = {
         let state = app_state.read();
-        state.screen == jefe::state::ScreenId::PullRequests
+        state.screen() == jefe::state::ScreenId::PullRequests
             && state.pr_post_mutation_refresh_ready()
     };
     if !ready {

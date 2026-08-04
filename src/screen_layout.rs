@@ -26,10 +26,10 @@ use crate::workbench::{
 /// falls back to no geometry is far harder to diagnose than one that says why.
 #[must_use]
 pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Option<ResolvedLayout> {
-    let descriptor = match screen_descriptor(state.screen) {
+    let descriptor = match screen_descriptor(state.screen()) {
         Ok(descriptor) => descriptor,
         Err(error) => {
-            tracing::error!(screen = %state.screen, %error, "no compiled descriptor for the active screen");
+            tracing::error!(screen = %state.screen(), %error, "no compiled descriptor for the active screen");
             return None;
         }
     };
@@ -38,7 +38,7 @@ pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Optio
     match resolve_layout(descriptor, ScreenInstanceId::next(), outer, &panel_state) {
         Ok(layout) => Some(layout),
         Err(error) => {
-            tracing::error!(screen = %state.screen, %error, ?outer, "layout resolution failed");
+            tracing::error!(screen = %state.screen(), %error, ?outer, "layout resolution failed");
             None
         }
     }
@@ -79,7 +79,7 @@ fn hidden_panels(state: &AppState) -> PanelState {
 /// identity produced here is declared by the screen it names.
 pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
     let mut hidden = Vec::new();
-    match state.screen {
+    match state.screen() {
         ScreenId::Dashboard => {
             if !state.dashboard_search_active() && !state.dashboard_search.input_focused {
                 hidden.push(PanelId::from_static("search"));

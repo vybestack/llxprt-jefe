@@ -244,7 +244,7 @@ pub fn build_screen_element(
     theme_name: &str,
     terminal: TerminalRenderData,
 ) -> AnyElement<'static> {
-    match snapshot.screen {
+    match snapshot.screen() {
         ScreenId::Dashboard => element! {
             Dashboard(
                 state: Some(snapshot.clone()),

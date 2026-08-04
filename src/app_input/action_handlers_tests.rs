@@ -18,7 +18,7 @@ fn chord(text: &str) -> Chord {
 #[test]
 fn page_navigation_produces_typed_page_event() {
     let state = AppState {
-        screen: ScreenId::Repositories,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
         ..AppState::default()
     };
     let execution = execution_for(
@@ -37,7 +37,7 @@ fn page_navigation_produces_typed_page_event() {
 #[test]
 fn errors_back_and_reverse_cycle_preserve_focus_behavior() {
     let mut state = AppState {
-        screen: ScreenId::Errors,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Errors),
         ..AppState::default()
     };
     state.errors_state.focus = ErrorsFocus::ErrorDetail;
@@ -112,7 +112,7 @@ fn s4_modal_controls_have_typed_executions() {
 #[test]
 fn s4_workspace_handlers_produce_source_specific_events() {
     let mut issues = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     };
     issues.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
@@ -127,7 +127,7 @@ fn s4_workspace_handlers_produce_source_specific_events() {
     ));
 
     let mut prs = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     prs.prs_state.pr_focus = jefe::state::PrFocus::PrList;
@@ -144,7 +144,7 @@ fn s4_workspace_handlers_produce_source_specific_events() {
     ));
 
     let mut actions = AppState {
-        screen: ScreenId::Actions,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Actions),
         ..AppState::default()
     };
     actions.actions_state.focus = jefe::state::ActionsFocus::Detail;

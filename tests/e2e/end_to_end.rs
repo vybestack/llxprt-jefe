@@ -74,7 +74,7 @@ fn full_navigation_workflow() {
     let (mut state, _, _) = create_test_environment();
 
     // Start at dashboard
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 
     // Cycle through panes
@@ -89,11 +89,11 @@ fn full_navigation_workflow() {
 
     // Enter split mode
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Repositories);
+    assert_eq!(state.screen(), ScreenId::Repositories);
 
     // Exit split mode
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 #[test]

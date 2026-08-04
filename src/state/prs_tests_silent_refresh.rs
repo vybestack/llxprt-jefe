@@ -27,7 +27,7 @@ use crate::state::transition::TransitionExt;
 /// Build a PR-mode AppState with the given repo scope.
 fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

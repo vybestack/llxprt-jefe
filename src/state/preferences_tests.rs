@@ -155,7 +155,7 @@ fn enter_prs_mode_restores_field_index() {
 #[test]
 fn pr_apply_filter_persists_to_prefs() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.screen = ScreenId::PullRequests;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.prs_state.active = true;
     state.prs_state.filter_ui.controls_open = true;
     state.prs_state.draft_filter.state = Some(PrFilterState::Closed);
@@ -172,7 +172,7 @@ fn pr_apply_filter_persists_to_prefs() {
 #[test]
 fn pr_clear_filter_persists_open_default() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.screen = ScreenId::PullRequests;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.prs_state.active = true;
     // Seed a search query so we can prove ClearFilter also clears it.
     state.prs_state.search_query = "stale query".to_string();
@@ -202,7 +202,7 @@ fn pr_open_filter_controls_keeps_restored_field_index() {
         ..RepoPreferences::default()
     };
     let mut state = state_with_repo_and_prefs("repo-1", prefs);
-    state.screen = ScreenId::PullRequests;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.prs_state.active = true;
 
     // Enter mode restores field_index=2 into live state; opening filter
@@ -232,7 +232,7 @@ fn pr_prefs_are_per_repo() {
         ..RepoPreferences::default()
     };
     let mut state = state_with_two_repos("repo-1", prefs1, "repo-2", prefs2);
-    state.screen = ScreenId::PullRequests;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.prs_state.active = true;
 
     // Enter PR mode with repo-1 selected → Closed.
@@ -295,7 +295,7 @@ fn issue_open_filter_controls_keeps_restored_field_index() {
         ..RepoPreferences::default()
     };
     let mut state = state_with_repo_and_prefs("repo-1", prefs);
-    state.screen = ScreenId::Issues;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     state.issues_state.active = true;
 
     // Enter mode restores field_index=4 into live state; opening filter
@@ -309,7 +309,7 @@ fn issue_open_filter_controls_keeps_restored_field_index() {
 #[test]
 fn issue_apply_filter_persists() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.screen = ScreenId::Issues;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     state.issues_state.active = true;
     state.issues_state.filter_ui.controls_open = true;
     state.issues_state.draft_filter.author = "alice".to_string();
@@ -324,7 +324,7 @@ fn issue_apply_filter_persists() {
 #[test]
 fn issue_clear_filter_persists() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.screen = ScreenId::Issues;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     state.issues_state.active = true;
     // Seed a search query so we can prove ClearFilter also clears it.
     state.issues_state.search_query = "stale query".to_string();
@@ -358,7 +358,7 @@ fn issue_clear_draft_filter_defaults_to_open() {
     // ClearDraftFilter resets the in-progress draft to the Open default (issue
     // #163: the filter-state default is Open, matching ClearFilter).
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.screen = ScreenId::Issues;
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     state.issues_state.active = true;
     state.issues_state.draft_filter.state = Some(IssueFilterState::Closed);
 

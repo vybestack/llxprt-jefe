@@ -20,7 +20,7 @@ pub(super) fn execution_for(
     if state.modal != jefe::state::ModalState::None {
         return modal_execution(handler, chord);
     }
-    match state.screen {
+    match state.screen() {
         ScreenId::Issues => issues_execution(handler, chord, state, page),
         ScreenId::PullRequests => prs_execution(handler, chord, state, page),
         ScreenId::Actions => actions_execution(handler, chord, state, page),

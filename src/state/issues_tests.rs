@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     }
 }
@@ -96,7 +96,7 @@ use crate::state::transition::TransitionExt;
 fn test_enter_issues_mode_sets_active_screen() {
     let state = AppState::default();
     let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert_eq!(new_state.screen, ScreenId::Issues);
+    assert_eq!(new_state.screen(), ScreenId::Issues);
     assert!(new_state.issues_state.active);
     assert_eq!(new_state.issues_state.issue_focus, IssueFocus::IssueList);
 }
@@ -169,7 +169,7 @@ fn test_exit_issues_mode_restores_focus() {
     ));
 
     let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(new_state.screen, ScreenId::Dashboard);
+    assert_eq!(new_state.screen(), ScreenId::Dashboard);
     assert_eq!(new_state.pane_focus, PaneFocus::Agents);
     assert_eq!(new_state.selected_agent_index, Some(1));
 }

@@ -341,7 +341,7 @@ fn state_with_active_prs() -> jefe::state::AppState {
     prs_state.list.replace_items(vec![test_pr(1)]);
     prs_state.list.set_selected_index(Some(0));
     let mut state = jefe::state::AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state,
         ..AppState::default()
     };
@@ -469,7 +469,7 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
     use jefe::state::{PullRequestsState, ReadOnlyHintKind, ScreenId};
 
     let state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: {
             let mut ps = PullRequestsState {
                 active: true,
@@ -567,7 +567,7 @@ fn state_for_pr_agent_chooser_confirm(
     prs_state.list.replace_items(vec![test_pr(42)]);
     prs_state.list.set_selected_index(Some(0));
     let mut state = jefe::state::AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state,
         ..AppState::default()
     };
@@ -809,7 +809,7 @@ fn state_for_issue_agent_chooser_send(
     };
 
     let mut state = jefe::state::AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state,
         ..AppState::default()
     };

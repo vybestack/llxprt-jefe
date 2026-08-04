@@ -11,7 +11,7 @@ use crate::state::types::{DetailSubfocus, ScreenId};
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     }
 }

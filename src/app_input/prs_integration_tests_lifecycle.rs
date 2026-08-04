@@ -192,7 +192,7 @@ fn esc_l5_nothing_open_exits() {
         !state.prs_state.active,
         "mode must be inactive after final Esc"
     );
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 /// Checkpoint 10 (REQ-PR-004): Esc unwinds by the full 6-level precedence

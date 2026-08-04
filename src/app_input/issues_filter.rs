@@ -315,7 +315,7 @@ mod tests {
 
     fn filter_state() -> AppState {
         AppState {
-            screen: ScreenId::Issues,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
             issues_state: jefe::state::IssuesState {
                 active: true,
                 filter_ui: IssueFilterUiState {

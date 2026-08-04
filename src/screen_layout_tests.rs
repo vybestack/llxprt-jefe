@@ -7,7 +7,7 @@ use crate::workbench::{PanelId, ScreenId, screen_descriptor};
 
 fn state_on(screen: ScreenId) -> AppState {
     AppState {
-        screen,
+        nav: crate::state::navigation::NavState::rooted(screen),
         ..AppState::default()
     }
 }

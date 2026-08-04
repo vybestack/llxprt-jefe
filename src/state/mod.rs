@@ -106,6 +106,28 @@ pub use keys_editor::{
 #[cfg(test)]
 #[path = "keys_editor_tests.rs"]
 mod keys_editor_tests;
+/// The sole owner of route, stack, and dirty transitions (issue #386).
+pub mod navigation;
+/// The host dirty guard the navigation reducer raises (issue #386).
+pub mod navigation_dirty;
+#[cfg(test)]
+#[path = "navigation_dirty_tests.rs"]
+mod navigation_dirty_tests;
+/// Which unwindable layers a screen currently has open (issue #386).
+mod navigation_layers;
+#[cfg(test)]
+#[path = "navigation_layers_tests.rs"]
+mod navigation_layers_tests;
+/// How the rest of the reducer asks to change screen (issue #386).
+mod navigation_ops;
+#[cfg(test)]
+#[path = "navigation_tests.rs"]
+mod navigation_tests;
+/// The single Back-precedence resolution (issue #386).
+pub mod navigation_unwind;
+#[cfg(test)]
+#[path = "navigation_unwind_tests.rs"]
+mod navigation_unwind_tests;
 /// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
 #[cfg(test)]
@@ -517,7 +539,7 @@ impl AppState {
                 dashboard_search_ops::apply_dashboard_search_message(self, message);
             }
             UiNavigationMessage::EnterSplitMode => {
-                self.screen = ScreenId::Repositories;
+                let _ = self.enter_screen(ScreenId::Repositories);
                 self.pane_focus = PaneFocus::Repositories;
                 self.dashboard_grab = None;
             }
@@ -590,7 +612,7 @@ impl AppState {
     }
 
     fn exit_split_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.split_filter = None;
         self.split_grab_index = None;
     }
@@ -821,7 +843,7 @@ impl AppState {
     /// is therefore mirrored into the owning screen's notice band, which is
     /// where those screens already report `No agents available`.
     pub fn record_unavailable_action(&mut self, reason: String) {
-        match self.screen {
+        match self.screen() {
             ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
             ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
             ScreenId::Dashboard

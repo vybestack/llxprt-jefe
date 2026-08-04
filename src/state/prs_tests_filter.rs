@@ -13,7 +13,7 @@ use crate::state::types::ScreenId;
 /// Helper: PR-mode state with filter controls open and a selected repo.
 fn prs_filter_open_state() -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

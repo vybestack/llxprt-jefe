@@ -49,7 +49,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
 /// @pseudocode component-004 lines 160-175
 fn state_with_invalid_slug() -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             active: true,
             ..PullRequestsState::default()
@@ -179,7 +179,7 @@ fn test_open_in_browser_no_selection_yields_no_selection() {
 #[test]
 fn test_preview_guard_detects_selection_change_after_read_lock() {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState::default(),
         ..AppState::default()
     };
@@ -345,7 +345,7 @@ fn test_format_pr_prompt_wraps_focused_comment_in_delimiters() {
 /// Used to prove the list→detail preview propagates the mergeable signal.
 fn state_with_mergeable_pr(value: Option<bool>) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState::default(),
         ..AppState::default()
     };

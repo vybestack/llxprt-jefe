@@ -137,7 +137,7 @@ impl ApplyInPlace for AppState {
 #[test]
 fn it_enter_prs_mode_from_dashboard_loads_list() {
     let dashboard = dashboard_prs_state();
-    assert_eq!(dashboard.screen, ScreenId::Dashboard);
+    assert_eq!(dashboard.screen(), ScreenId::Dashboard);
 
     let resolved = crate::app_shell_key_routing::resolve_compiled_registry_key(
         &dashboard,
