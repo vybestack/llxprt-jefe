@@ -124,6 +124,26 @@ impl AppMessage {
         }
     }
 
+    /// Convert multi-agent workbench [`AppEvent`] variants into UI-navigation
+    /// messages (issue #626). Split out so the top-level converter stays within
+    /// the clippy line budget.
+    fn from_workbench_event(event: AppEvent) -> Self {
+        use UiNavigationMessage as U;
+        match event {
+            AppEvent::ToggleWorkbenchStatusBucket(bucket) => {
+                Self::UiNavigation(U::ToggleWorkbenchStatusBucket(bucket))
+            }
+            AppEvent::WorkbenchNextPage => Self::UiNavigation(U::WorkbenchNextPage),
+            AppEvent::WorkbenchPrevPage => Self::UiNavigation(U::WorkbenchPrevPage),
+            AppEvent::WorkbenchFilterCursorPrev => Self::UiNavigation(U::WorkbenchFilterCursorPrev),
+            AppEvent::WorkbenchFilterCursorNext => Self::UiNavigation(U::WorkbenchFilterCursorNext),
+            AppEvent::WorkbenchSelectPrev => Self::UiNavigation(U::WorkbenchSelectPrev),
+            AppEvent::WorkbenchSelectNext => Self::UiNavigation(U::WorkbenchSelectNext),
+            AppEvent::WorkbenchAttach => Self::UiNavigation(U::WorkbenchAttach),
+            _ => unreachable!("non-workbench AppEvent routed to from_workbench_event"),
+        }
+    }
+
     /// Convert modal/form [`AppEvent`] variants into modal messages. Split out
     /// so the top-level converter stays within the clippy line budget.
     fn from_modal_event(event: AppEvent) -> Self {
@@ -192,6 +212,14 @@ impl AppMessage {
     /// within the clippy line budget without a complexity suppression.
     fn from_non_ui_nav_event(event: AppEvent) -> Self {
         match event {
+            AppEvent::ToggleWorkbenchStatusBucket(_)
+            | AppEvent::WorkbenchNextPage
+            | AppEvent::WorkbenchPrevPage
+            | AppEvent::WorkbenchFilterCursorPrev
+            | AppEvent::WorkbenchFilterCursorNext
+            | AppEvent::WorkbenchSelectPrev
+            | AppEvent::WorkbenchSelectNext
+            | AppEvent::WorkbenchAttach => Self::from_workbench_event(event),
             AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
             AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
             AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
@@ -662,6 +690,16 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::CloseShellOverlay => Self::CloseShellOverlay,
             UiNavigationMessage::HideShellOverlay => Self::HideShellOverlay,
             UiNavigationMessage::ResumeShellOverlay(agent_id) => Self::ResumeShellOverlay(agent_id),
+            UiNavigationMessage::ToggleWorkbenchStatusBucket(bucket) => {
+                Self::ToggleWorkbenchStatusBucket(bucket)
+            }
+            UiNavigationMessage::WorkbenchNextPage => Self::WorkbenchNextPage,
+            UiNavigationMessage::WorkbenchPrevPage => Self::WorkbenchPrevPage,
+            UiNavigationMessage::WorkbenchFilterCursorPrev => Self::WorkbenchFilterCursorPrev,
+            UiNavigationMessage::WorkbenchFilterCursorNext => Self::WorkbenchFilterCursorNext,
+            UiNavigationMessage::WorkbenchSelectPrev => Self::WorkbenchSelectPrev,
+            UiNavigationMessage::WorkbenchSelectNext => Self::WorkbenchSelectNext,
+            UiNavigationMessage::WorkbenchAttach => Self::WorkbenchAttach,
         }
     }
 }

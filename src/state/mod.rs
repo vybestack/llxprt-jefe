@@ -156,6 +156,8 @@ pub mod transition;
 mod transition_tests;
 mod types;
 mod util;
+mod workbench_filter;
+mod workbench_reducers;
 pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
@@ -174,6 +176,7 @@ pub use terminal_manager_types::{
 };
 pub use types::*;
 pub use util::{inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical};
+pub use workbench_filter::{WorkbenchStatusFilter, WorkbenchUiState};
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
@@ -577,21 +580,25 @@ impl AppState {
             UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
             UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
             UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
+            message if message.is_workbench() => self.apply_workbench_navigation(message),
             UiNavigationMessage::TerminalScrollUp
             | UiNavigationMessage::TerminalScrollDown
             | UiNavigationMessage::TerminalScrollPageUp
             | UiNavigationMessage::TerminalScrollPageDown
             | UiNavigationMessage::TerminalFollowTail
-            | UiNavigationMessage::TerminalScrollToTop => {
-                scrollback_ops::apply_terminal_scroll_message(
-                    &mut self.terminal_history_offset,
-                    self.terminal_total_lines,
-                    self.terminal_viewport_rows,
-                    message,
-                );
-            }
+            | UiNavigationMessage::TerminalScrollToTop => self.apply_terminal_scroll(message),
             shell_message => self.apply_shell_overlay_message(shell_message),
         }
+    }
+
+    /// Apply a terminal scrollback message (issue #198).
+    fn apply_terminal_scroll(&mut self, message: UiNavigationMessage) {
+        scrollback_ops::apply_terminal_scroll_message(
+            &mut self.terminal_history_offset,
+            self.terminal_total_lines,
+            self.terminal_viewport_rows,
+            message,
+        );
     }
 
     fn cycle_pane_focus(&mut self) {
@@ -806,148 +813,7 @@ impl AppState {
     }
 }
 
-#[cfg(test)]
-#[path = "auth_ops_tests.rs"]
-mod auth_ops_tests;
-#[cfg(test)]
-mod confirm_focus_tests;
-#[cfg(test)]
-mod errors_tests;
-#[cfg(test)]
-#[path = "form_home_end_tests.rs"]
-mod form_home_end_tests;
-#[cfg(test)]
-#[path = "issues_tests_home_end.rs"]
-mod issues_home_end_tests;
-#[cfg(test)]
-mod issues_test_fixtures;
-#[cfg(test)]
-#[path = "issues_tests.rs"]
-mod issues_tests;
-#[cfg(test)]
-#[path = "issues_tests_close_delete.rs"]
-mod issues_tests_close_delete;
-#[cfg(test)]
-#[path = "issues_tests_close_reason.rs"]
-mod issues_tests_close_reason;
-#[cfg(test)]
-#[path = "issues_tests_components.rs"]
-mod issues_tests_components;
-#[cfg(test)]
-#[path = "issues_tests_composer_focus.rs"]
-mod issues_tests_composer_focus;
-#[cfg(test)]
-mod issues_tests_create;
-#[cfg(test)]
-#[path = "issues_tests_detail.rs"]
-mod issues_tests_detail;
-#[cfg(test)]
-mod issues_tests_detail_content;
-#[cfg(test)]
-#[path = "issues_tests_detail_flow.rs"]
-mod issues_tests_detail_flow;
-#[cfg(test)]
-#[path = "issues_tests_detail_nav.rs"]
-mod issues_tests_detail_nav;
-#[cfg(test)]
-#[path = "issues_tests_esc.rs"]
-mod issues_tests_esc;
-#[cfg(test)]
-#[path = "issues_tests_filter.rs"]
-mod issues_tests_filter;
-#[cfg(test)]
-#[path = "issues_tests_inline_cursor.rs"]
-mod issues_tests_inline_cursor;
-#[cfg(test)]
-#[path = "issues_tests_mutations.rs"]
-mod issues_tests_mutations;
-#[cfg(test)]
-#[path = "issues_tests_repo_nav.rs"]
-mod issues_tests_repo_nav;
-#[cfg(test)]
-#[path = "issues_tests_self_assignment.rs"]
-mod issues_tests_self_assignment;
-#[cfg(test)]
-#[path = "issues_tests_send_agent_probe.rs"]
-mod issues_tests_send_agent_probe;
-#[cfg(test)]
-#[path = "issues_tests_send_to_agent.rs"]
-mod issues_tests_send_to_agent;
-#[cfg(test)]
-#[path = "issues_tests_sort.rs"]
-mod issues_tests_sort;
-#[cfg(test)]
-#[path = "issues_tests_subfocus.rs"]
-mod issues_tests_subfocus;
-#[cfg(test)]
-#[path = "list_send_reducer_guard_tests.rs"]
-mod list_send_reducer_guard_tests;
-#[cfg(test)]
-#[path = "preferences_tests.rs"]
-mod preferences_tests;
-#[cfg(test)]
-#[path = "prs_integration_tests.rs"]
-mod prs_integration_tests;
-#[cfg(test)]
-#[path = "prs_test_fixtures.rs"]
-mod prs_test_fixtures;
-#[cfg(test)]
-#[path = "prs_tests.rs"]
-mod prs_tests;
-#[cfg(test)]
-#[path = "prs_tests_bodyless_review_nav.rs"]
-mod prs_tests_bodyless_review_nav;
-#[cfg(test)]
-#[path = "prs_tests_chooser_security.rs"]
-mod prs_tests_chooser_security;
-#[cfg(test)]
-#[path = "prs_tests_close_delete.rs"]
-mod prs_tests_close_delete;
-#[cfg(test)]
-#[path = "prs_tests_components.rs"]
-mod prs_tests_components;
-#[cfg(test)]
-#[path = "prs_tests_composer_focus.rs"]
-mod prs_tests_composer_focus;
-#[cfg(test)]
-#[path = "prs_tests_cursor_arrows.rs"]
-mod prs_tests_cursor_arrows;
-#[cfg(test)]
-#[path = "prs_tests_detail.rs"]
-mod prs_tests_detail;
-#[cfg(test)]
-#[path = "prs_tests_detail_flow.rs"]
-mod prs_tests_detail_flow;
-#[cfg(test)]
-#[path = "prs_tests_filter.rs"]
-mod prs_tests_filter;
-#[cfg(test)]
-#[path = "prs_tests_merge.rs"]
-mod prs_tests_merge;
-#[cfg(test)]
-#[path = "prs_tests_new_form.rs"]
-mod prs_tests_new_form;
-#[cfg(test)]
-#[path = "prs_tests_pagination.rs"]
-mod prs_tests_pagination;
-#[cfg(test)]
-#[path = "prs_tests_repo_nav.rs"]
-mod prs_tests_repo_nav;
-#[cfg(test)]
-#[path = "prs_tests_review_order.rs"]
-mod prs_tests_review_order;
-#[cfg(test)]
-#[path = "prs_tests_review_threads.rs"]
-mod prs_tests_review_threads;
-#[cfg(test)]
-#[path = "prs_tests_silent_refresh.rs"]
-mod prs_tests_silent_refresh;
-#[cfg(test)]
-#[path = "prs_tests_sort.rs"]
-mod prs_tests_sort;
-#[cfg(test)]
-#[path = "transient_agent_tests.rs"]
-mod transient_agent_tests;
-#[cfg(test)]
-#[path = "transient_system_message_tests.rs"]
-mod transient_system_message_tests;
+// The remaining test-module declarations live in `test_modules.rs` so this
+// file stays inside the source-size gate. See that file for why they are
+// included textually.
+include!("test_modules.rs");

@@ -1,0 +1,277 @@
+{
+  "schema": 1,
+  "name": "workbench-cards",
+  "platform": "macos",
+  "terminal": {
+    "cols": 110,
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      },
+      {
+        "path": "work/llxprt",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "bin/env",
+        "content": {
+          "utf8": "#!/bin/sh\nexec /usr/bin/env \"$@\"\n"
+        },
+        "mode": 493
+      },
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "schema_version = 1\ntheme = 'green-screen'\noverride_agent_theme = true\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.jsp\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"JSP Preview Fixture\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"slug\": {\n            \"type\": \"string\",\n            \"value\": \"jsp-preview\"\n          }\n        }\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo.jsp\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        },
+        {
+          "name": "JEFE_LOG_FILE",
+          "value": "${workspace}/jefe.log"
+        },
+        {
+          "name": "JEFE_LOG",
+          "value": "trace"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt  Installed, enabled",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> LLxprt",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "fixture prompt"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> [Create enabled]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "JSP preview is wired",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "STATUS",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Implement issue 522",
+        "JSP preview is wired"
+      ],
+      "absent": [
+        "No agents are running."
+      ]
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Working (1)"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": " "
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No agents match the current filters.",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "[ ] Working (1)"
+      ],
+      "absent": [
+        "Implement issue 522"
+      ]
+    },
+    {
+      "op": "text",
+      "text": " "
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Implement issue 522",
+      "timeout_ms": 10000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "[x] Working (1)"
+      ],
+      "absent": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}
