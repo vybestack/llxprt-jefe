@@ -199,7 +199,12 @@ fn typed_value_to_toml(value: &TypedValue) -> Result<toml::Value, String> {
         TypedValue::String(text) => toml::Value::String(text.clone()),
         TypedValue::Bool(flag) => toml::Value::Boolean(*flag),
         TypedValue::Integer(number) => toml::Value::Integer(*number),
-        TypedValue::Decimal(number) => toml::Value::String(number.to_string()),
+        // A layout declares cell counts and order keys, never fractions.
+        // Rendering one as a string would fail deep inside the grammar with a
+        // message about the wrong thing.
+        TypedValue::Decimal(_) => {
+            return Err("a layout declares whole numbers, not decimals".to_owned());
+        }
         TypedValue::Datetime(stamp) => toml::Value::String(stamp.to_string()),
         TypedValue::List(values) => toml::Value::Array(
             values

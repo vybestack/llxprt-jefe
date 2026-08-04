@@ -54,6 +54,13 @@ pub enum CompositionStatus {
 pub struct ScreenEditorRow {
     /// The screen's stable identity.
     pub screen_id: ScreenIdentity,
+    /// The screen's identity as a configuration owner, when it spells one.
+    ///
+    /// Every registered screen should: the registry's identifiers and the
+    /// configuration grammar are the same grammar. A screen that somehow does
+    /// not is kept as a row and reported, because dropping it here would write
+    /// a membership array missing a screen with nothing to say it was lost.
+    pub owner: Option<Id>,
     /// The screen's title, from its descriptor.
     pub title: String,
     /// Whether composition includes this screen.
@@ -144,7 +151,7 @@ pub fn project_screens(
 pub fn screen_membership(rows: &[ScreenEditorRow]) -> Vec<Id> {
     rows.iter()
         .filter(|row| row.enabled)
-        .filter_map(|row| Id::parse(row.screen_id.as_str()).ok())
+        .filter_map(|row| row.owner.clone())
         .collect()
 }
 
@@ -188,13 +195,25 @@ fn project_row(
     // Composition includes every compiled screen whatever settings say, so a
     // compiled row reports the truth and says why it cannot be changed.
     let compiled = screen.id.compiled().is_some();
+    let owner = Id::parse(screen.id.as_str()).ok();
+    let composition = owner.as_ref().map_or_else(
+        || CompositionStatus::Invalid {
+            code: ScrCode::E301.as_str().to_owned(),
+            reason: format!(
+                "screen {} is not a configuration owner identity",
+                screen.id.as_str()
+            ),
+        },
+        |_| composition(screen, published),
+    );
     ScreenEditorRow {
         screen_id: screen.id,
+        owner,
         title: screen.title.clone(),
         enabled: compiled || names_screen(&published.workbench.enabled_screens, screen),
         enablement_locked: compiled.then_some(COMPILED_MEMBERSHIP_REASON),
         order_index: u16::try_from(index).unwrap_or(u16::MAX),
-        composition: composition(screen, published),
+        composition,
         provenance: provenance(screen, published),
     }
 }

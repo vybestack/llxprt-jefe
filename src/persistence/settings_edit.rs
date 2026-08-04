@@ -427,10 +427,11 @@ fn sorted(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
 
 /// The refusal for a leaf whose owning table is written as one inline value.
 fn inline_ancestor_diagnostic(path: &SyntaxPath) -> Diagnostic {
+    let diagnostic_path = path.diagnostic_path();
     let mut diagnostic = Diagnostic::new(
         CfgCode::E006,
         Severity::Error,
-        DiagnosticPath::new(path.diagnostic_path()),
+        DiagnosticPath::new(diagnostic_path),
         None,
         "rewrite the owning table as a [table] header, or edit this value in the file",
     );

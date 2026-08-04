@@ -412,11 +412,17 @@ impl AppState {
         };
         match editor.complete(&screen) {
             Ok(layout) => {
-                self.settings_state.layout_editor = None;
-                self.draft_screen(ScreenIntent::ReplaceLayout {
+                // The editor closes only once the draft has taken the tree.
+                // Closing first would discard the whole edit whenever the
+                // draft could not accept it — while it is saving, say.
+                let accepted = self.draft_screen(ScreenIntent::ReplaceLayout {
                     screen_id: editor.screen_id,
                     layout: Box::new(layout),
-                })
+                });
+                if accepted {
+                    self.settings_state.layout_editor = None;
+                }
+                accepted
             }
             Err(reason) => {
                 if let Some(open) = self.settings_state.layout_editor.as_mut() {

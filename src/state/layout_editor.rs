@@ -393,12 +393,19 @@ impl LayoutEditorState {
     fn added(&self, screen: &ScreenDescriptor, dialog: &NodeDialog) -> Result<LayoutNode, String> {
         // The fields are checked first so a mistyped size is reported as a
         // mistyped size, whatever else the dialog would go on to discover.
-        let _ = dialog.allocation()?;
+        let allocation = dialog.allocation()?;
         let choices = self.addable_panels(screen);
         let Some(panel) = choices.get(dialog.panel_choice).copied() else {
             return Err("this screen places every panel it declares".to_owned());
         };
-        let child = dialog.child(LayoutNode::Leaf { panel })?;
+        let child = LayoutChild {
+            node: LayoutNode::Leaf { panel },
+            size: allocation.size,
+            min: allocation.min,
+            max: allocation.max,
+            collapsible: dialog.collapsible,
+            collapse_priority: allocation.collapse_priority,
+        };
         let mut tree = self.tree.clone();
         let parent = self.split_parent_path();
         let Some(LayoutNode::Split { children, .. }) = node_at_mut(&mut tree, &parent) else {
@@ -491,6 +498,7 @@ impl LayoutEditorState {
             return;
         };
         if index >= children.len() {
+            self.notice = Some("that node is no longer there".to_owned());
             return;
         }
         children.remove(index);

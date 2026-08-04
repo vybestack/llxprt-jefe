@@ -73,8 +73,8 @@ pub enum SettingsRowKind {
     },
     /// One screen's membership, order, and layout.
     ScreenMember {
-        /// The screen's identity.
-        screen_id: Id,
+        /// The screen's identity as a configuration owner, when it spells one.
+        screen_id: Option<Id>,
         /// Whether composition includes it.
         enabled: bool,
         /// Why membership is read-only, when it is.
@@ -156,11 +156,15 @@ impl SettingsRow {
             })),
             // Enter on a screen opens its layout; Space is what toggles its
             // membership, so the two never compete for one keystroke.
-            SettingsRowKind::ScreenMember { screen_id, .. } => {
-                Some(SettingsActivation::OpenLayout {
-                    screen_id: screen_id.clone(),
-                })
-            }
+            // A screen whose identity is not a configuration owner has no
+            // syntax to write, so it offers nothing to do rather than an
+            // action that would refuse itself later.
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                ..
+            } => Some(SettingsActivation::OpenLayout {
+                screen_id: screen_id.clone(),
+            }),
             // A protected control is read-only, so Enter on it asks for
             // nothing rather than starting a capture that would be refused.
             SettingsRowKind::KeyBinding {
@@ -171,7 +175,8 @@ impl SettingsRow {
                 context: context.clone(),
                 action: action.clone(),
             }),
-            SettingsRowKind::KeyBinding { .. }
+            SettingsRowKind::ScreenMember { .. }
+            | SettingsRowKind::KeyBinding { .. }
             | SettingsRowKind::Theme { .. }
             | SettingsRowKind::Fact
             | SettingsRowKind::Diagnostic { .. } => None,
@@ -193,14 +198,17 @@ impl SettingsRow {
                 enabled: !enabled,
             })),
             SettingsRowKind::ScreenMember {
-                screen_id, enabled, ..
+                screen_id: Some(screen_id),
+                enabled,
+                ..
             } => Some(SettingsActivation::Screen(Box::new(
                 ScreenIntent::SetEnabled {
                     screen_id: screen_id.clone(),
                     enabled: !enabled,
                 },
             ))),
-            SettingsRowKind::Theme { .. }
+            SettingsRowKind::ScreenMember { .. }
+            | SettingsRowKind::Theme { .. }
             | SettingsRowKind::Screen { .. }
             | SettingsRowKind::KeyBinding { .. }
             | SettingsRowKind::Fact
@@ -226,11 +234,14 @@ impl SettingsRow {
                     type_id: type_id.clone(),
                 }))
             }
-            SettingsRowKind::ScreenMember { screen_id, .. } => Some(SettingsActivation::Screen(
-                Box::new(ScreenIntent::ResetLayout {
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                ..
+            } => Some(SettingsActivation::Screen(Box::new(
+                ScreenIntent::ResetLayout {
                     screen_id: screen_id.clone(),
-                }),
-            )),
+                },
+            ))),
             SettingsRowKind::KeyBinding {
                 context,
                 action,
@@ -239,7 +250,8 @@ impl SettingsRow {
                 context: context.clone(),
                 action: action.clone(),
             }))),
-            SettingsRowKind::KeyBinding { .. }
+            SettingsRowKind::ScreenMember { .. }
+            | SettingsRowKind::KeyBinding { .. }
             | SettingsRowKind::Fact
             | SettingsRowKind::Diagnostic { .. } => None,
         }
@@ -265,7 +277,10 @@ impl SettingsRow {
     #[must_use]
     pub const fn reorderable_screen(&self) -> Option<&Id> {
         match &self.kind {
-            SettingsRowKind::ScreenMember { screen_id, .. } => Some(screen_id),
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                ..
+            } => Some(screen_id),
             _ => None,
         }
     }
@@ -450,9 +465,9 @@ fn screen_rows(state: &SettingsState) -> Vec<SettingsRow> {
     let published = published(state);
     project_screens(registry, &published)
         .into_iter()
-        .filter_map(|row| {
-            let screen_id = Id::parse(row.screen_id.as_str()).ok()?;
-            Some(SettingsRow {
+        .map(|row| {
+            let screen_id = row.owner.clone();
+            SettingsRow {
                 label: row.title,
                 value: format!(
                     "{} {}",
@@ -465,7 +480,7 @@ fn screen_rows(state: &SettingsState) -> Vec<SettingsRow> {
                     locked: row.enablement_locked,
                     composition: row.composition,
                 },
-            })
+            }
         })
         .collect()
 }

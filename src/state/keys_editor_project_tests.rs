@@ -301,3 +301,19 @@ fn a_chord_the_grammar_cannot_read_stays_visible_as_the_text_it_was_written_as()
         ]
     );
 }
+
+#[test]
+fn the_exit_chord_the_inventory_declares_is_the_one_capture_refuses() {
+    // The inventory declares "Ctrl+Q". A capture that compared against some
+    // other spelling of it would let the user bind over the way out.
+    assert_eq!(
+        classify_capture(chord("Ctrl+Q")),
+        CaptureOutcome::Protected,
+        "the declared exit chord is protected"
+    );
+    assert_eq!(
+        classify_capture(chord("Ctrl+q")),
+        CaptureOutcome::Protected,
+        "and so is the same chord written the other way"
+    );
+}
