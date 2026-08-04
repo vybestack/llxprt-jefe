@@ -21,7 +21,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 fn prs_list_state() -> AppState {
     AppState {
-        screen: ScreenId::PullRequests,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
         prs_state: PullRequestsState {
             active: true,
             pr_focus: PrFocus::PrList,
