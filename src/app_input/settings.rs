@@ -121,10 +121,15 @@ fn resolve_dirty(choice: DirtyChoice, app_state: &mut AppStateHandle, ctx: &Shar
 }
 
 fn dispatch_open(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let Some(source) = read_source(ctx) else {
-        return;
-    };
-    dispatch(app_state, SettingsMessage::Open(Box::new(source)));
+    match read_source(ctx) {
+        Ok(source) => dispatch(app_state, SettingsMessage::Open(Box::new(source))),
+        // A key that appears to do nothing is the worst answer available, so
+        // the screen opens on the reason it could not bind a draft.
+        Err(detail) => dispatch(
+            app_state,
+            SettingsMessage::OpenFailed(Box::new(settings_failure(&detail))),
+        ),
+    }
 }
 
 /// Leave the screen, or withdraw a reload that is waiting to be confirmed.
@@ -188,32 +193,41 @@ fn awaiting_reload_confirmation(app_state: &AppStateHandle) -> bool {
 }
 
 /// Read the exact current bytes and everything else a draft binds to.
-fn read_source(ctx: &SharedContext) -> Option<SettingsSource> {
-    let context = ctx.as_ref()?;
-    let context = context.lock().ok()?;
+///
+/// # Errors
+///
+/// Returns a redacted reason when the settings target cannot be read. An absent
+/// file is not one of those reasons: it is a normal base whose first save
+/// creates the file.
+fn read_source(ctx: &SharedContext) -> Result<SettingsSource, String> {
+    let context = ctx
+        .as_ref()
+        .ok_or_else(|| "the settings context is unavailable".to_owned())?;
+    let context = context
+        .lock()
+        .map_err(|_| "the settings context lock failed".to_owned())?;
     let path = context.persistence.settings_path();
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => {
-            // An absent file is a normal base; anything else means the shell
-            // does not know what it would be editing, so it refuses to open
-            // rather than binding a draft to bytes it could not read.
-            tracing::warn!(%error, "settings: could not read the settings document");
-            return None;
-        }
+        Err(error) => return Err(error.to_string()),
     };
     let themes = context
         .theme_manager
         .themes_with_names()
         .into_iter()
-        .filter_map(|(slug, name)| {
-            ThemeId::parse(&slug)
-                .ok()
-                .map(|id| ThemeChoice { id, name })
+        .filter_map(|(slug, name)| match ThemeId::parse(&slug) {
+            Ok(id) => Some(ThemeChoice { id, name }),
+            Err(error) => {
+                // A theme that cannot be named cannot be selected or reverted
+                // to, so it is not offered; saying which one keeps a misspelt
+                // custom theme diagnosable.
+                tracing::warn!(%error, %slug, "settings: theme slug is not a valid identity");
+                None
+            }
         })
         .collect();
-    Some(SettingsSource {
+    Ok(SettingsSource {
         bytes,
         revision: context.settings_revision,
         active_theme: context.theme_manager.active_theme_id(),
@@ -321,10 +335,13 @@ fn request_reload(app_state: &mut AppStateHandle, ctx: &SharedContext) {
 
 /// Re-read the settings target and rebind the draft to those exact bytes.
 fn reload(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let Some(source) = read_source(ctx) else {
-        return;
-    };
-    dispatch(app_state, SettingsMessage::Reloaded(Box::new(source)));
+    match read_source(ctx) {
+        Ok(source) => dispatch(app_state, SettingsMessage::Reloaded(Box::new(source))),
+        Err(detail) => dispatch(
+            app_state,
+            SettingsMessage::OpenFailed(Box::new(settings_failure(&detail))),
+        ),
+    }
 }
 
 /// Write the draft to a contained path beside the settings document.

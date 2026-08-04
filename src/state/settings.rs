@@ -52,6 +52,7 @@ impl AppState {
     pub(super) fn reduce_settings(&mut self, message: SettingsMessage) -> bool {
         match message {
             SettingsMessage::Open(source) => self.open_settings(*source),
+            SettingsMessage::OpenFailed(diagnostic) => self.open_settings_blocked(*diagnostic),
             SettingsMessage::Close => self.close_settings(),
             SettingsMessage::SelectSection(section) => self.select_settings_section(section),
             SettingsMessage::CycleFocus => self.cycle_settings_focus(true),
@@ -89,11 +90,38 @@ impl AppState {
         true
     }
 
+    /// Open the screen on the reason it could not read the settings target.
+    ///
+    /// The screen still opens, because a key that appears to do nothing gives
+    /// the user nothing to act on. Diagnostics is where the reason belongs.
+    fn open_settings_blocked(&mut self, diagnostic: Diagnostic) -> bool {
+        let was_open = self.settings_state.active;
+        self.settings_state.active = true;
+        self.settings_state.section = SettingsSection::Diagnostics;
+        self.settings_state.focus = SettingsFocus::Detail;
+        self.settings_state.selected_row = 0;
+        self.settings_state.reload_confirm = false;
+        self.settings_state.notice = Some(diagnostic.redacted_detail.clone());
+        self.settings_state.draft = None;
+        self.settings_state.blocked = vec![diagnostic];
+        if !was_open {
+            let _ = self.enter_screen(ScreenId::Settings);
+        }
+        true
+    }
+
     /// Rebind the draft to freshly read bytes, keeping the screen where it is.
     fn rebind_settings(&mut self, source: SettingsSource) -> bool {
         self.settings_state.reload_confirm = false;
         self.bind_settings_source(source);
-        self.settings_state.notice = Some("Reloaded from disk".to_owned());
+        // A reload that produced no editable draft is not a reload that
+        // succeeded, and saying it was would leave the user looking for a
+        // draft that is not there.
+        self.settings_state.notice = Some(if self.settings_state.draft.is_some() {
+            "Reloaded from disk".to_owned()
+        } else {
+            "Reloaded from disk, which cannot be edited as it stands".to_owned()
+        });
         let _ = self.mark_screen_clean();
         true
     }
@@ -422,8 +450,20 @@ impl AppState {
         };
         let bytes = candidate.bytes().to_vec();
         let structural = candidate.structural();
-        let Ok(base) = load_base(Some(&bytes)) else {
-            return false;
+        let base = match load_base(Some(&bytes)) {
+            Ok(base) => base,
+            Err(diagnostics) => {
+                // The bytes that were just written no longer load, which is a
+                // contradiction the shell cannot resolve. It still has to say
+                // so: a guard left waiting for a completion that never comes
+                // would trap the user on this screen.
+                self.settings_state.notice = diagnostics
+                    .first()
+                    .map(|diagnostic| diagnostic.redacted_detail.clone());
+                return self.report_guard_save(Err(
+                    "the saved settings document could not be reloaded".to_owned(),
+                ));
+            }
         };
         draft.adopt(Arc::new(base), hash, revision);
         let adopted = draft.preview().cloned().map(ThemePreviewToken::adopt);

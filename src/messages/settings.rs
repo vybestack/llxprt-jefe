@@ -96,6 +96,8 @@ pub enum RecoveryChoice {
 pub enum SettingsMessage {
     /// Bind a fresh draft to these bytes and open the screen.
     Open(Box<SettingsSource>),
+    /// Open the screen on the reason it could not read the settings target.
+    OpenFailed(Box<Diagnostic>),
     /// Leave the screen, releasing the draft.
     Close,
     /// Show this section's detail.
@@ -145,6 +147,7 @@ impl SettingsMessage {
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Open(_) => "OpenSettings",
+            Self::OpenFailed(_) => "OpenSettingsFailed",
             Self::Close => "CloseSettings",
             Self::SelectSection(_) => "SettingsSelectSection",
             Self::CycleFocus => "SettingsCycleFocus",

@@ -281,8 +281,7 @@ pub(super) fn patch_assignment(
             ),
         });
     }
-    if let Some(depth) = inline_ancestor_depth(document, assignment.path) {
-        let _ = depth;
+    if has_inline_ancestor(document, assignment.path) {
         return Err(PatchRefusal::InlineAncestor);
     }
     let Some(value) = value else {
@@ -291,15 +290,15 @@ pub(super) fn patch_assignment(
     Ok(insert_assignment(document, assignment, value))
 }
 
-/// The depth of the nearest ancestor written as one value, if there is one.
+/// Whether an ancestor of this leaf is written as one value.
 ///
 /// `appearance = { theme = "x" }` gives `appearance` a value span of its own, so
 /// `appearance.theme` has no syntax to replace and cannot be given a table
 /// header without redefining what the inline table already defines. Saying so is
 /// the only honest answer: silently doing nothing would lose the user's edit,
 /// and writing the header would produce a document that no longer parses.
-fn inline_ancestor_depth(document: &SettingsDocument, path: &[&str]) -> Option<usize> {
-    (1..path.len()).find(|depth| document.node(&path[..*depth]).is_some())
+fn has_inline_ancestor(document: &SettingsDocument, path: &[&str]) -> bool {
+    (1..path.len()).any(|depth| document.node(&path[..depth]).is_some())
 }
 
 /// Whether two value fragments denote the same TOML value.
@@ -329,11 +328,14 @@ fn insert_assignment(
     let Some((_, table_path)) = assignment.path.split_last() else {
         return document.original_bytes().to_vec();
     };
-    let statement = format!(
-        "{} = {}\n",
-        assignment.key_text,
-        String::from_utf8_lossy(value)
-    );
+    // Every value reaching here is rendered by `toml::Value::to_string`, so it
+    // is UTF-8 by construction. Refusing rather than lossily transcoding means
+    // a value this could not render leaves the document exactly as it was
+    // instead of being written as something subtly different.
+    let Ok(rendered) = std::str::from_utf8(value) else {
+        return document.original_bytes().to_vec();
+    };
+    let statement = format!("{} = {rendered}\n", assignment.key_text);
     if let Some(table) = document.table_span(table_path) {
         // A table's own statements are the ones between its header and the next
         // header. Selecting by path prefix instead would reach into a nested

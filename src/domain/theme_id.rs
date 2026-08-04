@@ -126,7 +126,6 @@ mod tests {
             ThemeId::parse("green screen"),
             Err(ThemeIdError::InvalidByte)
         );
-        assert_eq!(ThemeId::parse("../escape"), Err(ThemeIdError::InvalidByte));
         assert_eq!(ThemeId::parse("-lead"), Err(ThemeIdError::InvalidSeparator));
         assert_eq!(
             ThemeId::parse("trail-"),
@@ -136,6 +135,29 @@ mod tests {
             ThemeId::parse("double--dash"),
             Err(ThemeIdError::InvalidSeparator)
         );
+    }
+
+    /// A slug becomes `<themes>/<slug>.json`, so nothing that could name a
+    /// path may be one.
+    #[test]
+    fn no_slug_can_name_a_path() {
+        for escape in [
+            "../escape",
+            "..\\escape",
+            "/etc/passwd",
+            "escape/../other",
+            "./here",
+            "themes/other",
+            "..",
+            ".",
+            "%2e%2e%2fescape",
+            "nul\0byte",
+        ] {
+            assert!(
+                ThemeId::parse(escape).is_err(),
+                "{escape} must not be a theme identity"
+            );
+        }
     }
 
     #[test]

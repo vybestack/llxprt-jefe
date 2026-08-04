@@ -23,8 +23,11 @@ pub enum SettingsRowKind {
     Fact,
     /// A theme this row selects.
     Theme {
-        /// The theme's identity.
-        id: ThemeId,
+        /// The theme's identity, or `None` when the document names a slug that
+        /// is not a valid theme identity at all. Such a row is still shown —
+        /// a setting that vanished would be harder to correct than one that
+        /// says it cannot be resolved — but it names no installed theme.
+        id: Option<ThemeId>,
         /// Whether the session is wearing it.
         active: bool,
         /// Whether the manager can resolve it.
@@ -70,7 +73,7 @@ impl SettingsRow {
     pub fn activation(&self) -> Option<SettingsEdit> {
         match &self.kind {
             SettingsRowKind::Theme {
-                id,
+                id: Some(id),
                 available: true,
                 ..
             } => Some(SettingsEdit::Theme(id.clone())),
@@ -81,9 +84,7 @@ impl SettingsRow {
             SettingsRowKind::Screen { id, .. } => crate::domain::Id::parse(id.as_str())
                 .ok()
                 .map(SettingsEdit::InitialScreen),
-            SettingsRowKind::Theme {
-                available: false, ..
-            }
+            SettingsRowKind::Theme { .. }
             | SettingsRowKind::Fact
             | SettingsRowKind::Diagnostic { .. } => None,
         }
@@ -195,7 +196,7 @@ fn appearance_rows(state: &SettingsState) -> Vec<SettingsRow> {
             label: choice.name.clone(),
             value: choice.id.to_string(),
             kind: SettingsRowKind::Theme {
-                id: choice.id.clone(),
+                id: Some(choice.id.clone()),
                 active,
                 available: true,
             },
@@ -204,12 +205,13 @@ fn appearance_rows(state: &SettingsState) -> Vec<SettingsRow> {
     if let Some(missing) = missing_theme(state, drafted.as_ref()) {
         // The slug is shown as written, even when it is not a valid theme
         // identity: a setting that vanished from the list would be harder to
-        // correct than one that says it cannot be resolved.
+        // correct than one that says it cannot be resolved. It carries no
+        // identity, because it names no theme that exists.
         rows.push(SettingsRow {
             label: missing.to_owned(),
             value: "unavailable: not installed".to_owned(),
             kind: SettingsRowKind::Theme {
-                id: ThemeId::parse(missing).unwrap_or_default(),
+                id: ThemeId::parse(missing).ok(),
                 active: false,
                 available: false,
             },

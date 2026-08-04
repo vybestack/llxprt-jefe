@@ -255,7 +255,8 @@ fn reload_confirmation_row(
         element! {
             Box(background_color: rc.bg) {
                 Text(
-                    content: "Reload from disk and lose unsaved changes? Enter reload  Esc keep",
+                    content: "Reload from disk and lose unsaved changes? \
+                              Enter discards them, Esc keeps them",
                     color: rc.error,
                 )
             }

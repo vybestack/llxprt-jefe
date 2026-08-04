@@ -10,9 +10,23 @@ fn theme(slug: &str) -> ThemeId {
     ThemeId::parse(slug).unwrap_or_else(|error| panic!("theme fixture: {error}"))
 }
 
-fn applied(generation: u64, current: Option<&ThemePreviewToken>, slug: &str) -> ThemePreviewToken {
-    ThemePreviewToken::apply(generation, current, &theme("green-screen"), theme(slug))
-        .unwrap_or_else(|error| panic!("a live preview must apply: {error}"))
+/// Apply a preview over a session that is wearing the default theme.
+///
+/// The active theme is fixed at Green Screen because these tests are about the
+/// token's own algebra: only the *first* preview reads the active theme, so
+/// varying it would not change what any of them assert.
+fn applied(
+    generation: u64,
+    current_preview: Option<&ThemePreviewToken>,
+    slug: &str,
+) -> ThemePreviewToken {
+    ThemePreviewToken::apply(
+        generation,
+        current_preview,
+        &theme("green-screen"),
+        theme(slug),
+    )
+    .unwrap_or_else(|error| panic!("a live preview must apply: {error}"))
 }
 
 #[test]

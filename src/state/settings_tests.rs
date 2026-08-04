@@ -428,12 +428,22 @@ fn a_completion_for_a_superseded_conflict_leaves_the_newest_save_alone() {
         SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
     );
     apply(&mut state, SettingsMessage::Save);
+    let superseded_revision = pending_revision(&state);
+    complete(
+        &mut state,
+        SettingsSaveOutcome::Failed {
+            revision: superseded_revision,
+            diagnostic: Box::new(write_failure()),
+        },
+    );
+    apply(&mut state, SettingsMessage::Save);
     let newest = pending_revision(&state);
+    assert!(newest > superseded_revision);
 
     complete(
         &mut state,
         SettingsSaveOutcome::Conflict {
-            revision: newest - 1,
+            revision: superseded_revision,
             disk_hash: None,
         },
     );
@@ -602,8 +612,19 @@ fn a_completion_for_a_superseded_revision_is_ignored() {
         SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
     );
     apply(&mut state, SettingsMessage::Save);
+    let superseded_revision = pending_revision(&state);
+    // The first attempt conflicts, the user retries, and only then does a late
+    // answer for the first attempt arrive.
+    complete(
+        &mut state,
+        SettingsSaveOutcome::Conflict {
+            revision: superseded_revision,
+            disk_hash: None,
+        },
+    );
+    apply(&mut state, SettingsMessage::Save);
     let newest = pending_revision(&state);
-    let superseded_revision = newest - 1;
+    assert!(newest > superseded_revision);
 
     complete(
         &mut state,
@@ -619,6 +640,10 @@ fn a_completion_for_a_superseded_revision_is_ignored() {
         "the newest pending revision stands"
     );
     assert_eq!(pending_revision(&state), newest);
+    assert!(
+        state.settings_state.is_dirty(),
+        "the superseded completion adopted nothing"
+    );
 }
 
 // ── CW07-06: a hash conflict preserves disk and draft ────────────────────
