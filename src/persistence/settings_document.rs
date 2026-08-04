@@ -224,6 +224,101 @@ fn value_at_path<'a>(value: &'a toml::Value, path: &[String]) -> Option<&'a toml
         .try_fold(value, |current, key| current.as_table()?.get(key))
 }
 
+/// One assignment a lossless editor may set, replace, or remove.
+///
+/// The decoded `path` is what locates an existing assignment, and the two text
+/// fields are what is written when nothing is there yet. They are separate
+/// because the document does not record how a key *would* have been spelled:
+/// `keymap` quotes its action keys and declares `[keymap."<context>"]`, while
+/// `appearance` writes bare keys under `[appearance]`. Deriving either from the
+/// path would need a per-root special case in the patcher, which is exactly the
+/// knowledge each editor already has.
+pub(super) struct Assignment<'a> {
+    /// Decoded path of the assignment, for example `["appearance", "theme"]`.
+    pub path: &'a [&'a str],
+    /// Exact header written when the owning table is absent, for example
+    /// `[appearance]`.
+    pub table_header: &'a str,
+    /// Exact key text written when the assignment is absent, for example
+    /// `theme`.
+    pub key_text: &'a str,
+}
+
+/// Set, replace, or remove exactly one assignment, preserving every other byte.
+///
+/// `Some(value)` replaces an existing value span or inserts a new statement;
+/// `None` removes an existing statement and is a no-op when there is none.
+pub(super) fn patch_assignment(
+    document: &SettingsDocument,
+    assignment: &Assignment<'_>,
+    value: Option<&[u8]>,
+) -> Vec<u8> {
+    if let Some(node) = document.node(assignment.path) {
+        return match value {
+            Some(value) => apply_patches(
+                document.original_bytes(),
+                vec![(node.value_span, value.to_vec())],
+            ),
+            None => apply_patches(
+                document.original_bytes(),
+                vec![(node.statement_span, Vec::new())],
+            ),
+        };
+    }
+    let Some(value) = value else {
+        return document.original_bytes().to_vec();
+    };
+    insert_assignment(document, assignment, value)
+}
+
+fn insert_assignment(
+    document: &SettingsDocument,
+    assignment: &Assignment<'_>,
+    value: &[u8],
+) -> Vec<u8> {
+    let Some((_, table_path)) = assignment.path.split_last() else {
+        return document.original_bytes().to_vec();
+    };
+    let statement = format!(
+        "{} = {}\n",
+        assignment.key_text,
+        String::from_utf8_lossy(value)
+    );
+    if let Some(table) = document.table_span(table_path) {
+        let owned = table_path
+            .iter()
+            .map(|segment| (*segment).to_owned())
+            .collect::<Vec<_>>();
+        let end = document
+            .syntax_nodes()
+            .iter()
+            .filter(|node| node.path.starts_with(&owned))
+            .map(|node| node.statement_span.end)
+            .max()
+            .unwrap_or(table.end);
+        // Immediately after a header there is no newline yet, so one is added;
+        // after a statement the previous line already ended.
+        let prefix = if end == table.end { "\n" } else { "" };
+        return apply_patches(
+            document.original_bytes(),
+            vec![(
+                ByteSpan::new(end, end),
+                format!("{prefix}{statement}").into_bytes(),
+            )],
+        );
+    }
+    let mut block = Vec::new();
+    if !document.original_bytes().ends_with(b"\n") {
+        block.push(b'\n');
+    }
+    block.extend_from_slice(format!("{}\n{statement}", assignment.table_header).as_bytes());
+    let end = document.original_bytes().len() as u64;
+    apply_patches(
+        document.original_bytes(),
+        vec![(ByteSpan::new(end, end), block)],
+    )
+}
+
 pub(super) fn apply_patches(original: &[u8], mut patches: Vec<(ByteSpan, Vec<u8>)>) -> Vec<u8> {
     patches.sort_by_key(|(span, _)| std::cmp::Reverse((span.start, span.end)));
     let mut candidate = original.to_vec();

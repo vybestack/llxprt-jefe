@@ -9,9 +9,17 @@
 use iocraft::Color;
 use serde::{Deserialize, Serialize};
 
+use crate::domain::ThemeId;
+
 mod builtins;
+mod preview;
+
+#[cfg(test)]
+#[path = "preview_tests.rs"]
+mod preview_tests;
 
 pub use builtins::builtin_themes;
+pub use preview::{PreviewError, PreviewId, ThemePreviewToken};
 
 /// Theme kind classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -288,6 +296,103 @@ pub trait ThemeManager {
             })
             .collect()
     }
+
+    /// The active theme's identity.
+    ///
+    /// Every theme a manager can select was accepted by the [`ThemeId`] grammar
+    /// before it entered the list — the built-ins are covered by a test and
+    /// custom definitions are skipped at load — so this cannot observe an
+    /// invalid slug. Green Screen is named as the answer for the case the type
+    /// system cannot rule out, because a render path may not panic.
+    fn active_theme_id(&self) -> ThemeId {
+        ThemeId::parse(&self.active_theme().slug).unwrap_or_default()
+    }
+
+    /// Whether this manager can resolve `theme` to an installed definition.
+    fn has_theme(&self, theme: &ThemeId) -> bool {
+        self.available_themes()
+            .iter()
+            .any(|slug| slug == theme.as_str())
+    }
+
+    /// Show `preview` without adopting it, returning the token that undoes it.
+    ///
+    /// `current` is the preview being replaced, if there is one. Replacing a
+    /// preview keeps the theme the *first* preview replaced, so cancelling
+    /// after any number of previews returns to where the user started.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PreviewError::StaleGeneration`] when `current` belongs to a
+    /// draft that has since been replaced, and [`PreviewError::Unavailable`]
+    /// when `preview` is not installed. In both cases the active theme is
+    /// unchanged.
+    fn apply_preview(
+        &mut self,
+        generation: u64,
+        current: Option<&ThemePreviewToken>,
+        preview: &ThemeId,
+    ) -> Result<ThemePreviewToken, PreviewError> {
+        if let Some(token) = current {
+            preview::check_generation(token, generation)?;
+        }
+        if !self.has_theme(preview) {
+            return Err(PreviewError::Unavailable(preview.clone()));
+        }
+        let token = preview::issue(generation, current, self.active_theme_id(), preview.clone());
+        self.select(token.preview_theme())?;
+        Ok(token)
+    }
+
+    /// Make the previewed theme the active one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PreviewError::StaleGeneration`] when the token belongs to a
+    /// draft that has since been replaced, and [`PreviewError::Unavailable`]
+    /// when the previewed theme has since been removed.
+    fn adopt_preview(
+        &mut self,
+        generation: u64,
+        token: &ThemePreviewToken,
+    ) -> Result<(), PreviewError> {
+        preview::check_generation(token, generation)?;
+        self.select(token.preview_theme())
+    }
+
+    /// Return to the exact theme the preview replaced.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PreviewError::StaleGeneration`] when the token belongs to a
+    /// draft that has since been replaced, and [`PreviewError::Unavailable`]
+    /// when the prior theme has since been removed — which leaves the preview
+    /// showing rather than silently substituting a third theme.
+    fn revert_preview(
+        &mut self,
+        generation: u64,
+        token: &ThemePreviewToken,
+    ) -> Result<(), PreviewError> {
+        preview::check_generation(token, generation)?;
+        self.select(token.prior_theme())
+    }
+
+    /// Select an installed theme, refusing rather than falling back.
+    ///
+    /// [`Self::set_active`] substitutes Green Screen for an unknown slug, which
+    /// is right for startup and wrong for a preview: silently showing a third
+    /// theme would make "restore the exact prior theme" untrue.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PreviewError::Unavailable`] when the theme is not installed.
+    fn select(&mut self, theme: &ThemeId) -> Result<(), PreviewError> {
+        if !self.has_theme(theme) {
+            return Err(PreviewError::Unavailable(theme.clone()));
+        }
+        self.set_active(theme.as_str())
+            .map_err(|_| PreviewError::Unavailable(theme.clone()))
+    }
 }
 
 /// Stub implementation of ThemeManager for testing.
@@ -373,8 +478,11 @@ impl FileThemeManager {
 
     /// Load additional themes from a directory.
     ///
-    /// Theme files are JSON with format matching ThemeDefinition.
-    /// Invalid files are skipped with no error.
+    /// Theme files are JSON with format matching ThemeDefinition. Invalid
+    /// files are skipped with no error, and so is a definition whose slug is
+    /// not a valid [`ThemeId`]: a slug is what settings store and what the
+    /// preview token names, so one the grammar rejects could never be selected
+    /// or reverted to.
     pub fn load_from_dir(&mut self, dir: &std::path::Path) {
         if !dir.exists() || !dir.is_dir() {
             return;
@@ -389,6 +497,7 @@ impl FileThemeManager {
             if path.extension().is_some_and(|ext| ext == "json")
                 && let Ok(content) = std::fs::read_to_string(&path)
                 && let Ok(theme) = serde_json::from_str::<ThemeDefinition>(&content)
+                && ThemeId::parse(&theme.slug).is_ok()
             {
                 // Don't add duplicate slugs
                 if !self.themes.iter().any(|t| t.slug == theme.slug) {

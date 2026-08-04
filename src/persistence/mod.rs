@@ -33,6 +33,10 @@ mod keymap_edit_tests;
 mod settings_document_tests;
 
 #[cfg(test)]
+#[path = "settings_edit_tests.rs"]
+mod settings_edit_tests;
+
+#[cfg(test)]
 #[path = "state_v2_read_tests.rs"]
 mod state_v2_read_tests;
 #[cfg(test)]
@@ -62,6 +66,10 @@ pub use keymap_edit::{KeymapCandidate, KeymapEdit};
 pub mod migration;
 pub mod paths;
 pub mod settings_document;
+pub mod settings_edit;
+pub use settings_edit::{
+    EDITED_PATH_LIMIT, ExportPath, SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath,
+};
 mod settings_publish;
 mod settings_syntax;
 pub use crate::domain::sha256;
