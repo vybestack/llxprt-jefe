@@ -37,9 +37,7 @@ impl KeymapDiagnostic {
             detail: detail.into(),
         }
     }
-}
 
-impl KeymapDiagnostic {
     /// This refusal as one settings diagnostic the Settings shell can report.
     ///
     /// The Settings screen reports every reason a candidate cannot be saved in

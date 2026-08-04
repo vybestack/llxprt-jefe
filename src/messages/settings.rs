@@ -114,9 +114,9 @@ pub enum RecoveryChoice {
 
 /// What the layout tree editor was asked to do.
 ///
-/// Every one of these is a movement or a keystroke inside the node dialog. The
-/// tree only leaves the editor through [`LayoutMessage::Apply`], and only when
-/// the descriptor validator accepts it.
+/// Movements, keystrokes inside the node dialog, and the structural changes
+/// that rearrange the tree itself. The tree only leaves the editor through
+/// [`LayoutMessage::Apply`], and only when the descriptor validator accepts it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayoutMessage {
     /// Move to the previous sibling.
