@@ -72,6 +72,7 @@ pub fn build() -> AgentDefinition {
                 false_value: Some("false".to_string()),
             },
             Emitter::Flag {
+                name: "--interactive".to_string(),
                 field: "interactive".to_string(),
             },
         ],

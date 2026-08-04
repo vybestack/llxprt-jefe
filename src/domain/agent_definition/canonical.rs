@@ -485,10 +485,11 @@ fn emitter_to_json(emitter: &Emitter) -> BoundedJson {
         Emitter::Fixed { value } => {
             members.push(("value".to_string(), BoundedJson::Str(value.clone())));
         }
-        Emitter::Flag { field } | Emitter::Positional { field } => {
+        Emitter::Positional { field } => {
             members.push(("field".to_string(), BoundedJson::Str(field.clone())));
         }
-        Emitter::Option { name, field }
+        Emitter::Flag { name, field }
+        | Emitter::Option { name, field }
         | Emitter::RepeatedOption { name, field }
         | Emitter::Environment { name, field } => {
             members.push(("name".to_string(), BoundedJson::Str(name.clone())));

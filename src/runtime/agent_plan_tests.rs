@@ -154,6 +154,57 @@ fn flag_resolves_token_from_capability_probe() {
     );
 }
 
+/// A flag emitter carries its own argv token, so argv does not depend on the
+/// capability map that issue #657 deletes.
+#[test]
+fn flag_emits_its_own_token_without_a_capability_probe() {
+    let mut definition = llxprt();
+    definition.probe.capabilities = None;
+    definition.probe.required = Vec::new();
+    let mut values = LaunchFieldValues::new();
+    values.set_agent("continue", FieldValue::Boolean(true));
+    let request = PlanRequest {
+        definition: &definition,
+        operation: Operation::Normal,
+        target: Target::Local {
+            canonical_cwd: std::path::PathBuf::from("/r"),
+        },
+        executable: std::path::PathBuf::from("/x"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
+        probe: compatible(1),
+        probe_generation: 1,
+        target_generation: 1,
+        values: &values,
+        activation_generation: 1,
+        preflight: Preflight::default(),
+    };
+    let plan = match plan_local_launch(&request) {
+        PlanOutcome::Supported(plan) => *plan,
+        other => panic!("expected supported, got {other:?}"),
+    };
+    let argv: Vec<String> = plan
+        .argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        argv,
+        vec![
+            "--yolo".to_string(),
+            "--prompt-interactive".to_string(),
+            "--continue".to_string()
+        ]
+    );
+}
+
 #[test]
 fn empty_string_value_skips_option_emitter() {
     let definition = llxprt();

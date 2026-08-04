@@ -251,11 +251,6 @@ pub enum AgentPlanError {
         /// The field id.
         field: String,
     },
-    /// A `Flag` emitter could not resolve a CLI flag token for its field.
-    UnresolvedFlagToken {
-        /// The field id.
-        field: String,
-    },
 }
 
 impl std::fmt::Display for AgentPlanError {
@@ -280,12 +275,6 @@ impl std::fmt::Display for AgentPlanError {
             Self::NotLocalTarget => f.write_str("local planner received a non-local target"),
             Self::MissingRequiredValue { field } => {
                 write!(f, "required field `{field}` has no value or default")
-            }
-            Self::UnresolvedFlagToken { field } => {
-                write!(
-                    f,
-                    "flag emitter for field `{field}` has no capability token"
-                )
             }
         }
     }
@@ -550,10 +539,9 @@ fn emit_argv_env(
                     effects.push_arg(OsString::from(string_value));
                 }
             }
-            Emitter::Flag { field } => {
+            Emitter::Flag { name, field } => {
                 if resolve_bool_value(definition, values, field)? == Some(true) {
-                    let token = resolve_flag_token(definition, field)?;
-                    effects.push_arg(OsString::from(token));
+                    effects.push_arg(OsString::from(name));
                 }
             }
             Emitter::Environment { name, field } => {
@@ -657,35 +645,6 @@ fn resolve_list_value(
             field: field.to_string(),
         }),
     }
-}
-
-/// Resolve the CLI flag token for a `Flag` emitter from the definition's
-/// capability tokens.
-///
-/// The flag token is the capability token whose id matches the field id
-/// (exact or `-`/`_` normalized). This keeps argv emission definition-driven:
-/// the planner contains no product token and derives every flag from the
-/// shipped definition's capability probe.
-fn resolve_flag_token(definition: &AgentDefinition, field: &str) -> Result<String, AgentPlanError> {
-    let Some(capabilities) = &definition.probe.capabilities else {
-        return Err(AgentPlanError::UnresolvedFlagToken {
-            field: field.to_string(),
-        });
-    };
-    let normalized_field = normalize_id(field);
-    let token = capabilities
-        .tokens
-        .iter()
-        .find(|token| normalize_id(&token.id) == normalized_field)
-        .map(|token| token.token.clone());
-    token.ok_or_else(|| AgentPlanError::UnresolvedFlagToken {
-        field: field.to_string(),
-    })
-}
-
-/// Normalize an id by replacing `_` with `-` for cross-form matching.
-fn normalize_id(id: &str) -> String {
-    id.replace('_', "-")
 }
 
 // ---------------------------------------------------------------------------

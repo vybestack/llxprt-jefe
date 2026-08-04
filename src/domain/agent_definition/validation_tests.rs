@@ -136,6 +136,7 @@ fn visibility_cycle_rejected() {
 fn unknown_emitter_field_rejected() {
     let mut def = base_def();
     def.emitters = vec![Emitter::Flag {
+        name: "--nonexistent".to_string(),
         field: "nonexistent".to_string(),
     }];
     let Err(err) = validate_definition(&def) else {
@@ -150,9 +151,11 @@ fn duplicate_emitter_field_rejected() {
     def.repository_fields = vec![string_field("model")];
     def.emitters = vec![
         Emitter::Flag {
+            name: "--model".to_string(),
             field: "model".to_string(),
         },
         Emitter::Flag {
+            name: "--model".to_string(),
             field: "model".to_string(),
         },
     ];

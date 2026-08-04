@@ -349,6 +349,7 @@ fn validate_rejects_emitter_unknown_field() {
         repository_fields: vec![],
         agent_fields: vec![],
         emitters: vec![Emitter::Flag {
+            name: "--nonexistent".to_string(),
             field: "nonexistent".to_string(),
         }],
     };
@@ -388,9 +389,11 @@ fn validate_rejects_duplicate_emitter_field() {
         agent_fields: vec![],
         emitters: vec![
             Emitter::Flag {
+                name: "--model".to_string(),
                 field: "model".to_string(),
             },
             Emitter::Flag {
+                name: "--model".to_string(),
                 field: "model".to_string(),
             },
         ],

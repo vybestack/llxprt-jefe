@@ -28,15 +28,19 @@ fn emitters() -> Vec<Emitter> {
             field: "profile".to_string(),
         },
         Emitter::Flag {
+            name: "--yolo".to_string(),
             field: "yolo".to_string(),
         },
         Emitter::Flag {
+            name: "--prompt-interactive".to_string(),
             field: "prompt_interactive".to_string(),
         },
         Emitter::Flag {
+            name: "--continue".to_string(),
             field: "continue".to_string(),
         },
         Emitter::Flag {
+            name: "--sandbox".to_string(),
             field: "sandbox_enabled".to_string(),
         },
         Emitter::Option {

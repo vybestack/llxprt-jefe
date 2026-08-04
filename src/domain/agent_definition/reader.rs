@@ -729,6 +729,7 @@ fn read_emitter(value: &BoundedJson) -> Result<Emitter, DefinitionError> {
             value: require_string(object, "value")?,
         },
         "flag" => Emitter::Flag {
+            name: require_string(object, "name")?,
             field: require_string(object, "field")?,
         },
         "option" => Emitter::Option {

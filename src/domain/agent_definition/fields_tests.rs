@@ -180,6 +180,7 @@ fn emitter_option_validates() {
 #[test]
 fn emitter_field_ref_empty_rejected() {
     let emitter = Emitter::Flag {
+        name: "--flag".to_string(),
         field: String::new(),
     };
     assert!(emitter.validate().is_err(), "empty field ref rejected");
