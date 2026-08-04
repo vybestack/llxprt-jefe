@@ -47,6 +47,10 @@ mod jsp_launch;
 /// Enter separation in the PTY input path (issue #627).
 mod key_pacing;
 pub mod launch_compose;
+/// Declared registry of every gate in the agent launch pipeline (issue #544).
+///
+/// Contract: `dev-docs/standards/windows-launch-pipeline.md`.
+pub mod launch_gates;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod manager;
@@ -125,6 +129,10 @@ pub use external_terminal::{
 };
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use key_pacing::{ENTER_INPUT_GAP, KeyWritePacing, PacedPtyInput, PtyInputKind};
+pub use launch_gates::{
+    GateFailureBehaviour, LaunchGate, LaunchGateDegradation, LaunchGateFailure,
+    UNCONTAINED_WORKER_MODE,
+};
 pub use liveness::{
     LivenessIdentity, SessionLiveness, WorkerDisposition, alive_session_set, batch_liveness_check,
     batch_liveness_check_with_identity, list_jefe_sessions, observe_worker_disposition,

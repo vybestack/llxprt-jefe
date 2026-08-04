@@ -11,6 +11,8 @@ use std::process::{Command, Output};
 use crate::agent_candidate_path::AgentWrapperKind;
 
 use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
+use super::launch_gates::LaunchGate;
+use super::multiplexer_contract::{PaneCommandBudget, pane_command_budget};
 const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 7);
 const WINDOWS_INSTALL_GUIDANCE: &str =
     "install psmux 3.3.7 or newer with `winget upgrade marlocarlo.psmux`, then restart Jefe";
@@ -233,12 +235,14 @@ impl MultiplexerPlan {
         args: &[OsString],
         environment: &[(OsString, OsString)],
     ) -> Result<Vec<OsString>, MultiplexerError> {
-        match self.platform {
-            LocalPlatform::Unix => unix_pane_command_args(program, args, environment),
+        let command = match self.platform {
+            LocalPlatform::Unix => unix_pane_command_args(program, args, environment)?,
             LocalPlatform::Windows => {
-                windows_pane_command_args(program, args, environment).map(|line| vec![line])
+                vec![windows_pane_command_args(program, args, environment)?]
             }
-        }
+        };
+        enforce_pane_command_budget(&command)?;
+        Ok(command)
     }
 
     /// Build a pane command from a resolved agent's explicit wrapper strategy.
@@ -487,52 +491,30 @@ pub enum MultiplexerError {
     CurrentExecutableUnavailable,
     /// The narrow Windows agent launch plan could not be prepared.
     AgentLaunchPlan(AgentLauncherError),
+    /// The assembled pane command exceeds the measured budget.
+    ///
+    /// psmux exits 0 and creates the session whether or not the command
+    /// survives the shell's ceiling, so an overrun is invisible unless it is
+    /// refused here (issue #544 V7).
+    PaneCommandOverBudget {
+        /// Bytes the assembled command occupies.
+        bytes: usize,
+        /// The measured ceiling it exceeded.
+        budget: PaneCommandBudget,
+    },
 }
 
 impl std::fmt::Display for MultiplexerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MissingExecutable { path, guidance } => write!(
-                formatter,
-                "multiplexer executable '{}' was not found; {guidance}",
-                path.display()
-            ),
-            Self::RejectedExecutable { path, reason } => write!(
-                formatter,
-                "rejected multiplexer executable '{}': {reason}",
-                path.display()
-            ),
-            Self::LaunchFailed {
-                path,
-                reason,
-                guidance,
-            } => write!(
-                formatter,
-                "failed to launch multiplexer '{}': {reason}; {guidance}",
-                path.display()
-            ),
-            Self::MalformedVersion { path, output } => {
-                format_malformed_version(formatter, path.as_deref(), output)
+            Self::MissingExecutable { .. }
+            | Self::RejectedExecutable { .. }
+            | Self::LaunchFailed { .. }
+            | Self::MalformedVersion { .. }
+            | Self::UnsupportedVersion { .. }
+            | Self::RequiredCapabilityUnavailable { .. } => {
+                format_executable_error(formatter, self)
             }
-            Self::UnsupportedVersion {
-                path,
-                detected,
-                minimum,
-                guidance,
-            } => write!(
-                formatter,
-                "unsupported multiplexer version {detected} at '{}'; minimum is {minimum}; {guidance}",
-                path.display()
-            ),
-            Self::RequiredCapabilityUnavailable {
-                path,
-                version,
-                capability,
-            } => write!(
-                formatter,
-                "multiplexer '{}' version {version} lacks required capability {capability:?}",
-                path.display()
-            ),
             Self::InvalidIsolation { platform } => {
                 write!(formatter, "invalid multiplexer isolation for {platform:?}")
             }
@@ -550,8 +532,92 @@ impl std::fmt::Display for MultiplexerError {
             Self::CurrentExecutableUnavailable | Self::AgentLaunchPlan(_) => {
                 format_agent_launch_error(formatter, self)
             }
+            Self::PaneCommandOverBudget { bytes, budget } => {
+                format_pane_command_over_budget(formatter, *bytes, *budget)
+            }
         }
     }
+}
+
+/// Renders the arms that describe a multiplexer executable jefe could not use.
+///
+/// Split out of `Display` only to keep that match inside the function-length
+/// gate; the wording of every arm is unchanged.
+fn format_executable_error(
+    formatter: &mut std::fmt::Formatter<'_>,
+    error: &MultiplexerError,
+) -> std::fmt::Result {
+    match error {
+        MultiplexerError::MissingExecutable { path, guidance } => write!(
+            formatter,
+            "multiplexer executable '{}' was not found; {guidance}",
+            path.display()
+        ),
+        MultiplexerError::RejectedExecutable { path, reason } => write!(
+            formatter,
+            "rejected multiplexer executable '{}': {reason}",
+            path.display()
+        ),
+        MultiplexerError::LaunchFailed {
+            path,
+            reason,
+            guidance,
+        } => write!(
+            formatter,
+            "failed to launch multiplexer '{}': {reason}; {guidance}",
+            path.display()
+        ),
+        MultiplexerError::MalformedVersion { path, output } => {
+            format_malformed_version(formatter, path.as_deref(), output)
+        }
+        MultiplexerError::UnsupportedVersion {
+            path,
+            detected,
+            minimum,
+            guidance,
+        } => write!(
+            formatter,
+            "unsupported multiplexer version {detected} at '{}'; minimum is {minimum}; {guidance}",
+            path.display()
+        ),
+        MultiplexerError::RequiredCapabilityUnavailable {
+            path,
+            version,
+            capability,
+        } => write!(
+            formatter,
+            "multiplexer '{}' version {version} lacks required capability {capability:?}",
+            path.display()
+        ),
+        // Listed rather than caught by `_` so adding a variant fails to compile
+        // here instead of silently degrading to the text below (issue #544).
+        MultiplexerError::InvalidIsolation { .. }
+        | MultiplexerError::InvalidNamespace { .. }
+        | MultiplexerError::NonUnicodeArgument { .. }
+        | MultiplexerError::InvalidEnvironmentVariable { .. }
+        | MultiplexerError::CurrentExecutableUnavailable
+        | MultiplexerError::AgentLaunchPlan(_)
+        | MultiplexerError::PaneCommandOverBudget { .. } => {
+            formatter.write_str("unrelated multiplexer error")
+        }
+    }
+}
+
+fn format_pane_command_over_budget(
+    formatter: &mut std::fmt::Formatter<'_>,
+    bytes: usize,
+    budget: PaneCommandBudget,
+) -> std::fmt::Result {
+    write!(
+        formatter,
+        "{}",
+        LaunchGate::PaneCommand.refused(format!(
+            "the pane command is {bytes} bytes, over the {} usable bytes measured on {}; \
+             the multiplexer reports success and creates the session even when a command \
+             this long never runs, so it is refused here instead of being truncated",
+            budget.bytes, budget.measured_on
+        ))
+    )
 }
 fn format_agent_launch_error(
     formatter: &mut std::fmt::Formatter<'_>,
@@ -565,7 +631,20 @@ fn format_agent_launch_error(
             formatter,
             "Windows agent launch plan preparation failed: {source}"
         ),
-        _ => formatter.write_str("unrelated multiplexer error"),
+        // Listed rather than caught by `_` for the same reason as above.
+        MultiplexerError::MissingExecutable { .. }
+        | MultiplexerError::RejectedExecutable { .. }
+        | MultiplexerError::LaunchFailed { .. }
+        | MultiplexerError::MalformedVersion { .. }
+        | MultiplexerError::UnsupportedVersion { .. }
+        | MultiplexerError::RequiredCapabilityUnavailable { .. }
+        | MultiplexerError::InvalidIsolation { .. }
+        | MultiplexerError::InvalidNamespace { .. }
+        | MultiplexerError::NonUnicodeArgument { .. }
+        | MultiplexerError::InvalidEnvironmentVariable { .. }
+        | MultiplexerError::PaneCommandOverBudget { .. } => {
+            formatter.write_str("unrelated multiplexer error")
+        }
     }
 }
 
@@ -622,6 +701,27 @@ pub fn validate_namespace(namespace: &str) -> Result<(), MultiplexerError> {
             namespace: namespace.to_owned(),
         })
     }
+}
+
+/// Bytes the assembled pane command occupies, counting the separator each
+/// element needs — a `; ` join inside a PowerShell command line, or the NUL
+/// terminator an `exec` argv pays per entry.
+fn pane_command_bytes(command: &[OsString]) -> usize {
+    command.iter().map(|part| part.len() + 1).sum()
+}
+
+/// Refuse a pane command the measured platform ceiling cannot carry.
+///
+/// The overrun is otherwise invisible: psmux exits 0, creates the session, and
+/// the command simply never runs, which is why this is a refusal rather than a
+/// truncation (issue #544 V7).
+fn enforce_pane_command_budget(command: &[OsString]) -> Result<(), MultiplexerError> {
+    let budget = pane_command_budget();
+    let bytes = pane_command_bytes(command);
+    if bytes > budget.bytes {
+        return Err(MultiplexerError::PaneCommandOverBudget { bytes, budget });
+    }
+    Ok(())
 }
 
 fn unix_pane_command_args(

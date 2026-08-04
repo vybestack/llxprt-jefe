@@ -205,8 +205,11 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     // the whole descendant tree inherits containment. The guard is held until
     // `status()` returns; host death closes the handle and the kernel reaps the
     // tree, while normal worker completion still returns the exit status. A
-    // failure to establish containment is typed and refuses spawn so a host can
-    // never start a tree it cannot contain. Unix behaviour is unchanged.
+    // failure to establish containment degrades to the declared
+    // `uncontained-worker` mode (issue #544 V2) rather than refusing: jefe does
+    // not control whether it was started inside a Job that forbids breakaway,
+    // and containment is a cleanup guarantee rather than a safety property.
+    // Unix behaviour is unchanged.
     #[cfg(windows)]
     let _containment = establish_worker_containment()?;
 
@@ -250,15 +253,64 @@ fn establish_owner_anchor() -> Result<super::owner_anchor::OwnerAnchor, AgentLau
     })
 }
 
+/// Decide what a failure to create the worker's Job Object means.
+///
+/// The answer comes from the gate contract rather than from this call site: if
+/// `worker-containment` is declared degradable the launch continues in the
+/// declared mode, and if it is ever redeclared as a refusal this returns the
+/// typed error again without any change here. Pure, so the decision is testable
+/// without a Job Object that refuses to be created.
 #[cfg(windows)]
-fn establish_worker_containment() -> Result<super::job_object::JobContainment, AgentLauncherError> {
-    super::job_object::JobContainment::enable_for_current_process().map_err(|error| {
-        tracing::error!(
-            error = %error,
-            "windows job object containment unavailable; refusing to spawn agent worker"
-        );
-        AgentLauncherError::ContainmentUnavailable
-    })
+fn classify_containment_failure(
+    cause: String,
+) -> Result<super::launch_gates::LaunchGateDegradation, AgentLauncherError> {
+    super::launch_gates::LaunchGateDegradation::new(
+        super::launch_gates::LaunchGate::WorkerContainment,
+        cause,
+    )
+    .ok_or(AgentLauncherError::ContainmentUnavailable)
+}
+
+/// The containment a worker runs under, holding the guard for the worker's life.
+///
+/// `Degraded` carries no handle because there is nothing to hold: the worker
+/// runs uncontained and is cleaned up by orphan reaping rather than the kernel.
+#[cfg(windows)]
+enum WorkerContainment {
+    /// Held, never read: closing this handle is what makes the kernel reap the
+    /// worker tree, so the binding must outlive the worker.
+    Contained(#[allow(dead_code)] super::job_object::JobContainment),
+    Degraded,
+}
+
+#[cfg(windows)]
+fn establish_worker_containment() -> Result<WorkerContainment, AgentLauncherError> {
+    let error = match super::job_object::JobContainment::enable_for_current_process() {
+        Ok(containment) => return Ok(WorkerContainment::Contained(containment)),
+        Err(error) => error,
+    };
+
+    let degradation = classify_containment_failure(error.to_string())?;
+    tracing::warn!(
+        gate = degradation.gate().id(),
+        mode = degradation.mode(),
+        cause = degradation.cause(),
+        "windows job object containment unavailable; continuing in a degraded mode"
+    );
+    announce_degradation(&degradation);
+    Ok(WorkerContainment::Degraded)
+}
+
+/// Put the degradation in front of the user, in the pane the agent is about to
+/// occupy. The host's stderr is that pane, and this runs before the worker
+/// takes it over, so the warning is visible at the point it applies.
+#[cfg(windows)]
+fn announce_degradation(degradation: &super::launch_gates::LaunchGateDegradation) {
+    let _ = writeln!(
+        std::io::stderr(),
+        "jefe warning: {degradation}. The agent will run, but if jefe exits abnormally this \
+         worker may survive as an orphan; jefe can still detect and reap it."
+    );
 }
 fn valid_launch_plan_path(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
@@ -349,8 +401,52 @@ mod tests {
 
     use super::{
         AgentLaunchPayload, AgentLauncherError, AgentWrapperKind, AgentWrapperKindPayload,
-        command_for_payload,
+        classify_containment_failure, command_for_payload,
     };
+    use crate::runtime::launch_gates::{LaunchGate, UNCONTAINED_WORKER_MODE};
+
+    // ── Issue #544 V2: containment is a cleanup guarantee, not a safety one ──
+    //
+    // A Job Object cannot always be created: jefe is regularly started from IDE
+    // terminals, CI runners and remote-session hosts that already hold the
+    // process in a Job which forbids breakaway. jefe does not control where it
+    // is launched from, so refusing there means the user can never launch an
+    // agent at all. The launch continues in a named, documented mode instead.
+
+    #[test]
+    fn containment_failure_degrades_instead_of_refusing_the_launch() {
+        let outcome = classify_containment_failure(
+            "job object creation failed: access is denied (os error 5)".to_owned(),
+        );
+
+        let Ok(degradation) = outcome else {
+            panic!("a Job Object failure must degrade the launch, not refuse it");
+        };
+        assert_eq!(degradation.gate(), LaunchGate::WorkerContainment);
+        assert_eq!(degradation.mode(), UNCONTAINED_WORKER_MODE);
+        assert!(
+            degradation.cause().contains("access is denied"),
+            "the observed cause must survive into the warning: {degradation}"
+        );
+    }
+
+    #[test]
+    fn the_degradation_warning_names_the_gate_and_the_mode() {
+        let Ok(degradation) = classify_containment_failure("no breakaway permitted".to_owned())
+        else {
+            panic!("a Job Object failure must degrade the launch, not refuse it");
+        };
+
+        let warning = degradation.to_string();
+        assert!(
+            warning.contains("worker-containment"),
+            "the warning must name the gate: {warning}"
+        );
+        assert!(
+            warning.contains(UNCONTAINED_WORKER_MODE),
+            "the warning must name the mode the user is now in: {warning}"
+        );
+    }
 
     // ── Issue #536: a multi-line prompt must never be delivered through cmd.exe ──
     //
