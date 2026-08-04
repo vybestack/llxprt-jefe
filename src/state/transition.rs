@@ -263,6 +263,37 @@ impl EffectLedger {
         Ok(correlation)
     }
 
+    /// Adopt the generations of the screen instance the session is now on, and
+    /// drop the pending work that no longer belongs to it.
+    ///
+    /// Navigation decides which work is still wanted (issue #386). Advancing
+    /// the counters alone would not be enough: a pending record carries the
+    /// correlation it was registered with, so its own completion would still
+    /// match it exactly and be applied to whatever screen took its place.
+    /// Dropping the records is what makes a disposed instance's work
+    /// unanswerable.
+    ///
+    /// Returns how many pending records were dropped.
+    pub fn adopt_live_generations(
+        &mut self,
+        screen_generation: u64,
+        activation_generation: u64,
+    ) -> usize {
+        self.screen_generation = screen_generation;
+        self.activation_generation = activation_generation;
+        let before = self.records.len();
+        self.records.retain(|record| {
+            record.correlation.screen_generation == screen_generation
+                && record.correlation.activation_generation == activation_generation
+        });
+        // A staged effect for a record that is gone must not execute either.
+        self.staged.retain(|issued| {
+            issued.correlation.screen_generation == screen_generation
+                && issued.correlation.activation_generation == activation_generation
+        });
+        before.saturating_sub(self.records.len())
+    }
+
     /// Apply a completion identity: remove and report the exact pending match,
     /// or report stale without changing anything.
     pub fn complete(&mut self, correlation: &Correlation) -> CompletionOutcome {

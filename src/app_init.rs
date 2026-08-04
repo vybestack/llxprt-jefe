@@ -443,7 +443,7 @@ fn restore_persisted_state(
     state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
     state.durable_revision = persisted.revision;
     state.dormant_records = persisted.dormant_records;
-    state.screen = persisted.screen;
+    state.nav = crate::state::navigation::NavState::rooted(persisted.screen);
     state.pane_focus = persisted.pane_focus;
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;

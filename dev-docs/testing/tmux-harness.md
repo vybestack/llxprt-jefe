@@ -255,6 +255,17 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   dashboard keybind bar, captures the screen, quits, and waits for exit.
 - [`help-modal.json`](../tmux-scenarios/help-modal.json): opens the help modal,
   verifies its stable title, captures it, closes it, then quits.
+- [`typed-navigation-push-back.json`](../tmux-scenarios/typed-navigation-push-back.json):
+  opens Issues from the dashboard, jumps across to Pull Requests, and presses
+  Back once. The cross-mode jump takes the place of the screen it came from
+  rather than stacking on it, so one Back returns to the dashboard rather than
+  to Issues (issue #386).
+- [`navigation-local-unwind.json`](../tmux-scenarios/navigation-local-unwind.json):
+  opens Issues, opens its filter controls, and presses Back twice. The first
+  press closes only the filter controls and stays on the screen; the second
+  leaves it. This pins the observable one-layer-at-a-time behaviour that the
+  shared precedence must keep once the per-mode key chains are converted to
+  consult it; it drives those chains today (issue #386).
 - [`fork-issue-pr-repository.json`](../tmux-scenarios/fork-issue-pr-repository.json):
   opens New Repository and verifies the optional Issues / PRs Repo override and
   its blank-fallback guidance for fork configurations.

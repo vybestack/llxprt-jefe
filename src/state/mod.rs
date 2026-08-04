@@ -50,13 +50,16 @@ mod issues_property_ops;
 mod list_navigation_ops;
 mod modal_ops;
 mod new_issue_form_ops;
+mod new_pr_form_ops;
 pub mod observation_events;
 pub mod pagination; // `PaginatedList<T, I>` generic deterministic pagination state container
 pub mod post_mutation_refresh; // Coalesced post-mutation refresh scheduling state
 #[cfg(test)]
 mod post_mutation_refresh_tests;
+mod pr_lifecycle_events;
 mod preferences_ops;
 mod property_edit;
+mod prs_delete_ops;
 mod prs_diff_ops;
 #[cfg(test)]
 mod prs_diff_ops_tests;
@@ -103,6 +106,28 @@ pub use keys_editor::{
 #[cfg(test)]
 #[path = "keys_editor_tests.rs"]
 mod keys_editor_tests;
+/// The sole owner of route, stack, and dirty transitions (issue #386).
+pub mod navigation;
+/// The host dirty guard the navigation reducer raises (issue #386).
+pub mod navigation_dirty;
+#[cfg(test)]
+#[path = "navigation_dirty_tests.rs"]
+mod navigation_dirty_tests;
+/// Which unwindable layers a screen currently has open (issue #386).
+mod navigation_layers;
+#[cfg(test)]
+#[path = "navigation_layers_tests.rs"]
+mod navigation_layers_tests;
+/// How the rest of the reducer asks to change screen (issue #386).
+mod navigation_ops;
+#[cfg(test)]
+#[path = "navigation_tests.rs"]
+mod navigation_tests;
+/// The single Back-precedence resolution (issue #386).
+pub mod navigation_unwind;
+#[cfg(test)]
+#[path = "navigation_unwind_tests.rs"]
+mod navigation_unwind_tests;
 /// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
 #[cfg(test)]
@@ -126,6 +151,7 @@ pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
+pub use pr_lifecycle_events::PrLifecycleEvent;
 pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
@@ -137,7 +163,7 @@ pub use terminal_manager_types::{
 pub use theme_picker_events::ThemePickerEvent;
 pub use types::*;
 pub use util::{inline_cursor_line_end, inline_cursor_line_start, inline_cursor_vertical};
-pub use workbench_filter::WorkbenchStatusFilter;
+pub use workbench_filter::{WorkbenchStatusFilter, WorkbenchUiState};
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
@@ -518,7 +544,7 @@ impl AppState {
                 dashboard_search_ops::apply_dashboard_search_message(self, message);
             }
             UiNavigationMessage::EnterSplitMode => {
-                self.screen = ScreenId::Repositories;
+                let _ = self.enter_screen(ScreenId::Repositories);
                 self.pane_focus = PaneFocus::Repositories;
                 self.dashboard_grab = None;
             }
@@ -534,13 +560,7 @@ impl AppState {
             UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
             UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
             UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
-            UiNavigationMessage::ToggleWorkbenchStatusBucket(_)
-            | UiNavigationMessage::WorkbenchNextPage
-            | UiNavigationMessage::WorkbenchPrevPage
-            | UiNavigationMessage::WorkbenchFilterCursorPrev
-            | UiNavigationMessage::WorkbenchFilterCursorNext => {
-                self.apply_workbench_navigation(message);
-            }
+            message if message.is_workbench() => self.apply_workbench_navigation(message),
             UiNavigationMessage::TerminalScrollUp
             | UiNavigationMessage::TerminalScrollDown
             | UiNavigationMessage::TerminalScrollPageUp
@@ -601,7 +621,7 @@ impl AppState {
     }
 
     fn exit_split_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.split_filter = None;
         self.split_grab_index = None;
     }
@@ -832,7 +852,7 @@ impl AppState {
     /// is therefore mirrored into the owning screen's notice band, which is
     /// where those screens already report `No agents available`.
     pub fn record_unavailable_action(&mut self, reason: String) {
-        match self.screen {
+        match self.screen() {
             ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
             ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
             ScreenId::Dashboard
@@ -845,143 +865,7 @@ impl AppState {
     }
 }
 
-#[cfg(test)]
-#[path = "auth_ops_tests.rs"]
-mod auth_ops_tests;
-#[cfg(test)]
-mod confirm_focus_tests;
-#[cfg(test)]
-mod errors_tests;
-#[cfg(test)]
-#[path = "form_home_end_tests.rs"]
-mod form_home_end_tests;
-#[cfg(test)]
-#[path = "issues_tests_home_end.rs"]
-mod issues_home_end_tests;
-#[cfg(test)]
-mod issues_test_fixtures;
-#[cfg(test)]
-#[path = "issues_tests.rs"]
-mod issues_tests;
-#[cfg(test)]
-#[path = "issues_tests_close_delete.rs"]
-mod issues_tests_close_delete;
-#[cfg(test)]
-#[path = "issues_tests_close_reason.rs"]
-mod issues_tests_close_reason;
-#[cfg(test)]
-#[path = "issues_tests_components.rs"]
-mod issues_tests_components;
-#[cfg(test)]
-#[path = "issues_tests_composer_focus.rs"]
-mod issues_tests_composer_focus;
-#[cfg(test)]
-mod issues_tests_create;
-#[cfg(test)]
-#[path = "issues_tests_detail.rs"]
-mod issues_tests_detail;
-#[cfg(test)]
-mod issues_tests_detail_content;
-#[cfg(test)]
-#[path = "issues_tests_detail_flow.rs"]
-mod issues_tests_detail_flow;
-#[cfg(test)]
-#[path = "issues_tests_detail_nav.rs"]
-mod issues_tests_detail_nav;
-#[cfg(test)]
-#[path = "issues_tests_esc.rs"]
-mod issues_tests_esc;
-#[cfg(test)]
-#[path = "issues_tests_filter.rs"]
-mod issues_tests_filter;
-#[cfg(test)]
-#[path = "issues_tests_inline_cursor.rs"]
-mod issues_tests_inline_cursor;
-#[cfg(test)]
-#[path = "issues_tests_mutations.rs"]
-mod issues_tests_mutations;
-#[cfg(test)]
-#[path = "issues_tests_repo_nav.rs"]
-mod issues_tests_repo_nav;
-#[cfg(test)]
-#[path = "issues_tests_self_assignment.rs"]
-mod issues_tests_self_assignment;
-#[cfg(test)]
-#[path = "issues_tests_send_agent_probe.rs"]
-mod issues_tests_send_agent_probe;
-#[cfg(test)]
-#[path = "issues_tests_send_to_agent.rs"]
-mod issues_tests_send_to_agent;
-#[cfg(test)]
-#[path = "issues_tests_sort.rs"]
-mod issues_tests_sort;
-#[cfg(test)]
-#[path = "issues_tests_subfocus.rs"]
-mod issues_tests_subfocus;
-#[cfg(test)]
-#[path = "preferences_tests.rs"]
-mod preferences_tests;
-#[cfg(test)]
-#[path = "prs_integration_tests.rs"]
-mod prs_integration_tests;
-#[cfg(test)]
-#[path = "prs_test_fixtures.rs"]
-mod prs_test_fixtures;
-#[cfg(test)]
-#[path = "prs_tests.rs"]
-mod prs_tests;
-#[cfg(test)]
-#[path = "prs_tests_bodyless_review_nav.rs"]
-mod prs_tests_bodyless_review_nav;
-#[cfg(test)]
-#[path = "prs_tests_chooser_security.rs"]
-mod prs_tests_chooser_security;
-#[cfg(test)]
-#[path = "prs_tests_components.rs"]
-mod prs_tests_components;
-#[cfg(test)]
-#[path = "prs_tests_composer_focus.rs"]
-mod prs_tests_composer_focus;
-#[cfg(test)]
-#[path = "prs_tests_cursor_arrows.rs"]
-mod prs_tests_cursor_arrows;
-#[cfg(test)]
-#[path = "prs_tests_detail.rs"]
-mod prs_tests_detail;
-#[cfg(test)]
-#[path = "prs_tests_detail_flow.rs"]
-mod prs_tests_detail_flow;
-#[cfg(test)]
-#[path = "prs_tests_filter.rs"]
-mod prs_tests_filter;
-#[cfg(test)]
-#[path = "prs_tests_merge.rs"]
-mod prs_tests_merge;
-#[cfg(test)]
-#[path = "prs_tests_pagination.rs"]
-mod prs_tests_pagination;
-#[cfg(test)]
-#[path = "prs_tests_repo_nav.rs"]
-mod prs_tests_repo_nav;
-#[cfg(test)]
-#[path = "prs_tests_review_order.rs"]
-mod prs_tests_review_order;
-#[cfg(test)]
-#[path = "prs_tests_review_threads.rs"]
-mod prs_tests_review_threads;
-#[cfg(test)]
-#[path = "prs_tests_silent_refresh.rs"]
-mod prs_tests_silent_refresh;
-#[cfg(test)]
-#[path = "prs_tests_sort.rs"]
-mod prs_tests_sort;
-#[cfg(test)]
-#[path = "transient_agent_tests.rs"]
-mod transient_agent_tests;
-#[cfg(test)]
-#[path = "transient_system_message_tests.rs"]
-mod transient_system_message_tests;
-
-#[cfg(test)]
-#[path = "workbench_tests.rs"]
-mod workbench_tests;
+// The remaining test-module declarations live in `test_modules.rs` so this
+// file stays inside the source-size gate. See that file for why they are
+// included textually.
+include!("test_modules.rs");

@@ -224,7 +224,7 @@ fn issue_send_state(repo: Repository) -> AppState {
     };
 
     let mut state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state,
         ..AppState::default()
     };

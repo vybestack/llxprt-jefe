@@ -99,7 +99,7 @@ fn test_pull_request_detail(repo_id: &str, pr_number: u64) -> PullRequestDetail 
 /// @pseudocode component-001 lines 44-50
 pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     state.repositories.push(test_repository(repo_id));

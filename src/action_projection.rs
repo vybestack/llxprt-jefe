@@ -443,6 +443,7 @@ fn footer_contexts(mode: FooterMode) -> &'static [&'static str] {
         FooterMode::IssuesInlineComposer => &["issues.inline"],
         FooterMode::PullRequests => &["prs.repo-list", "prs.list", "prs.detail"],
         FooterMode::PullRequestsInlineComposer => &["prs.inline"],
+        FooterMode::PullRequestsNewComposer => &["prs.new-form"],
         FooterMode::Actions => &["actions"],
         FooterMode::Errors => &["errors"],
         FooterMode::Terminals => &["terminal-manager"],

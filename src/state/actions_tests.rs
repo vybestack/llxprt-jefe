@@ -56,7 +56,7 @@ mod tests {
 
         state.apply_actions_message(ActionsMessage::EnterMode);
         assert!(state.actions_state.active);
-        assert_eq!(state.screen, ScreenId::Actions);
+        assert_eq!(state.screen(), ScreenId::Actions);
         assert_eq!(state.actions_state.focus, ActionsFocus::RunList);
         assert!(
             state.actions_state.runs().is_empty(),
@@ -65,7 +65,7 @@ mod tests {
 
         state.apply_actions_message(ActionsMessage::ExitMode);
         assert!(!state.actions_state.active);
-        assert_eq!(state.screen, ScreenId::Dashboard);
+        assert_eq!(state.screen(), ScreenId::Dashboard);
     }
 
     #[test]

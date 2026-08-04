@@ -402,7 +402,7 @@ mod tests {
         props: &SilentPanicProbeProps,
     ) -> impl Into<AnyElement<'static>> {
         let state = hooks.use_state(|| AppState {
-            screen: ScreenId::Issues,
+            nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
             ..AppState::default()
         });
         let mut started = hooks.use_state(|| false);
@@ -441,7 +441,7 @@ mod tests {
                     snapshot.errors_state.count(),
                     entry.title.clone(),
                     entry.detail.clone(),
-                    snapshot.screen,
+                    snapshot.screen(),
                 )
             });
             drop(snapshot);

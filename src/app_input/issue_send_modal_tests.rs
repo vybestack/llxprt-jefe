@@ -79,7 +79,7 @@ fn state_for_issue_agent_chooser_send(
     };
 
     let mut state = jefe::state::AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         issues_state,
         ..AppState::default()
     };
@@ -231,7 +231,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             "acme/widgets".to_owned(),
             PathBuf::from("/tmp/repo"),
         )],
-        screen: jefe::state::ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(jefe::state::ScreenId::Issues),
         ..AppState::default()
     };
     let state = AppState {
@@ -245,7 +245,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         repositories: seeded.repositories.clone(),
-        screen: seeded.screen,
+        nav: jefe::state::navigation::NavState::rooted(seeded.screen()),
         ..AppState::default()
     };
 
@@ -259,7 +259,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
     // only touches `modal`, never agents/repositories/screen.
     assert_eq!(next.repositories.len(), 1, "repositories must be preserved");
     assert_eq!(
-        next.screen,
+        next.screen(),
         jefe::state::ScreenId::Issues,
         "screen must be preserved"
     );

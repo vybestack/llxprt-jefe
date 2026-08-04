@@ -16,7 +16,7 @@ impl AppState {
             selected_repository_index: self.selected_repository_index,
             selected_agent_index: self.selected_agent_index,
         });
-        self.screen = ScreenId::Errors;
+        let _ = self.show_screen(ScreenId::Errors);
         self.errors_state.active = true;
         self.errors_state.focus = ErrorsFocus::ErrorList;
         // Ensure selection is valid (newest error after any recent push).
@@ -31,7 +31,7 @@ impl AppState {
 
     /// Exit errors mode, restoring prior focus state.
     fn exit_errors_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.errors_state.active = false;
         if let Some(prior) = self.errors_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;

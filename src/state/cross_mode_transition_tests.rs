@@ -17,10 +17,10 @@ use crate::state::transition::TransitionExt;
 fn enter_issues_mode_from_prs_mode_switches_screen() {
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::PullRequests);
+    assert_eq!(state.screen(), ScreenId::PullRequests);
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(
-        state.screen,
+        state.screen(),
         ScreenId::Issues,
         "EnterIssuesMode from PR mode must switch to DashboardIssues"
     );
@@ -37,10 +37,10 @@ fn enter_issues_mode_from_prs_mode_switches_screen() {
 fn enter_prs_mode_from_issues_mode_switches_screen() {
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
     let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert_eq!(
-        state.screen,
+        state.screen(),
         ScreenId::PullRequests,
         "EnterPrsMode from Issues mode must switch to DashboardPullRequests"
     );
@@ -63,7 +63,7 @@ fn enter_issues_mode_from_prs_deactivates_prs() {
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(state.prs_state.active);
-    assert_eq!(state.screen, ScreenId::PullRequests);
+    assert_eq!(state.screen(), ScreenId::PullRequests);
 
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(
@@ -75,7 +75,7 @@ fn enter_issues_mode_from_prs_deactivates_prs() {
         "EnterIssuesMode from PR mode must deactivate prs_state.active"
     );
     assert_eq!(
-        state.screen,
+        state.screen(),
         ScreenId::Issues,
         "screen must be DashboardIssues after EnterIssuesMode"
     );
@@ -97,7 +97,7 @@ fn enter_prs_mode_from_issues_deactivates_issues() {
     let state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(state.issues_state.active);
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
 
     let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
     assert!(
@@ -109,7 +109,7 @@ fn enter_prs_mode_from_issues_deactivates_issues() {
         "EnterPrsMode from Issues mode must deactivate issues_state.active"
     );
     assert_eq!(
-        state.screen,
+        state.screen(),
         ScreenId::PullRequests,
         "screen must be DashboardPullRequests after EnterPrsMode"
     );

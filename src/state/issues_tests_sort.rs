@@ -36,7 +36,7 @@ fn make_issue(number: u64, created_at: &str, updated_at: &str) -> Issue {
 
 fn issues_state_with_issues(issues: Vec<Issue>) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     };
     state.issues_state.active = true;

@@ -39,7 +39,7 @@ fn create_split_test_state() -> AppState {
     );
 
     AppState {
-        screen: ScreenId::Repositories,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Repositories),
         repositories: vec![repo1, repo2, repo3],
         selected_repository_index: Some(0),
         ..Default::default()
@@ -53,13 +53,13 @@ fn create_split_test_state() -> AppState {
 #[test]
 fn s_key_enters_split_mode() {
     let state = AppState {
-        screen: ScreenId::Dashboard,
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
         ..Default::default()
     };
 
     let state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen, ScreenId::Repositories);
+    assert_eq!(state.screen(), ScreenId::Repositories);
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn esc_key_exits_split_mode() {
 
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 // ============================================================================

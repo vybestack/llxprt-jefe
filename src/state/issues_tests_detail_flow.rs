@@ -14,7 +14,7 @@ use crate::state::transition::TransitionExt;
 
 fn dashboard_issues_state() -> AppState {
     AppState {
-        screen: ScreenId::Issues,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
         ..AppState::default()
     }
 }
@@ -298,13 +298,13 @@ fn test_exit_focus_restoration_valid() {
 
     // Enter issues mode — focus is saved
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Issues);
+    assert_eq!(state.screen(), ScreenId::Issues);
 
     // Exit — prior focus restored
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Agents);
     assert_eq!(state.selected_agent_index, Some(1));
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 /// P15 Test 11: Enter issues, agent removed while in issues mode, exit — fallback, no crash.
@@ -347,7 +347,7 @@ fn test_exit_focus_restoration_stale() {
 
     // Exit — should fall back gracefully
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
     assert!(!state.issues_state.active);
     // No panic; agent_index is None or 0 (fallback)
     assert!(
@@ -769,7 +769,7 @@ fn test_esc_chain_all_six_levels_integrated() {
 
     // Level 6: Nothing else active — ExitIssuesMode exits mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
     assert!(!state.issues_state.active);
 }
 

@@ -17,11 +17,25 @@ const FILTER_ORDER: [StatusBucket; 4] = [
     StatusBucket::Stale,
 ];
 
+impl UiNavigationMessage {
+    /// Whether this message belongs to the multi-agent workbench.
+    pub(super) const fn is_workbench(&self) -> bool {
+        matches!(
+            self,
+            Self::ToggleWorkbenchStatusBucket(_)
+                | Self::WorkbenchNextPage
+                | Self::WorkbenchPrevPage
+                | Self::WorkbenchFilterCursorPrev
+                | Self::WorkbenchFilterCursorNext
+        )
+    }
+}
+
 impl AppState {
     /// The bucket the filter cursor currently sits on.
     #[must_use]
     pub fn workbench_filter_cursor_bucket(&self) -> StatusBucket {
-        FILTER_ORDER[self.workbench_filter_cursor.min(FILTER_ORDER.len() - 1)]
+        FILTER_ORDER[self.workbench.filter_cursor.min(FILTER_ORDER.len() - 1)]
     }
 
     /// Handle multi-agent workbench navigation messages.
@@ -36,17 +50,17 @@ impl AppState {
                 self.apply_workbench_status_toggle(bucket);
             }
             UiNavigationMessage::WorkbenchNextPage => {
-                self.workbench_page = self.workbench_page.saturating_add(1);
+                self.workbench.page = self.workbench.page.saturating_add(1);
             }
             UiNavigationMessage::WorkbenchPrevPage => {
-                self.workbench_page = self.workbench_page.saturating_sub(1);
+                self.workbench.page = self.workbench.page.saturating_sub(1);
             }
             UiNavigationMessage::WorkbenchFilterCursorPrev => {
-                self.workbench_filter_cursor = self.workbench_filter_cursor.saturating_sub(1);
+                self.workbench.filter_cursor = self.workbench.filter_cursor.saturating_sub(1);
             }
             UiNavigationMessage::WorkbenchFilterCursorNext => {
-                self.workbench_filter_cursor =
-                    (self.workbench_filter_cursor + 1).min(FILTER_ORDER.len() - 1);
+                self.workbench.filter_cursor =
+                    (self.workbench.filter_cursor + 1).min(FILTER_ORDER.len() - 1);
             }
             _ => unreachable!("non-workbench message routed to apply_workbench_navigation"),
         }
@@ -55,9 +69,9 @@ impl AppState {
     /// Toggle one status bucket in the workbench filter mask and reset the page
     /// to 0, so a shrinking list cannot strand the view on an empty page.
     fn apply_workbench_status_toggle(&mut self, bucket: StatusBucket) {
-        let current = self.workbench_status_filter.mask();
-        self.workbench_status_filter =
+        let current = self.workbench.status_filter.mask();
+        self.workbench.status_filter =
             WorkbenchStatusFilter(current.with(bucket, !current.allows(bucket)));
-        self.workbench_page = 0;
+        self.workbench.page = 0;
     }
 }

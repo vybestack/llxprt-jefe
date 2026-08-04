@@ -19,6 +19,7 @@ mod actions_conversion;
 mod prs;
 mod prs_changes_conversion;
 mod prs_conversion;
+mod prs_lifecycle_conversion;
 mod prs_property_conversion;
 pub use actions::ActionsMessage;
 mod errors;

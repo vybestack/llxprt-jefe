@@ -18,7 +18,7 @@ use crate::state::types::{ReadOnlyHintKind, ScreenId};
 /// Helper: PR-mode state with a selected PR.
 fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

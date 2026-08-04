@@ -133,7 +133,7 @@ pub fn detail_wrap_projection(
     let resolved_width = app_state
         .resolved_layout
         .as_ref()
-        .and_then(|layout| jefe::selection::detail_wrap_width(layout, pane, app_state.screen));
+        .and_then(|layout| jefe::selection::detail_wrap_width(layout, pane, app_state.screen()));
     match pane {
         SelectablePane::IssueDetail => {
             let detail = app_state.issues_state.issue_detail.as_ref()?;

@@ -29,6 +29,7 @@ pub mod panel_types;
 pub mod relationship_propagation;
 pub mod relationships;
 pub mod resolve;
+pub mod route;
 pub mod screen_file;
 pub mod screen_file_bounds;
 pub mod screen_file_shape;
@@ -106,6 +107,10 @@ mod allocate_tests;
 #[cfg(test)]
 #[path = "resolve_tests.rs"]
 mod resolve_tests;
+
+#[cfg(test)]
+#[path = "route_tests.rs"]
+mod route_tests;
 
 use std::sync::OnceLock;
 
@@ -206,11 +211,17 @@ pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,
 };
+pub use route::{
+    ActivationError, ActivationValue, ActivationValues, MAX_ACTIVATION_BYTES, NavCode,
+    RouteDeclaration, route_declaration,
+};
 pub use screen_file::{ScreenFile, parse_screen_file};
 pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
 pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_screen};
 pub use screens::{
-    PTY_PANEL_TYPE, REPOSITORIES_PANEL, RegistryError, SELECTION_PORT, SUBJECT_PORT,
-    ScreenRegistry, builtin_screens, master_detail_edge,
+    ACTIONS_LIST_PANEL, ERRORS_LIST_PANEL, ISSUES_LIST_PANEL, PTY_PANEL_TYPE,
+    PULL_REQUESTS_LIST_PANEL, REPOSITORIES_PANEL, RegistryError, SELECTION_PORT, SUBJECT_PORT,
+    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, master_detail_edge,
+    route_of,
 };
 pub use validate::{DescriptorError, validate_descriptor};

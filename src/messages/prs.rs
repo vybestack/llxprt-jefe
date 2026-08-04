@@ -212,6 +212,86 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         error: String,
     },
+    // PR delete: close plus head-branch removal (issue #183)
+    /// Open the destructive confirm overlay for the focused pull request.
+    OpenDeleteConfirm,
+    /// Arm the delete overlay, or dispatch the delete once armed.
+    DeleteConfirm,
+    /// Close the delete overlay without deleting.
+    DeleteCancel,
+    /// The head branch was removed, and the pull request closed when `closed`.
+    Deleted {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        branch: String,
+        closed: bool,
+    },
+    /// The close or the branch removal failed. `closed` reports whether the
+    /// close had already succeeded.
+    DeleteFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        closed: bool,
+        error: String,
+    },
+    // New PR composer (issue #183)
+    /// Open the New PR composer.
+    OpenNewForm,
+    /// Close the composer and discard the draft.
+    NewFormCancel,
+    /// Move to the next composer field.
+    NewFormFocusNext,
+    /// Move to the previous composer field.
+    NewFormFocusPrevious,
+    /// Move the focused branch selection towards the start of the list.
+    NewFormBranchUp,
+    /// Move the focused branch selection towards the end of the list.
+    NewFormBranchDown,
+    /// Type into the focused text field.
+    NewFormChar(char),
+    /// Break the body onto a new line.
+    NewFormNewline,
+    /// Delete the character before the cursor.
+    NewFormBackspace,
+    /// Delete the character at the cursor.
+    NewFormDelete,
+    /// Move the cursor one character towards the start.
+    NewFormCursorLeft,
+    /// Move the cursor one character towards the end.
+    NewFormCursorRight,
+    /// Move the cursor to the start of the field.
+    NewFormCursorHome,
+    /// Move the cursor to the end of the field.
+    NewFormCursorEnd,
+    /// Open the pull request the composer describes.
+    NewFormSubmit,
+    /// The repository's branches arrived for an open composer.
+    BranchesLoaded {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        branches: Vec<String>,
+        default_branch: Option<String>,
+    },
+    /// The repository's branches could not be listed.
+    BranchesFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        error: String,
+    },
+    /// A pull request was opened.
+    Created {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        pr_number: u64,
+    },
+    /// A pull request could not be opened.
+    CreateFailed {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        error: String,
+    },
     // PR Review Threads (issue #119)
     /// Open the inline reply composer for a review thread.
     OpenThreadReply {

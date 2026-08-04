@@ -25,7 +25,7 @@ fn default_state_has_no_selection() {
 #[test]
 fn default_state_is_dashboard_mode() {
     let state = AppState::default();
-    assert_eq!(state.screen, ScreenId::Dashboard);
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 #[test]

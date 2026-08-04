@@ -524,6 +524,54 @@ fn ported(
     panel
 }
 
+/// The route a screen is reached through.
+///
+/// Compiled as a total function for the same reason as [`initial_focus`]:
+/// rooting a session must not depend on a lookup that can fail.
+/// `route_agrees_with_every_descriptor` keeps it honest.
+#[must_use]
+pub const fn route_of(screen: ScreenId) -> RouteId {
+    RouteId::from_static(match screen {
+        ScreenId::Dashboard => "dashboard",
+        ScreenId::Repositories => "repositories",
+        ScreenId::Issues => "issues",
+        ScreenId::PullRequests => "pull-requests",
+        ScreenId::Actions => "actions",
+        ScreenId::Errors => "errors",
+        ScreenId::Terminals => "terminals",
+    })
+}
+
+/// The panel a screen focuses when an instance of it is first created.
+///
+/// Compiled as a total function rather than read back out of the registry, so
+/// creating a screen instance cannot fail on a registry lookup — there is no
+/// "what if the descriptor is missing" branch to get wrong at the moment the
+/// session moves. `initial_focus_agrees_with_every_descriptor` keeps this and
+/// the descriptors from drifting apart.
+#[must_use]
+pub const fn initial_focus(screen: ScreenId) -> PanelId {
+    PanelId::from_static(match screen {
+        ScreenId::Dashboard | ScreenId::Repositories => REPOSITORIES_PANEL,
+        ScreenId::Issues => ISSUES_LIST_PANEL,
+        ScreenId::PullRequests => PULL_REQUESTS_LIST_PANEL,
+        ScreenId::Actions => ACTIONS_LIST_PANEL,
+        ScreenId::Errors => ERRORS_LIST_PANEL,
+        ScreenId::Terminals => TERMINALS_LIST_PANEL,
+    })
+}
+
+/// Identity of the issues list panel.
+pub const ISSUES_LIST_PANEL: &str = "issue-list";
+/// Identity of the pull-requests list panel.
+pub const PULL_REQUESTS_LIST_PANEL: &str = "pr-list";
+/// Identity of the workflow-runs list panel.
+pub const ACTIONS_LIST_PANEL: &str = "action-list";
+/// Identity of the errors list panel.
+pub const ERRORS_LIST_PANEL: &str = "error-list";
+/// Identity of the terminal-manager list panel.
+pub const TERMINALS_LIST_PANEL: &str = "shell-list";
+
 /// A workspace screen: the repository sidebar beside the shared column.
 fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
@@ -571,7 +619,7 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
         id: ScreenId::Issues,
         title: "Issues",
         route: "issues",
-        list: "issue-list",
+        list: ISSUES_LIST_PANEL,
         detail: "issue-detail",
         banner: "issue-list-banner",
         filter: "issue-list-filter",
@@ -586,7 +634,7 @@ fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
         id: ScreenId::PullRequests,
         title: "Pull Requests",
         route: "pull-requests",
-        list: "pr-list",
+        list: PULL_REQUESTS_LIST_PANEL,
         detail: "pr-detail",
         banner: "pr-list-banner",
         filter: "pr-list-filter",
@@ -600,7 +648,7 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
         id: ScreenId::Actions,
         title: "Actions",
         route: "actions",
-        list: "action-list",
+        list: ACTIONS_LIST_PANEL,
         detail: "action-detail",
         banner: "action-list-banner",
         filter: "action-list-filter",
@@ -629,7 +677,7 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
                 DETAIL_PANE_CHROME,
             )?,
         ],
-        initial_focus: PanelId::parse("error-list")?,
+        initial_focus: PanelId::parse(ERRORS_LIST_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "error-list", "error-detail"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
@@ -671,7 +719,7 @@ fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
                 TERMINAL_CHROME,
             )?,
         ],
-        initial_focus: PanelId::parse("shell-list")?,
+        initial_focus: PanelId::parse(TERMINALS_LIST_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "shell-list", "shell-preview"])?,
         relationships: Vec::new(),
         activation: Vec::new(),

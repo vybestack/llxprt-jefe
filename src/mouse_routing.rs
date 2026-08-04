@@ -230,7 +230,7 @@ fn terminal_target_info(ctx: Option<&CtxArc>, app_state: &HookState<AppState>) -
         (
             state.terminal_focused,
             state.pane_focus,
-            state.screen,
+            state.screen(),
             is_blocking_modal_open(&state),
         )
     };
@@ -709,7 +709,7 @@ fn resolve_app_selection_point(
     Some(SelectionPoint::new(pane, line, c))
 }
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let (mode_error, filter_open) = match state.screen {
+    let (mode_error, filter_open) = match state.screen() {
         ScreenId::Issues => (
             jefe::layout::issues_banner_visible(
                 state.issues_state.error.as_deref(),
@@ -729,9 +729,10 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             (false, false)
         }
     };
-    let error_visible =
-        (state.error_message.is_some() && !matches!(state.screen, ScreenId::Errors)) || mode_error;
-    ScreenLayout::new(cols, rows, state.screen, error_visible, filter_open)
+    let error_visible = (state.error_message.is_some()
+        && !matches!(state.screen(), ScreenId::Errors))
+        || mode_error;
+    ScreenLayout::new(cols, rows, state.screen(), error_visible, filter_open)
         .with_overlay(active_overlay_for(state))
 }
 /// Whether a blocking modal is open (Finding G).

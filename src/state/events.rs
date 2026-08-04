@@ -641,32 +641,8 @@ pub enum AppEvent {
         pr_number: u64,
         error: String,
     },
-    PrOpenMergeChooser,
-    PrMergeNavigateUp,
-    PrMergeNavigateDown,
-    PrMergeConfirm,
-    PrMergeCancel,
-    PrMerged {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        method: crate::domain::MergeMethod,
-    },
-    PrMergeFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        allowed_methods: Vec<crate::domain::MergeMethod>,
-    },
-    PrMergeMethodsLoadFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        error: String,
-    },
+    /// Pull-request lifecycle mutations: merge, close, delete, create.
+    PrLifecycle(Box<super::PrLifecycleEvent>),
     PrOpenAgentChooser {
         metadata: Vec<crate::domain::AgentChooserGitMetadata>,
     },

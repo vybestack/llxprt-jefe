@@ -5,6 +5,7 @@
 //! - Toggling a bucket flips exactly that bucket and resets the page to 0.
 //! - Next/prev page are clamped at both ends (no wrap).
 
+use super::workbench_filter::WorkbenchUiState;
 use super::{AppEvent, AppState};
 use crate::state::transition::TransitionExt;
 use crate::workbench_view::{StatusBucket, StatusFilterMask};
@@ -12,7 +13,7 @@ use crate::workbench_view::{StatusBucket, StatusFilterMask};
 #[test]
 fn default_status_filter_is_all_on() {
     let state = AppState::default();
-    let mask = state.workbench_status_filter.mask();
+    let mask = state.workbench.status_filter.mask();
     assert!(mask.allows(StatusBucket::NeedsYou));
     assert!(mask.allows(StatusBucket::Working));
     assert!(mask.allows(StatusBucket::Ready));
@@ -27,7 +28,7 @@ fn toggling_a_bucket_flips_only_that_bucket() {
         .apply(AppEvent::ToggleWorkbenchStatusBucket(StatusBucket::Ready))
         .committed_pure();
 
-    let mask = after.workbench_status_filter.mask();
+    let mask = after.workbench.status_filter.mask();
     assert!(
         mask.allows(StatusBucket::NeedsYou),
         "unrelated buckets stay on"
@@ -43,14 +44,17 @@ fn toggling_a_bucket_flips_only_that_bucket() {
 #[test]
 fn toggling_a_bucket_resets_page_to_zero() {
     let state = AppState {
-        workbench_page: 5,
+        workbench: WorkbenchUiState {
+            page: 5,
+            ..WorkbenchUiState::default()
+        },
         ..AppState::default()
     };
     let after = state
         .apply(AppEvent::ToggleWorkbenchStatusBucket(StatusBucket::Working))
         .committed_pure();
     assert_eq!(
-        after.workbench_page, 0,
+        after.workbench.page, 0,
         "toggling a filter must reset the page"
     );
 }
@@ -59,7 +63,7 @@ fn toggling_a_bucket_resets_page_to_zero() {
 fn next_page_advances_page() {
     let state = AppState::default();
     let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
-    assert_eq!(after.workbench_page, 1);
+    assert_eq!(after.workbench.page, 1);
 }
 
 /// The reducer deliberately does not know the page count. It cannot: the number
@@ -71,12 +75,15 @@ fn next_page_advances_page() {
 #[test]
 fn next_page_increments_without_an_upper_bound_and_saturates() {
     let state = AppState {
-        workbench_page: usize::MAX,
+        workbench: WorkbenchUiState {
+            page: usize::MAX,
+            ..WorkbenchUiState::default()
+        },
         ..AppState::default()
     };
     let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
     assert_eq!(
-        after.workbench_page,
+        after.workbench.page,
         usize::MAX,
         "next page must saturate rather than overflow"
     );
@@ -157,7 +164,7 @@ fn cursor_move_then_toggle_affects_the_second_bucket() {
     let after = state
         .apply(AppEvent::WorkbenchFilterCursorNext)
         .committed_pure();
-    assert_eq!(after.workbench_filter_cursor, 1);
+    assert_eq!(after.workbench.filter_cursor, 1);
     assert_eq!(
         after.workbench_filter_cursor_bucket(),
         crate::workbench_view::StatusBucket::Working
@@ -170,7 +177,8 @@ fn cursor_move_then_toggle_affects_the_second_bucket() {
         .committed_pure();
     assert!(
         !toggled
-            .workbench_status_filter
+            .workbench
+            .status_filter
             .mask()
             .allows(crate::workbench_view::StatusBucket::Working),
         "Working must be filtered out after toggling it at the cursor"
@@ -182,7 +190,7 @@ fn prev_page_clamps_at_zero() {
     let state = AppState::default();
     let after = state.apply(AppEvent::WorkbenchPrevPage).committed_pure();
     assert_eq!(
-        after.workbench_page, 0,
+        after.workbench.page, 0,
         "prev page at 0 must clamp, not wrap"
     );
 }
@@ -190,11 +198,14 @@ fn prev_page_clamps_at_zero() {
 #[test]
 fn prev_page_decrements_from_positive() {
     let state = AppState {
-        workbench_page: 3,
+        workbench: WorkbenchUiState {
+            page: 3,
+            ..WorkbenchUiState::default()
+        },
         ..AppState::default()
     };
     let after = state.apply(AppEvent::WorkbenchPrevPage).committed_pure();
-    assert_eq!(after.workbench_page, 2);
+    assert_eq!(after.workbench.page, 2);
 }
 
 #[test]
@@ -202,7 +213,7 @@ fn next_page_then_prev_returns_to_start() {
     let state = AppState::default();
     let mid = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
     let after = mid.apply(AppEvent::WorkbenchPrevPage).committed_pure();
-    assert_eq!(after.workbench_page, 0);
+    assert_eq!(after.workbench.page, 0);
 }
 
 #[test]
@@ -220,7 +231,7 @@ fn toggling_all_buckets_off_yields_all_off_mask() {
             .committed_pure();
     }
     assert!(
-        after.workbench_status_filter.mask().all_off(),
+        after.workbench.status_filter.mask().all_off(),
         "toggling every bucket off must yield all-off"
     );
 }
@@ -235,7 +246,7 @@ fn toggling_a_bucket_back_on_restores_all_on() {
         .apply(AppEvent::ToggleWorkbenchStatusBucket(StatusBucket::Stale))
         .committed_pure();
     assert_eq!(
-        on.workbench_status_filter.mask(),
+        on.workbench.status_filter.mask(),
         StatusFilterMask::all_on(),
         "toggling twice must restore the original mask"
     );

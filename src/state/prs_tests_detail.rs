@@ -16,7 +16,7 @@ use crate::state::types::{PrDetailSubfocus, ScreenId};
 /// Helper: PR-mode state with one repository selected at index 0.
 pub(super) fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
-        screen: ScreenId::PullRequests,
+        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

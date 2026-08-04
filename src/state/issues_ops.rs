@@ -27,6 +27,7 @@ impl AppState {
         // Finding 1: deactivate PR mode if active so both list modes are
         // never simultaneously active (which would corrupt per-repo
         // preferences on a repo change).
+        let from_sibling_list_mode = self.prs_state.active;
         if self.prs_state.active {
             self.remember_pr_preferences();
             self.prs_state.active = false;
@@ -52,7 +53,13 @@ impl AppState {
         // active in a list-mode render.
         self.terminal_focused = false;
         self.pane_focus = PaneFocus::Agents;
-        self.screen = ScreenId::Issues;
+        // The cross-mode jump takes the place of the screen it came from, so
+        // Back still returns to whatever opened the first list mode.
+        let _ = if from_sibling_list_mode {
+            self.switch_screen(ScreenId::Issues)
+        } else {
+            self.show_screen(ScreenId::Issues)
+        };
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
         self.issues_state.list.clear();
@@ -93,7 +100,7 @@ impl AppState {
 
     /// Exit issues mode, restoring prior focus state.
     fn exit_issues_mode(&mut self) {
-        self.screen = ScreenId::Dashboard;
+        let _ = self.leave_screen();
         self.issues_state.active = false;
         if self.issues_state.inline_state != InlineState::None {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());

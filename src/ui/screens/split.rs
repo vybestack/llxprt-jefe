@@ -92,7 +92,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
     // Build the workbench view from the current state.
     let view = build_workbench_view_from_state(state, render_cols, render_rows);
     let status_filter = state.map_or(StatusFilterMask::all_on(), |s| {
-        s.workbench_status_filter.mask()
+        s.workbench.status_filter.mask()
     });
 
     let cursor_bucket = state.map_or(
@@ -232,11 +232,11 @@ fn build_workbench_view_from_state(
 
     build_workbench_view(&WorkbenchRequest {
         agents,
-        status_filter: state.workbench_status_filter.mask(),
+        status_filter: state.workbench.status_filter.mask(),
         repository_filter,
         terminal_width: usize::from(render_cols),
         terminal_height: usize::from(render_rows),
-        page: state.workbench_page,
+        page: state.workbench.page,
     })
 }
 

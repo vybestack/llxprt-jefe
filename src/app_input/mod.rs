@@ -53,6 +53,7 @@ mod prs_comments_dispatch;
 mod prs_diff_dispatch;
 mod prs_dispatch;
 mod prs_filter;
+mod prs_lifecycle;
 mod prs_list_dispatch;
 mod prs_merge_dispatch;
 mod prs_mutation;
@@ -133,7 +134,7 @@ pub fn resolve_test_registry_event(
     else {
         return None;
     };
-    let page_items = dashboard_page_item_count(state, state.screen, terminal_cols, terminal_rows);
+    let page_items = dashboard_page_item_count(state, state.screen(), terminal_cols, terminal_rows);
     action_handlers::event_for_test(handler, resolved.chord, state, page_items)
 }
 

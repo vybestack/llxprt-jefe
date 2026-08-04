@@ -28,3 +28,18 @@ impl WorkbenchStatusFilter {
         self.0
     }
 }
+
+/// Everything the workbench screen needs to remember between frames.
+///
+/// Grouped into one field on `AppState` rather than three: they change
+/// together, they are meaningless apart, and `types.rs` sits at the
+/// source-size gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WorkbenchUiState {
+    /// Which status buckets are shown.
+    pub status_filter: WorkbenchStatusFilter,
+    /// Zero-based page; the projection clamps it against the real page count.
+    pub page: usize,
+    /// Which bucket the filter cursor sits on.
+    pub filter_cursor: usize,
+}

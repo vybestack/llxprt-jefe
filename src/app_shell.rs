@@ -370,7 +370,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     trace!(
         modal = ?std::mem::discriminant(&modal),
-        screen = ?snapshot.screen,
+        screen = ?snapshot.screen(),
         pane_focus = ?snapshot.pane_focus,
         terminal_focused = snapshot.terminal_focused,
         repos = snapshot.repositories.len(),
@@ -448,8 +448,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // requests a background capture via the `CaptureHandle` and reads the
     // runtime's `HistoryCache` directly (non-blocking `get`). The background
     // worker drains the request and stores the result in the cache.
-    let history_lines: Vec<String> = if snapshot.screen == ScreenId::Dashboard
-        || (snapshot.screen == ScreenId::Terminals && snapshot.shell_overlay_active())
+    let history_lines: Vec<String> = if snapshot.screen() == ScreenId::Dashboard
+        || (snapshot.screen() == ScreenId::Terminals && snapshot.shell_overlay_active())
     {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
@@ -468,14 +468,15 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // which guarantees a nonzero content rectangle or hides the pane, so there
     // is no `.max(1)` to apply here.
     let terminal_rect = snapshot.resolved_layout.as_ref().and_then(|layout| {
-        let descriptor = jefe::workbench::screen_descriptor(snapshot.screen).ok()?;
+        let descriptor = jefe::workbench::screen_descriptor(snapshot.screen()).ok()?;
         jefe::workbench::pty_content_rect(
             descriptor,
             layout,
             &jefe::workbench::PanelId::from_static("terminal"),
         )
     });
-    let pty_layout = if snapshot.shell_overlay_active() && snapshot.screen == ScreenId::Terminals {
+    let pty_layout = if snapshot.shell_overlay_active() && snapshot.screen() == ScreenId::Terminals
+    {
         jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
     } else if snapshot.shell_overlay_active() {
         jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
@@ -742,7 +743,7 @@ fn handle_key_event(
     let state_ro = app_state.read();
     let term_focused = state_ro.terminal_focused;
     let pane_focus = state_ro.pane_focus;
-    let screen = state_ro.screen;
+    let screen = state_ro.screen();
     let modal = state_ro.modal.clone();
     let input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
