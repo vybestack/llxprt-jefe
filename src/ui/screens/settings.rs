@@ -8,13 +8,17 @@ use iocraft::prelude::*;
 
 use crate::messages::settings::RecoveryChoice;
 use crate::persistence::diagnostic::Severity;
+use crate::state::agent_types_editor::AgentAvailability;
+use crate::state::layout_editor::{NodeDialog, SizeKind};
 use crate::state::navigation_dirty::{DirtyState, GuardPhase, SaveIntent};
+use crate::state::screens_editor::CompositionStatus;
 use crate::state::settings_types::DirtyChoiceCursor;
 use crate::state::settings_view::{
     SettingsRow, SettingsRowKind, detail_rows, recovery_choices, section_rows,
 };
 use crate::state::{AppState, DraftStatus, SettingsDraft, SettingsFocus, SettingsState};
 use crate::theme::{ResolvedColors, ThemeColors};
+use crate::workbench::descriptor::{Axis, LayoutNode};
 
 use super::super::components::{KeybindBar, StatusBar};
 
@@ -69,6 +73,7 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
             Box(flex_direction: FlexDirection::Row, flex_grow: 1.0_f32, background_color: rc.bg) {
                 #(section_pane(&settings, &rc))
                 #(detail_pane(&settings, &rc))
+                #(layout_pane(&settings, &rc))
             }
             #(notice_row(&settings, &rc))
             KeybindBar(
@@ -158,6 +163,112 @@ fn detail_pane(settings: &SettingsState, rc: &ResolvedColors) -> AnyElement<'sta
     .into_any()
 }
 
+/// The layout tree editor, while it is open.
+///
+/// Everything drawn here is decided by `state::layout_editor`; this only puts
+/// the tree, the open dialog, and whatever was refused on the screen.
+fn layout_pane(settings: &SettingsState, rc: &ResolvedColors) -> Option<AnyElement<'static>> {
+    let editor = settings.layout_editor.as_ref()?;
+    let lines = layout_lines(&editor.tree, &editor.selected, &[], 0);
+    let dialog = editor.dialog.as_ref().map(dialog_lines);
+    let notice = editor.notice.clone();
+    Some(
+        element! {
+            Box(
+                flex_direction: FlexDirection::Column,
+                width: 34u32,
+                flex_shrink: 0.0_f32,
+                border_style: BorderStyle::Round,
+                border_color: rc.border_focused,
+                background_color: rc.bg,
+            ) {
+                Text(content: "Layout", weight: Weight::Bold, color: rc.fg)
+                #(lines.into_iter().map(|(text, selected)| element! {
+                    Box(width: 100pct, background_color: if selected { rc.sel_bg } else { rc.bg }) {
+                        Text(content: text, color: if selected { rc.sel_fg } else { rc.fg })
+                    }
+                }))
+                #(dialog.into_iter().flatten().map(|(text, error)| element! {
+                    Box(width: 100pct, background_color: rc.bg) {
+                        Text(content: text, color: if error { rc.error } else { rc.fg })
+                    }
+                }))
+                #(notice.map(|notice| element! {
+                    Box(width: 100pct, background_color: rc.bg) {
+                        Text(content: notice, color: rc.error)
+                    }
+                }))
+                Text(content: "q Back  Ctrl-Q quit", color: rc.dim)
+            }
+        }
+        .into_any(),
+    )
+}
+
+/// One line per node, marked where the selection is.
+fn layout_lines(
+    node: &LayoutNode,
+    selected: &[usize],
+    path: &[usize],
+    depth: usize,
+) -> Vec<(String, bool)> {
+    let here = path == selected;
+    let indent = "  ".repeat(depth);
+    let mut lines = match node {
+        LayoutNode::Leaf { panel } => {
+            vec![(format!("{indent}leaf: {}", panel.as_str()), here)]
+        }
+        LayoutNode::Split { axis, .. } => {
+            let axis = match axis {
+                Axis::Horizontal => "H",
+                Axis::Vertical => "V",
+            };
+            vec![(format!("{indent}split {axis}"), here)]
+        }
+    };
+    if let LayoutNode::Split { children, .. } = node {
+        for (index, child) in children.iter().enumerate() {
+            let mut child_path = path.to_vec();
+            child_path.push(index);
+            lines.extend(layout_lines(&child.node, selected, &child_path, depth + 1));
+        }
+    }
+    lines
+}
+
+/// The open node dialog's fields, and whatever it refused.
+fn dialog_lines(dialog: &NodeDialog) -> Vec<(String, bool)> {
+    let focus = |index: usize| if dialog.field == index { ">>" } else { "  " };
+    let mut lines = vec![
+        (
+            format!(
+                "{}size kind: {}",
+                focus(0),
+                match dialog.size_kind {
+                    SizeKind::Fixed => "fixed",
+                    SizeKind::Weight => "weight",
+                }
+            ),
+            false,
+        ),
+        (format!("{}size: {}", focus(1), dialog.size), false),
+        (format!("{}min: {}", focus(2), dialog.min), false),
+        (format!("{}max: {}", focus(3), dialog.max), false),
+        (
+            format!("{}collapsible: {}", focus(4), dialog.collapsible),
+            false,
+        ),
+        (
+            format!("{}collapse order: {}", focus(5), dialog.collapse_priority),
+            false,
+        ),
+    ];
+    if let Some(error) = dialog.error.as_ref() {
+        lines.push((format!("! {error}"), true));
+    }
+    lines
+}
+
 /// One row's rendered text, including its selection marker.
 fn render_row(row: &SettingsRow, selected: bool) -> String {
     let marker = if selected { ">>" } else { "  " };
@@ -168,7 +279,10 @@ fn render_row(row: &SettingsRow, selected: bool) -> String {
         }
         SettingsRowKind::Fact
         | SettingsRowKind::Toggle { .. }
-        | SettingsRowKind::Diagnostic { .. } => {
+        | SettingsRowKind::Diagnostic { .. }
+        | SettingsRowKind::AgentType { .. }
+        | SettingsRowKind::ScreenMember { .. }
+        | SettingsRowKind::KeyBinding { .. } => {
             format!("{marker}{}: {}", row.label, row.value)
         }
     }
@@ -179,20 +293,38 @@ fn row_color(row: &SettingsRow, selected: bool, rc: &ResolvedColors) -> Color {
         return rc.sel_fg;
     }
     match &row.kind {
+        // A problem reads as a problem: an error diagnostic, and a screen whose
+        // override the validator refuses.
         SettingsRowKind::Diagnostic {
             severity: Severity::Error,
             ..
+        }
+        | SettingsRowKind::ScreenMember {
+            composition: CompositionStatus::Invalid { .. },
+            ..
         } => rc.error,
-        // A row the user cannot act on reads as secondary, whether it is a
-        // fact about the session or a theme that is not installed.
+        // A row the user cannot act on reads as secondary, whether it is a fact
+        // about the session, a theme that is not installed, a control that
+        // cannot be rebound, or an agent type this machine cannot run.
         SettingsRowKind::Theme {
             available: false, ..
         }
-        | SettingsRowKind::Fact => rc.dim,
+        | SettingsRowKind::Fact
+        | SettingsRowKind::KeyBinding {
+            protected: Some(_), ..
+        } => rc.dim,
+        SettingsRowKind::AgentType { availability, .. }
+            if !matches!(availability, AgentAvailability::Compatible) =>
+        {
+            rc.dim
+        }
         SettingsRowKind::Theme { .. }
         | SettingsRowKind::Toggle { .. }
         | SettingsRowKind::Screen { .. }
-        | SettingsRowKind::Diagnostic { .. } => rc.fg,
+        | SettingsRowKind::Diagnostic { .. }
+        | SettingsRowKind::AgentType { .. }
+        | SettingsRowKind::ScreenMember { .. }
+        | SettingsRowKind::KeyBinding { .. } => rc.fg,
     }
 }
 

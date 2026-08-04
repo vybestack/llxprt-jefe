@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
 use super::*;
+use crate::domain::action_registry::Provenance;
 use crate::domain::default_action_inventory::display::FooterMode;
 use crate::state::ScreenId;
+use crate::state::keys_editor_project::project_keys;
 
 struct ComposerFooterCase {
     context: &'static str,
@@ -12,11 +14,11 @@ struct ComposerFooterCase {
     chord: &'static str,
 }
 
-fn snapshot_with_submit_override(
+fn published_with_submit_override(
     context: &str,
     action: &str,
     chords: &[&str],
-) -> ActionRegistrySnapshot {
+) -> crate::persistence::settings_document::PublishedSettings {
     let mut settings = crate::persistence::settings_document::PublishedSettings::default();
     settings.keymap.insert(
         context.to_owned(),
@@ -25,6 +27,15 @@ fn snapshot_with_submit_override(
             chords.iter().map(|chord| (*chord).to_owned()).collect(),
         )]),
     );
+    settings
+}
+
+fn snapshot_with_submit_override(
+    context: &str,
+    action: &str,
+    chords: &[&str],
+) -> ActionRegistrySnapshot {
+    let settings = published_with_submit_override(context, action, chords);
     let composed = crate::persistence::keymap_edit::compose_published(&settings, "settings");
     let Ok(composed) = composed else {
         panic!("composer override fixture must compose: {composed:?}");
@@ -147,6 +158,7 @@ fn list_send_remaps_project_to_footer_and_help_from_one_snapshot() {
         },
     ] {
         let snapshot = snapshot_with_submit_override(case.context, case.action, &["F8"]);
+        let published = published_with_submit_override(case.context, case.action, &["F8"]);
         let footer = project_list_send_footer(&snapshot, &case);
         let help = project_help_lines(&snapshot).join("\n");
         let help_description = if case.context == "issues.list" {
@@ -161,16 +173,12 @@ fn list_send_remaps_project_to_footer_and_help_from_one_snapshot() {
         assert!(footer.contains("F8 send to agent"), "footer: {footer}");
         assert!(!footer.contains("/S send to agent"), "footer: {footer}");
         assert!(help_line.contains("F8"), "help: {help}");
-        let keys = crate::state::KeysEditorState::from_snapshot(&snapshot, None);
-        let Some(keys_row) = keys
-            .rows
-            .iter()
-            .find(|row| row.action.as_str() == case.action)
-        else {
+        let keys = project_keys(&snapshot, &published);
+        let Some(keys_row) = keys.iter().find(|row| row.action.as_str() == case.action) else {
             panic!("Keys did not project list send-to-agent: {keys:?}");
         };
         assert_eq!(
-            keys_row.effective_chords,
+            keys_row.chords,
             vec![Chord::parse("F8").unwrap_or_else(|error| panic!("test chord: {error}"))]
         );
         assert!(
@@ -197,6 +205,7 @@ fn unbound_list_send_is_discoverable_in_footer_and_help() {
         },
     ] {
         let snapshot = snapshot_with_submit_override(case.context, case.action, &[]);
+        let published = published_with_submit_override(case.context, case.action, &[]);
         let footer = project_list_send_footer(&snapshot, &case);
         let help = project_help_lines(&snapshot).join("\n");
         let help_description = if case.context == "issues.list" {
@@ -210,17 +219,13 @@ fn unbound_list_send_is_discoverable_in_footer_and_help() {
 
         assert!(footer.contains("Unbound send to agent"), "footer: {footer}");
         assert!(help_line.contains("Unbound"), "help: {help}");
-        let keys = crate::state::KeysEditorState::from_snapshot(&snapshot, None);
-        let Some(keys_row) = keys
-            .rows
-            .iter()
-            .find(|row| row.action.as_str() == case.action)
-        else {
+        let keys = project_keys(&snapshot, &published);
+        let Some(keys_row) = keys.iter().find(|row| row.action.as_str() == case.action) else {
             panic!("Keys did not project unbound list send-to-agent: {keys:?}");
         };
-        assert!(keys_row.effective_chords.is_empty());
+        assert!(keys_row.chords.is_empty());
         assert!(
-            keys_row.settings_override,
+            matches!(keys_row.provenance, Provenance::Settings { .. }),
             "an explicit empty settings binding must remain identified as an override"
         );
         assert!(

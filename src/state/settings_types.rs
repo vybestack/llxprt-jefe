@@ -325,6 +325,15 @@ impl SettingsDraft {
     }
 }
 
+/// The binding one waiting chord capture will bind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChordCapture {
+    /// The context to bind in.
+    pub context: crate::domain::input_context::ContextId,
+    /// The action to bind.
+    pub action: crate::domain::action_registry::ActionId,
+}
+
 /// Where the Settings screen's keyboard focus is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsFocus {
@@ -369,6 +378,22 @@ pub struct SettingsState {
     pub guard_correlation: Option<crate::domain::effects::Correlation>,
     /// The facts the read-only rows report.
     pub environment: Option<SettingsEnvironment>,
+    /// The agent-type probe snapshot the Agent Types rows project from.
+    ///
+    /// Bound once when the screen opens and never changed while it is open. An
+    /// editor reads a snapshot of what the session found; it does not probe,
+    /// and a probe completing underneath it must not make the list move while
+    /// the user is choosing from it.
+    pub agent_types: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
+    /// The action registry snapshot the Keys rows project from.
+    pub actions: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
+    /// The binding a chord capture is waiting for, while one is waiting.
+    ///
+    /// A capture takes exactly the next chord, so what it is for has to be
+    /// remembered across exactly one keystroke and no longer.
+    pub capture: Option<ChordCapture>,
+    /// The layout tree editor, while it is open.
+    pub layout_editor: Option<super::layout_editor::LayoutEditorState>,
     /// The selected recovery choice, when a recovery is offered.
     pub recovery_row: usize,
     /// The newest revision this session has scheduled a save for.

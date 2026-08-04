@@ -115,7 +115,7 @@ pub enum SearchKeyRoute {
 /// detection).
 fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
     match modal {
-        ModalState::Help | ModalState::Keys { .. } => Some(InputMode::Help),
+        ModalState::Help => Some(InputMode::Help),
         ModalState::Search { .. } => Some(InputMode::Search),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }

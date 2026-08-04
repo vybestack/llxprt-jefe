@@ -17,14 +17,15 @@
 use std::sync::Arc;
 
 use crate::config_owners::builtin_owner_catalog;
-use crate::domain::action_registry::ActionId;
+use crate::domain::action_registry::{ActionId, PROTECTED_ACTION_REASON};
 use crate::domain::effects::{
     Correlation, CorrelationId, EffectError, EffectErrorKind, EffectFamily, SemanticKey,
 };
 use crate::domain::input_context::ContextId;
+use crate::domain::keymap::Chord;
 use crate::domain::{Id, ThemeId};
 use crate::messages::NavDir;
-use crate::messages::settings::{SettingsMessage, SettingsSection, SettingsSource};
+use crate::messages::settings::{LayoutMessage, SettingsMessage, SettingsSection, SettingsSource};
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::keymap_edit::compose_published;
 use crate::persistence::migration::SettingsMigration;
@@ -33,12 +34,16 @@ use crate::persistence::writer::ExpectedHash;
 use crate::persistence::{SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::theme::ThemePreviewToken;
 use crate::workbench::ScreenId;
+use crate::workbench::descriptor::{LayoutNode, ScreenDescriptor};
 
 use super::agent_types_editor::AgentIntent;
-use super::keys_editor_project::{self, KeyIntent};
+use super::keys_editor_project::{self, CaptureOutcome, KeyIntent, classify_capture};
+use super::layout_editor::{LayoutEditorState, NodeDialog};
 use super::navigation_dirty::{DirtyChoice, DraftAction, SaveIntent};
 use super::screens_editor::{self, CompositionStatus, ScreenEditorRow, ScreenIntent};
+use super::settings_types::ChordCapture;
 use super::settings_types::{DraftCandidate, DraftStatus, SettingsDraft, SettingsFocus};
+use super::settings_view::SettingsActivation;
 use super::{AppState, settings_view};
 
 /// The owner identity the navigation dirty guard waits on for a settings save.
@@ -52,6 +57,9 @@ pub fn settings_save_key() -> SemanticKey {
 
 /// The notice a structural save shows, verbatim.
 pub const RESTART_NOTICE: &str = "Restart Jefe to apply structural changes";
+
+/// The prompt a waiting chord capture shows, verbatim.
+pub const CAPTURE_PROMPT: &str = "Press a key to bind it; Esc cancels";
 
 /// Which side of an anchor a reordered screen lands on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +87,13 @@ impl AppState {
             SettingsMessage::Agent(intent) => self.draft_agent(intent),
             SettingsMessage::Screen(intent) => self.draft_screen(*intent),
             SettingsMessage::Key(intent) => self.draft_key(*intent),
+            SettingsMessage::ToggleRow => self.act_on_row(settings_view::SettingsRow::toggle),
+            SettingsMessage::ResetRow => self.act_on_row(settings_view::SettingsRow::reset),
+            SettingsMessage::UnbindRow => self.act_on_row(settings_view::SettingsRow::unbind),
+            SettingsMessage::ReorderRow(direction) => self.reorder_row(direction),
+            SettingsMessage::CapturedChord(chord) => self.resolve_chord_capture(chord),
+            SettingsMessage::CaptureCancelled => self.cancel_chord_capture(),
+            SettingsMessage::Layout(message) => self.reduce_layout(message),
             SettingsMessage::Save => self.save_settings(false),
             SettingsMessage::SaveAndExit => self.save_settings(true),
             SettingsMessage::Discard => self.discard_settings(),
@@ -103,6 +118,11 @@ impl AppState {
         self.settings_state.recovery_row = 0;
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = None;
+        // The registries the editors project from are snapshotted with the
+        // draft, so what the rows say and what the draft would save are two
+        // halves of one moment rather than two moments that can disagree.
+        self.settings_state.agent_types = self.agent_type_availability.clone();
+        self.settings_state.actions = self.action_registry_snapshot.clone();
         self.bind_settings_source(source);
         let _ = self.enter_screen(ScreenId::Settings);
         true
@@ -198,6 +218,8 @@ impl AppState {
         self.settings_state.active = false;
         self.settings_state.draft = None;
         self.settings_state.blocked.clear();
+        self.settings_state.agent_types.clear();
+        self.settings_state.actions = None;
         self.settings_state.restore_theme = unsaved_preview
             .then(|| self.settings_state.opened_theme.clone())
             .flatten();
@@ -266,13 +288,27 @@ impl AppState {
             return true;
         }
         let rows = settings_view::detail_rows(&self.settings_state);
-        let Some(edit) = rows
+        let Some(activation) = rows
             .get(self.settings_state.selected_row)
             .and_then(settings_view::SettingsRow::activation)
         else {
             return false;
         };
-        self.edit_settings(edit)
+        self.apply_settings_activation(activation)
+    }
+
+    /// Perform whatever one row asked for.
+    pub(super) fn apply_settings_activation(&mut self, activation: SettingsActivation) -> bool {
+        match activation {
+            SettingsActivation::Edit(edit) => self.edit_settings(edit),
+            SettingsActivation::Agent(intent) => self.draft_agent(intent),
+            SettingsActivation::Screen(intent) => self.draft_screen(*intent),
+            SettingsActivation::Key(intent) => self.draft_key(*intent),
+            SettingsActivation::CaptureChord { context, action } => {
+                self.begin_chord_capture(context, action)
+            }
+            SettingsActivation::OpenLayout { screen_id } => self.open_layout_editor(&screen_id),
+        }
     }
 
     /// Draft one Agent Types editor intent.
@@ -404,6 +440,202 @@ impl AppState {
         };
         order.insert(insert_at, moved);
         self.edit_settings(SettingsEdit::ScreenOrder(order))
+    }
+
+    /// Perform whatever the focused row answers to one question.
+    fn act_on_row<F>(&mut self, ask: F) -> bool
+    where
+        F: Fn(&settings_view::SettingsRow) -> Option<SettingsActivation>,
+    {
+        let rows = settings_view::detail_rows(&self.settings_state);
+        let Some(activation) = rows.get(self.settings_state.selected_row).and_then(ask) else {
+            return false;
+        };
+        self.apply_settings_activation(activation)
+    }
+
+    /// Move the focused screen one place earlier or later in the order.
+    fn reorder_row(&mut self, direction: NavDir) -> bool {
+        let rows = settings_view::detail_rows(&self.settings_state);
+        let index = self.settings_state.selected_row;
+        let Some(screen_id) = rows
+            .get(index)
+            .and_then(settings_view::SettingsRow::reorderable_screen)
+            .cloned()
+        else {
+            return false;
+        };
+        let anchor = match direction {
+            NavDir::Up | NavDir::Prev | NavDir::Home | NavDir::PageUp(_) => index.checked_sub(1),
+            NavDir::Down | NavDir::Next | NavDir::End | NavDir::PageDown(_) => index.checked_add(1),
+        };
+        let Some(anchor) = anchor
+            .and_then(|anchor| rows.get(anchor))
+            .and_then(settings_view::SettingsRow::reorderable_screen)
+            .cloned()
+        else {
+            return false;
+        };
+        let moved_up = matches!(
+            direction,
+            NavDir::Up | NavDir::Prev | NavDir::Home | NavDir::PageUp(_)
+        );
+        let intent = if moved_up {
+            ScreenIntent::MoveBefore { screen_id, anchor }
+        } else {
+            ScreenIntent::MoveAfter { screen_id, anchor }
+        };
+        // The row the user is looking at moves with the screen it names, or the
+        // cursor would be left pointing at whatever took its place.
+        let changed = self.draft_screen(intent);
+        if changed {
+            self.settings_state.selected_row = if moved_up { index - 1 } else { index + 1 };
+        }
+        changed
+    }
+
+    /// Withdraw a waiting capture.
+    fn cancel_chord_capture(&mut self) -> bool {
+        if self.settings_state.capture.take().is_none() {
+            return false;
+        }
+        self.settings_state.notice = Some("Capture cancelled".to_owned());
+        true
+    }
+
+    /// Move, edit, or apply the open layout tree editor.
+    fn reduce_layout(&mut self, message: LayoutMessage) -> bool {
+        let Some(screen) = self
+            .settings_state
+            .layout_editor
+            .as_ref()
+            .map(|editor| editor.screen_id.clone())
+            .and_then(|id| Self::settings_screen(&id))
+        else {
+            return false;
+        };
+        match message {
+            LayoutMessage::Apply => return self.apply_layout_editor(),
+            LayoutMessage::Cancel => return self.close_layout_editor(),
+            LayoutMessage::ResetOverride => {
+                let Some(screen_id) = self
+                    .settings_state
+                    .layout_editor
+                    .as_ref()
+                    .map(|editor| editor.screen_id.clone())
+                else {
+                    return false;
+                };
+                self.settings_state.layout_editor = None;
+                return self.draft_screen(ScreenIntent::ResetLayout { screen_id });
+            }
+            _ => {}
+        }
+        let Some(editor) = self.settings_state.layout_editor.as_mut() else {
+            return false;
+        };
+        apply_layout_message(editor, &screen, message);
+        true
+    }
+
+    /// Wait for exactly the next chord, to bind it to this action.
+    fn begin_chord_capture(&mut self, context: ContextId, action: ActionId) -> bool {
+        if let Some(reason) = self.protected_reason(&context, &action) {
+            self.settings_state.notice = Some(reason);
+            return true;
+        }
+        self.settings_state.capture = Some(ChordCapture { context, action });
+        self.settings_state.notice = Some(CAPTURE_PROMPT.to_owned());
+        true
+    }
+
+    /// Take, cancel, or refuse one chord offered to a waiting capture.
+    fn resolve_chord_capture(&mut self, chord: Chord) -> bool {
+        let Some(capture) = self.settings_state.capture.take() else {
+            return false;
+        };
+        match classify_capture(chord) {
+            CaptureOutcome::Captured(chord) => {
+                self.settings_state.notice = None;
+                self.draft_key(KeyIntent::CaptureSingleChord {
+                    context: capture.context,
+                    action: capture.action,
+                    chord,
+                })
+            }
+            CaptureOutcome::Cancelled => {
+                self.settings_state.notice = Some("Capture cancelled".to_owned());
+                true
+            }
+            CaptureOutcome::Protected => {
+                self.settings_state.notice = Some(PROTECTED_ACTION_REASON.to_owned());
+                true
+            }
+        }
+    }
+
+    /// Open the layout tree editor on one screen's current layout.
+    fn open_layout_editor(&mut self, screen_id: &Id) -> bool {
+        let Some(screen) = Self::settings_screen(screen_id) else {
+            self.settings_state.notice = Some(format!("{screen_id} is not a known screen"));
+            return true;
+        };
+        let layout = self.drafted_layout(&screen).unwrap_or(screen.layout);
+        self.settings_state.layout_editor =
+            Some(LayoutEditorState::open(screen_id.clone(), layout));
+        self.settings_state.notice = None;
+        true
+    }
+
+    /// Apply the layout editor's tree, when the validator accepts it.
+    fn apply_layout_editor(&mut self) -> bool {
+        let Some(editor) = self.settings_state.layout_editor.clone() else {
+            return false;
+        };
+        let Some(screen) = Self::settings_screen(&editor.screen_id) else {
+            return false;
+        };
+        match editor.complete(&screen) {
+            Ok(layout) => {
+                self.settings_state.layout_editor = None;
+                self.draft_screen(ScreenIntent::ReplaceLayout {
+                    screen_id: editor.screen_id,
+                    layout: Box::new(layout),
+                })
+            }
+            Err(reason) => {
+                if let Some(open) = self.settings_state.layout_editor.as_mut() {
+                    open.notice = Some(reason);
+                }
+                true
+            }
+        }
+    }
+
+    /// Abandon the layout edit, leaving the draft exactly as it was.
+    fn close_layout_editor(&mut self) -> bool {
+        if self.settings_state.layout_editor.take().is_none() {
+            return false;
+        }
+        true
+    }
+
+    /// The descriptor of one screen the registry knows.
+    fn settings_screen(screen_id: &Id) -> Option<ScreenDescriptor> {
+        crate::workbench::screen_registry()
+            .ok()?
+            .screens()
+            .iter()
+            .find(|screen| screen.id.as_str() == screen_id.as_str())
+            .cloned()
+    }
+
+    /// The layout the candidate currently overrides this screen with, if any.
+    fn drafted_layout(&self, screen: &ScreenDescriptor) -> Option<LayoutNode> {
+        let published = self.settings_state.draft.as_ref()?.published();
+        let id = Id::parse(screen.id.as_str()).ok()?;
+        let values = published.workbench.layout_overrides.get(&id)?;
+        super::screens_editor_layout::read(values, screen).ok()
     }
 
     /// Draft one Keys editor intent.
@@ -880,6 +1112,76 @@ impl AppState {
             .selected_row
             .min(count.saturating_sub(1));
     }
+}
+
+/// Apply one movement or keystroke to the open layout editor.
+///
+/// Everything here changes the editor and nothing else. The tree reaches the
+/// draft only through [`AppState::apply_layout_editor`], which is what keeps an
+/// unfinished edit out of the document.
+fn apply_layout_message(
+    editor: &mut LayoutEditorState,
+    screen: &ScreenDescriptor,
+    message: LayoutMessage,
+) {
+    match message {
+        LayoutMessage::SelectPrevious => editor.select_previous(),
+        LayoutMessage::SelectNext => editor.select_next(),
+        LayoutMessage::SelectParent => editor.select_parent(),
+        LayoutMessage::SelectChild => editor.select_child(),
+        LayoutMessage::BeginAdd => editor.dialog = Some(NodeDialog::adding()),
+        LayoutMessage::BeginEdit => editor.dialog = editing_dialog(editor),
+        LayoutMessage::ChoosePanel(direction) => choose_panel(editor, screen, direction),
+        LayoutMessage::NextField => dialog_mut(editor, NodeDialog::next_field),
+        LayoutMessage::TypeChar(character) => {
+            if let Some(dialog) = editor.dialog.as_mut() {
+                dialog.push(character);
+            }
+        }
+        LayoutMessage::Backspace => dialog_mut(editor, NodeDialog::backspace),
+        LayoutMessage::ToggleField => dialog_mut(editor, NodeDialog::toggle),
+        LayoutMessage::ApplyDialog => editor.apply_dialog(screen),
+        LayoutMessage::CancelDialog => editor.dialog = None,
+        LayoutMessage::Split(axis) => editor.split_selected(axis),
+        LayoutMessage::Remove => editor.remove_selected(screen),
+        // Handled before the editor is borrowed, because each of these ends the
+        // edit rather than changing it.
+        LayoutMessage::Apply | LayoutMessage::Cancel | LayoutMessage::ResetOverride => {}
+    }
+}
+
+fn dialog_mut<F: Fn(&mut NodeDialog)>(editor: &mut LayoutEditorState, apply: F) {
+    if let Some(dialog) = editor.dialog.as_mut() {
+        apply(dialog);
+    }
+}
+
+/// The dialog editing whichever child is selected, when one is.
+fn editing_dialog(editor: &LayoutEditorState) -> Option<NodeDialog> {
+    let (index, parent) = editor.selected.split_last()?;
+    let LayoutNode::Split { children, .. } = node_at(&editor.tree, parent)? else {
+        return None;
+    };
+    children.get(*index).map(NodeDialog::editing)
+}
+
+/// The node `path` names, if the tree still has one there.
+fn node_at<'tree>(tree: &'tree LayoutNode, path: &[usize]) -> Option<&'tree LayoutNode> {
+    let Some((index, rest)) = path.split_first() else {
+        return Some(tree);
+    };
+    let LayoutNode::Split { children, .. } = tree else {
+        return None;
+    };
+    node_at(&children.get(*index)?.node, rest)
+}
+
+fn choose_panel(editor: &mut LayoutEditorState, screen: &ScreenDescriptor, direction: NavDir) {
+    let count = editor.addable_panels(screen).len();
+    let Some(dialog) = editor.dialog.as_mut() else {
+        return;
+    };
+    dialog.panel_choice = step(dialog.panel_choice, count, direction);
 }
 
 fn step(current: usize, count: usize, direction: NavDir) -> usize {

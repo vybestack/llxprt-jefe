@@ -582,6 +582,12 @@ pub const SETTINGS_SECTIONS_PANEL: &str = "settings-sections";
 pub const SETTINGS_GENERAL_PANEL: &str = "settings-general";
 /// Identity of the Settings Appearance panel.
 pub const SETTINGS_APPEARANCE_PANEL: &str = "settings-appearance";
+/// Identity of the Settings Agent Types panel.
+pub const SETTINGS_AGENT_TYPES_PANEL: &str = "settings-agent-types";
+/// Identity of the Settings Screens panel.
+pub const SETTINGS_SCREENS_PANEL: &str = "settings-screens";
+/// Identity of the Settings Keys panel.
+pub const SETTINGS_KEYS_PANEL: &str = "settings-keys";
 /// Identity of the Settings Diagnostics panel.
 pub const SETTINGS_DIAGNOSTICS_PANEL: &str = "settings-diagnostics";
 
@@ -737,6 +743,9 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
             )?,
             settings_section_panel(SETTINGS_GENERAL_PANEL)?,
             settings_section_panel(SETTINGS_APPEARANCE_PANEL)?,
+            settings_section_panel(SETTINGS_AGENT_TYPES_PANEL)?,
+            settings_section_panel(SETTINGS_SCREENS_PANEL)?,
+            settings_section_panel(SETTINGS_KEYS_PANEL)?,
             settings_section_panel(SETTINGS_DIAGNOSTICS_PANEL)?,
         ],
         initial_focus: PanelId::parse(SETTINGS_SECTIONS_PANEL)?,
@@ -744,6 +753,9 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
             SETTINGS_SECTIONS_PANEL,
             SETTINGS_GENERAL_PANEL,
             SETTINGS_APPEARANCE_PANEL,
+            SETTINGS_AGENT_TYPES_PANEL,
+            SETTINGS_SCREENS_PANEL,
+            SETTINGS_KEYS_PANEL,
             SETTINGS_DIAGNOSTICS_PANEL,
         ])?,
         relationships: Vec::new(),
@@ -755,7 +767,10 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
                 column(vec![
                     settings_section_child(SETTINGS_GENERAL_PANEL, 0)?,
                     settings_section_child(SETTINGS_APPEARANCE_PANEL, 1)?,
-                    settings_section_child(SETTINGS_DIAGNOSTICS_PANEL, 2)?,
+                    settings_section_child(SETTINGS_AGENT_TYPES_PANEL, 2)?,
+                    settings_section_child(SETTINGS_SCREENS_PANEL, 3)?,
+                    settings_section_child(SETTINGS_KEYS_PANEL, 4)?,
+                    settings_section_child(SETTINGS_DIAGNOSTICS_PANEL, 5)?,
                 ]),
                 weight(1),
                 FLEX_MIN_COLUMNS,

@@ -56,10 +56,6 @@ pub enum AppEvent {
     DashboardGrabMoveUp,
     DashboardGrabMoveDown,
     OpenHelp,
-    OpenKeys {
-        recovery: Option<String>,
-    },
-    Keys(crate::messages::KeysEditorMessage),
     OpenSearch,
     CloseModal,
     SubmitForm,

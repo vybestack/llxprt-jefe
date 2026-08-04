@@ -102,15 +102,10 @@ pub mod durable_projection;
 mod durable_projection_tests;
 /// Restoration of runtime state from the durable schema-2 document.
 pub mod durable_restore;
-mod keys_editor;
-pub use keys_editor::{
-    KeysBindingEdit, KeysBindingRow, KeysConfirmFocus, KeysEditorState, KeysValidation,
-};
 /// Pure projection of the Keys editor into rows (issue #388).
 pub mod keys_editor_project;
-#[cfg(test)]
-#[path = "keys_editor_tests.rs"]
-mod keys_editor_tests;
+/// The layout tree editor's state and pure transitions (issue #388).
+pub mod layout_editor;
 /// The sole owner of route, stack, and dirty transitions (issue #386).
 pub mod navigation;
 /// The host dirty guard the navigation reducer raises (issue #386).

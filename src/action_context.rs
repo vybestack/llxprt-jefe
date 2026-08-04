@@ -69,7 +69,6 @@ fn modal_context(modal: &ModalState) -> Option<&'static str> {
         // distinct context: naming `global` here repeats the stack's own tail
         // and `ContextStack` rejects duplicates, which would swallow the
         // protected emergency exit the editor deliberately lets through.
-        ModalState::Keys { .. } => Some("keys"),
         ModalState::Search { .. } => Some("search"),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }

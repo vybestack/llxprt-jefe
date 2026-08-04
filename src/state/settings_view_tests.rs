@@ -85,7 +85,7 @@ fn complete_written(state: &mut AppState) {
 // ── CW07-11: the screen's own states ─────────────────────────────────────
 
 #[test]
-fn the_sections_are_general_appearance_and_diagnostics_in_that_order() {
+fn the_sections_run_from_the_session_outwards_to_its_registries_and_problems() {
     let state = opened(Some(SCHEMA_2));
 
     let titles = settings_view::section_rows(&state.settings_state)
@@ -93,7 +93,17 @@ fn the_sections_are_general_appearance_and_diagnostics_in_that_order() {
         .map(|row| row.title)
         .collect::<Vec<_>>();
 
-    assert_eq!(titles, vec!["General", "Appearance", "Diagnostics"]);
+    assert_eq!(
+        titles,
+        vec![
+            "General",
+            "Appearance",
+            "Agent Types",
+            "Screens",
+            "Keys",
+            "Diagnostics",
+        ]
+    );
 }
 
 #[test]
@@ -219,7 +229,9 @@ fn the_diagnostics_section_is_read_only() {
 
     assert!(!rows.is_empty());
     assert!(rows.iter().all(|row| row.activation().is_none()));
-    assert!(rows.iter().all(|row| row.editable_path().is_none()));
+    assert!(rows.iter().all(|row| row.toggle().is_none()));
+    assert!(rows.iter().all(|row| row.reset().is_none()));
+    assert!(rows.iter().all(|row| row.unbind().is_none()));
 }
 
 #[test]

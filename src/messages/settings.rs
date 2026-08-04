@@ -8,12 +8,14 @@
 use std::path::PathBuf;
 
 use crate::domain::ThemeId;
+use crate::domain::keymap::Chord;
 use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::state::agent_types_editor::AgentIntent;
 use crate::state::keys_editor_project::KeyIntent;
 use crate::state::navigation_dirty::DirtyChoice;
 use crate::state::screens_editor::ScreenIntent;
+use crate::workbench::descriptor::Axis;
 
 use super::NavDir;
 
@@ -62,13 +64,26 @@ pub enum SettingsSection {
     General,
     /// Theme selection and the agent-theme override.
     Appearance,
+    /// Which agent types this installation offers.
+    AgentTypes,
+    /// Which screens compose, in what order, with what layout.
+    Screens,
+    /// Which chords dispatch which actions.
+    Keys,
     /// Read-only provenance and validation reporting.
     Diagnostics,
 }
 
 impl SettingsSection {
     /// Every section, in display order.
-    pub const ALL: [Self; 3] = [Self::General, Self::Appearance, Self::Diagnostics];
+    pub const ALL: [Self; 6] = [
+        Self::General,
+        Self::Appearance,
+        Self::AgentTypes,
+        Self::Screens,
+        Self::Keys,
+        Self::Diagnostics,
+    ];
 
     /// The section's title.
     #[must_use]
@@ -76,6 +91,9 @@ impl SettingsSection {
         match self {
             Self::General => "General",
             Self::Appearance => "Appearance",
+            Self::AgentTypes => "Agent Types",
+            Self::Screens => "Screens",
+            Self::Keys => "Keys",
             Self::Diagnostics => "Diagnostics",
         }
     }
@@ -92,6 +110,51 @@ pub enum RecoveryChoice {
     Retry,
     /// Abandon the draft and return to its base.
     Discard,
+}
+
+/// What the layout tree editor was asked to do.
+///
+/// Every one of these is a movement or a keystroke inside the node dialog. The
+/// tree only leaves the editor through [`LayoutMessage::Apply`], and only when
+/// the descriptor validator accepts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutMessage {
+    /// Move to the previous sibling.
+    SelectPrevious,
+    /// Move to the next sibling.
+    SelectNext,
+    /// Move to the parent node.
+    SelectParent,
+    /// Move to the first child.
+    SelectChild,
+    /// Open the add-a-leaf chooser.
+    BeginAdd,
+    /// Open the selected child's allocation dialog.
+    BeginEdit,
+    /// Step the add chooser's panel selection.
+    ChoosePanel(NavDir),
+    /// Move focus to the dialog's next field.
+    NextField,
+    /// Type one character into the focused field.
+    TypeChar(char),
+    /// Delete one character from the focused field.
+    Backspace,
+    /// Flip the focused chosen field.
+    ToggleField,
+    /// Apply the open dialog.
+    ApplyDialog,
+    /// Abandon the open dialog, keeping the tree.
+    CancelDialog,
+    /// Wrap the selected node in a split along this axis.
+    Split(Axis),
+    /// Remove the selected child.
+    Remove,
+    /// Apply the whole tree to the draft.
+    Apply,
+    /// Abandon the whole edit.
+    Cancel,
+    /// Remove this screen's override entirely.
+    ResetOverride,
 }
 
 /// Settings-shell messages.
@@ -123,6 +186,20 @@ pub enum SettingsMessage {
     Screen(Box<ScreenIntent>),
     /// Draft one change to an action's chords.
     Key(Box<KeyIntent>),
+    /// Toggle the focused row, when it holds something that toggles.
+    ToggleRow,
+    /// Return the focused row to its compiled default.
+    ResetRow,
+    /// Move the focused screen one place earlier or later in the order.
+    ReorderRow(NavDir),
+    /// Unbind the focused row, when it binds anything.
+    UnbindRow,
+    /// Offer one chord to a waiting capture.
+    CapturedChord(Chord),
+    /// Withdraw a waiting capture.
+    CaptureCancelled,
+    /// Move, edit, or apply the open layout tree editor.
+    Layout(LayoutMessage),
     /// Make the draft authoritative.
     Save,
     /// Make the draft authoritative and then leave the screen.
@@ -168,6 +245,13 @@ impl SettingsMessage {
             Self::Agent(_) => "SettingsAgentIntent",
             Self::Screen(_) => "SettingsScreenIntent",
             Self::Key(_) => "SettingsKeyIntent",
+            Self::ToggleRow => "SettingsToggleRow",
+            Self::ResetRow => "SettingsResetRow",
+            Self::ReorderRow(_) => "SettingsReorderRow",
+            Self::UnbindRow => "SettingsUnbindRow",
+            Self::CapturedChord(_) => "SettingsCapturedChord",
+            Self::CaptureCancelled => "SettingsCaptureCancelled",
+            Self::Layout(_) => "SettingsLayout",
             Self::Save => "SettingsSave",
             Self::SaveAndExit => "SettingsSaveAndExit",
             Self::Discard => "SettingsDiscard",

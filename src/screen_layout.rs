@@ -151,6 +151,9 @@ pub(crate) const fn settings_section_panel(section: SettingsSection) -> &'static
     match section {
         SettingsSection::General => crate::workbench::SETTINGS_GENERAL_PANEL,
         SettingsSection::Appearance => crate::workbench::SETTINGS_APPEARANCE_PANEL,
+        SettingsSection::AgentTypes => crate::workbench::SETTINGS_AGENT_TYPES_PANEL,
+        SettingsSection::Screens => crate::workbench::SETTINGS_SCREENS_PANEL,
+        SettingsSection::Keys => crate::workbench::SETTINGS_KEYS_PANEL,
         SettingsSection::Diagnostics => crate::workbench::SETTINGS_DIAGNOSTICS_PANEL,
     }
 }

@@ -32,9 +32,7 @@ pub mod settings;
 pub use prs::PullRequestsMessage;
 pub use settings::SettingsMessage;
 mod event_conversion;
-mod keys;
 mod names;
-pub use keys::KeysEditorMessage;
 pub use names::is_new_issue_form_msg;
 mod terminal_manager;
 mod terminal_manager_conversion;
@@ -133,10 +131,6 @@ pub enum UiNavigationMessage {
 #[derive(Debug, Clone)]
 pub enum ModalMessage {
     OpenHelp,
-    OpenKeys {
-        recovery: Option<String>,
-    },
-    Keys(KeysEditorMessage),
     OpenSearch,
     CloseModal,
     SubmitForm,
