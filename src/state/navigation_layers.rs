@@ -2,11 +2,15 @@
 //!
 //! [`super::navigation_unwind::resolve_back`] states the precedence; this states
 //! what is actually open. Keeping the two apart means the order is a property of
-//! the contract rather than of whichever mode happened to be asked, and it is
-//! why every screen answers Back the same way without every screen containing
-//! the answer.
+//! the contract rather than of whichever mode happened to be asked.
 //!
-//! The projection is pure and reads only committed state.
+//! Only the current screen's own state is consulted. A mode the user left still
+//! holds its composer, chooser, search, and filter, and none of that belongs to
+//! the screen they are now looking at.
+//!
+//! The projection is pure and reads only committed state. It is not yet what
+//! the shipped Esc key consults — see the note on
+//! [`super::navigation_unwind`].
 
 use super::navigation_unwind::{BackLayer, BackResolution, resolve_back};
 use super::types::{AppState, InlineState, ModalState};

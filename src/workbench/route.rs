@@ -130,10 +130,12 @@ impl ActivationValue {
             Self::Boolean(_) | Self::OptionalBoolean(_) | Self::Integer(_) => SCALAR_COST,
             Self::Text(value) | Self::Enumerated(value) => value.len(),
             Self::Path(value) => value.as_os_str().len(),
-            Self::TextList(values) => values
-                .iter()
-                .map(|value| value.len().saturating_add(1))
-                .sum(),
+            // Saturating rather than `sum`, which panics on overflow in debug
+            // builds: this measures a value that is about to be refused for
+            // being too large, so it must not fail while measuring it.
+            Self::TextList(values) => values.iter().fold(0usize, |total, value| {
+                total.saturating_add(value.len()).saturating_add(1)
+            }),
         }
     }
 }

@@ -298,8 +298,15 @@ The following are normative:
 - **The stack is bounded at 32 and is never persisted.**
 - **Rooting a session is total.** Both the route and the initial focus come from
   compiled tables (`workbench::screens::route_of`, `::initial_focus`), so
-  starting a session has no failure mode at the moment it is needed. Tests hold
-  those tables to the descriptors, so a screen that drifts fails the build.
+  starting a session has no failure mode at the moment it is needed. Those
+  tables duplicate what the descriptors declare, and
+  `route_agrees_with_every_descriptor` and `initial_focus_agrees_with_every_descriptor`
+  are what keep the two from drifting; a screen that drifts fails those tests.
+
+`ScreenInstance` currently carries the descriptor-declared panel focus as
+navigation's own record. The per-mode focus fields (`pane_focus`,
+`issues_state.issue_focus`, and their siblings) remain the authority for what is
+actually focused; relocating them into the instance is a separate cutover.
 
 ## The Pure-Views Pattern
 

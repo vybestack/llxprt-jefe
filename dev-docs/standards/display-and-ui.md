@@ -331,10 +331,15 @@ and the order is stated once, in `state::navigation_unwind::BackLayer::PRECEDENC
 9. navigation stack
 
 A screen reports which of those it has open (`AppState::open_back_layers`) and
-the shared resolver decides (`AppState::back_resolution`); no screen contains the
-order. Only when nothing local is open does Back reach navigation — leaving to
-the screen beneath, or home when there is nothing beneath, or doing nothing when
-it is already home.
+the shared resolver decides (`AppState::back_resolution`); the order lives in one
+place rather than in each screen. Only when nothing local is open does Back reach
+navigation — leaving to the screen beneath, or home when there is nothing
+beneath, or doing nothing when it is already home.
+
+The per-mode key chains in `app_input` have not yet been converted to ask the
+resolver, so today it states and enforces the order for everything that consults
+it rather than being the only decider. New Back handling must go through it; the
+existing chains are being migrated and already agree with the order above.
 
 `Ctrl-Q` is the protected exit. It is never an alias for Back, it is never
 consumed by a layer, and it stays visible at every geometry — including inside

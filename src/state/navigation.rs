@@ -146,9 +146,9 @@ impl NavState {
     ///
     /// Rooting is total. Both the route and the initial focus come from
     /// compiled tables rather than a registry lookup, so starting a session
-    /// has no failure mode to handle at the moment it is needed — a screen
-    /// that has drifted from its descriptor is a build-time test failure, not
-    /// a runtime branch.
+    /// has no failure mode to handle at the moment it is needed. Those tables
+    /// duplicate the descriptors, and the drift tests in `screens_tests` are
+    /// what hold the two together.
     #[must_use]
     pub fn rooted(screen: ScreenId) -> Self {
         let id = ScreenInstanceId::next();

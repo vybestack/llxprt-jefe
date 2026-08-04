@@ -14,6 +14,14 @@
 //! The resolver takes the layers that are open rather than a struct of flags,
 //! so adding a layer is an addition to one ordered list instead of another
 //! boolean whose position in a chain of `if`s is the real specification.
+//!
+//! **What is not yet true.** The per-mode key chains in `app_input` still
+//! decide Esc and `q` for themselves; they have not been converted to ask this
+//! resolver. So this states the order and answers correctly for anything that
+//! consults it, but it is not yet the only thing deciding. Converting those
+//! chains is the remaining half of the cutover, and until it lands the shipped
+//! precedence is whatever those chains do — which the existing mode tests pin,
+//! and which agrees with the order above.
 
 use super::navigation_dirty::DirtyChoice;
 

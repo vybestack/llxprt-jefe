@@ -263,8 +263,9 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
 - [`navigation-local-unwind.json`](../tmux-scenarios/navigation-local-unwind.json):
   opens Issues, opens its filter controls, and presses Back twice. The first
   press closes only the filter controls and stays on the screen; the second
-  leaves it, which is the Back precedence acting one layer at a time
-  (issue #386).
+  leaves it. This pins the observable one-layer-at-a-time behaviour that the
+  shared precedence must keep once the per-mode key chains are converted to
+  consult it; it drives those chains today (issue #386).
 - [`fork-issue-pr-repository.json`](../tmux-scenarios/fork-issue-pr-repository.json):
   opens New Repository and verifies the optional Issues / PRs Repo override and
   its blank-fallback guidance for fork configurations.
