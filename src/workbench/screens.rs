@@ -60,6 +60,8 @@ pub const REPOSITORIES_PANEL: &str = "repositories";
 const SIDEBAR_COLUMNS: u16 = 22;
 /// Columns reserved for the dashboard preview pane.
 const PREVIEW_COLUMNS: u16 = 36;
+/// Columns reserved for the Settings section list.
+const SETTINGS_SECTIONS_COLUMNS: u16 = 20;
 /// Rows the dashboard search input row occupies when shown.
 const SEARCH_ROW_ROWS: u16 = 1;
 /// Rows the split-screen filter band occupies.
@@ -258,6 +260,7 @@ pub fn builtin_screens() -> Result<ScreenRegistry, RegistryError> {
         actions_screen()?,
         errors_screen()?,
         terminals_screen()?,
+        settings_screen()?,
     ])
 }
 
@@ -539,6 +542,7 @@ pub const fn route_of(screen: ScreenId) -> RouteId {
         ScreenId::Actions => "actions",
         ScreenId::Errors => "errors",
         ScreenId::Terminals => "terminals",
+        ScreenId::Settings => "settings",
     })
 }
 
@@ -558,6 +562,7 @@ pub const fn initial_focus(screen: ScreenId) -> PanelId {
         ScreenId::Actions => ACTIONS_LIST_PANEL,
         ScreenId::Errors => ERRORS_LIST_PANEL,
         ScreenId::Terminals => TERMINALS_LIST_PANEL,
+        ScreenId::Settings => SETTINGS_SECTIONS_PANEL,
     })
 }
 
@@ -571,6 +576,14 @@ pub const ACTIONS_LIST_PANEL: &str = "action-list";
 pub const ERRORS_LIST_PANEL: &str = "error-list";
 /// Identity of the terminal-manager list panel.
 pub const TERMINALS_LIST_PANEL: &str = "shell-list";
+/// Identity of the Settings section list.
+pub const SETTINGS_SECTIONS_PANEL: &str = "settings-sections";
+/// Identity of the Settings General panel.
+pub const SETTINGS_GENERAL_PANEL: &str = "settings-general";
+/// Identity of the Settings Appearance panel.
+pub const SETTINGS_APPEARANCE_PANEL: &str = "settings-appearance";
+/// Identity of the Settings Diagnostics panel.
+pub const SETTINGS_DIAGNOSTICS_PANEL: &str = "settings-diagnostics";
 
 /// A workspace screen: the repository sidebar beside the shared column.
 fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryError> {
@@ -699,6 +712,75 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
             ),
         ]),
     })
+}
+
+/// `core.settings` — the section list beside exactly one section's detail.
+///
+/// Each section is its own panel, not one detail pane that changes shape,
+/// because the three sections carry different content and different focus
+/// behaviour: General and Appearance hold editable rows, Diagnostics is a
+/// read-only report. Declaring three panels and hiding the two that are not in
+/// view keeps "which section is showing" a single application decision that
+/// `screen_layout::hidden_panel_ids` states once.
+fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
+    Ok(ScreenDescriptor {
+        id: ScreenIdentity::Compiled(ScreenId::Settings),
+        title: "Settings".to_owned(),
+        route: RouteId::parse("settings")?,
+        panels: vec![
+            panel(
+                SETTINGS_SECTIONS_PANEL,
+                "settings-sections",
+                true,
+                true,
+                LIST_PANE_CHROME,
+            )?,
+            settings_section_panel(SETTINGS_GENERAL_PANEL)?,
+            settings_section_panel(SETTINGS_APPEARANCE_PANEL)?,
+            settings_section_panel(SETTINGS_DIAGNOSTICS_PANEL)?,
+        ],
+        initial_focus: PanelId::parse(SETTINGS_SECTIONS_PANEL)?,
+        focus_order: focus_order(&[
+            SETTINGS_SECTIONS_PANEL,
+            SETTINGS_GENERAL_PANEL,
+            SETTINGS_APPEARANCE_PANEL,
+            SETTINGS_DIAGNOSTICS_PANEL,
+        ])?,
+        relationships: Vec::new(),
+        activation: Vec::new(),
+        bindings: Vec::new(),
+        layout: row(vec![
+            fixed_child(leaf(SETTINGS_SECTIONS_PANEL)?, SETTINGS_SECTIONS_COLUMNS),
+            required_child(
+                column(vec![
+                    settings_section_child(SETTINGS_GENERAL_PANEL, 0)?,
+                    settings_section_child(SETTINGS_APPEARANCE_PANEL, 1)?,
+                    settings_section_child(SETTINGS_DIAGNOSTICS_PANEL, 2)?,
+                ]),
+                weight(1),
+                FLEX_MIN_COLUMNS,
+            ),
+        ]),
+    })
+}
+
+/// One Settings section's detail panel.
+fn settings_section_panel(id: &'static str) -> Result<PanelDescriptor, IdError> {
+    panel(id, "settings-detail", true, false, DETAIL_PANE_CHROME)
+}
+
+/// One Settings section's place in the detail column.
+///
+/// All three share the column because exactly one is shown at a time; the
+/// collapse priority orders them for the resolver rather than expressing any
+/// preference about which the user sees.
+fn settings_section_child(id: &'static str, order: i32) -> Result<LayoutChild, IdError> {
+    Ok(collapsible_child(
+        leaf(id)?,
+        weight(1),
+        DETAIL_MIN_ROWS,
+        order,
+    ))
 }
 
 /// `core.terminals` — the Terminal Manager: every runtime shell with a

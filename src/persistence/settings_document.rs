@@ -255,6 +255,13 @@ pub(super) fn patch_assignment(
 ) -> Vec<u8> {
     if let Some(node) = document.node(assignment.path) {
         return match value {
+            // Writing the value that is already there must not disturb how it
+            // was written: `'green-screen'` and `"green-screen"` are the same
+            // value, and replacing one with the other would make an edit that
+            // undoes itself still count as a change to the file.
+            Some(value) if same_value(document.span_bytes(node.value_span), value) => {
+                document.original_bytes().to_vec()
+            }
             Some(value) => apply_patches(
                 document.original_bytes(),
                 vec![(node.value_span, value.to_vec())],
@@ -269,6 +276,25 @@ pub(super) fn patch_assignment(
         return document.original_bytes().to_vec();
     };
     insert_assignment(document, assignment, value)
+}
+
+/// Whether two value fragments denote the same TOML value.
+///
+/// A fragment is not a document, so each is parsed as the right-hand side of a
+/// throwaway assignment. A fragment that will not parse is treated as different,
+/// which is the safe answer: the patch then goes ahead and the whole candidate
+/// is validated afterwards.
+fn same_value(existing: &[u8], replacement: &[u8]) -> bool {
+    match (parse_fragment(existing), parse_fragment(replacement)) {
+        (Some(existing), Some(replacement)) => existing == replacement,
+        _ => false,
+    }
+}
+
+fn parse_fragment(fragment: &[u8]) -> Option<toml::Value> {
+    let text = std::str::from_utf8(fragment).ok()?;
+    let document = format!("value = {text}").parse::<toml::Value>().ok()?;
+    document.as_table()?.get("value").cloned()
 }
 
 fn insert_assignment(

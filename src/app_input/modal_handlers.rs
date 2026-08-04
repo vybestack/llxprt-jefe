@@ -5,17 +5,15 @@
 use tracing::warn;
 
 use jefe::domain::{AgentId, AgentLaunchRequest, SandboxEngine};
-use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
     AgentFormFocus, AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
 };
-use jefe::theme::ThemeManager;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, close_modal_and_persist,
-    durable_save_request, execute_agent_launch, launch_signature_for_new_agent,
-    preflight_or_prompt, repository_focus_toggles_checkbox, schedule_durable_save,
+    AppStateHandle, SharedContext, close_modal_and_persist, durable_save_request,
+    execute_agent_launch, launch_signature_for_new_agent, preflight_or_prompt,
+    repository_focus_toggles_checkbox, schedule_durable_save,
 };
 
 pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -233,138 +231,6 @@ fn reap_orphan_before_delete(app_state: &AppStateHandle, agent_id: &AgentId) {
     jefe::runtime::reap_orphan_session(&identities, &session_name);
 }
 
-pub(super) fn open_theme_picker(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let event = if let Some(ctx_arc) = ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-    {
-        AppEvent::OpenThemePicker {
-            available_themes: ctx_guard.theme_manager.themes_with_names(),
-            active_slug: ctx_guard.theme_manager.active_theme().slug.clone(),
-        }
-    } else {
-        return;
-    };
-    apply_and_persist(app_state, ctx, event);
-}
-
-/// Apply the currently-selected theme to the `ThemeManager` **in memory only**
-/// (no persistence), so the user can live-preview themes as they navigate.
-///
-/// Called after each Up/Down navigation moves `selected_index`. The render
-/// loop reads `theme_manager.active_theme()` each frame, so the new colors
-/// take effect on the next render. Persistence only happens on Enter.
-pub(super) fn preview_theme_selection(app_state: &AppStateHandle, ctx: &SharedContext) {
-    let selected_slug = {
-        let state = app_state.read();
-        match &state.modal {
-            ModalState::ThemePicker {
-                available_themes,
-                selected_index,
-                ..
-            } => available_themes
-                .get(*selected_index)
-                .map(|(slug, _)| slug.clone()),
-            _ => None,
-        }
-    };
-
-    if let Some(slug) = selected_slug
-        && let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.theme_manager.set_active(&slug)
-    {
-        warn!(error = %e, theme = %slug, "theme picker: preview fell back to Green Screen");
-    }
-}
-
-/// Restore the `ThemeManager` to the theme that was active when the picker
-/// opened (`active_slug`), discarding any live-preview changes. Called on Esc
-/// so cancelling reverts the visible colors to what the user had before.
-pub(super) fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
-    let active_slug = {
-        let state = app_state.read();
-        match &state.modal {
-            ModalState::ThemePicker { active_slug, .. } => Some(active_slug.clone()),
-            _ => None,
-        }
-    };
-
-    // Only the theme selection was live-previewed (into the ThemeManager), so
-    // reverting it is sufficient. The override toggle lives entirely in the
-    // modal and is discarded on cancel (issue #179) — no restore needed.
-    if let Some(slug) = active_slug
-        && let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.theme_manager.set_active(&slug)
-    {
-        warn!(error = %e, theme = %slug, "theme picker: could not revert preview on cancel");
-    }
-}
-
-/// Apply the selected theme from the picker, persist to settings.toml, then close.
-pub(super) fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    // Read both the selected slug and the in-dialog override toggle in a single
-    // short read lock (issue #179).
-    let (selected_slug, override_theme) = {
-        let state = app_state.read();
-        match &state.modal {
-            ModalState::ThemePicker {
-                available_themes,
-                selected_index,
-                override_theme,
-                ..
-            } => (
-                available_themes
-                    .get(*selected_index)
-                    .map(|(slug, _)| slug.clone()),
-                *override_theme,
-            ),
-            _ => (None, state.override_agent_theme),
-        }
-    };
-
-    // Apply the theme to the ThemeManager and read back the active slug
-    // + settings, all under a single short lock.
-    if let Some(slug) = selected_slug
-        && let Some(ctx_arc) = &ctx
-    {
-        let save_action = match ctx_arc.lock() {
-            Ok(mut ctx_guard) => {
-                if let Err(e) = ctx_guard.theme_manager.set_active(&slug) {
-                    warn!(error = %e, theme = %slug, "theme picker: invalid selection, fell back to Green Screen");
-                }
-                let active_slug = ctx_guard.theme_manager.active_theme().slug.clone();
-                let path = ctx_guard.persistence.settings_path();
-                match ctx_guard.persistence.load_settings() {
-                    Ok(mut settings) => {
-                        settings.theme = active_slug;
-                        settings.override_agent_theme = override_theme;
-                        Some((settings, path))
-                    }
-                    Err(e) => {
-                        // Don't save — writing defaults would destroy existing settings.
-                        warn!(error = %e, "could not load settings; skipping theme persistence");
-                        None
-                    }
-                }
-            }
-            Err(_) => {
-                // Lock failed — skip persistence but still close the picker below.
-                None
-            }
-        };
-        // File I/O outside the mutex lock.
-        if let Some((settings, path)) = save_action
-            && let Err(e) =
-                jefe::persistence::FilePersistenceManager::save_settings_to(&settings, &path)
-        {
-            warn!(error = %e, "could not persist theme selection");
-        }
-    }
-
-    // Close the picker regardless of persistence outcome.
-    apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
-}
 pub(super) fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // Check if this is a WorkflowDispatch modal submit — route it through
     // the Actions orchestration so the dispatch actually happens.

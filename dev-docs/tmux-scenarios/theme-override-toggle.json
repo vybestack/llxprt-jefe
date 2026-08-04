@@ -48,25 +48,30 @@
     },
     {
       "op": "key",
-      "key": "f9",
+      "key": ",",
       "modifiers": []
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Select Theme",
+      "literal": "Appearance",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Apply theme to agent",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Apply theme to agent"
-      ],
-      "absent": []
-    },
-    {
-      "op": "assert-frame",
-      "contains": [
+        "Apply theme to agent",
         "[ ]"
       ],
       "absent": []
@@ -77,15 +82,52 @@
       "modifiers": []
     },
     {
+      "op": "key",
+      "key": "end",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "[x]",
+      "timeout_ms": 15000
+    },
+    {
       "op": "assert-frame",
       "contains": [
-        "[x]"
+        "[x]",
+        "s Save"
       ],
       "absent": []
     },
     {
       "op": "key",
-      "key": "enter",
+      "key": "s",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Saved",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n[appearance]\noverride_agent_theme = true\n"
+        }
+      }
+    },
+    {
+      "op": "key",
+      "key": "q",
       "modifiers": []
     },
     {
@@ -97,7 +139,7 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": []
+      "modifiers": ["control"]
     },
     {
       "op": "finish"

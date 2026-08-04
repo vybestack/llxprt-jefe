@@ -29,7 +29,11 @@ fn edit_parses_canonical_chords_then_waits_for_complete_validation() {
     let mut state = editor();
     state.apply(KeysEditorMessage::MoveDown);
     state.apply(KeysEditorMessage::BeginEdit);
-    state.apply(KeysEditorMessage::EditBackspace);
+    // The row opens holding whatever it is bound to, which is not a fixed
+    // width; clearing it entirely is what "type a new binding" means.
+    while !state.edit_input.is_empty() {
+        state.apply(KeysEditorMessage::EditBackspace);
+    }
     for character in "Alt+K Ctrl+J".chars() {
         state.apply(KeysEditorMessage::EditChar(character));
     }

@@ -220,8 +220,9 @@ pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
 pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_screen};
 pub use screens::{
     ACTIONS_LIST_PANEL, ERRORS_LIST_PANEL, ISSUES_LIST_PANEL, PTY_PANEL_TYPE,
-    PULL_REQUESTS_LIST_PANEL, REPOSITORIES_PANEL, RegistryError, SELECTION_PORT, SUBJECT_PORT,
-    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, master_detail_edge,
-    route_of,
+    PULL_REQUESTS_LIST_PANEL, REPOSITORIES_PANEL, RegistryError, SELECTION_PORT,
+    SETTINGS_APPEARANCE_PANEL, SETTINGS_DIAGNOSTICS_PANEL, SETTINGS_GENERAL_PANEL,
+    SETTINGS_SECTIONS_PANEL, SUBJECT_PORT, ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens,
+    initial_focus, master_detail_edge, route_of,
 };
 pub use validate::{DescriptorError, validate_descriptor};

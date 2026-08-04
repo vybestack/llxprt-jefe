@@ -173,22 +173,6 @@ pub enum ModalState {
     Search {
         query: String,
     },
-    /// Theme picker overlay.
-    ///
-    /// Lists available theme slugs/names for navigation + selection.
-    /// `available_themes` is the snapshot of slugs+names captured when the
-    /// picker was opened; the actual theme application happens via
-    /// `AppEvent::SetTheme`, which the binary's dispatch layer applies to the
-    /// `ThemeManager` and persists to `settings.toml`.
-    ThemePicker {
-        available_themes: Vec<(String, String)>,
-        selected_index: usize,
-        /// Slug of the currently-applied theme (for the active marker).
-        active_slug: String,
-        /// In-dialog "Apply jefe theme to agent" toggle (issue #179).
-        /// Initialized from `AppState.override_agent_theme`; persisted on Enter.
-        override_theme: bool,
-    },
     NewRepository {
         fields: RepositoryFormFields,
         focus: RepositoryFormFocus,
@@ -501,6 +485,13 @@ pub struct AppState {
     /// Errors-mode state (runtime-only — omitted from persisted DTO).
     /// Captures the last N errors for the dedicated errors panel (issue #292).
     pub errors_state: super::ErrorsState,
+
+    /// Settings-shell state (runtime-only — never persisted, issue #387).
+    ///
+    /// A draft, its theme preview, and the screen's selection all belong to the
+    /// session that is looking at them; persisting any of them would mean a
+    /// restart could resurrect unsaved work over a file that has moved on.
+    pub settings_state: super::SettingsState,
 
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,

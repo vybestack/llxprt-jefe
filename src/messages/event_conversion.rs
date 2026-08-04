@@ -216,22 +216,8 @@ impl AppMessage {
             AppEvent::PersistenceSaveFailed(error) => {
                 Self::Persistence(PersistenceMessage::SaveFailed(error))
             }
-            AppEvent::SetTheme(theme) => Self::Theme(ThemeMessage::SetTheme(theme)),
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
-            AppEvent::OpenThemePicker {
-                available_themes,
-                active_slug,
-            } => Self::Theme(ThemeMessage::OpenThemePicker {
-                available_themes,
-                active_slug,
-            }),
-            AppEvent::ThemePickerNavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
-            AppEvent::ThemePickerNavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
-            AppEvent::ThemePickerConfirm => Self::Theme(ThemeMessage::PickerConfirm),
-            AppEvent::ThemePickerToggleOverride => {
-                Self::Theme(ThemeMessage::ToggleAgentThemeOverride)
-            }
-            AppEvent::CloseThemePicker => Self::Theme(ThemeMessage::PickerCancel),
+            AppEvent::Settings(message) => Self::Settings(message),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
@@ -617,6 +603,7 @@ impl From<AppMessage> for AppEvent {
             AppMessage::PullRequests(message) => message.into(),
             AppMessage::Actions(message) => message.into(),
             AppMessage::Errors(message) => message.into(),
+            AppMessage::Settings(message) => Self::Settings(message),
             AppMessage::TerminalManager(message) => message.into(),
             AppMessage::System(message) => message.into(),
             AppMessage::EffectCompletion(completion) => Self::EffectCompletion(completion),
@@ -747,20 +734,7 @@ impl From<PersistenceMessage> for AppEvent {
 impl From<ThemeMessage> for AppEvent {
     fn from(message: ThemeMessage) -> Self {
         match message {
-            ThemeMessage::SetTheme(theme) => Self::SetTheme(theme),
             ThemeMessage::ResolveFailed(error) => Self::ThemeResolveFailed(error),
-            ThemeMessage::OpenThemePicker {
-                available_themes,
-                active_slug,
-            } => Self::OpenThemePicker {
-                available_themes,
-                active_slug,
-            },
-            ThemeMessage::PickerNavigateUp => Self::ThemePickerNavigateUp,
-            ThemeMessage::PickerNavigateDown => Self::ThemePickerNavigateDown,
-            ThemeMessage::PickerConfirm => Self::ThemePickerConfirm,
-            ThemeMessage::ToggleAgentThemeOverride => Self::ThemePickerToggleOverride,
-            ThemeMessage::PickerCancel => Self::CloseThemePicker,
         }
     }
 }

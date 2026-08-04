@@ -101,6 +101,7 @@ fn the_registry_covers_every_screen_the_application_can_display() {
             "github.actions",
             "core.errors",
             "core.terminals",
+            "core.settings",
         ]
     );
 }
@@ -225,7 +226,10 @@ fn exactly_the_screens_that_host_a_live_terminal_declare_a_pty_panel() {
 #[test]
 fn every_workspace_screen_shares_the_repository_sidebar() {
     for screen in registry().screens() {
-        if screen.id.as_str() == "core.repositories" {
+        // The split view *is* the repository list, and Settings edits the
+        // configuration document rather than anything a repository owns, so
+        // neither carries the sidebar.
+        if matches!(screen.id.as_str(), "core.repositories" | "core.settings") {
             continue;
         }
         assert!(

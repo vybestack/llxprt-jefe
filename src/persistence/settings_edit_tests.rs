@@ -102,11 +102,11 @@ opaque = { bytes = "retained" }
 
 #[test]
 fn override_toggle_replaces_only_its_own_value() {
-    let source = br#"settings_schema = 2
+    let source = br"settings_schema = 2
 [appearance]
 theme = 'green-screen'
 override_agent_theme = false
-"#;
+";
 
     let candidate = candidate(source, &[SettingsEdit::OverrideAgentTheme(true)]);
 
@@ -162,11 +162,11 @@ fn a_dotted_root_assignment_is_patched_in_place() {
 
 #[test]
 fn reset_removes_only_the_selected_statement() {
-    let source = br#"settings_schema = 2
+    let source = br"settings_schema = 2
 [appearance]
 theme = 'green-screen'
 override_agent_theme = true
-"#;
+";
 
     let candidate = candidate(source, &[SettingsEdit::Reset(SyntaxPath::Theme)]);
 
@@ -423,9 +423,10 @@ fn a_matching_hash_save_writes_the_candidate_and_reports_its_hash() {
     };
     let source = b"settings_schema = 2\n[appearance]\ntheme = 'green-screen'\n";
     let path = dir.path().join("settings.toml");
-    if std::fs::write(&path, source).is_err() {
-        panic!("settings fixture must be writable");
-    }
+    assert!(
+        std::fs::write(&path, source).is_ok(),
+        "settings fixture must be writable"
+    );
     let candidate = candidate(source, &[SettingsEdit::Theme(theme("dracula"))]);
 
     let outcome = manager(dir.path()).save_settings_candidate_revisioned(&candidate, 7, &current);
@@ -448,9 +449,10 @@ fn a_superseded_revision_leaves_the_target_untouched() {
     };
     let source = b"settings_schema = 2\n";
     let path = dir.path().join("settings.toml");
-    if std::fs::write(&path, source).is_err() {
-        panic!("settings fixture must be writable");
-    }
+    assert!(
+        std::fs::write(&path, source).is_ok(),
+        "settings fixture must be writable"
+    );
     let candidate = candidate(source, &[SettingsEdit::Theme(theme("dracula"))]);
 
     let outcome =
@@ -473,14 +475,16 @@ fn an_external_edit_is_reported_as_a_conflict_carrying_the_disk_hash() {
     };
     let source = b"settings_schema = 2\n";
     let path = dir.path().join("settings.toml");
-    if std::fs::write(&path, source).is_err() {
-        panic!("settings fixture must be writable");
-    }
+    assert!(
+        std::fs::write(&path, source).is_ok(),
+        "settings fixture must be writable"
+    );
     let candidate = candidate(source, &[SettingsEdit::Theme(theme("dracula"))]);
     let external = b"settings_schema = 2\n[appearance]\ntheme = 'atom-one-dark'\n";
-    if std::fs::write(&path, external).is_err() {
-        panic!("external edit fixture must be writable");
-    }
+    assert!(
+        std::fs::write(&path, external).is_ok(),
+        "external edit fixture must be writable"
+    );
 
     let outcome = manager(dir.path()).save_settings_candidate_revisioned(&candidate, 4, &current);
 
@@ -547,9 +551,10 @@ fn export_refuses_an_existing_target_and_retains_it() {
         panic!("contained export path fixture");
     };
     let target = dir.path().join("settings-draft.toml");
-    if std::fs::write(&target, b"existing").is_err() {
-        panic!("existing target fixture must be writable");
-    }
+    assert!(
+        std::fs::write(&target, b"existing").is_ok(),
+        "existing target fixture must be writable"
+    );
 
     let Err(diagnostic) = export_candidate(&candidate, dir.path(), &relative, &catalog()) else {
         panic!("an occupied export target must be refused");

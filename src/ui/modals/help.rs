@@ -181,7 +181,7 @@ mod tests {
         // from the effective snapshot and therefore follow user overrides.
         assert!(joined.contains("Grab / move / drop reorder"));
         assert!(joined.contains("Toggle active-only repositories and agents"));
-        assert!(joined.contains("Theme picker"));
+        assert!(joined.contains("Settings"));
         assert!(joined.contains("Open Terminal Manager"));
         assert!(joined.contains("Open / resume or close embedded shell"));
         assert!(joined.contains("Hide embedded shell (keeps it running)"));

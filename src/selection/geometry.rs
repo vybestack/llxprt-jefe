@@ -177,7 +177,9 @@ pub fn pane_at(
         | crate::state::ScreenId::Errors => {
             issues_pane_at(col, row, render_cols, render_rows, *layout)
         }
-        crate::state::ScreenId::Terminals => None,
+        // The Terminal Manager and Settings resolve every pane through their
+        // descriptor, so there is no legacy fallback geometry for either.
+        crate::state::ScreenId::Terminals | crate::state::ScreenId::Settings => None,
     }
 }
 

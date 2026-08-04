@@ -578,6 +578,9 @@ fn handle_terminal_event(
             // other keys also clear so the selection doesn't linger after the
             // user transitions to keyboard interaction. (If keyboard copy of
             // the selection is added later, that key would be excluded here.)
+            if crate::app_input::handle_dirty_guard_key(app_state, &ctx.cloned(), &key_event) {
+                return;
+            }
             if crate::app_input::handle_keys_editor_key(app_state, &ctx.cloned(), &key_event) {
                 return;
             }

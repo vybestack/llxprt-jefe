@@ -347,6 +347,7 @@ fn footer_mode(screen: ScreenId) -> FooterMode {
         ScreenId::Actions => FooterMode::Actions,
         ScreenId::Errors => FooterMode::Errors,
         ScreenId::Terminals => FooterMode::Terminals,
+        ScreenId::Settings => FooterMode::Settings,
     }
 }
 
@@ -447,6 +448,7 @@ fn footer_contexts(mode: FooterMode) -> &'static [&'static str] {
         FooterMode::Actions => &["actions"],
         FooterMode::Errors => &["errors"],
         FooterMode::Terminals => &["terminal-manager"],
+        FooterMode::Settings => &["settings"],
     }
 }
 

@@ -167,23 +167,6 @@ fn terminal_pane_not_routed_in_issues_mode() {
 // ── Finding G: blocking modals ───────────────────────────────────────────────
 
 #[test]
-fn theme_picker_is_blocking_modal() {
-    let state = AppState {
-        modal: ModalState::ThemePicker {
-            available_themes: Vec::new(),
-            selected_index: 0,
-            active_slug: String::new(),
-            override_theme: false,
-        },
-        ..AppState::default()
-    };
-    assert!(
-        is_blocking_modal_open(&state),
-        "ThemePicker must be a blocking modal"
-    );
-}
-
-#[test]
 fn workflow_dispatch_is_blocking_modal() {
     use jefe::domain::Workflow;
     use jefe::state::WorkflowDispatchFormFields;
@@ -220,22 +203,6 @@ fn search_is_not_blocking_modal() {
         ..AppState::default()
     };
     assert!(!is_blocking_modal_open(&state));
-}
-
-#[test]
-fn focused_terminal_behind_theme_picker_does_not_route_to_terminal() {
-    // Finding G: even with a focused terminal, ThemePicker blocks.
-    let mut state = focused_terminal_state(jefe::domain::shipped_agent_type(1));
-    state.modal = ModalState::ThemePicker {
-        available_themes: Vec::new(),
-        selected_index: 0,
-        active_slug: String::new(),
-        override_theme: false,
-    };
-    assert!(
-        is_blocking_modal_open(&state),
-        "terminal behind ThemePicker must be blocked"
-    );
 }
 
 // ── Finding H + critical #1: shift passthrough and reporting-click replay ──
@@ -632,22 +599,6 @@ fn active_overlay_agent_form() {
         work_dir_manual: false,
     };
     assert_eq!(active_overlay_for(&state), OverlayPane::AgentForm);
-}
-
-#[test]
-fn active_overlay_theme_picker_falls_through_to_none_overlay() {
-    // ThemePicker doesn't have an OverlayPane variant — it falls through to
-    // None but is caught by is_blocking_modal_open (Finding G).
-    let state = AppState {
-        modal: ModalState::ThemePicker {
-            available_themes: Vec::new(),
-            selected_index: 0,
-            active_slug: String::new(),
-            override_theme: false,
-        },
-        ..AppState::default()
-    };
-    assert_eq!(active_overlay_for(&state), OverlayPane::None);
 }
 
 #[test]

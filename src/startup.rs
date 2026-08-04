@@ -28,8 +28,8 @@ pub struct StartupPersistence {
     pub paths: ResolvedPaths,
     pub settings: PublishedSettings,
     pub keymap_snapshot: ActionRegistrySnapshot,
-    pub keymap_document: SettingsDocument,
-    pub keymap_expected_hash: ExpectedHash,
+    pub settings_document: SettingsDocument,
+    pub settings_expected_hash: ExpectedHash,
     keymap_diagnostic: Option<KeymapDiagnostic>,
     pub manager: FilePersistenceManager,
 }
@@ -54,7 +54,8 @@ impl StartupPersistence {
 pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence, PathError> {
     let paths = resolve(config_dir)?;
     apply_state_import(&paths.state)?;
-    let (keymap, keymap_document, keymap_expected_hash) = validate_settings(&paths.settings.path)?;
+    let (keymap, settings_document, settings_expected_hash) =
+        validate_settings(&paths.settings.path)?;
     validate_state(&paths.state.path)?;
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
@@ -64,8 +65,8 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         paths,
         settings: keymap.settings,
         keymap_snapshot: keymap.composed.snapshot().clone(),
-        keymap_document,
-        keymap_expected_hash,
+        settings_document,
+        settings_expected_hash,
         keymap_diagnostic: keymap.diagnostic,
         manager,
     })

@@ -135,8 +135,19 @@ mod navigation_vertical;
 mod persistence_effect_tests;
 /// Durable-save staging and persistence completion handling.
 pub mod persistence_ops;
+/// The Settings shell's draft, save, reload, and export authority (issue #387).
+pub mod settings;
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod settings_tests;
+/// The Settings shell's draft and screen state (issue #387).
+pub mod settings_types;
+/// Pure projection of the Settings screen into renderable rows (issue #387).
+pub mod settings_view;
+#[cfg(test)]
+#[path = "settings_view_tests.rs"]
+mod settings_view_tests;
 pub mod state_ops;
-pub mod theme_picker_view;
 pub mod transient_ops;
 pub mod transition;
 #[cfg(test)]
@@ -151,6 +162,9 @@ pub use issues_close_reason_ops::filter_duplicate_candidates;
 pub use pr_lifecycle_events::PrLifecycleEvent;
 pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
+pub use settings_types::{
+    DraftCandidate, DraftStatus, SettingsDraft, SettingsFocus, SettingsState,
+};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use terminal_manager_ops::project_managed_shell_rows;
 pub use terminal_manager_types::{
@@ -416,6 +430,9 @@ impl AppState {
             AppMessage::Errors(message) => {
                 let handled = self.apply_errors_message(message);
                 debug_assert!(handled, "unhandled errors message in apply_message()");
+            }
+            AppMessage::Settings(message) => {
+                self.reduce_settings(*message);
             }
             AppMessage::TerminalManager(message) => {
                 let handled = self.apply_terminal_manager_message(message);
@@ -768,57 +785,6 @@ impl AppState {
     fn apply_theme_message(&mut self, message: ThemeMessage) {
         match message {
             ThemeMessage::ResolveFailed(msg) => self.warning_message = Some(msg),
-            ThemeMessage::SetTheme(_) => {}
-            ThemeMessage::OpenThemePicker {
-                available_themes,
-                active_slug,
-            } => {
-                let selected_index = available_themes
-                    .iter()
-                    .position(|(slug, _)| *slug == active_slug)
-                    .unwrap_or(0);
-                self.modal = ModalState::ThemePicker {
-                    available_themes,
-                    selected_index,
-                    active_slug,
-                    override_theme: self.override_agent_theme,
-                };
-            }
-            ThemeMessage::PickerNavigateUp => {
-                if let ModalState::ThemePicker { selected_index, .. } = &mut self.modal
-                    && *selected_index > 0
-                {
-                    *selected_index -= 1;
-                }
-            }
-            ThemeMessage::PickerNavigateDown => {
-                if let ModalState::ThemePicker {
-                    available_themes,
-                    selected_index,
-                    ..
-                } = &mut self.modal
-                    && *selected_index + 1 < available_themes.len()
-                {
-                    *selected_index += 1;
-                }
-            }
-            ThemeMessage::ToggleAgentThemeOverride => {
-                if let ModalState::ThemePicker { override_theme, .. } = &mut self.modal {
-                    *override_theme = !*override_theme;
-                }
-            }
-            ThemeMessage::PickerConfirm => {
-                // Commit the in-dialog override toggle to the runtime mirror
-                // before closing (issue #179). Persistence is applied by the
-                // input layer; this keeps the state transition deterministic.
-                if let ModalState::ThemePicker { override_theme, .. } = &self.modal {
-                    self.override_agent_theme = *override_theme;
-                }
-                self.modal = ModalState::None;
-            }
-            ThemeMessage::PickerCancel => {
-                self.modal = ModalState::None;
-            }
         }
     }
     fn apply_system_message(&mut self, message: SystemMessage) {
@@ -850,7 +816,8 @@ impl AppState {
             | ScreenId::Repositories
             | ScreenId::Actions
             | ScreenId::Errors
-            | ScreenId::Terminals => {}
+            | ScreenId::Terminals
+            | ScreenId::Settings => {}
         }
         self.warning_message = Some(reason);
     }

@@ -179,7 +179,7 @@ fn write_candidate(
     context: &mut crate::AppContext,
     candidate: &KeymapCandidate,
 ) -> Result<jefe::domain::action_registry::ActionRegistrySnapshot, String> {
-    let revision = context.keymap_revision.saturating_add(1);
+    let revision = context.settings_revision.saturating_add(1);
     let freshness = |_revision| Freshness::Current;
     match context
         .persistence
@@ -190,11 +190,11 @@ fn write_candidate(
             let document = SettingsDocument::parse(candidate.bytes())
                 .map_err(|diagnostic| diagnostic.redacted_detail.clone())?;
             let snapshot = candidate.snapshot().clone();
-            context.keymap_document = document;
-            context.keymap_expected_hash = ExpectedHash::Present(hash);
+            context.settings_document = document;
+            context.settings_expected_hash = ExpectedHash::Present(hash);
             context.published_settings = candidate.published().clone();
             context.keymap_recovery = None;
-            context.keymap_revision = revision;
+            context.settings_revision = revision;
             context.keymap_snapshot = Some(snapshot.clone());
             Ok(snapshot)
         }
@@ -212,10 +212,10 @@ fn candidate(app_state: &AppStateHandle, ctx: &SharedContext) -> Result<KeymapCa
         .map_err(|_| "KEY-E401: settings context lock failed".to_owned())?;
     let catalog = builtin_owner_catalog().map_err(|error| format!("KEY-E401: {error}"))?;
     KeymapCandidate::from_edits(
-        &context.keymap_document,
+        &context.settings_document,
         &catalog,
         &edits,
-        context.keymap_expected_hash,
+        context.settings_expected_hash,
         "settings",
     )
     .map_err(|error| error.to_string())

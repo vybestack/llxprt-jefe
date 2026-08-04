@@ -125,6 +125,7 @@ becomes a screen identity.
 | `Actions` | `github.actions` | Workflow-run list/detail |
 | `Errors` | `core.errors` | Error ring buffer list/detail |
 | `Terminals` | `core.terminals` | Terminal Manager: shell list with a read-only preview |
+| `Settings` | `core.settings` | Section list beside General, Appearance, or Diagnostics |
 
 `ScreenId` answers *which* screen is active and nothing else. What a screen
 *contains* is its descriptor's business — see the next section.
@@ -388,6 +389,107 @@ SMALL
 A refused navigation leaves the current screen exactly as it was and reports
 `NAV-E001`; the reason names the rule that was broken, never the value that
 broke it.
+
+---
+
+## The Settings Screen
+
+`core.settings` is a full screen, not a modal, because the sections it will grow
+to hold need list and detail space. It is opened with `,` from anywhere.
+
+### Keys
+
+| Key | Effect |
+|---|---|
+| `,` | Open Settings |
+| `j` / `k` / Up / Down | Move the selection in the focused pane |
+| Tab / Shift-Tab | Move focus between the section list and the detail pane |
+| Enter / Space | Apply the focused row, confirm a reload, or take the offered recovery |
+| Left / Right | Step the recovery choices, or move the same selection |
+| `s` | Save |
+| `S` | Save and exit |
+| `r` | Return the focused row's setting to its compiled default |
+| `q` / `Esc` | Back, or withdraw a reload that is waiting to be confirmed |
+| `?` / F1 | Help |
+| Ctrl-Q | Protected exit, never aliased to Back |
+
+### Sections
+
+- **General** reports the settings and state paths, the platform, and whether
+  `--config` isolated the session, and selects the start screen. Everything
+  except the start screen is read-only.
+- **Appearance** selects the theme and toggles applying the Jefe theme to
+  embedded agent output. A theme the document names but the manager cannot
+  resolve is listed as `unavailable: not installed` and cannot be selected: it
+  is never silently substituted.
+- **Diagnostics** is read-only. It reports each diagnostic's code, severity,
+  path, redacted detail, and correction, sorted error, warning, info and then by
+  path, span, and code. A diagnostic never carries a value from the document.
+
+### Draft behaviour
+
+Every edit goes into a draft bound to the exact bytes the screen opened on.
+Nothing active changes until a save succeeds:
+
+- A theme edit previews immediately, and the preview remembers the theme it
+  replaced. Cancel, Discard, a confirmed reload, and a failed save all restore
+  that exact theme; a successful save adopts the previewed one.
+- An edit that puts every value back where it started leaves nothing unsaved,
+  including the way each value was written: rewriting a value that is already
+  there does not change its quoting.
+- Save is blocked while the document carries a validation error. The Diagnostics
+  section carries the count and the first error, and no write is attempted.
+- A save that finds the file changed keeps both the file and the draft, and
+  offers Reload, Export, and Retry. A save that fails to write keeps the draft
+  and offers Retry, Export, and Discard.
+- Reload rebuilds the draft from the exact bytes now on disk. While the draft
+  has unsaved work it asks first; Enter reloads and Esc keeps the draft.
+- Export writes the draft to a contained path beside the settings document,
+  named after the draft's own digest, and refuses to replace an existing file.
+  The base, hash, and dirty status are unchanged either way.
+- A saved change that only takes effect at startup displays exactly
+  `Restart Jefe to apply structural changes`. Nothing hot reloads and nothing
+  restarts itself.
+
+### Distinct states
+
+```text
+NORMAL                         FOCUSED
++ Settings -----------------+ + Settings -----------------+
+| General                   | |>>Appearance               |
+| Appearance                | | Theme: green-screen      |
+| Diagnostics (2)           | | s Save                   |
++---------------------------+ +---------------------------+
+```
+
+```text
+UNAVAILABLE                    ERROR
++ Appearance ---------------+ + Settings -----------------+
+| Theme missing-theme       | | theme has wrong type     |
+| unavailable: not installed| | CFG-E003 Save blocked    |
++---------------------------+ +---------------------------+
+```
+
+```text
+DIRTY                          RECOVERY
++ Save changes? ------------+ + External edit detected --+
+|>>Save  Discard  Cancel    | | disk and draft preserved |
++---------------------------+ |>>Reload Export Retry     |
+                               +---------------------------+
+```
+
+```text
+SMALL
++Settings--------+
+|>>Appearance    |
+| theme: green   |
+| ! 1 error      |
+| q Back Ctrl-Q  |
++----------------+
+```
+
+Every state is keyboard reachable and every marker is text: selection is `>>`,
+the active choice is `*`, and unavailability says so in words.
 
 ---
 

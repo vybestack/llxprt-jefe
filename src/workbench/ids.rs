@@ -472,11 +472,13 @@ pub enum ScreenId {
     Errors,
     /// The Terminal Manager screen.
     Terminals,
+    /// The Settings screen.
+    Settings,
 }
 
 impl ScreenId {
     /// Every screen, in registry order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Dashboard,
         Self::Repositories,
         Self::Issues,
@@ -484,6 +486,7 @@ impl ScreenId {
         Self::Actions,
         Self::Errors,
         Self::Terminals,
+        Self::Settings,
     ];
 
     /// The stable identity string, which is what persistence and descriptors
@@ -498,6 +501,7 @@ impl ScreenId {
             Self::Actions => "github.actions",
             Self::Errors => "core.errors",
             Self::Terminals => "core.terminals",
+            Self::Settings => "core.settings",
         }
     }
 

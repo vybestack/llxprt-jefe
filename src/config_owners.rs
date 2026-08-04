@@ -34,10 +34,11 @@ pub fn builtin_owner_catalog() -> Result<OwnerCatalog, ConfigContractError> {
     Ok(catalog)
 }
 
-const BUILTIN_OWNERS: [(&str, OwnerKind); 7] = [
+const BUILTIN_OWNERS: [(&str, OwnerKind); 8] = [
     ("core.dashboard", OwnerKind::Screen),
     ("core.errors", OwnerKind::Screen),
     ("core.repositories", OwnerKind::Screen),
+    ("core.settings", OwnerKind::Screen),
     ("core.terminals", OwnerKind::Screen),
     ("github.actions", OwnerKind::Screen),
     ("github.issues", OwnerKind::Screen),

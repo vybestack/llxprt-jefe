@@ -8,8 +8,8 @@ use iocraft::prelude::*;
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenId};
 use crate::theme::ThemeColors;
 use crate::ui::screens::{
-    ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, TerminalManagerScreen,
-    ThemePickerScreen,
+    ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
+    TerminalManagerScreen,
 };
 use crate::ui::{
     AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, KeysModal, NewAgentForm,
@@ -236,6 +236,24 @@ fn terminal_manager_element(
     .into_any()
 }
 
+/// Build a screen element for a component taking the shared screen props.
+///
+/// Every screen except the dashboard and the Terminal Manager renders from the
+/// same `(state, colors, theme_name)` triple; repeating it once per screen is
+/// what pushed this dispatch past the too-many-lines gate.
+macro_rules! screen_element {
+    ($component:ident, $snapshot:expr, $colors:expr, $theme_name:expr) => {
+        element! {
+            $component(
+                state: Some($snapshot.clone()),
+                colors: Some($colors.clone()),
+                theme_name: $theme_name.to_owned(),
+            )
+        }
+        .into_any()
+    };
+}
+
 /// Build the screen element for the current active screen.
 #[must_use]
 pub fn build_screen_element(
@@ -260,49 +278,17 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenId::Issues => element! {
-            IssuesScreen(
-                state: Some(snapshot.clone()),
-                colors: Some(colors.clone()),
-                theme_name: theme_name.to_owned(),
-            )
-        }
-        .into_any(),
-        ScreenId::Repositories => element! {
-            SplitScreen(
-                state: Some(snapshot.clone()),
-                colors: Some(colors.clone()),
-                theme_name: theme_name.to_owned(),
-            )
-        }
-        .into_any(),
+        ScreenId::Issues => screen_element!(IssuesScreen, snapshot, colors, theme_name),
+        ScreenId::Repositories => screen_element!(SplitScreen, snapshot, colors, theme_name),
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
-        ScreenId::PullRequests => element! {
-            PullRequestsScreen(
-                state: Some(snapshot.clone()),
-                colors: Some(colors.clone()),
-                theme_name: theme_name.to_owned(),
-            )
+        ScreenId::PullRequests => {
+            screen_element!(PullRequestsScreen, snapshot, colors, theme_name)
         }
-        .into_any(),
-        ScreenId::Actions => element! {
-            ActionsScreen(
-                state: Some(snapshot.clone()),
-                colors: Some(colors.clone()),
-                theme_name: theme_name.to_owned(),
-            )
-        }
-        .into_any(),
-        ScreenId::Errors => element! {
-            ErrorsScreen(
-                state: Some(snapshot.clone()),
-                colors: Some(colors.clone()),
-                theme_name: theme_name.to_owned(),
-            )
-        }
-        .into_any(),
+        ScreenId::Actions => screen_element!(ActionsScreen, snapshot, colors, theme_name),
+        ScreenId::Errors => screen_element!(ErrorsScreen, snapshot, colors, theme_name),
         ScreenId::Terminals => terminal_manager_element(snapshot, colors, theme_name, terminal),
+        ScreenId::Settings => screen_element!(SettingsScreen, snapshot, colors, theme_name),
     }
 }
 
@@ -359,15 +345,6 @@ pub fn build_modal_element(
             help_scroll_offset,
             viewport.rows,
         )),
-        ModalState::ThemePicker { .. } => Some(
-            element! {
-                ThemePickerScreen(
-                    state: Some(snapshot.clone()),
-                    colors: Some(colors.clone()),
-                )
-            }
-            .into_any(),
-        ),
         ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
             Some(form_modal!(NewRepositoryForm, snapshot, colors))
         }

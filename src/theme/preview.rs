@@ -11,6 +11,11 @@
 //! Binding the token to a generation means a token issued for a draft that has
 //! since been reloaded, discarded, or replaced cannot reach back and repaint
 //! the session.
+//!
+//! The token is a pure value. Showing a theme is the manager's job
+//! ([`super::ThemeManager::select`]), and holding the token is the settings
+//! draft's; keeping the three verbs here means the rule about which theme to
+//! return to has exactly one statement.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,41 +48,6 @@ impl fmt::Display for PreviewId {
     }
 }
 
-/// One in-flight theme preview and the exact theme it replaced.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ThemePreviewToken {
-    id: PreviewId,
-    generation: u64,
-    prior_theme: ThemeId,
-    preview_theme: ThemeId,
-}
-
-impl ThemePreviewToken {
-    /// This preview's identity.
-    #[must_use]
-    pub const fn id(&self) -> PreviewId {
-        self.id
-    }
-
-    /// The draft generation this preview belongs to.
-    #[must_use]
-    pub const fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    /// The theme the very first preview of this draft replaced.
-    #[must_use]
-    pub const fn prior_theme(&self) -> &ThemeId {
-        &self.prior_theme
-    }
-
-    /// The theme currently being shown.
-    #[must_use]
-    pub const fn preview_theme(&self) -> &ThemeId {
-        &self.preview_theme
-    }
-}
-
 /// Why a preview operation was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreviewError {
@@ -106,35 +76,93 @@ impl fmt::Display for PreviewError {
 
 impl std::error::Error for PreviewError {}
 
-/// Check that a token still belongs to the live draft.
-pub(super) const fn check_generation(
-    token: &ThemePreviewToken,
-    live: u64,
-) -> Result<(), PreviewError> {
-    if token.generation == live {
-        Ok(())
-    } else {
-        Err(PreviewError::StaleGeneration {
-            token: token.generation,
-            live,
-        })
-    }
+/// One in-flight theme preview and the exact theme it replaced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemePreviewToken {
+    id: PreviewId,
+    generation: u64,
+    prior_theme: ThemeId,
+    preview_theme: ThemeId,
 }
 
-/// Build the token that undoes showing `preview_theme`.
-///
-/// `current` is the preview being replaced, if there is one; its prior theme is
-/// carried forward so a chain of previews still returns to where it started.
-pub(super) fn issue(
-    generation: u64,
-    current: Option<&ThemePreviewToken>,
-    active: ThemeId,
-    preview_theme: ThemeId,
-) -> ThemePreviewToken {
-    ThemePreviewToken {
-        id: PreviewId::next(),
-        generation,
-        prior_theme: current.map_or(active, |token| token.prior_theme.clone()),
-        preview_theme,
+impl ThemePreviewToken {
+    /// Show `preview_theme`, returning the token that undoes it.
+    ///
+    /// `current` is the preview being replaced, if there is one; its prior
+    /// theme is carried forward, so a chain of previews still returns to the
+    /// theme the user actually started from.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PreviewError::StaleGeneration`] when `current` belongs to a
+    /// draft that has since been replaced.
+    pub fn apply(
+        generation: u64,
+        current: Option<&Self>,
+        active: &ThemeId,
+        preview_theme: ThemeId,
+    ) -> Result<Self, PreviewError> {
+        if let Some(token) = current {
+            token.require_live(generation)?;
+        }
+        Ok(Self {
+            id: PreviewId::next(),
+            generation,
+            prior_theme: current.map_or_else(|| active.clone(), |token| token.prior_theme.clone()),
+            preview_theme,
+        })
+    }
+
+    /// The theme a successful save makes active, consuming the token.
+    #[must_use]
+    pub fn adopt(self) -> ThemeId {
+        self.preview_theme
+    }
+
+    /// The exact theme a cancel, discard, reload, or failed save restores.
+    #[must_use]
+    pub fn revert(self) -> ThemeId {
+        self.prior_theme
+    }
+
+    /// This preview's identity.
+    #[must_use]
+    pub const fn id(&self) -> PreviewId {
+        self.id
+    }
+
+    /// The draft generation this preview belongs to.
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// The theme the very first preview of this draft replaced.
+    #[must_use]
+    pub const fn prior_theme(&self) -> &ThemeId {
+        &self.prior_theme
+    }
+
+    /// The theme currently being shown.
+    #[must_use]
+    pub const fn preview_theme(&self) -> &ThemeId {
+        &self.preview_theme
+    }
+
+    /// Whether this token still belongs to the live draft.
+    #[must_use]
+    pub const fn is_live(&self, generation: u64) -> bool {
+        self.generation == generation
+    }
+
+    const fn require_live(&self, generation: u64) -> Result<(), PreviewError> {
+        if self.is_live(generation) {
+            Ok(())
+        } else {
+            Err(PreviewError::StaleGeneration {
+                token: self.generation,
+                live: generation,
+            })
+        }
     }
 }

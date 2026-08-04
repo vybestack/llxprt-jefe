@@ -71,12 +71,13 @@ Verified in the tree, not assumed:
 
 | # | Ledger | Behavior | Inputs / boundary cases | Failure behavior | Evidence |
 |---|---|---|---|---|---|
-| A1 | CW07-01 | Opening Settings binds one draft to the exact loaded bytes, their SHA-256, and the current document revision, and clones one `PublishedSettings` snapshot | schema-2 document; schema-1 document; absent document | no document ⇒ draft binds `ExpectedHash::Absent` and a defaults snapshot | `src/state/settings_open_tests.rs` |
+| A1 | CW07-01 | Opening Settings binds one draft to the exact loaded bytes, their SHA-256, and the current document revision, and clones one `PublishedSettings` snapshot | schema-2 document; schema-1 document; absent document | no document ⇒ draft binds `ExpectedHash::Absent` and a defaults snapshot | `src/state/settings_tests.rs` |
 | A2 | CW07-01 | A freshly opened draft is `DraftStatus::Clean`, has no edited paths, no preview, and no diagnostics | — | — | same |
-| B1 | CW07-02 | An `Edit` mutates only the draft candidate and records the exact syntax path; the published/active settings, theme manager, keymap registry, and screen registry are unchanged while the draft is unsaved | General scalar; Appearance theme; Appearance override toggle | — | `settings-structural-draft.json` scenario + `src/state/settings_edit_tests.rs` |
-| B2 | — | `Edit` is refused for any path outside the section's ownership (General = host scalars present in schema; Appearance = `theme` and `override_agent_theme`; Diagnostics read-only) | unowned path; Diagnostics write | refused ⇒ state byte-identical, `CFG-E005` diagnostic | same |
+| B1 | CW07-02 | An `Edit` mutates only the draft candidate and records the exact syntax path; the published/active settings, theme manager, keymap registry, and screen registry are unchanged while the draft is unsaved | General scalar; Appearance theme; Appearance override toggle | — | `settings-shell.json` scenario + `src/state/settings_tests.rs` |
+| B2 | — | Only host-owned leaves are editable, and Diagnostics owns none; an ill-typed or unowned edit is unrepresentable rather than refused at runtime | closed `SyntaxPath` set; Diagnostics rows | — | `every_editable_path_names_a_distinct_owned_leaf`, `the_diagnostics_section_is_read_only` |
 | B3 | — | `Reset { path }` removes the source assignment so the compiled default is inherited, and drops the path from `edited_paths` | reset an edited path; reset an unedited path | — | same |
-| B4 | — | `edited_paths` is bounded at 256; the 257th distinct edit is refused with `CFG-E008` and changes nothing | 256 ok, 257 refused | — | bound test |
+| B4 | — | The editable leaf set is closed and provably within the documented 256-path bound | `SyntaxPath::ALL` | — | `every_editable_path_fits_within_the_edited_path_limit` |
+| B5 | — | An edit that restores every value to what the document already holds leaves nothing unsaved, including the way each value was written | edit and revert; mixed edits | — | `editing_a_value_back_to_where_it_started_leaves_nothing_unsaved` |
 | C1 | CW07-03 | An Appearance theme edit applies exactly one reversible preview; a second theme edit replaces the preview theme and retains the **original** prior theme | one edit; two edits; edit back to prior | — | `src/theme/preview_tests.rs` + `src/state/settings_preview_tests.rs` |
 | C2 | CW07-03 | Cancel, Discard, confirmed Reload, and a failed Save each restore the exact prior theme and clear the token | each of the four paths | — | preview matrix test |
 | C3 | CW07-03 | A successful Save adopts the preview as the active theme and clears the token | — | — | same |
@@ -147,20 +148,42 @@ Verified in the tree, not assumed:
 
 | Slice | State | Evidence |
 |---|---|---|
-| S1 candidate | pending | |
-| S2 preview | pending | |
-| S3 reducer | pending | |
-| S4 view/renderer | pending | |
-| S5 wiring/cutover | pending | |
-| S6 evidence/docs | pending | |
+| S1 candidate | **done** | `src/persistence/settings_edit_tests.rs` — 26 tests (D1–D3, B4, I1–I2) |
+| S2 preview | **done** | `src/theme/preview_tests.rs` — 9 tests (C1–C4) |
+| S3 reducer | **done** | `src/state/settings_tests.rs` — 40 tests (A, B, E, F, G, H, I, K) |
+| S4 view/renderer | **done** | `src/state/settings_view.rs` projection + `src/ui/screens/settings.rs`; J1–J3 via the view tests and the scenarios |
+| S5 wiring/cutover | **done** | `ScreenId::Settings` + descriptor + parity golden; `core.open-settings` on `,`; theme-picker modal deleted |
+| S6 evidence/docs | **done** | four `dev-docs/tmux-scenarios/v1/settings-*.json` fixtures; both standards documents updated |
 
 ## 5. Scope ledger
 
 | Entry | Why it is in scope | Acceptance row |
 |---|---|---|
-| Move `core.open-keys` from `,` to `F9` | The issue's key table assigns `,` to Settings; duplicate chords in one effective context are a composition error, so the move is forced by the accepted behavior | L1 |
+| Move `core.open-keys` from `,` to `F9` | The issue's key table assigns `,` to Settings; duplicate chords in one effective context are a composition error, so the move is forced by the accepted behavior. `F9` is exactly the chord the retired theme picker freed, so no entry point is lost | L1 |
 | Delete `ModalState::ThemePicker` and its handlers/screen | The issue's source inventory requires migrating the theme choices/keys into the Appearance presenter; leaving the modal keeps a second theme authority whose save path destroys the lossless document | L1, C1–C3 |
-| `settings-unavailable-theme.json` etc. new scenarios | CW07-11 requires each distinct UI state to have rendering evidence | J1–J3 |
+| Extract `settings_document::patch_assignment` and route `keymap_edit` through it | CW-07 needs the same span surgery `keymap_edit` already had; a second copy of it is the duplication the issue forbids | D1–D2 |
+| Rename `AppContext::keymap_{document,expected_hash,revision}` to `settings_*` | Both editors write the same file. Two revision counters and two expected hashes over one document would let a save in one silently invalidate the other | F1–F3 |
+| Relax `migration_tests` "covers every registered screen" to "every legacy value maps to a registered screen" | `core.settings` postdates the legacy screen enum, so it has no legacy alias and inventing one would be dishonest. The replacement pair keeps both real invariants | L1 |
+| Fix `src/app_input/prs_lifecycle_key_tests.rs` to stop setting the deleted `AppState.screen` | Pre-existing break on `origin/main` that only surfaces once the bin test target compiles; this PR cannot be green without it | — |
+| Four `dev-docs/tmux-scenarios/v1/settings-*.json` fixtures | CW07-11 requires each distinct UI state to have rendering evidence | J1–J3 |
+
+### Bounded interpretations recorded
+
+- **Export target.** The issue asks for "an explicitly selected contained path".
+  There is no text-input widget on this screen and adding one would be an
+  unplanned subsystem, so Export is the explicitly selected *action* and the
+  path is contained by construction: `settings-draft-<digest>.toml` beside the
+  settings document. Exporting the same draft twice names the same file, which
+  the writer then refuses to replace rather than overwriting a rescue copy, and
+  the exact path is reported in the notice.
+- **"Redacted" export.** In schema 2 a secret is written as
+  `{ secret_ref = "…" }` and is never resolved anywhere in v1, so redaction is
+  exactly "references remain references". A test proves a reference survives an
+  export unexpanded.
+- **Dirty-modal cursor.** The host guard deliberately holds no cursor — it is a
+  question, not a widget. Settings is the only screen that can raise it today,
+  so the Save/Discard/Cancel focus lives in `SettingsState` rather than being
+  added to CW-06's guard type.
 
 ## 6. Review counters
 

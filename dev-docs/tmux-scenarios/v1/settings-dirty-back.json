@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "keys-editor-unbind-reset",
+  "name": "settings-dirty-back",
   "platform": "macos",
   "terminal": { "cols": 120, "rows": 36 },
   "workspace": {
@@ -12,7 +12,7 @@
     "files": [
       {
         "path": "config/settings.toml",
-        "content": { "utf8": "# keep\nsettings_schema = 2\n[keymap.global]\n# binding stays\n\"core.open-keys\" = [\".\"]\n[extensions.future]\nvalue = \"stay\"\n" },
+        "content": { "utf8": "settings_schema = 2\n[appearance]\ntheme = 'green-screen'\n" },
         "mode": 384
       }
     ],
@@ -31,71 +31,88 @@
       "literal": "LLxprt Jefe",
       "timeout_ms": 15000
     },
-    { "op": "key", "key": ".", "modifiers": [] },
+    { "op": "key", "key": ",", "modifiers": [] },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Keys - Keyboard Bindings",
+      "literal": "Diagnostics",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "down", "modifiers": [] },
+    { "op": "key", "key": "tab", "modifiers": [] },
+    { "op": "key", "key": "down", "modifiers": [] },
+    { "op": "key", "key": "enter", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>Ayu Dark",
+      "timeout_ms": 15000
+    },
+    { "op": "key", "key": "q", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Save changes?",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [">>Save", "Discard", "Cancel", "quit"],
+      "absent": []
+    },
+    { "op": "key", "key": "escape", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Kept your changes",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": ["Kept your changes", ">>Ayu Dark", "Apply theme to agent"],
+      "absent": ["Save changes?"]
+    },
+    { "op": "key", "key": "up", "modifiers": [] },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>Green Screen",
       "timeout_ms": 15000
     },
     { "op": "key", "key": "down", "modifiers": [] },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "> core.open-keys",
+      "literal": ">>Ayu Dark",
       "timeout_ms": 15000
     },
-    { "op": "key", "key": "r", "modifiers": [] },
+    { "op": "key", "key": "q", "modifiers": [] },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Inherit",
+      "literal": "Save changes?",
       "timeout_ms": 15000
     },
-    {
-      "op": "assert-frame",
-      "contains": ["core.open-keys", "Inherit", "Unsaved changes"],
-      "absent": ["KEY-E401"]
-    },
-    { "op": "key", "key": "s", "modifiers": [] },
+    { "op": "key", "key": "tab", "modifiers": [] },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Jefe",
+      "literal": ">>Discard",
       "timeout_ms": 15000
     },
-    { "op": "key", "key": "f9", "modifiers": [] },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Keys - Keyboard Bindings",
-      "timeout_ms": 15000
-    },
-    { "op": "key", "key": "down", "modifiers": [] },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "> core.open-keys",
-      "timeout_ms": 15000
-    },
-    { "op": "key", "key": "u", "modifiers": [] },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Unbound",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "assert-frame",
-      "contains": ["core.open-keys", "Unbound", "Unsaved changes"],
-      "absent": ["KEY-E401"]
-    },
-    { "op": "key", "key": "s", "modifiers": [] },
+    { "op": "key", "key": "enter", "modifiers": [] },
     {
       "op": "wait",
       "source": "frame",
       "literal": "LLxprt Jefe",
       "timeout_ms": 15000
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/settings.toml",
+        "content": { "utf8": "settings_schema = 2\n[appearance]\ntheme = 'green-screen'\n" }
+      }
     },
     { "op": "key", "key": "q", "modifiers": ["control"] },
     { "op": "finish" }

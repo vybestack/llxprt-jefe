@@ -81,13 +81,18 @@ const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
     (&["dashboard.reorder", "dashboard", "global"], false),
     (&["split", "global"], false),
     (&["errors", "global"], false),
+    (&["settings", "global"], false),
     (&["terminal-manager", "global"], false),
     (&["actions", "global"], false),
 ];
 
 const SPECS: &[Spec] = &[
     spec!(protected "global", "core.emergency-exit", H::EmergencyExit, ["Ctrl+Q"]),
-    spec!("global", "core.open-keys", H::OpenKeys, [","]),
+    spec!("global", "core.open-settings", H::OpenSettings, [","]),
+    // `,` opened the Keys editor until the Settings shell claimed it. The Keys
+    // editor keeps a single-key entry point on the chord the retired theme
+    // picker used to hold, so no entry point was lost in the exchange.
+    spec!("global", "core.open-keys", H::OpenKeys, ["F9"]),
     spec!("global", "core.jump-agent.1", H::JumpAgent(1), ["Alt+1"]),
     spec!("global", "core.jump-agent.2", H::JumpAgent(2), ["Alt+2"]),
     spec!("global", "core.jump-agent.3", H::JumpAgent(3), ["Alt+3"]),
@@ -306,12 +311,6 @@ const SPECS: &[Spec] = &[
     ),
     spec!(
         "dashboard",
-        "dashboard.open-theme-picker",
-        H::OpenThemePicker,
-        ["F9"]
-    ),
-    spec!(
-        "dashboard",
         "shell.open-embedded",
         H::OpenEmbeddedShell,
         ["F10"]
@@ -384,6 +383,55 @@ const SPECS: &[Spec] = &[
         ["Tab", "Right", "BackTab", "Left"]
     ),
     spec!("errors", "errors.clear", H::ErrorsClear, ["Ctrl+C"]),
+    spec!(protected "settings", "settings.back", H::SettingsBack, ["Esc", "q"]),
+    spec!("settings", "settings.up", H::SettingsUp, ["Up", "k"]),
+    spec!("settings", "settings.down", H::SettingsDown, ["Down", "j"]),
+    spec!(
+        "settings",
+        "settings.cycle-pane",
+        H::SettingsCyclePane,
+        ["Tab"]
+    ),
+    spec!(
+        "settings",
+        "settings.cycle-pane-reverse",
+        H::SettingsCyclePaneReverse,
+        ["BackTab"]
+    ),
+    spec!(
+        "settings",
+        "settings.activate",
+        H::SettingsActivate,
+        ["Enter", " "]
+    ),
+    // Left/Right step the horizontal choice a recovery offers, and otherwise
+    // move the same selection the vertical keys do.
+    spec!(
+        "settings",
+        "settings.select-previous",
+        H::SettingsSelectPrevious,
+        ["Left"]
+    ),
+    spec!(
+        "settings",
+        "settings.select-next",
+        H::SettingsSelectNext,
+        ["Right"]
+    ),
+    spec!("settings", "settings.save", H::SettingsSave, ["s"]),
+    spec!(
+        "settings",
+        "settings.save-and-exit",
+        H::SettingsSaveAndExit,
+        ["Shift+S"]
+    ),
+    spec!("settings", "settings.reset", H::SettingsReset, ["r"]),
+    spec!(
+        "settings",
+        "settings.open-help",
+        H::OpenHelp,
+        ["Shift+?", "F1"]
+    ),
     spec!(protected
         "terminal-manager",
         "terminal-manager.back",

@@ -36,10 +36,11 @@ fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
         .unwrap_or_else(|error| panic!("test JSP host should start: {error}"));
     let ctx = Arc::new(Mutex::new(AppContext {
         keymap_snapshot: Some(startup.keymap_snapshot),
-        keymap_document: startup.keymap_document,
-        keymap_expected_hash: startup.keymap_expected_hash,
+        settings_document: startup.settings_document,
+        settings_expected_hash: startup.settings_expected_hash,
         keymap_recovery: None,
-        keymap_revision: 0,
+        settings_revision: 0,
+        config_isolated: false,
         persistence: FilePersistenceManager::default(),
         published_settings: PublishedSettings::default(),
         theme_manager: FileThemeManager::default(),

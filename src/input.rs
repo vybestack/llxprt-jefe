@@ -18,8 +18,6 @@ pub enum InputMode {
     Search,
     Form,
     Confirm,
-    /// Theme picker overlay.
-    ThemePicker,
     /// In-app device-code auth dialog (issue #244).
     Auth,
     /// Dashboard "search lite" input for repositories and agents (issue #405).
@@ -119,7 +117,6 @@ fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
     match modal {
         ModalState::Help | ModalState::Keys { .. } => Some(InputMode::Help),
         ModalState::Search { .. } => Some(InputMode::Search),
-        ModalState::ThemePicker { .. } => Some(InputMode::ThemePicker),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }

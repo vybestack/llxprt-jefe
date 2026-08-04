@@ -20,15 +20,17 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn prs_list_state() -> AppState {
-    AppState {
-        screen: ScreenId::PullRequests,
+    let mut state = AppState {
         prs_state: PullRequestsState {
             active: true,
             pr_focus: PrFocus::PrList,
             ..PullRequestsState::default()
         },
         ..AppState::default()
-    }
+    };
+    // The navigation reducer is the only thing that sets a screen (issue #386).
+    let _ = state.switch_screen(ScreenId::PullRequests);
+    state
 }
 
 // ── Closing from the list (A1) ─────────────────────────────────────────────

@@ -45,21 +45,38 @@ fn the_migration_table_lists_each_legacy_value_exactly_once() {
     }
 }
 
+/// Every legacy value names a screen that still exists.
+///
+/// The converse does not hold, and cannot: the legacy vocabulary was fixed when
+/// the screen enum was deleted, so a screen introduced afterwards — `core.settings`
+/// is the first — has no legacy name to be reached by. What the migration owes
+/// is that nothing it maps to has since disappeared.
 #[test]
-fn the_migration_table_covers_every_registered_screen_exactly_once() {
+fn every_legacy_value_maps_onto_a_registered_screen() {
     let registry = registry();
-    let mut targets: Vec<&str> = LEGACY_SCREEN_VALUES
-        .iter()
-        .map(|(_, stable)| *stable)
-        .collect();
-    targets.sort_unstable();
-    let mut registered: Vec<&str> = registry
+    let registered: Vec<&str> = registry
         .screens()
         .iter()
         .map(|screen| screen.id.as_str())
         .collect();
-    registered.sort_unstable();
-    assert_eq!(targets, registered);
+    for (legacy, stable) in LEGACY_SCREEN_VALUES {
+        assert!(
+            registered.contains(&stable),
+            "legacy value {legacy} maps to {stable}, which the registry no longer contains"
+        );
+    }
+}
+
+/// A screen the legacy vocabulary never named is reached by its stable
+/// identity, never by a legacy alias invented for it.
+#[test]
+fn a_screen_added_after_the_legacy_vocabulary_has_no_legacy_alias() {
+    assert!(
+        !LEGACY_SCREEN_VALUES
+            .iter()
+            .any(|(_, stable)| *stable == "core.settings"),
+        "core.settings postdates the legacy screen enum and must not gain an invented alias"
+    );
 }
 
 #[test]

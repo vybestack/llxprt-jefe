@@ -33,7 +33,7 @@
       "cwd": "work"
     },
     { "op": "wait", "source": "frame", "literal": "Mouse Repo", "timeout_ms": 15000 },
-    { "op": "key", "key": ",", "modifiers": [] },
+    { "op": "key", "key": "f9", "modifiers": [] },
     { "op": "wait", "source": "frame", "literal": "Keys - Keyboard Bindings", "timeout_ms": 15000 },
     { "op": "key", "key": "down", "modifiers": [] },
     { "op": "key", "key": "u", "modifiers": [] },

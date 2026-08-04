@@ -101,24 +101,13 @@ pub enum AppEvent {
     StageDurableSave,
     PersistenceSaveFailed(String),
 
-    SetTheme(String),
     ThemeResolveFailed(String),
 
-    /// Open the theme picker modal with a snapshot of available themes.
-    /// Payload: `(slug, name)` pairs, plus the currently active slug.
-    OpenThemePicker {
-        available_themes: Vec<(String, String)>,
-        active_slug: String,
-    },
-    ThemePickerNavigateUp,
-    ThemePickerNavigateDown,
-    /// Confirm the current theme-picker selection.
-    /// The slug is derived from the modal's `selected_index` at dispatch time
-    /// (see `modal_handlers::apply_theme_picker_selection`).
-    ThemePickerConfirm,
-    /// Toggle the "Apply jefe theme to agent" theme-picker checkbox (issue #179).
-    ThemePickerToggleOverride,
-    CloseThemePicker,
+    /// One Settings-shell intent or completion (issue #387).
+    ///
+    /// Boxed because one variant carries the whole loaded settings source and
+    /// would otherwise set the size of every event in this enum.
+    Settings(Box<crate::messages::SettingsMessage>),
 
     Quit,
     ClearError,

@@ -52,12 +52,13 @@ pub fn derive_action_context(
         ScreenId::Terminals if input_mode == InputMode::Normal => {
             full_s3(&["terminal-manager", "global"])
         }
+        ScreenId::Settings if input_mode == InputMode::Normal => full_s3(&["settings", "global"]),
         ScreenId::Issues => issues_context(state),
         ScreenId::PullRequests => prs_context(state),
         ScreenId::Actions => actions_context(state),
         ScreenId::Dashboard => pre_mode(&["dashboard", "global"]),
         ScreenId::Repositories => pre_mode(&["split", "global"]),
-        ScreenId::Errors | ScreenId::Terminals => pre_mode(&["global"]),
+        ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings => pre_mode(&["global"]),
     }
 }
 
@@ -70,7 +71,6 @@ fn modal_context(modal: &ModalState) -> Option<&'static str> {
         // protected emergency exit the editor deliberately lets through.
         ModalState::Keys { .. } => Some("keys"),
         ModalState::Search { .. } => Some("search"),
-        ModalState::ThemePicker { .. } => Some("modal.theme"),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }

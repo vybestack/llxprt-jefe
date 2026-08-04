@@ -315,68 +315,6 @@ pub trait ThemeManager {
             .any(|slug| slug == theme.as_str())
     }
 
-    /// Show `preview` without adopting it, returning the token that undoes it.
-    ///
-    /// `current` is the preview being replaced, if there is one. Replacing a
-    /// preview keeps the theme the *first* preview replaced, so cancelling
-    /// after any number of previews returns to where the user started.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PreviewError::StaleGeneration`] when `current` belongs to a
-    /// draft that has since been replaced, and [`PreviewError::Unavailable`]
-    /// when `preview` is not installed. In both cases the active theme is
-    /// unchanged.
-    fn apply_preview(
-        &mut self,
-        generation: u64,
-        current: Option<&ThemePreviewToken>,
-        preview: &ThemeId,
-    ) -> Result<ThemePreviewToken, PreviewError> {
-        if let Some(token) = current {
-            preview::check_generation(token, generation)?;
-        }
-        if !self.has_theme(preview) {
-            return Err(PreviewError::Unavailable(preview.clone()));
-        }
-        let token = preview::issue(generation, current, self.active_theme_id(), preview.clone());
-        self.select(token.preview_theme())?;
-        Ok(token)
-    }
-
-    /// Make the previewed theme the active one.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PreviewError::StaleGeneration`] when the token belongs to a
-    /// draft that has since been replaced, and [`PreviewError::Unavailable`]
-    /// when the previewed theme has since been removed.
-    fn adopt_preview(
-        &mut self,
-        generation: u64,
-        token: &ThemePreviewToken,
-    ) -> Result<(), PreviewError> {
-        preview::check_generation(token, generation)?;
-        self.select(token.preview_theme())
-    }
-
-    /// Return to the exact theme the preview replaced.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PreviewError::StaleGeneration`] when the token belongs to a
-    /// draft that has since been replaced, and [`PreviewError::Unavailable`]
-    /// when the prior theme has since been removed — which leaves the preview
-    /// showing rather than silently substituting a third theme.
-    fn revert_preview(
-        &mut self,
-        generation: u64,
-        token: &ThemePreviewToken,
-    ) -> Result<(), PreviewError> {
-        preview::check_generation(token, generation)?;
-        self.select(token.prior_theme())
-    }
-
     /// Select an installed theme, refusing rather than falling back.
     ///
     /// [`Self::set_active`] substitutes Green Screen for an unknown slug, which

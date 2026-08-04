@@ -30,7 +30,6 @@ pub fn resolve(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
         | InputMode::Normal
         | InputMode::Help
         | InputMode::Confirm
-        | InputMode::ThemePicker
         | InputMode::Auth => None,
     }
 }
