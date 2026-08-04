@@ -33,8 +33,9 @@ core logic stays deterministic and unit-testable.
 
 Agent identity and configuration are generic domain data: an `AgentTypeId` plus
 a schema-validated `TypedMap`. Shipped `AgentDefinition` values own fields,
-defaults, operation/target support, candidate declarations, probes, capability
-requirements, and argv emitters. Application, state, persistence, and runtime
+defaults, operation/target support, candidate declarations, the identity probe,
+a declared minimum version, and argv emitters. A flag emitter carries its own
+argv token; nothing outside the emitter decides what a flag emits. Application, state, persistence, and runtime
 code must not branch on product identity or reconstruct product-specific
 configuration.
 
