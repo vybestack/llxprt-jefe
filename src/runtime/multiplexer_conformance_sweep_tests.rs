@@ -183,24 +183,15 @@ fn psmux_is_required() -> bool {
     std::env::var("JEFE_REQUIRE_PSMUX").is_ok_and(|value| value == "1")
 }
 
-/// A PID the operating system has finished with.
+/// A PID that stands in for the jefe that owned a namespace and is now gone.
 ///
-/// The child is waited on *and* released before its PID is returned, so nothing
-/// is left holding the process slot open and the sweep sees the same evidence
-/// it would after a jefe crashed.
+/// A freshly reaped PID would be more lifelike, but Windows hands PIDs out
+/// again quickly and a busy test suite spawns enough short-lived processes to
+/// resurrect the "departed" owner mid-test. This value is far outside the range
+/// the kernel allocates, so it reads as departed every time and the sweep sees
+/// exactly the evidence a crashed jefe leaves behind.
 #[cfg(windows)]
-fn reaped_pid() -> u32 {
-    let mut child = std::process::Command::new("cmd")
-        .args(["/c", "exit", "0"])
-        .spawn()
-        .unwrap_or_else(|error| panic!("a short-lived process must be startable: {error}"));
-    let pid = child.id();
-    if let Err(error) = child.wait() {
-        panic!("the short-lived process must be reapable: {error}");
-    }
-    drop(child);
-    pid
-}
+const DEPARTED_OWNER_PID: u32 = 4_294_967_280;
 
 /// Bring up the scratch session inside `plan`'s namespace.
 #[cfg(windows)]
@@ -237,6 +228,24 @@ fn session_is_serving(plan: &super::MultiplexerPlan) -> bool {
         == Some(0)
 }
 
+/// Whether `plan`'s namespace stops serving within a bounded wait.
+///
+/// `kill-server` returns as soon as the server accepts it, and a loaded machine
+/// can take a moment to finish tearing the server down. Waiting keeps the test
+/// about whether the sweep reclaimed the namespace rather than about how busy
+/// the host was; a namespace the sweep ignored stays up for the whole window.
+#[cfg(windows)]
+fn session_stops_serving(plan: &super::MultiplexerPlan) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if !session_is_serving(plan) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    false
+}
+
 #[cfg(windows)]
 #[test]
 fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use() {
@@ -252,7 +261,7 @@ fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use()
     };
 
     // A namespace an earlier jefe left behind: its owner is a PID that is gone.
-    let stranded_namespace = format!("jefe-conformance-{}-0", reaped_pid());
+    let stranded_namespace = format!("jefe-conformance-{DEPARTED_OWNER_PID}-0");
     let stranded = plan
         .with_isolation(MultiplexerIsolation::Namespace(stranded_namespace.clone()))
         .unwrap_or_else(|error| panic!("the stranded namespace must be addressable: {error}"));
@@ -267,7 +276,7 @@ fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use()
 
     let _qualification = qualify_multiplexer_for_startup(&plan);
 
-    let reclaimed = !session_is_serving(&stranded);
+    let reclaimed = session_stops_serving(&stranded);
     let spared = session_is_serving(live.plan());
     // Observe first, then clean up, so a failing run does not strand the very
     // namespace this test exists to talk about.

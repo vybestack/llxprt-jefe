@@ -105,8 +105,10 @@ and none in production code.
 - Behavioral RED proved for both halves: the guard test failed before the RAII guard existed, and the startup test failed with "startup must reclaim jefe-conformance-19584-0, whose jefe is gone" while the sweep call was stubbed out.
 - Real-world proof on the development machine: a genuine pre-existing orphan pair, `jefe-conformance-14296-0` (servers 3428 and 19672), was reclaimed by the new sweep; the live workspace namespace and its eight servers were untouched.
 - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `check-clippy-allows`, `check-source-size`, `check-architecture`, `check-multiplexer-surface`, and the complexity gate all pass.
-- Coverage passes at 71.17% lines, far above the 30% floor.
+- Coverage passes at 71.19% lines, far above the 30% floor.
 - `cargo build --workspace --all-features --locked` and `cargo test --workspace --all-features --locked` pass with `JEFE_REQUIRE_PSMUX=1`, so the Windows real-binary tests run rather than skip.
+- A full-suite run caught the reclaim test borrowing a freshly reaped PID: under a busy suite Windows hands that PID out again, the "departed" owner reads as alive, and the sweep correctly retains the namespace. The test now names an owner the kernel cannot allocate and waits a bounded interval for the server to finish dying, so it stays a statement about the sweep rather than about host load.
+- `cargo xtask ci` passes end to end on the exact head.
 
 ## Deferred findings and follow-ups
 

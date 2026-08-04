@@ -84,6 +84,21 @@ fn psmux_is_required() -> bool {
     std::env::var("JEFE_REQUIRE_PSMUX").is_ok_and(|value| value == "1")
 }
 
+/// Ask the multiplexer whether it is still serving the scratch session, as the
+/// exit code of `has-session`.
+#[cfg(windows)]
+fn scratch_session_exit_code(plan: &super::multiplexer::MultiplexerPlan) -> Option<i32> {
+    execute_probe(
+        plan,
+        &[
+            "has-session".to_owned(),
+            "-t".to_owned(),
+            SCRATCH_SESSION.to_owned(),
+        ],
+    )
+    .exit_code
+}
+
 #[cfg(windows)]
 #[test]
 fn a_scratch_namespace_server_does_not_outlive_an_unwinding_run() {
@@ -112,16 +127,9 @@ fn a_scratch_namespace_server_does_not_outlive_an_unwinding_run() {
                 SCRATCH_SESSION.to_owned(),
             ],
         );
-        let started = execute_probe(
-            scratch.plan(),
-            &[
-                "has-session".to_owned(),
-                "-t".to_owned(),
-                SCRATCH_SESSION.to_owned(),
-            ],
-        );
+        let started = scratch_session_exit_code(scratch.plan());
         if let Ok(mut slot) = observed.lock() {
-            *slot = Some((scratch.plan().clone(), started.exit_code));
+            *slot = Some((scratch.plan().clone(), started));
         }
         panic!("a probe exploded mid-run");
     }));
@@ -139,16 +147,8 @@ fn a_scratch_namespace_server_does_not_outlive_an_unwinding_run() {
         Some(0),
         "the scratch server must have been running before the unwind"
     );
-    let surviving = execute_probe(
-        &scratch,
-        &[
-            "has-session".to_owned(),
-            "-t".to_owned(),
-            SCRATCH_SESSION.to_owned(),
-        ],
-    );
     assert_ne!(
-        surviving.exit_code,
+        scratch_session_exit_code(&scratch),
         Some(0),
         "the scratch server must not have survived the unwind"
     );
