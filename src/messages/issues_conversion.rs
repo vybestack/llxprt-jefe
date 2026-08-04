@@ -77,6 +77,7 @@ impl IssuesMessage {
             | AppEvent::IssueListSilentRefreshFailed { .. } => Self::from_app_event_list(event),
             AppEvent::IssueDetailLoaded { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
+            | AppEvent::IssueDetailAuthRequired(..)
             | AppEvent::IssueDetailSilentRefreshed { .. }
             | AppEvent::IssueDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
             other => Self::from_app_event_comments_and_controls(other),
@@ -165,6 +166,13 @@ impl IssuesMessage {
                 request_id,
                 error,
             },
+            AppEvent::IssueDetailAuthRequired(scope_repo_id, issue_number, request_id) => {
+                Self::DetailAuthRequired {
+                    scope_repo_id,
+                    issue_number,
+                    request_id,
+                }
+            }
             AppEvent::IssueDetailSilentRefreshed {
                 scope_repo_id,
                 issue_number,
@@ -396,6 +404,17 @@ impl IssuesMessage {
     fn from_app_event_mutation_and_agent(event: AppEvent) -> Self {
         match event {
             AppEvent::OpenAgentChooser { metadata } => Self::OpenAgentChooser { metadata },
+            AppEvent::BeginIssueListSendDetail(metadata) => Self::BeginListSendDetail { metadata },
+            AppEvent::CancelIssueListSendDetail => Self::CancelListSendDetail,
+            AppEvent::IssueListSendDetailReady {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => Self::ListSendDetailReady {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            },
             AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
             AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
             AppEvent::AgentChooserConfirm => Self::AgentChooserConfirm,
@@ -570,6 +589,7 @@ impl IssuesMessage {
             | Self::ListSilentRefreshFailed { .. } => self.into_app_event_list(),
             Self::DetailLoaded { .. }
             | Self::DetailLoadFailed { .. }
+            | Self::DetailAuthRequired { .. }
             | Self::DetailSilentRefreshed { .. }
             | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
             other => other.into_app_event_comments_and_controls(),
@@ -657,6 +677,11 @@ impl IssuesMessage {
                 request_id,
                 error,
             },
+            Self::DetailAuthRequired {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => AppEvent::IssueDetailAuthRequired(scope_repo_id, issue_number, request_id),
             Self::DetailSilentRefreshed {
                 scope_repo_id,
                 issue_number,
@@ -884,6 +909,17 @@ impl IssuesMessage {
     fn into_app_event_mutation_and_agent(self) -> AppEvent {
         match self {
             Self::OpenAgentChooser { metadata } => AppEvent::OpenAgentChooser { metadata },
+            Self::BeginListSendDetail { metadata } => AppEvent::BeginIssueListSendDetail(metadata),
+            Self::CancelListSendDetail => AppEvent::CancelIssueListSendDetail,
+            Self::ListSendDetailReady {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => AppEvent::IssueListSendDetailReady {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            },
             Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
             Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
             Self::AgentChooserConfirm => AppEvent::AgentChooserConfirm,
@@ -891,107 +927,6 @@ impl IssuesMessage {
             Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
             other => other.into_app_event_mutation_or_close(),
-        }
-    }
-
-    /// Close/delete lifecycle, close-reason chooser, and self-assignment messages.
-    pub(super) fn into_app_event_close_family(self) -> AppEvent {
-        match self {
-            Self::CloseIssue
-            | Self::OpenDeleteIssueConfirm
-            | Self::IssueDeleteConfirm
-            | Self::IssueDeleteCancel
-            | Self::IssueClosed { .. }
-            | Self::IssueDeleted { .. } => self.into_app_event_lifecycle(),
-            Self::OpenCloseReasonChooser
-            | Self::CloseReasonNavigateUp
-            | Self::CloseReasonNavigateDown
-            | Self::CloseReasonSelect
-            | Self::CloseReasonDuplicateSearchChar(_)
-            | Self::CloseReasonDuplicateSearchBackspace
-            | Self::CloseReasonDuplicateSearchNavigateUp
-            | Self::CloseReasonDuplicateSearchNavigateDown
-            | Self::CloseReasonConfirm
-            | Self::CloseReasonCancel => self.into_app_event_close_reason(),
-            Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_self_assignment(),
-            _ => unreachable!("non-issues IssuesMessage routed to issues converter"),
-        }
-    }
-
-    /// Close/delete lifecycle messages (issue #182) — extracted from
-    /// `into_app_event_controls` to stay within the per-function line budget.
-    fn into_app_event_lifecycle(self) -> AppEvent {
-        match self {
-            Self::CloseIssue => AppEvent::CloseIssue,
-            Self::OpenDeleteIssueConfirm => AppEvent::OpenDeleteIssueConfirm,
-            Self::IssueDeleteConfirm => AppEvent::IssueDeleteConfirm,
-            Self::IssueDeleteCancel => AppEvent::IssueDeleteCancel,
-            Self::IssueClosed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                close_reason,
-                duplicate_of,
-            } => AppEvent::IssueClosed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                close_reason,
-                duplicate_of,
-            },
-            Self::IssueDeleted {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-            } => AppEvent::IssueDeleted {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-            },
-            _ => unreachable!("non-lifecycle IssuesMessage routed to lifecycle converter"),
-        }
-    }
-
-    /// Close-reason chooser messages (issue #188) — extracted from
-    /// `into_app_event_lifecycle` to stay within the per-function line budget.
-    fn into_app_event_close_reason(self) -> AppEvent {
-        match self {
-            Self::OpenCloseReasonChooser => AppEvent::OpenCloseReasonChooser,
-            Self::CloseReasonNavigateUp => AppEvent::CloseReasonNavigateUp,
-            Self::CloseReasonNavigateDown => AppEvent::CloseReasonNavigateDown,
-            Self::CloseReasonSelect => AppEvent::CloseReasonSelect,
-            Self::CloseReasonDuplicateSearchChar(c) => AppEvent::CloseReasonDuplicateSearchChar(c),
-            Self::CloseReasonDuplicateSearchBackspace => {
-                AppEvent::CloseReasonDuplicateSearchBackspace
-            }
-            Self::CloseReasonDuplicateSearchNavigateUp => {
-                AppEvent::CloseReasonDuplicateSearchNavigateUp
-            }
-            Self::CloseReasonDuplicateSearchNavigateDown => {
-                AppEvent::CloseReasonDuplicateSearchNavigateDown
-            }
-            Self::CloseReasonConfirm => AppEvent::CloseReasonConfirm,
-            Self::CloseReasonCancel => AppEvent::CloseReasonCancel,
-            _ => unreachable!("non-close-reason IssuesMessage routed to close-reason converter"),
-        }
-    }
-
-    /// Self-assignment follow-up message (issue #186) — extracted from
-    /// `into_app_event_controls` to stay within the per-function line budget.
-    fn into_app_event_self_assignment(self) -> AppEvent {
-        match self {
-            Self::IssueSelfAssignmentFailed {
-                owner_repo,
-                issue_number,
-                error,
-            } => AppEvent::IssueSelfAssignmentFailed {
-                owner_repo,
-                issue_number,
-                error,
-            },
-            _ => unreachable!(
-                "non-self-assignment IssuesMessage routed to self-assignment converter"
-            ),
         }
     }
 }

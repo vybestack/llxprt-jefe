@@ -92,6 +92,7 @@ impl PullRequestsMessage {
             | AppEvent::PrListSilentRefreshFailed { .. } => Self::from_app_event_list(event),
             AppEvent::PrDetailLoaded { .. }
             | AppEvent::PrDetailLoadFailed { .. }
+            | AppEvent::PrDetailAuthRequired(..)
             | AppEvent::PrDetailSilentRefreshed { .. }
             | AppEvent::PrDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
             AppEvent::PrCommentsPageLoaded { .. }
@@ -210,6 +211,13 @@ impl PullRequestsMessage {
                 request_id,
                 error,
             },
+            AppEvent::PrDetailAuthRequired(scope_repo_id, pr_number, request_id) => {
+                Self::DetailAuthRequired {
+                    scope_repo_id,
+                    pr_number,
+                    request_id,
+                }
+            }
             AppEvent::PrDetailSilentRefreshed {
                 scope_repo_id,
                 pr_number,
@@ -414,6 +422,17 @@ impl PullRequestsMessage {
     fn from_app_event_agent(event: AppEvent) -> Self {
         match event {
             AppEvent::PrOpenAgentChooser { metadata } => Self::OpenAgentChooser { metadata },
+            AppEvent::BeginPrListSendDetail(metadata) => Self::BeginListSendDetail { metadata },
+            AppEvent::CancelPrListSendDetail => Self::CancelListSendDetail,
+            AppEvent::PrListSendDetailReady {
+                scope_repo_id,
+                pr_number,
+                request_id,
+            } => Self::ListSendDetailReady {
+                scope_repo_id,
+                pr_number,
+                request_id,
+            },
             AppEvent::PrAgentChooserNavigateUp => Self::AgentChooserNavigate(NavDir::Up),
             AppEvent::PrAgentChooserNavigateDown => Self::AgentChooserNavigate(NavDir::Down),
             AppEvent::PrAgentChooserConfirm => Self::AgentChooserConfirm,
@@ -521,6 +540,7 @@ impl PullRequestsMessage {
             | Self::ListSilentRefreshFailed { .. } => self.into_app_event_list(),
             Self::DetailLoaded { .. }
             | Self::DetailLoadFailed { .. }
+            | Self::DetailAuthRequired { .. }
             | Self::DetailSilentRefreshed { .. }
             | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
             Self::CommentsPageLoaded { .. }
@@ -639,6 +659,11 @@ impl PullRequestsMessage {
                 request_id,
                 error,
             },
+            Self::DetailAuthRequired {
+                scope_repo_id,
+                pr_number,
+                request_id,
+            } => AppEvent::PrDetailAuthRequired(scope_repo_id, pr_number, request_id),
             Self::DetailSilentRefreshed {
                 scope_repo_id,
                 pr_number,
@@ -833,49 +858,5 @@ impl PullRequestsMessage {
             },
             other => other.into_app_event_agent(),
         }
-    }
-
-    /// Agent chooser variants.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-002
-    /// @pseudocode component-004 lines 68-85
-    fn into_app_event_agent(self) -> AppEvent {
-        match self {
-            Self::OpenAgentChooser { metadata } => AppEvent::PrOpenAgentChooser { metadata },
-            Self::AgentChooserNavigate(NavDir::Up) => AppEvent::PrAgentChooserNavigateUp,
-            Self::AgentChooserNavigate(NavDir::Down) => AppEvent::PrAgentChooserNavigateDown,
-            Self::AgentChooserConfirm => AppEvent::PrAgentChooserConfirm,
-            Self::AgentChooserCancel => AppEvent::PrAgentChooserCancel,
-            Self::SendToAgentCompleted => AppEvent::PrSendToAgentCompleted,
-            Self::SendToAgentFailed { error } => AppEvent::PrSendToAgentFailed { error },
-            other => other.into_app_event_lifecycle(),
-        }
-    }
-
-    /// Whether a message is a PR property-editor variant (routed out of merge).
-    pub(super) fn is_pr_property_message(message: &Self) -> bool {
-        matches!(
-            message,
-            Self::OpenPropertyEditor { .. }
-                | Self::PropertyEditorNavigateUp
-                | Self::PropertyEditorNavigateDown
-                | Self::PropertyEditorToggle
-                | Self::PropertyEditorConfirm
-                | Self::PropertyEditorCancel
-                | Self::PropertyEditorTitleChar(_)
-                | Self::PropertyEditorTitleBackspace
-                | Self::PropertyEditorTitleDelete
-                | Self::PropertyEditorTitleCursorLeft
-                | Self::PropertyEditorTitleCursorRight
-                | Self::PropertyEditorTitleCursorHome
-                | Self::PropertyEditorTitleCursorEnd
-                | Self::PropertyEditorOptionsLoaded { .. }
-                | Self::PropertyEditorOptionsFailed { .. }
-                | Self::PropertyEditSucceeded { .. }
-                | Self::PostMutationRefreshStarted
-                | Self::PropertyEditFailed { .. }
-                | Self::PropertyEditorValidationError { .. }
-        )
     }
 }

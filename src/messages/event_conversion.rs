@@ -493,6 +493,13 @@ impl AppMessage {
     /// Whether the event is an issues data/mutation/agent event.
     fn is_issues_data_event(event: &AppEvent) -> bool {
         Self::is_issues_core_data_event(event)
+            || matches!(
+                event,
+                AppEvent::BeginIssueListSendDetail(..)
+                    | AppEvent::CancelIssueListSendDetail
+                    | AppEvent::IssueListSendDetailReady { .. }
+                    | AppEvent::IssueDetailAuthRequired(..)
+            )
             || Self::is_new_issue_form_data_event(event)
             || Self::is_issue_property_data_event(event)
     }

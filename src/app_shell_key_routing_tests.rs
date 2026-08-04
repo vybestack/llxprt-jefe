@@ -2,10 +2,15 @@
 
 use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use jefe::domain::action_registry::{HandlerKey, Resolution};
+use jefe::domain::effects::{
+    Effect, EffectCompletion, EffectResponse, ProviderEffect, ProviderResponse,
+};
+use jefe::messages::{AppMessage, RepositoryAgentMessage};
+use jefe::state::transition::TransitionExt;
 use jefe::state::{
     AppState, ComposerTarget, ConfirmFocus, ErrorsFocus, InlineState, IssueFocus,
     IssuePropertyEditorState, IssuePropertyKind, IssuesState, ModalState, NewIssueFormState,
-    PaneFocus, PullRequestsState, ScreenId,
+    PaneFocus, PrFocus, PullRequestsState, ScreenId,
 };
 
 use super::resolve_compiled_registry_key;
@@ -57,6 +62,71 @@ fn assert_replaced_submit_route(state: AppState, expected: HandlerKey) {
     ));
 }
 
+fn with_projected_availability(mut state: AppState) -> AppState {
+    let dir = tempfile::tempdir();
+    let Ok(dir) = dir else {
+        panic!("availability config directory must be created: {dir:?}");
+    };
+    let startup = jefe::startup::build_persistence(Some(dir.path()));
+    let Ok(startup) = startup else {
+        panic!("availability fixture must compose: {startup:?}");
+    };
+    state.action_registry_snapshot = Some(startup.keymap_snapshot);
+    let transition = state.apply_message(AppMessage::RepositoryAgent(
+        RepositoryAgentMessage::ProjectActionAvailability,
+    ));
+    let Ok(transition) = transition else {
+        panic!("availability request must commit: {transition:?}");
+    };
+    let Some(issued) = transition.effects.first() else {
+        panic!("availability request must stage one effect");
+    };
+    assert_eq!(transition.effects.len(), 1);
+    let Effect::Provider(ProviderEffect::ProjectActionAvailability { entries }) = &issued.effect
+    else {
+        panic!("availability must use the closed provider variant");
+    };
+    let completion = EffectCompletion {
+        correlation: issued.correlation.clone(),
+        result: Ok(EffectResponse::Provider(
+            ProviderResponse::ActionAvailability {
+                entries: entries.clone(),
+            },
+        )),
+    };
+    transition
+        .next_state
+        .apply_message(AppMessage::EffectCompletion(Box::new(completion)))
+        .committed_pure()
+}
+
+fn assert_list_send_unavailable(mut state: AppState, reason: &str) {
+    let pending_issue_detail = state.issues_state.detail_pending.clone();
+    let pending_pr_detail = state.prs_state.detail_pending.clone();
+    let issue_chooser = state.issues_state.agent_chooser.clone();
+    let pr_chooser = state.prs_state.agent_chooser.clone();
+    let pending_effects = state.pending_effects.clone();
+    let resolved =
+        resolve_compiled_registry_key(&state, &modified(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    let Resolution::Unavailable {
+        reason: actual_reason,
+        ..
+    } = resolved.resolution
+    else {
+        panic!("list send must resolve unavailable: {resolved:?}");
+    };
+    assert_eq!(actual_reason, reason);
+
+    super::record_unavailable(&mut state, actual_reason);
+
+    assert_eq!(state.warning_message.as_deref(), Some(reason));
+    assert_eq!(state.issues_state.detail_pending, pending_issue_detail);
+    assert_eq!(state.prs_state.detail_pending, pending_pr_detail);
+    assert_eq!(state.issues_state.agent_chooser, issue_chooser);
+    assert_eq!(state.prs_state.agent_chooser, pr_chooser);
+    assert_eq!(state.pending_effects, pending_effects);
+}
+
 #[test]
 fn unavailable_dispatch_records_exact_notice_and_stages_no_effect() {
     let mut state = AppState {
@@ -76,6 +146,36 @@ fn unavailable_dispatch_records_exact_notice_and_stages_no_effect() {
     assert_eq!(state.pending_effects, pending_before);
     assert_eq!(state.repositories.len(), repository_count);
     assert_eq!(state.agents.len(), agent_count);
+}
+
+#[test]
+fn issue_list_send_without_selection_resolves_unavailable_without_side_effects() {
+    let state = with_projected_availability(AppState {
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::Issues),
+        issues_state: IssuesState {
+            active: true,
+            issue_focus: IssueFocus::IssueList,
+            ..IssuesState::default()
+        },
+        ..AppState::default()
+    });
+
+    assert_list_send_unavailable(state, "No issue selected");
+}
+
+#[test]
+fn pr_list_send_without_selection_resolves_unavailable_without_side_effects() {
+    let state = with_projected_availability(AppState {
+        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
+        prs_state: PullRequestsState {
+            active: true,
+            pr_focus: PrFocus::PrList,
+            ..PullRequestsState::default()
+        },
+        ..AppState::default()
+    });
+
+    assert_list_send_unavailable(state, "No pull request selected");
 }
 
 #[test]

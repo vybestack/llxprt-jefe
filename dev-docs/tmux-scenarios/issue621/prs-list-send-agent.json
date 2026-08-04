@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "name": "issue621-prs-list-send-agent",
+  "platform": "macos",
+  "terminal": {
+    "cols": 400,
+    "rows": 38
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "list-send-fixture",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "fixture-agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "p",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#621",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Send selected pull requests directly from the list",
+        "Ctrl-s send to agent"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "s",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Send to Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "fixture-agent [LLxprt] profile: list-send"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Ctrl-s send to agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "#621",
+        "Send selected pull requests directly from the list",
+        "Ctrl-s send to agent"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

@@ -306,6 +306,7 @@ pub struct PullRequestsState {
     /// Monotonic request id for property option loads / mutations (issue #175).
     pub next_property_request_id: u64,
     pub detail_pending: Option<PrDetailPending>,
+    pub list_send_pending: Option<PrListSendPending>,
     pub next_pr_detail_request_id: u64,
     /// High-water mark retained across replaceable PR-detail snapshots.
     pub last_comments_page_request_id: ListRequestId,
@@ -356,6 +357,15 @@ pub struct PrDetailPending {
     pub scope_repo_id: RepositoryId,
     pub pr_number: u64,
     pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrListSendPending {
+    pub scope_repo_id: RepositoryId,
+    pub pr_number: u64,
+    pub request_id: u64,
+    pub metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    pub ready: bool,
 }
 
 /// Pending review-thread resolve/unresolve mutation staleness guard

@@ -27,6 +27,9 @@ mod issues_tests;
 #[path = "issues_tests_close_delete.rs"]
 mod issues_tests_close_delete;
 #[cfg(test)]
+#[path = "list_send_reducer_guard_tests.rs"]
+mod list_send_reducer_guard_tests;
+#[cfg(test)]
 #[path = "issues_tests_close_reason.rs"]
 mod issues_tests_close_reason;
 #[cfg(test)]

@@ -43,7 +43,6 @@ pub enum AppEvent {
     /// Resume a hidden shell for the selected agent (issue #361). Re-selects
     /// the existing `jefe-shell` window without duplicating it.
     ResumeShellOverlay(crate::domain::AgentId),
-
     EnterSplitMode,
     ExitSplitMode,
     EnterGrabMode,
@@ -93,14 +92,12 @@ pub enum AppEvent {
     RestartAgent(crate::domain::AgentId),
     AgentStatusChanged(crate::domain::AgentId, crate::domain::AgentStatus),
     Observation(super::observation_events::ObservationEvent),
-
     PersistenceLoadSuccess,
     PersistenceLoadFailed(String),
     PersistenceSaveSuccess,
     /// Stage a durable save of the committed state (issue #381).
     StageDurableSave,
     PersistenceSaveFailed(String),
-
     SetTheme(String),
     ThemeResolveFailed(String),
 
@@ -110,7 +107,6 @@ pub enum AppEvent {
     Quit,
     ClearError,
     ClearWarning,
-
     /// Open the auth dialog and start the device-code flow.
     OpenAuthDialog,
     /// The one-time code + verification URL were parsed from `gh` stderr.
@@ -128,7 +124,6 @@ pub enum AppEvent {
     AuthCancelled,
     /// The user requested a retry from the Failed phase.
     AuthRetry,
-
     /// Scroll the terminal viewport up (back in history) by one line.
     TerminalScrollUp,
     /// Scroll the terminal viewport down (toward live) by one line.
@@ -142,7 +137,6 @@ pub enum AppEvent {
     /// Scroll the terminal viewport to the top of history (issue #198 review
     /// fix #8: Home key).
     TerminalScrollToTop,
-
     EnterIssuesMode,
     ExitIssuesMode,
     RefocusIssueList,
@@ -197,6 +191,7 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
+    IssueDetailAuthRequired(RepositoryId, u64, u64),
     IssueCommentsPageLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
@@ -396,7 +391,6 @@ pub enum AppEvent {
         mutation_id: Option<u64>,
         error: String,
     },
-
     /// Key-layer request: close the focused issue (dispatch resolves context).
     CloseIssue,
     /// Key-layer request: open the delete confirm overlay.
@@ -422,7 +416,6 @@ pub enum AppEvent {
         issue_number: u64,
         mutation_id: u64,
     },
-
     /// Open the close-reason chooser overlay.
     OpenCloseReasonChooser,
     CloseReasonNavigateUp,
@@ -438,9 +431,15 @@ pub enum AppEvent {
     CloseReasonConfirm,
     /// Esc: close the chooser without closing the issue.
     CloseReasonCancel,
-
     OpenAgentChooser {
         metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
+    BeginIssueListSendDetail(Vec<crate::domain::AgentChooserGitMetadata>),
+    CancelIssueListSendDetail,
+    IssueListSendDetailReady {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
     },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
@@ -458,7 +457,6 @@ pub enum AppEvent {
         issue_number: u64,
         error: String,
     },
-
     EnterPrsMode,
     ExitPrsMode,
     RefocusPrList,
@@ -538,6 +536,7 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
+    PrDetailAuthRequired(RepositoryId, u64, u64),
     PrDetailSilentRefreshed {
         scope_repo_id: RepositoryId,
         pr_number: u64,
@@ -646,6 +645,13 @@ pub enum AppEvent {
     PrOpenAgentChooser {
         metadata: Vec<crate::domain::AgentChooserGitMetadata>,
     },
+    BeginPrListSendDetail(Vec<crate::domain::AgentChooserGitMetadata>),
+    CancelPrListSendDetail,
+    PrListSendDetailReady {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+    },
     PrAgentChooserNavigateUp,
     PrAgentChooserNavigateDown,
     PrAgentChooserConfirm,
@@ -654,14 +660,12 @@ pub enum AppEvent {
     PrSendToAgentFailed {
         error: String,
     },
-
     /// A transient agent send was queued (max_concurrent reached).
     TransientAgentQueued {
         queue_position: usize,
     },
     /// A transient agent was dequeued and is being launched.
     TransientAgentDequeued,
-
     EnterActionsMode,
     /// Enter Actions mode with a PR filter pre-set (cross-mode action from PR mode).
     EnterActionsModeWithPrFilter {
@@ -789,7 +793,6 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
-
     /// Open the inline reply composer for a review thread.
     PrOpenThreadReplyComposer {
         thread_index: usize,
@@ -812,7 +815,6 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
-
     IssueOpenPropertyEditor {
         kind: super::IssuePropertyKind,
     },
@@ -864,7 +866,6 @@ pub enum AppEvent {
         kind: super::IssuePropertyKind,
         error: String,
     },
-
     PrOpenPropertyEditor {
         kind: super::PrPropertyKind,
     },
@@ -916,7 +917,6 @@ pub enum AppEvent {
         kind: super::PrPropertyKind,
         error: String,
     },
-
     EnterErrorsMode,
     ExitErrorsMode,
     RefocusErrorList,
@@ -933,7 +933,6 @@ pub enum AppEvent {
     ErrorsScrollDetailPageDown,
     CaptureSilentError(String, String, crate::domain::ErrorSource, String),
     ErrorsClearAll,
-
     /// F7 opens Terminal Manager; Esc/F12 returns to Dashboard.
     EnterTerminalManagerMode,
     ExitTerminalManagerMode,

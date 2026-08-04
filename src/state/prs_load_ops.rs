@@ -66,6 +66,17 @@ impl AppState {
     /// @requirement REQ-PR-014
     /// @pseudocode component-001 lines 209-223
     pub(super) fn apply_pr_list_loaded(&mut self, list: PrListLoadedData) {
+        let selected_pr_number = self
+            .prs_state
+            .detail_pending
+            .as_ref()
+            .map(|pending| pending.pr_number)
+            .or_else(|| {
+                self.prs_state
+                    .selected_pr_index()
+                    .and_then(|idx| self.prs_state.pull_requests().get(idx))
+                    .map(|pr| pr.number)
+            });
         let identity = PrListIdentity {
             scope_repo_id: list.scope_repo_id,
             filter: list.filter,
@@ -93,6 +104,7 @@ impl AppState {
                 self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
                 self.prs_state.detail_scroll_offset = 0;
             }
+            self.preserve_silent_refresh_selection(selected_pr_number);
             self.resort_prs_preserving_selection();
         }
     }
@@ -232,7 +244,7 @@ impl AppState {
             return;
         }
         detail.comments.rebind_identity(CommentDetailIdentity {
-            scope_repo_id,
+            scope_repo_id: scope_repo_id.clone(),
             number: pr_number,
         });
         let new_head_sha = detail.head_sha.clone();
@@ -241,6 +253,7 @@ impl AppState {
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
+        self.mark_pr_list_send_ready(&scope_repo_id, pr_number, request_id);
         if self.prs_state.pr_focus != crate::state::PrFocus::PrChanges {
             self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
             self.prs_state.detail_scroll_offset = 0;
@@ -391,6 +404,7 @@ impl AppState {
         request_id: u64,
         error: String,
     ) {
+        self.clear_pr_list_send_request(scope_repo_id, pr_number, request_id);
         if self.pr_detail_pending_matches(scope_repo_id, pr_number, request_id) {
             self.prs_state.loading.detail = false;
             self.prs_state.detail_pending = None;
@@ -472,26 +486,7 @@ impl AppState {
         pr_number: u64,
         request_id: u64,
     ) -> bool {
-        let scope_ok = self.selected_repository_id() == Some(scope_repo_id);
-        if !scope_ok {
-            return false;
-        }
-        let selected_matches = self
-            .prs_state
-            .selected_pr_index()
-            .and_then(|idx| self.prs_state.pull_requests().get(idx))
-            .is_some_and(|pr| pr.number == pr_number);
-        if !selected_matches {
-            return false;
-        }
-        self.prs_state
-            .detail_pending
-            .as_ref()
-            .is_some_and(|pending| {
-                pending.scope_repo_id == *scope_repo_id
-                    && pending.pr_number == pr_number
-                    && pending.request_id == request_id
-            })
+        self.pr_detail_request_is_current(scope_repo_id, pr_number, request_id)
     }
 
     /// Mark a PR list reload as loading (staleness tracking).
@@ -828,6 +823,9 @@ impl AppState {
                 request_id,
                 error,
             } => self.apply_pr_detail_load_failed(&scope_repo_id, pr_number, request_id, error),
+            AppEvent::PrDetailAuthRequired(scope_repo_id, pr_number, request_id) => {
+                self.clear_pr_detail_request(&scope_repo_id, pr_number, request_id);
+            }
             AppEvent::PrDetailSilentRefreshFailed {
                 scope_repo_id,
                 pr_number,

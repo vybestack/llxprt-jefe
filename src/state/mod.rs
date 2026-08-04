@@ -48,6 +48,7 @@ mod issues_mutation_ops;
 mod issues_ops;
 mod issues_property_ops;
 mod list_navigation_ops;
+mod list_send_continuation;
 mod modal_ops;
 mod new_issue_form_ops;
 mod new_pr_form_ops;
@@ -397,6 +398,9 @@ impl AppState {
             return;
         }
 
+        let issue_list_send_context = self.issue_list_send_context();
+        let pr_list_send_context = self.pr_list_send_context();
+
         match message {
             AppMessage::UiNavigation(message) => self.apply_ui_navigation(message),
             AppMessage::Modal(message) => self.apply_modal_message(message),
@@ -431,6 +435,7 @@ impl AppState {
             }
         }
 
+        self.invalidate_changed_list_send_contexts(&issue_list_send_context, &pr_list_send_context);
         self.finalize_message(route);
     }
 
@@ -841,27 +846,6 @@ impl AppState {
             SystemMessage::TransientAgentDequeued => self.clear_transient_notice(),
             auth => self.apply_auth_message(auth),
         }
-    }
-
-    /// Record that a key press resolved to an action the current state cannot
-    /// perform.
-    ///
-    /// The status-bar warning alone is easy to miss: on the Issues and Pull
-    /// Requests screens the eye is on the workspace banner, so a refused
-    /// `Shift+S` read as "the key did nothing" (issue #633). The same reason
-    /// is therefore mirrored into the owning screen's notice band, which is
-    /// where those screens already report `No agents available`.
-    pub fn record_unavailable_action(&mut self, reason: String) {
-        match self.screen() {
-            ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
-            ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
-            ScreenId::Dashboard
-            | ScreenId::Repositories
-            | ScreenId::Actions
-            | ScreenId::Errors
-            | ScreenId::Terminals => {}
-        }
-        self.warning_message = Some(reason);
     }
 }
 
