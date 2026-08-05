@@ -69,6 +69,8 @@ pub(crate) mod keymap_edit;
 pub use keymap_edit::{KeymapCandidate, KeymapEdit};
 pub mod migration;
 pub mod paths;
+pub mod plugin_roots;
+pub use plugin_roots::{PluginRoot, PluginRootKind, PluginRootRequest, candidate_roots};
 pub mod settings_document;
 pub mod settings_edit;
 mod settings_layout;
