@@ -127,14 +127,15 @@ existing approach), then mutate it to prove the persisted namespace holds.
 
 ## 5. Slices (RED → GREEN → REFACTOR each)
 
-| # | Slice | Criteria | Notes |
-|---|---|---|---|
-| S0 | `#[cfg(unix)]`-gate the socket module | V7 | Independent. Blockers: `multiplexer.rs:197` calls `super::socket::jefe_tmux_socket_path()` inside the `Unix` arm; `commands_tests.rs:640` calls it in an `else` branch. Fix by cfg-splitting `current_isolation()`. |
-| S1 | Parse and carry psmux **commit**; unify the duplicate parser | V10 | Widen `classify_probe`'s success type to a `MultiplexerIdentity { version, commit }`. Share with `harness/psmux_driver.rs`. Overlaps #540 V1/V2. |
-| S2 | Binary identity becomes namespace input | V8, V9 | |
-| S3 | Explicit, loud namespace override | V11 | |
-| S4 | Persistence + drift resolution | V1–V5 | `src/runtime/namespace.rs` (pure) + `src/runtime/namespace_store.rs` (I/O). |
-| S5 | Doctor provenance | V6, V12 | Extend `record_namespace_isolation` (`src/doctor/collection.rs:89`). Fingerprints hashed, never raw material. |
+| # | Slice | Criteria | Status | Notes |
+|---|---|---|---|---|
+| S0 | `#[cfg(unix)]`-gate the socket module | V7 | **Done — `8047e80e`** | Blockers were `multiplexer.rs:197` and `commands_tests.rs:640`; fixed by cfg-splitting `current_isolation()`. Also revealed `identity.rs` was entirely dead on Unix — the mirror image — so both modules are now gated. |
+| S1 | Parse and carry psmux **commit**; unify the duplicate parser | V10 | **Done — `f6bf52f3`** | `MultiplexerIdentity { version, commit }` added; `classify_output`/`classify_probe`/`preflight` widened; duplicate `PsmuxVersion` deleted from `harness/psmux_driver.rs`. |
+| — | Tighten A6 to discover psmux tests dynamically | (tooling) | **Done — `b0f143af`** | Was a hardcoded 7-file roster; `tests/psmux_uncertainty_perturbation.rs` had never been added and was silently exempt. |
+| S2 | Binary identity becomes namespace input | V8, V9 | **Blocked — Q1** | |
+| S3 | Recovery-only namespace override | V11 | **Blocked — Q1** | Reduced in scope: see Q3 resolution. |
+| S4 | Persistence + drift resolution | V1–V5 | **Blocked — Q1** | `src/runtime/namespace.rs` (pure) + `src/runtime/namespace_store.rs` (I/O). Also un-gates `mod identity` back to cross-platform. |
+| S5 | Doctor provenance | V6, V12 | Pending | Extend `record_namespace_isolation` (`src/doctor/collection.rs:89`). Fingerprints hashed, never raw material. Should surface state dir, namespace, and the binary identity that produced it. |
 
 Maintainer sequencing puts S1–S3 ahead of S4. S0 is independent and lands first
 because it is cheap and removes a live foot-gun.
@@ -150,21 +151,66 @@ because it is cheap and removes a live foot-gun.
 
 | Item | Status |
 |---|---|
-| New public abstractions: `NamespaceResolution`, `MultiplexerIdentity`, namespace override env var | **Awaiting approval** |
+| `MultiplexerIdentity` | Resolved — mandated by the maintainer's V8–V12 scope addition, so not an unplanned abstraction. Landed in `f6bf52f3`. |
+| New public abstraction `NamespaceResolution` | **Awaiting approval** |
 | New modules `src/runtime/namespace.rs`, `namespace_store.rs` | **Awaiting approval** |
 | New persisted artifact `runtime-namespace.json` | **Awaiting approval** |
 | Touching `harness/psmux_driver.rs` to de-duplicate the version parser | In scope per issue ("built once and shared") |
-| Adding a new psmux test file to the hardcoded list in `windows_ci_signal_contracts.rs` | **Question Q2** — that file is quality tooling |
+| Namespace override *env var* | **Withdrawn** — see Q3. `JEFE_STATE_DIR` already selects the namespace; a second knob would contradict the first. |
+| Modifying `windows_ci_signal_contracts.rs` | Resolved — the standing rule forbids *loosening* quality tooling; tightening it is permitted. Landed in `b0f143af`. |
 | Coverage/observability findings from this session | Split out as #662, #663, #664 |
 
 ## 8. Open questions for the maintainer
 
-- **Q1.** On a legitimate psmux *upgrade*, should sessions (a) be reported as
-  `Rebound` with the old namespace offered for recovery, or (b) carry over by
-  re-keying the existing slot to the new binary identity? (b) is friendlier but
-  weakens V8's guarantee. Plan currently plans (a).
-- **Q2.** May I add the new psmux test file to the allowlist in
-  `tests/core/windows_ci_signal_contracts.rs`? It is quality tooling, which
-  normally requires approval before modification.
-- **Q3.** Override mechanism: env var, CLI flag, or both? Issue says "env var
-  or CLI flag".
+- **Q1 — OPEN, blocks S2/S3/S4.** On a psmux *rebuild*, should sessions be
+  (a) reported as `Rebound`, with the previous namespace retained for recovery,
+  or (b) carried over by re-keying the record to the new binary identity?
+  (a) honours V8 strictly but costs a recovery step on every rebuild;
+  (b) is painless but weakens V8 and permits a new client to attach to a server
+  started by an older, behaviourally different binary. Note the issue places
+  version-only keying explicitly out of bounds, so "ignore the commit" is
+  already rejected. See §9 for why the frequency here is daily, not rare.
+- **Q2 — RESOLVED.** The rule is that quality tooling must not be *loosened*;
+  making a check more correct is allowed. The A6 roster is now derived from the
+  filesystem, so no allowlist entry is needed for any future test.
+- **Q3 — RESOLVED, and the question was malformed.** The namespace record lives
+  at `<state_dir>/runtime-namespace.json`, so `JEFE_STATE_DIR` (and
+  `JEFE_STATE_PATH`) *already* select the namespace; no new isolation knob is
+  required. The only residual need is **recovery**: reattaching to a namespace
+  that has already been stranded. That should be a **one-shot CLI flag, not an
+  env var** — an env var left set in a shell profile is invisible and sticky,
+  which is precisely the silent-stranding failure #547 exists to eliminate.
+
+## 9. Empirical evidence gathered while planning
+
+**V10's premise is real on this machine, not hypothetical.** The latest psmux
+*release* is v3.3.7 (2026-07-20). The installed binary is commit `cb098c0`
+(2026-08-03) — two weeks of main past that release — and still self-reports
+`3.3.7`. That commit bounds the registry sweep by budget/interval and reworks
+**namespace token sweeping**, i.e. the exact machinery jefe namespaces depend
+on. Two behaviourally different binaries, one version string. `psmux -V` prints
+two lines (`tmux 3.3.7`, then `psmux 3.3.7 (cb098c0 2026-08-03)`); the old
+parser took the first digit-leading token and so read the tmux *compatibility*
+line while discarding the commit. `MINIMUM_PSMUX_VERSION = 3.3.7` remains
+correct and needs no bump.
+
+**The namespace is shared far more widely than "worktrees".** Every running
+psmux server carries `-L jefe-76134a0ba22f56e9`, while their start directories
+(`-d`) span six working trees across **two unrelated projects**:
+
+```
+projects\jefe\branch-1   projects\jefe\branch-2
+projects\jefe\branch-3   projects\jefe\branch-4
+projects\llxprt\branch-1 projects\llxprt\branch-2
+```
+
+This follows from `platform_default_state_dir()` (`src/persistence/mod.rs:556`)
+being `dirs::data_local_dir()/jefe` with **no cwd component**: one state dir,
+one namespace, one session pool for everything on the machine. It explains why
+sessions from other checkouts appear in any given jefe instance, and it sets
+the stakes for Q1 — under option (a), a single psmux rebuild hides every
+session across all six trees and both projects at once.
+
+The test harness, by contrast, correctly isolates itself
+(`-L jefe-harness-18412-18c9000aaae741f4-2`: pid plus atomic counter), which is
+the A6 contract working as designed.
