@@ -1,5 +1,6 @@
 //! Privacy-conscious user identity for private multiplexer namespaces.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -33,32 +34,42 @@ pub fn unique_namespace_for_identity(identity: &[u8]) -> String {
     )
 }
 
-#[cfg(windows)]
-fn current_identity_material() -> Vec<u8> {
-    let account = whoami::username().unwrap_or_else(|_| "local-user".to_owned());
-    let host = whoami::hostname().unwrap_or_else(|_| "local".to_owned());
-    format!("{host}\0{account}").into_bytes()
+/// Reduce a state path to the identity material that names its installation.
+///
+/// Keyed on the resolved state path rather than hostname plus account
+/// (issue #547). Machine identity is global to the box, so every jefe on it
+/// collapsed into a single namespace, and renaming the machine or changing the
+/// account casing silently orphaned every running session. The state path is
+/// something jefe controls and persists, so it separates genuinely distinct
+/// installations while surviving machine renames.
+///
+/// Normalization is deliberately lexical rather than `std::fs::canonicalize`:
+/// the state file does not exist before the first save, and canonicalization
+/// emits `\\?\` verbatim prefixes that would not match the same location
+/// spelled normally.
+fn state_path_identity_material(state_path: &Path) -> String {
+    let unified: String = state_path
+        .to_string_lossy()
+        .chars()
+        .map(|character| if character == '\\' { '/' } else { character })
+        .collect();
+    let trimmed = unified.trim_end_matches('/');
+    let normalized = if trimmed.is_empty() {
+        &unified
+    } else {
+        trimmed
+    };
+    normalized.to_ascii_lowercase()
 }
 
-#[cfg(not(windows))]
-fn current_identity_material() -> Vec<u8> {
-    std::env::var_os("USER")
-        .or_else(|| std::env::var_os("LOGNAME"))
-        .filter(|value| !value.is_empty())
-        .map_or_else(
-            || b"local-user".to_vec(),
-            |value| value.as_encoded_bytes().to_vec(),
-        )
-}
-
-/// Stable, privacy-safe namespace for the current user.
+/// Stable, privacy-safe namespace for the installation rooted at `state_path`.
 #[must_use]
-pub fn stable_current_user_namespace() -> String {
-    namespace_for_identity(&current_identity_material())
+pub fn namespace_for_state_path(state_path: &Path) -> String {
+    namespace_for_identity(state_path_identity_material(state_path).as_bytes())
 }
 
-/// Isolated namespace for the current test/run.
+/// Isolated namespace for one run of the installation rooted at `state_path`.
 #[must_use]
-pub fn unique_current_user_namespace() -> String {
-    unique_namespace_for_identity(&current_identity_material())
+pub fn unique_namespace_for_state_path(state_path: &Path) -> String {
+    unique_namespace_for_identity(state_path_identity_material(state_path).as_bytes())
 }

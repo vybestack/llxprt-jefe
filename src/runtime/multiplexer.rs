@@ -975,12 +975,19 @@ fn current_isolation(unique: bool) -> MultiplexerIsolation {
 
 #[cfg(windows)]
 fn unique_test_namespace() -> String {
-    super::identity::unique_current_user_namespace()
+    super::identity::unique_namespace_for_state_path(
+        &crate::persistence::resolve_paths().state_path,
+    )
 }
 
+/// The namespace every production psmux command shares.
+///
+/// Derived from the resolved state path so that a machine rename, an account
+/// rename, or a casing change in `%LOCALAPPDATA%` cannot move it and strand
+/// running agents (issue #547).
 #[cfg(windows)]
 fn stable_jefe_namespace() -> String {
-    super::identity::stable_current_user_namespace()
+    super::identity::namespace_for_state_path(&crate::persistence::resolve_paths().state_path)
 }
 
 fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
