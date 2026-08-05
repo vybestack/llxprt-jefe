@@ -95,6 +95,22 @@ fn native_kill_on_job_close_terminates_a_contained_descendant_within_bound() {
         exited_within_bound,
         "contained descendant must exit within the bounded timeout once the kill-on-close Job handle is released"
     );
+
+    // Issue #664: the reap must stop at the Job's members. This process created
+    // and owned the Job but never joined it, so releasing the handle terminated
+    // the child and nothing else. Reaching this line at all is the observation,
+    // and spawning again proves the owner is still a working process rather
+    // than one the kernel has begun to tear down.
+    let mut unrelated = spawn_long_lived_child();
+    let owner_survived = unrelated.try_wait().ok().flatten().is_none();
+    let _ = unrelated.kill();
+    let _ = unrelated.wait();
+    assert!(
+        owner_survived,
+        "releasing a kill-on-close Job handle must terminate only the processes assigned \
+         to that Job. An owner that is also a member would be killed by its own guard, \
+         which is the silent whole-tree death reported in issue #664."
+    );
 }
 
 #[test]
