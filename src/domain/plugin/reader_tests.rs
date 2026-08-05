@@ -115,21 +115,28 @@ fn mutated(from: &str, to: &str) -> String {
 }
 
 #[test]
-fn a_complete_manifest_lowers_every_declaration() {
+fn a_complete_manifest_lowers_its_identity_and_provider() {
     let manifest = parsed(COMPLETE);
-
     assert_eq!(manifest.id().as_str(), "vendor.git-merger");
     assert_eq!(manifest.version().as_str(), "1.0.0");
     assert_eq!(manifest.display_name(), "Git Merger");
     assert_eq!(manifest.provider().mode(), ProviderMode::OneShot);
     assert_eq!(manifest.provider().binaries().len(), 1);
+}
 
+#[test]
+fn a_complete_manifest_lowers_its_config_schema() {
+    let manifest = parsed(COMPLETE);
     let config = manifest
         .config()
         .unwrap_or_else(|| panic!("config must be present"));
     assert_eq!(config.schema_version(), 1);
     assert_eq!(config.fields().len(), 4);
+}
 
+#[test]
+fn a_complete_manifest_lowers_its_action() {
+    let manifest = parsed(COMPLETE);
     let action = manifest
         .actions()
         .first()
@@ -143,7 +150,11 @@ fn a_complete_manifest_lowers_every_declaration() {
         [ActionOutcome::Notice, ActionOutcome::RefreshCurrentResource]
     );
     assert_eq!(action.arguments().len(), 1);
+}
 
+#[test]
+fn a_complete_manifest_lowers_its_panel() {
+    let manifest = parsed(COMPLETE);
     let panel = manifest
         .panels()
         .first()
@@ -154,7 +165,11 @@ fn a_complete_manifest_lowers_every_declaration() {
         [EventKind::Selected, EventKind::FieldChanged]
     );
     assert_eq!(panel.ports().len(), 1);
+}
 
+#[test]
+fn a_complete_manifest_lowers_its_route_and_screen() {
+    let manifest = parsed(COMPLETE);
     let route = manifest
         .routes()
         .first()
@@ -167,7 +182,11 @@ fn a_complete_manifest_lowers_every_declaration() {
         .first()
         .unwrap_or_else(|| panic!("screen must be present"));
     assert_eq!(screen.path().as_str(), "screens/main.json");
+}
 
+#[test]
+fn a_complete_manifest_lowers_its_defaults() {
+    let manifest = parsed(COMPLETE);
     let defaults = manifest
         .defaults()
         .unwrap_or_else(|| panic!("defaults must be present"));
