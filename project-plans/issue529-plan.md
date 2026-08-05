@@ -136,10 +136,24 @@ No other file changed.
   CI never exercised this Windows path. Broadening that gate is a separate
   testing-coverage concern.
 
+### PR review 2 triage
+
+| # | Finding | Class | Action |
+| --- | --- | --- | --- |
+| 1 | Give `push_cmd_outer_quote` compile-time enforcement (wrapper type or `#[inline(always)]`) so it cannot be repurposed with other raw strings | Reject | Dismissed with reasons recorded on the PR |
+
+The helper's signature is `fn push_cmd_outer_quote(command: &mut Command)` — it
+takes no string parameter, so no caller can supply raw text; the quote is a
+literal in the body. A newtype constrains values crossing a signature and there
+is none to constrain, and `#[inline(always)]` is a codegen hint with no safety
+semantics. The finding's valid kernel — never extend `raw_arg` to
+runtime-derived input — was already actioned in review 1 and is documented at
+the call site.
+
 ## Review counters
 
 - Local OCR runs: 1 / 2
-- PR OCR runs: 1 / 2
+- PR OCR runs: 2 / 2
 
 ### Local review 1 triage
 
