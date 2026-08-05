@@ -208,6 +208,7 @@ Commits on `issue662`:
 | `ad4f11c4` | 1 | pure run-record domain types and `classify_prior_run` |
 | `5ac78df2` | 2 | per-run marker persistence beside the durable state file |
 | `d38ecce3` | review | a heartbeat in flight at shutdown can no longer resurrect a retired marker |
+| `bddbcc70` | review | A6/A7 coverage gap closed: the run-end record is proven to carry the breadcrumb |
 | `548b643a` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
 | `3d99a495` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
 
@@ -246,5 +247,4 @@ without these changes; it is environment-dependent and untouched by this work.
   `Mutex<Option<ActiveRun>>` (local review D1).
 - Prove marker survival against a real OS kill rather than `mem::forget` plus
   `exit(0)` (local review D2).
-- No test asserts that the attach/detach breadcrumb appears in the run-**end**
-  log record; it is asserted in the marker and in the unclean-run report.
+
