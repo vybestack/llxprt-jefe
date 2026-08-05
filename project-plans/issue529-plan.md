@@ -138,5 +138,25 @@ No other file changed.
 
 ## Review counters
 
-- Local OCR runs: 0 / 2
+- Local OCR runs: 1 / 2
 - PR OCR runs: 0 / 2
+
+### Local review 1 triage
+
+Verdict: approve-with-nits, no blockers. Quoting correctness was confirmed
+independently against the standard library's `make_command_line`, which emits a
+separating space before every argument including a raw one, so the bracketing
+quotes are never glued to the wrapper or to an argument.
+
+| # | Finding | Class | Action |
+| --- | --- | --- | --- |
+| 1 | Outer-quote approach correct for spaced/unspaced wrappers, spaced args, embedded quotes, empty args, empty argv | No issue | none |
+| 2 | `& \| ^ > < %` are not quoted by the encoder and stay cmd-interpreted | Defer | Pre-existing and byte-identical before/after this change; orthogonal to #529 |
+| 3 | Spaced *arguments* covered only structurally, never by a real launch | In-scope-Fix | Fixed: added `spaced_arguments_survive_the_cmd_exe_boundary` |
+| 4 | `agent_probe.rs` at 963 lines vs the 750 recommendation | Defer | Warning-only gate, under the 1000 hard limit; splitting it is an unrelated refactor |
+| 5 | No `unwrap`/`expect` in production, no `unsafe`, no new dependency or public abstraction | No issue | none |
+| 6 | `Direct` and `PowerShellScript` arms correctly untouched; `powershell -File` has no `/S` rule | No issue | none |
+
+Finding 3 was taken because argument delivery is the specific behavior this
+change puts at risk; findings 2 and 4 are pre-existing conditions that this
+change does not worsen in kind and are out of scope for #529.
