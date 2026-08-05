@@ -19,3 +19,12 @@ pub const PLUGIN_ID_MINIMUM_LABELS: usize = 2;
 /// `local.` name the built-in screen and workspace owner namespaces already
 /// published by [`crate::config_owners::builtin_owner_catalog`].
 pub const RESERVED_FIRST_LABELS: [&str; 3] = ["core", "github", "local"];
+
+/// Maximum bytes in one package-relative path.
+pub const PACKAGE_PATH_BYTE_LIMIT: usize = 1_024;
+
+/// Maximum components in one package-relative path.
+pub const PACKAGE_PATH_DEPTH_LIMIT: usize = 16;
+
+/// Maximum bytes in a secret reference's environment-variable name.
+pub const SECRET_ENV_BYTE_LIMIT: usize = 128;

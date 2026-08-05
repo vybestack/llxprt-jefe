@@ -17,6 +17,14 @@ fn main() {
 
     let commit = git_short_commit().unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=JEFE_GIT_COMMIT={commit}");
+
+    // A plugin keys its provider binaries by exact build host triple (issue
+    // #389). The triple is a build-time fact that `std` does not expose at
+    // runtime: `env::consts` gives only architecture and OS, which cannot tell
+    // `-gnu` from `-musl`, or `-msvc` from `-gnu` on Windows. Cargo does give
+    // it to build scripts, so it is baked in here.
+    let target = std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
+    println!("cargo:rustc-env=JEFE_HOST_TRIPLE={target}");
 }
 
 /// Run `git rev-parse --short HEAD` in the crate root, returning the trimmed
