@@ -17,7 +17,7 @@ use crate::domain::action_registry::ActionId;
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::Chord;
 use crate::domain::sha256::Sha256;
-use crate::domain::{Id, OwnerCatalog, ThemeId};
+use crate::domain::{CanonicalSemver, Id, OwnerCatalog, ThemeId};
 use crate::workbench::descriptor::LayoutNode;
 
 use super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
@@ -84,6 +84,10 @@ pub enum SyntaxPath {
     ScreenOrder,
     /// `agents.<id>.enabled` — whether one agent type is offered.
     AgentEnabled(Id),
+    /// `plugins.<id>.enabled` — whether one package is trusted to run.
+    PluginEnabled(Id),
+    /// `plugins.<id>.version` — the exact installed version selected.
+    PluginVersion(Id),
     /// `workbench.layout_overrides.<id>` — one screen's whole layout tree.
     LayoutOverride(Id),
     /// `keymap.<context>.<action>` — one action's whole chord list.
@@ -120,6 +124,8 @@ impl SyntaxPath {
             Self::EnabledScreens => vec!["workbench", "enabled_screens"],
             Self::ScreenOrder => vec!["workbench", "screen_order"],
             Self::AgentEnabled(agent) => vec!["agents", agent.as_str(), "enabled"],
+            Self::PluginEnabled(plugin) => vec!["plugins", plugin.as_str(), "enabled"],
+            Self::PluginVersion(plugin) => vec!["plugins", plugin.as_str(), "version"],
             Self::LayoutOverride(screen) => {
                 vec!["workbench", "layout_overrides", screen.as_str()]
             }
@@ -155,6 +161,8 @@ impl SyntaxPath {
             | Self::EnabledScreens
             | Self::ScreenOrder
             | Self::AgentEnabled(_)
+            | Self::PluginEnabled(_)
+            | Self::PluginVersion(_)
             | Self::LayoutOverride(_)
             | Self::Keymap { .. } => true,
         }
@@ -177,6 +185,9 @@ impl SyntaxPath {
                 "[workbench]".to_owned()
             }
             Self::AgentEnabled(agent) => format!("[agents.{}]", quoted_key(agent.as_str())),
+            Self::PluginEnabled(plugin) | Self::PluginVersion(plugin) => {
+                format!("[plugins.{}]", quoted_key(plugin.as_str()))
+            }
             Self::LayoutOverride(_) => "[workbench.layout_overrides]".to_owned(),
             Self::Keymap { context, .. } => {
                 format!("[keymap.{}]", quoted_key(context.as_str()))
@@ -192,7 +203,8 @@ impl SyntaxPath {
             Self::InitialScreen => "initial_screen".to_owned(),
             Self::EnabledScreens => "enabled_screens".to_owned(),
             Self::ScreenOrder => "screen_order".to_owned(),
-            Self::AgentEnabled(_) => "enabled".to_owned(),
+            Self::AgentEnabled(_) | Self::PluginEnabled(_) => "enabled".to_owned(),
+            Self::PluginVersion(_) => "version".to_owned(),
             Self::LayoutOverride(screen) => quoted_key(screen.as_str()),
             Self::Keymap { action, .. } => quoted_key(action.as_str()),
         }
@@ -231,6 +243,24 @@ pub enum SettingsEdit {
         /// Whether the type is offered.
         enabled: bool,
     },
+    /// Trust one package to run, or withdraw that trust.
+    ///
+    /// Disabling writes `false` rather than removing the assignment, so the
+    /// package's selected version and configuration stay recorded as a dormant
+    /// choice the operator can restore without re-entering it.
+    PluginEnabled {
+        /// The package this writes.
+        plugin: Id,
+        /// Whether the package's provider may run.
+        enabled: bool,
+    },
+    /// Select one package's exact installed version.
+    PluginVersion {
+        /// The package this writes.
+        plugin: Id,
+        /// The exact version, including any build metadata.
+        version: CanonicalSemver,
+    },
     /// Replace one screen's whole layout tree.
     ///
     /// The tree is boxed because a layout is far larger than every other edit,
@@ -265,6 +295,8 @@ impl SettingsEdit {
             Self::EnabledScreens(_) => SyntaxPath::EnabledScreens,
             Self::ScreenOrder(_) => SyntaxPath::ScreenOrder,
             Self::AgentEnabled { agent, .. } => SyntaxPath::AgentEnabled(agent.clone()),
+            Self::PluginEnabled { plugin, .. } => SyntaxPath::PluginEnabled(plugin.clone()),
+            Self::PluginVersion { plugin, .. } => SyntaxPath::PluginVersion(plugin.clone()),
             Self::ReplaceLayout { screen, .. } => SyntaxPath::LayoutOverride(screen.clone()),
             Self::Keymap {
                 context, action, ..
@@ -285,7 +317,10 @@ impl SettingsEdit {
             Self::EnabledScreens(screens) | Self::ScreenOrder(screens) => {
                 Some(toml_string_array(screens.iter().map(Id::as_str)))
             }
-            Self::AgentEnabled { enabled, .. } => Some(enabled.to_string().into_bytes()),
+            Self::AgentEnabled { enabled, .. } | Self::PluginEnabled { enabled, .. } => {
+                Some(enabled.to_string().into_bytes())
+            }
+            Self::PluginVersion { version, .. } => Some(toml_string(version.as_str())),
             Self::ReplaceLayout { layout, .. } => Some(super::settings_layout::render(layout)),
             Self::Keymap { chords, .. } => {
                 Some(toml_string_array(chords.iter().map(ToString::to_string)))

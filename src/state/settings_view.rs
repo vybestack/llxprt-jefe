@@ -321,12 +321,19 @@ fn toggle_activation(path: &SyntaxPath, value: bool) -> Option<SettingsActivatio
                 enabled: !value,
             }))
         }
+        SyntaxPath::PluginEnabled(plugin) => {
+            Some(SettingsActivation::Edit(SettingsEdit::PluginEnabled {
+                plugin: plugin.clone(),
+                enabled: !value,
+            }))
+        }
         // Every remaining leaf holds something other than a boolean, so a
         // toggle row can never name one.
         SyntaxPath::Theme
         | SyntaxPath::InitialScreen
         | SyntaxPath::EnabledScreens
         | SyntaxPath::ScreenOrder
+        | SyntaxPath::PluginVersion(_)
         | SyntaxPath::LayoutOverride(_)
         | SyntaxPath::Keymap { .. } => None,
     }
