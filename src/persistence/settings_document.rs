@@ -290,6 +290,88 @@ pub(super) fn patch_assignment(
     Ok(insert_assignment(document, assignment, value))
 }
 
+/// Remove the whole `[table]` block spelling `path`, if the document has one.
+///
+/// A block is its header plus every statement up to the next header, which is
+/// exactly the syntax that defines the subtree. Removing it is how a subtree
+/// leaf written in header form is replaced: the caller then writes the
+/// replacement as an ordinary assignment, so a tree has one spelling after an
+/// edit rather than two definitions of the same key.
+///
+/// A document with no such header is returned unchanged.
+pub(super) fn remove_table_block(document: &SettingsDocument, path: &[&str]) -> Vec<u8> {
+    if document.table_span(path).is_none() {
+        return document.original_bytes().to_vec();
+    }
+    // Only the syntax this block *owns* is removed: its own header line, the
+    // header line of every nested table under it, and each of their
+    // assignments. Deleting the byte range between two headers instead would
+    // take the comments and blank lines sitting in front of the next one,
+    // which belong to it and not to what is being replaced.
+    let mut owned: Vec<ByteSpan> = document
+        .table_nodes()
+        .iter()
+        .filter(|node| owns(&node.path, path))
+        .map(|node| line_span(document, node.span))
+        .chain(
+            document
+                .syntax_nodes()
+                .iter()
+                .filter(|node| owns(&node.path, path))
+                .map(|node| line_span(document, node.statement_span)),
+        )
+        .collect();
+    // A header's line and its first assignment's statement can cover some of
+    // the same bytes, and splicing one range twice would cut the document in
+    // the middle of what the other already removed.
+    owned.sort_by_key(|span| (span.start, span.end));
+    let mut merged: Vec<ByteSpan> = Vec::new();
+    for span in owned {
+        match merged.last_mut() {
+            Some(last) if span.start <= last.end => {
+                *last = ByteSpan::new(last.start, last.end.max(span.end));
+            }
+            _ => merged.push(span),
+        }
+    }
+    apply_patches(
+        document.original_bytes(),
+        merged.into_iter().map(|span| (span, Vec::new())).collect(),
+    )
+}
+
+/// The span extended to the end of the line it sits on.
+///
+/// A header carries no newline of its own, so removing one without its line
+/// ending would leave a blank line where a line used to be. A statement span
+/// that already ends on its newline is complete, and extending it again would
+/// take the line after it.
+fn line_span(document: &SettingsDocument, span: ByteSpan) -> ByteSpan {
+    let bytes = document.original_bytes();
+    let Ok(mut end) = usize::try_from(span.end) else {
+        return span;
+    };
+    if end > 0 && bytes.get(end - 1) == Some(&b'\n') {
+        return span;
+    }
+    while end < bytes.len() && bytes[end] != b'\n' {
+        end += 1;
+    }
+    if end < bytes.len() {
+        end += 1;
+    }
+    ByteSpan::new(span.start, end as u64)
+}
+
+/// Whether `path` is `prefix` itself or something nested inside it.
+fn owns(path: &[String], prefix: &[&str]) -> bool {
+    path.len() >= prefix.len()
+        && path
+            .iter()
+            .zip(prefix)
+            .all(|(left, right)| left.as_str() == *right)
+}
+
 /// Whether an ancestor of this leaf is written as one value.
 ///
 /// `appearance = { theme = "x" }` gives `appearance` a value span of its own, so

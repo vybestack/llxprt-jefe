@@ -10,7 +10,8 @@ use jefe::domain::ThemeId;
 use jefe::messages::AppMessage;
 use jefe::messages::NavDir;
 use jefe::messages::settings::{
-    RecoveryChoice, SettingsEnvironment, SettingsMessage, SettingsSource, ThemeChoice,
+    LayoutMessage, RecoveryChoice, SettingsEnvironment, SettingsMessage, SettingsSection,
+    SettingsSource, ThemeChoice,
 };
 use jefe::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use jefe::persistence::settings_edit::{ExportPath, export_candidate};
@@ -19,6 +20,7 @@ use jefe::persistence::{PersistenceManager, SettingsCandidate, SettingsSaveOutco
 use jefe::state::navigation_dirty::DirtyChoice;
 use jefe::state::{DraftStatus, SettingsDraft, settings_view};
 use jefe::theme::ThemeManager;
+use jefe::workbench::descriptor::Axis;
 
 use super::{AppStateHandle, SharedContext};
 
@@ -27,6 +29,8 @@ use super::{AppStateHandle, SharedContext};
 pub enum SettingsAction {
     /// Open the screen on a freshly read document.
     Open,
+    /// Open the screen on a freshly read document, showing the Keys section.
+    OpenKeys,
     /// Leave the screen, raising the host dirty guard when work is unsaved.
     Back,
     /// Move the selection up.
@@ -49,12 +53,25 @@ pub enum SettingsAction {
     SaveAndExit,
     /// Return the focused row's leaf to its compiled default.
     Reset,
+    /// Flip whatever the focused row holds, when it holds something that flips.
+    Toggle,
+    /// Bind nothing to the focused action.
+    Unbind,
+    /// Wait for one more chord to add to the focused binding.
+    AddChord,
+    /// Move the focused screen one place earlier.
+    MoveUp,
+    /// Move the focused screen one place later.
+    MoveDown,
 }
 
 /// Apply one resolved Settings intent.
 pub fn apply(action: SettingsAction, app_state: &mut AppStateHandle, ctx: &SharedContext) {
     match action {
-        SettingsAction::Open => dispatch_open(app_state, ctx),
+        SettingsAction::Open => dispatch_open(app_state, ctx, None),
+        SettingsAction::OpenKeys => {
+            dispatch_open(app_state, ctx, Some(SettingsSection::Keys));
+        }
         SettingsAction::Back => back(app_state),
         SettingsAction::Save => save(app_state, ctx, false),
         SettingsAction::SaveAndExit => save(app_state, ctx, true),
@@ -68,6 +85,15 @@ pub fn apply(action: SettingsAction, app_state: &mut AppStateHandle, ctx: &Share
         SettingsAction::SelectPrevious => select(app_state, NavDir::Prev),
         SettingsAction::SelectNext => select(app_state, NavDir::Next),
         SettingsAction::Reset => reset(app_state),
+        SettingsAction::Toggle => dispatch(app_state, SettingsMessage::ToggleRow),
+        SettingsAction::Unbind => dispatch(app_state, SettingsMessage::UnbindRow),
+        SettingsAction::AddChord => dispatch(app_state, SettingsMessage::AddChord),
+        SettingsAction::MoveUp => {
+            dispatch(app_state, SettingsMessage::ReorderRow(NavDir::Up));
+        }
+        SettingsAction::MoveDown => {
+            dispatch(app_state, SettingsMessage::ReorderRow(NavDir::Down));
+        }
     }
     reconcile_theme(app_state, ctx);
 }
@@ -114,15 +140,117 @@ pub fn handle_dirty_guard_key(
     true
 }
 
+/// Give one key press to a waiting chord capture.
+///
+/// A capture takes exactly the next chord, so while one is waiting the keyboard
+/// belongs to it — otherwise the key the user is trying to bind would also do
+/// whatever it is already bound to.
+#[must_use]
+pub fn handle_capture_key(app_state: &mut AppStateHandle, key_event: &KeyEvent) -> bool {
+    if app_state.read().settings_state.capture.is_none() {
+        return false;
+    }
+    if key_event.kind == KeyEventKind::Release {
+        // A release is the same physical press reported twice; capturing it
+        // would bind the chord and then immediately answer for it again.
+        return true;
+    }
+    // A press this grammar has no chord for is not a chord the registry could
+    // dispatch either — a bare modifier is the ordinary case — so there is
+    // nothing to bind, and the capture goes on waiting for a key that names one.
+    if let Ok(chord) = jefe::input::canonical_chord(key_event) {
+        dispatch(app_state, SettingsMessage::CapturedChord(chord));
+    }
+    true
+}
+
+/// Route one key press to the open layout tree editor.
+///
+/// The editor owns the keyboard while it is open, so a keystroke meant for a
+/// node dialog cannot also move the row list behind it.
+#[must_use]
+pub fn handle_layout_key(app_state: &mut AppStateHandle, key_event: &KeyEvent) -> bool {
+    let in_dialog = {
+        let state = app_state.read();
+        match state.settings_state.layout_editor.as_ref() {
+            None => return false,
+            Some(editor) => editor.dialog.is_some(),
+        }
+    };
+    if key_event.kind == KeyEventKind::Release {
+        return true;
+    }
+    if key_event.modifiers == KeyModifiers::CONTROL
+        && matches!(key_event.code, KeyCode::Char('q' | 'Q'))
+    {
+        // Ctrl-Q is the protected exit and is never captured by a sub-editor.
+        return false;
+    }
+    let message = if in_dialog {
+        dialog_message(key_event)
+    } else {
+        tree_message(key_event)
+    };
+    if let Some(message) = message {
+        dispatch(app_state, SettingsMessage::Layout(message));
+    }
+    true
+}
+
+/// What one key press means while the node dialog is open.
+fn dialog_message(key_event: &KeyEvent) -> Option<LayoutMessage> {
+    match key_event.code {
+        KeyCode::Esc => Some(LayoutMessage::CancelDialog),
+        KeyCode::Enter => Some(LayoutMessage::ApplyDialog),
+        KeyCode::Tab => Some(LayoutMessage::NextField),
+        KeyCode::Backspace => Some(LayoutMessage::Backspace),
+        KeyCode::Up => Some(LayoutMessage::ChoosePanel(NavDir::Prev)),
+        KeyCode::Down => Some(LayoutMessage::ChoosePanel(NavDir::Next)),
+        KeyCode::Char(' ') => Some(LayoutMessage::ToggleField),
+        KeyCode::Char(character) => Some(LayoutMessage::TypeChar(character)),
+        _ => None,
+    }
+}
+
+/// What one key press means while the tree itself has focus.
+fn tree_message(key_event: &KeyEvent) -> Option<LayoutMessage> {
+    match key_event.code {
+        KeyCode::Esc | KeyCode::Char('q') => Some(LayoutMessage::Cancel),
+        KeyCode::Enter => Some(LayoutMessage::Apply),
+        KeyCode::Up | KeyCode::Char('k') => Some(LayoutMessage::SelectPrevious),
+        KeyCode::Down | KeyCode::Char('j') => Some(LayoutMessage::SelectNext),
+        KeyCode::Left | KeyCode::Char('h') => Some(LayoutMessage::SelectParent),
+        KeyCode::Right | KeyCode::Char('l') => Some(LayoutMessage::SelectChild),
+        KeyCode::Char('a') => Some(LayoutMessage::BeginAdd),
+        KeyCode::Char('e') => Some(LayoutMessage::BeginEdit),
+        KeyCode::Char('x') => Some(LayoutMessage::Remove),
+        KeyCode::Char('r') => Some(LayoutMessage::ResetOverride),
+        KeyCode::Char('H') => Some(LayoutMessage::Split(Axis::Horizontal)),
+        KeyCode::Char('V') => Some(LayoutMessage::Split(Axis::Vertical)),
+        _ => None,
+    }
+}
+
 fn resolve_dirty(choice: DirtyChoice, app_state: &mut AppStateHandle, ctx: &SharedContext) {
     dispatch(app_state, SettingsMessage::ResolveDirty(choice));
     write_pending(app_state, ctx);
     reconcile_theme(app_state, ctx);
 }
 
-fn dispatch_open(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+fn dispatch_open(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    section: Option<SettingsSection>,
+) {
     match read_source(ctx) {
-        Ok(source) => dispatch(app_state, SettingsMessage::Open(Box::new(source))),
+        Ok(source) => {
+            dispatch(app_state, SettingsMessage::Open(Box::new(source)));
+            // A key that names one section — "edit my keys" — lands on it
+            // rather than on the screen's front page.
+            if let Some(section) = section {
+                dispatch(app_state, SettingsMessage::SelectSection(section));
+            }
+        }
         // A key that appears to do nothing is the worst answer available, so
         // the screen opens on the reason it could not bind a draft.
         Err(detail) => dispatch(
@@ -169,15 +297,7 @@ fn select(app_state: &mut AppStateHandle, direction: NavDir) {
 }
 
 fn reset(app_state: &mut AppStateHandle) {
-    let path = {
-        let state = app_state.read();
-        settings_view::detail_rows(&state.settings_state)
-            .get(state.settings_state.selected_row)
-            .and_then(settings_view::SettingsRow::editable_path)
-    };
-    if let Some(path) = path {
-        dispatch(app_state, SettingsMessage::Reset(path));
-    }
+    dispatch(app_state, SettingsMessage::ResetRow);
 }
 
 /// The recovery choice the screen is currently offering, if any.

@@ -36,9 +36,7 @@ fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
         .unwrap_or_else(|error| panic!("test JSP host should start: {error}"));
     let ctx = Arc::new(Mutex::new(AppContext {
         keymap_snapshot: Some(startup.keymap_snapshot),
-        settings_document: startup.settings_document,
         settings_expected_hash: startup.settings_expected_hash,
-        keymap_recovery: None,
         settings_revision: 0,
         config_isolated: false,
         persistence: FilePersistenceManager::default(),

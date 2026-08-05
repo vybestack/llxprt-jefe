@@ -8,13 +8,21 @@
 //! slug, name, selection and active marker, plus the availability the picker
 //! could not express because it only ever listed installed themes.
 
+use crate::domain::action_registry::ActionId;
+use crate::domain::agent_definition::AgentTypeId;
+use crate::domain::input_context::ContextId;
 use crate::domain::{Id, ThemeId};
+use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 use crate::messages::settings::{RecoveryChoice, SettingsSection};
 use crate::persistence::diagnostic::{CfgCode, Severity};
+use crate::persistence::settings_document::PublishedSettings;
 use crate::persistence::{SettingsEdit, SyntaxPath};
 use crate::workbench::ScreenId;
 
-use super::settings_types::{DraftStatus, SettingsDraft, SettingsState};
+use super::agent_types_editor::{AgentAvailability, AgentIntent, project_agent_types};
+use super::keys_editor_project::{KeyIntent, project_keys};
+use super::screens_editor::{CompositionStatus, ScreenIntent, project_screens};
+use super::settings_types::{CaptureMode, DraftStatus, SettingsDraft, SettingsState};
 
 /// What one detail row lets the user do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +62,67 @@ pub enum SettingsRowKind {
         /// How serious it is.
         severity: Severity,
     },
+    /// One agent type this installation may offer.
+    AgentType {
+        /// The type's identity.
+        type_id: AgentTypeId,
+        /// Whether the candidate offers it.
+        enabled: bool,
+        /// What the probe found.
+        availability: AgentAvailability,
+    },
+    /// One screen's membership, order, and layout.
+    ScreenMember {
+        /// The screen's identity as a configuration owner, when it spells one.
+        screen_id: Option<Id>,
+        /// Whether composition includes it.
+        enabled: bool,
+        /// Why membership is read-only, when it is.
+        locked: Option<&'static str>,
+        /// Whether the candidate descriptor still validates.
+        composition: CompositionStatus,
+    },
+    /// One action's chords in one context.
+    KeyBinding {
+        /// The context the binding applies in.
+        context: ContextId,
+        /// The action the binding dispatches.
+        action: ActionId,
+        /// Why the binding is read-only, when it is.
+        protected: Option<String>,
+    },
+}
+
+/// What activating one row asks the reducer to do.
+///
+/// A row either writes one leaf directly or names an editor intent. Keeping
+/// both in one closed answer is what lets the reducer treat "the user pressed
+/// Enter on this row" as one question with one answer, whichever section the
+/// row came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsActivation {
+    /// Write one typed value into the draft.
+    Edit(SettingsEdit),
+    /// Change one agent type's enablement.
+    Agent(AgentIntent),
+    /// Change one screen's membership, order, or layout.
+    Screen(Box<ScreenIntent>),
+    /// Change one action's chords.
+    Key(Box<KeyIntent>),
+    /// Start capturing exactly one chord for this binding.
+    CaptureChord {
+        /// The context to bind in.
+        context: ContextId,
+        /// The action to bind.
+        action: ActionId,
+        /// What the captured chord does to the chords already bound.
+        mode: CaptureMode,
+    },
+    /// Open the layout tree editor on this screen.
+    OpenLayout {
+        /// The screen whose layout is edited.
+        screen_id: Id,
+    },
 }
 
 /// One rendered row of the focused section.
@@ -68,37 +137,198 @@ pub struct SettingsRow {
 }
 
 impl SettingsRow {
-    /// The edit activating this row makes, when it makes one.
+    /// What activating this row asks for, when it asks for anything.
     #[must_use]
-    pub fn activation(&self) -> Option<SettingsEdit> {
+    pub fn activation(&self) -> Option<SettingsActivation> {
         match &self.kind {
             SettingsRowKind::Theme {
                 id: Some(id),
                 available: true,
                 ..
-            } => Some(SettingsEdit::Theme(id.clone())),
-            SettingsRowKind::Toggle { path, value } => match path {
-                SyntaxPath::OverrideAgentTheme => Some(SettingsEdit::OverrideAgentTheme(!value)),
-                SyntaxPath::Theme | SyntaxPath::InitialScreen => None,
-            },
+            } => Some(SettingsActivation::Edit(SettingsEdit::Theme(id.clone()))),
+            SettingsRowKind::Toggle { path, value } => toggle_activation(path, *value),
             SettingsRowKind::Screen { id, .. } => crate::domain::Id::parse(id.as_str())
                 .ok()
-                .map(SettingsEdit::InitialScreen),
-            SettingsRowKind::Theme { .. }
+                .map(|id| SettingsActivation::Edit(SettingsEdit::InitialScreen(id))),
+            SettingsRowKind::AgentType {
+                type_id, enabled, ..
+            } => Some(SettingsActivation::Agent(AgentIntent::SetEnabled {
+                type_id: type_id.clone(),
+                enabled: !enabled,
+            })),
+            // Enter on a screen opens its layout; Space is what toggles its
+            // membership, so the two never compete for one keystroke.
+            // A screen whose identity is not a configuration owner has no
+            // syntax to write, so it offers nothing to do rather than an
+            // action that would refuse itself later.
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                ..
+            } => Some(SettingsActivation::OpenLayout {
+                screen_id: screen_id.clone(),
+            }),
+            // A protected control is read-only, so Enter on it asks for
+            // nothing rather than starting a capture that would be refused.
+            SettingsRowKind::KeyBinding {
+                context,
+                action,
+                protected: None,
+            } => Some(SettingsActivation::CaptureChord {
+                context: context.clone(),
+                action: action.clone(),
+                mode: CaptureMode::Replace,
+            }),
+            SettingsRowKind::ScreenMember { .. }
+            | SettingsRowKind::KeyBinding { .. }
+            | SettingsRowKind::Theme { .. }
             | SettingsRowKind::Fact
             | SettingsRowKind::Diagnostic { .. } => None,
         }
     }
 
-    /// The leaf this row writes, which Reset returns to its compiled default.
+    /// What toggling this row asks for, when it can be toggled.
+    ///
+    /// Space toggles; Enter activates. They are the same question only for a
+    /// row whose whole content is a boolean.
     #[must_use]
-    pub const fn editable_path(&self) -> Option<SyntaxPath> {
+    pub fn toggle(&self) -> Option<SettingsActivation> {
         match &self.kind {
-            SettingsRowKind::Theme { .. } => Some(SyntaxPath::Theme),
-            SettingsRowKind::Toggle { path, .. } => Some(*path),
-            SettingsRowKind::Screen { .. } => Some(SyntaxPath::InitialScreen),
-            SettingsRowKind::Fact | SettingsRowKind::Diagnostic { .. } => None,
+            SettingsRowKind::Toggle { path, value } => toggle_activation(path, *value),
+            SettingsRowKind::AgentType {
+                type_id, enabled, ..
+            } => Some(SettingsActivation::Agent(AgentIntent::SetEnabled {
+                type_id: type_id.clone(),
+                enabled: !enabled,
+            })),
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                enabled,
+                ..
+            } => Some(SettingsActivation::Screen(Box::new(
+                ScreenIntent::SetEnabled {
+                    screen_id: screen_id.clone(),
+                    enabled: !enabled,
+                },
+            ))),
+            SettingsRowKind::ScreenMember { .. }
+            | SettingsRowKind::Theme { .. }
+            | SettingsRowKind::Screen { .. }
+            | SettingsRowKind::KeyBinding { .. }
+            | SettingsRowKind::Fact
+            | SettingsRowKind::Diagnostic { .. } => None,
         }
+    }
+
+    /// What resetting this row asks for, when it can be reset.
+    #[must_use]
+    pub fn reset(&self) -> Option<SettingsActivation> {
+        match &self.kind {
+            SettingsRowKind::Theme { .. } => Some(SettingsActivation::Edit(SettingsEdit::Reset(
+                SyntaxPath::Theme,
+            ))),
+            SettingsRowKind::Toggle { path, .. } => {
+                Some(SettingsActivation::Edit(SettingsEdit::Reset(path.clone())))
+            }
+            SettingsRowKind::Screen { .. } => Some(SettingsActivation::Edit(SettingsEdit::Reset(
+                SyntaxPath::InitialScreen,
+            ))),
+            SettingsRowKind::AgentType { type_id, .. } => {
+                Some(SettingsActivation::Agent(AgentIntent::Reset {
+                    type_id: type_id.clone(),
+                }))
+            }
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                ..
+            } => Some(SettingsActivation::Screen(Box::new(
+                ScreenIntent::ResetLayout {
+                    screen_id: screen_id.clone(),
+                },
+            ))),
+            SettingsRowKind::KeyBinding {
+                context,
+                action,
+                protected: None,
+            } => Some(SettingsActivation::Key(Box::new(KeyIntent::Reset {
+                context: context.clone(),
+                action: action.clone(),
+            }))),
+            SettingsRowKind::ScreenMember { .. }
+            | SettingsRowKind::KeyBinding { .. }
+            | SettingsRowKind::Fact
+            | SettingsRowKind::Diagnostic { .. } => None,
+        }
+    }
+
+    /// What adding one more chord to this row asks for, when it binds anything.
+    ///
+    /// An action may carry several chords. Capturing one more is how a binding
+    /// gets its second, so the editor can express every binding the registry
+    /// accepts rather than only the single-chord ones.
+    #[must_use]
+    pub fn add_chord(&self) -> Option<SettingsActivation> {
+        match &self.kind {
+            SettingsRowKind::KeyBinding {
+                context,
+                action,
+                protected: None,
+            } => Some(SettingsActivation::CaptureChord {
+                context: context.clone(),
+                action: action.clone(),
+                mode: CaptureMode::Add,
+            }),
+            _ => None,
+        }
+    }
+
+    /// What unbinding this row asks for, when it binds anything.
+    #[must_use]
+    pub fn unbind(&self) -> Option<SettingsActivation> {
+        match &self.kind {
+            SettingsRowKind::KeyBinding {
+                context,
+                action,
+                protected: None,
+            } => Some(SettingsActivation::Key(Box::new(KeyIntent::Unbind {
+                context: context.clone(),
+                action: action.clone(),
+            }))),
+            _ => None,
+        }
+    }
+
+    /// The screen this row reorders, when it names one.
+    #[must_use]
+    pub const fn reorderable_screen(&self) -> Option<&Id> {
+        match &self.kind {
+            SettingsRowKind::ScreenMember {
+                screen_id: Some(screen_id),
+                ..
+            } => Some(screen_id),
+            _ => None,
+        }
+    }
+}
+
+fn toggle_activation(path: &SyntaxPath, value: bool) -> Option<SettingsActivation> {
+    match path {
+        SyntaxPath::OverrideAgentTheme => Some(SettingsActivation::Edit(
+            SettingsEdit::OverrideAgentTheme(!value),
+        )),
+        SyntaxPath::AgentEnabled(agent) => {
+            Some(SettingsActivation::Edit(SettingsEdit::AgentEnabled {
+                agent: agent.clone(),
+                enabled: !value,
+            }))
+        }
+        // Every remaining leaf holds something other than a boolean, so a
+        // toggle row can never name one.
+        SyntaxPath::Theme
+        | SyntaxPath::InitialScreen
+        | SyntaxPath::EnabledScreens
+        | SyntaxPath::ScreenOrder
+        | SyntaxPath::LayoutOverride(_)
+        | SyntaxPath::Keymap { .. } => None,
     }
 }
 
@@ -122,14 +352,33 @@ pub fn section_rows(state: &SettingsState) -> Vec<SectionRow> {
         .map(|section| SectionRow {
             section,
             title: section.title(),
-            count: match section {
-                SettingsSection::Diagnostics if diagnostics > 0 => Some(diagnostics),
-                SettingsSection::General
-                | SettingsSection::Appearance
-                | SettingsSection::Diagnostics => None,
-            },
+            count: section_count(state, section, diagnostics),
         })
         .collect()
+}
+
+/// The count one section's title carries, when it carries one.
+///
+/// A count is shown where it is the fact the user is looking for: how many
+/// problems there are, and how many of each kind of thing there is to choose
+/// from. General and Appearance are short fixed lists and say nothing.
+fn section_count(
+    state: &SettingsState,
+    section: SettingsSection,
+    diagnostics: usize,
+) -> Option<usize> {
+    match section {
+        SettingsSection::Diagnostics if diagnostics > 0 => Some(diagnostics),
+        SettingsSection::AgentTypes => Some(state.agent_types.len()),
+        SettingsSection::Screens | SettingsSection::Keys => {
+            let mut showing = state.clone();
+            showing.section = section;
+            Some(detail_rows(&showing).len())
+        }
+        SettingsSection::General | SettingsSection::Appearance | SettingsSection::Diagnostics => {
+            None
+        }
+    }
 }
 
 /// Project the focused section's rows.
@@ -138,7 +387,169 @@ pub fn detail_rows(state: &SettingsState) -> Vec<SettingsRow> {
     match state.section {
         SettingsSection::General => general_rows(state),
         SettingsSection::Appearance => appearance_rows(state),
+        SettingsSection::AgentTypes => agent_type_rows(state),
+        SettingsSection::Screens => screen_rows(state),
+        SettingsSection::Keys => key_rows(state),
         SettingsSection::Diagnostics => diagnostic_rows(state),
+    }
+}
+
+/// The slice of a section's rows that fits, with the selection kept in view.
+///
+/// The Keys section lists every action in every context — hundreds of rows —
+/// so a pane that drew them all would put most of the list off the bottom of
+/// the terminal where `j` could reach it but nothing could show it. The window
+/// follows the selection, which is what makes "move down" and "see where I am"
+/// the same thing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailWindow {
+    /// The rows to draw, each with its index in the whole section.
+    pub rows: Vec<(usize, SettingsRow)>,
+    /// How many rows sit above the window.
+    pub above: usize,
+    /// How many rows sit below it.
+    pub below: usize,
+}
+
+/// Window one section's rows around the selection.
+#[must_use]
+pub fn detail_window(state: &SettingsState, content_rows: usize) -> DetailWindow {
+    let rows = detail_rows(state);
+    let viewport = ListViewport::uniform(
+        rows.len(),
+        Some(state.selected_row),
+        ContentRows::new(content_rows),
+        RowsPerItem::new(1),
+    );
+    let range = viewport.visible_range();
+    let above = range.start;
+    let below = rows.len().saturating_sub(range.end);
+    DetailWindow {
+        rows: rows
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| range.contains(index))
+            .collect(),
+        above,
+        below,
+    }
+}
+
+/// The typed settings the rows project from.
+///
+/// A draft that cannot compose a candidate still shows the document's own
+/// values, so the user can see what is there while correcting whatever is
+/// wrong with it.
+fn published(state: &SettingsState) -> PublishedSettings {
+    state
+        .draft
+        .as_ref()
+        .map_or_else(PublishedSettings::default, |draft| {
+            draft.published().clone()
+        })
+}
+
+fn agent_type_rows(state: &SettingsState) -> Vec<SettingsRow> {
+    project_agent_types(&state.agent_types, &published(state))
+        .into_iter()
+        .map(|row| SettingsRow {
+            label: row.display_name,
+            value: format!(
+                "{} {}",
+                if row.enabled { "[x]" } else { "[ ]" },
+                agent_status(&row.availability)
+            ),
+            kind: SettingsRowKind::AgentType {
+                type_id: row.type_id,
+                enabled: row.enabled,
+                availability: row.availability,
+            },
+        })
+        .collect()
+}
+
+/// The one-line status an agent row shows.
+///
+/// The probe's own reason is shown in full rather than summarised: "not found"
+/// and "missing capability: prompt" call for different actions, and shortening
+/// the second to "unavailable" would hide which one this is.
+fn agent_status(availability: &AgentAvailability) -> String {
+    match availability {
+        AgentAvailability::Compatible => "Compatible".to_owned(),
+        AgentAvailability::Incompatible { reason } => format!("Incompatible: {reason}"),
+        AgentAvailability::NotFound => "Not found".to_owned(),
+        AgentAvailability::ProbeError { code, reason } => format!("{code}: {reason}"),
+    }
+}
+
+fn screen_rows(state: &SettingsState) -> Vec<SettingsRow> {
+    let Ok(registry) = crate::workbench::screen_registry() else {
+        return Vec::new();
+    };
+    let published = published(state);
+    project_screens(registry, &published)
+        .into_iter()
+        .map(|row| {
+            let screen_id = row.owner.clone();
+            SettingsRow {
+                label: row.title,
+                value: format!(
+                    "{} {}",
+                    if row.enabled { "[x]" } else { "[ ]" },
+                    composition_status(&row.composition)
+                ),
+                kind: SettingsRowKind::ScreenMember {
+                    screen_id,
+                    enabled: row.enabled,
+                    locked: row.enablement_locked,
+                    composition: row.composition,
+                },
+            }
+        })
+        .collect()
+}
+
+fn composition_status(composition: &CompositionStatus) -> String {
+    match composition {
+        CompositionStatus::Valid => String::new(),
+        CompositionStatus::Invalid { code, reason } => {
+            format!("{code}: invalid override retained — {reason}")
+        }
+    }
+}
+
+fn key_rows(state: &SettingsState) -> Vec<SettingsRow> {
+    let Some(snapshot) = state.actions.as_ref() else {
+        return Vec::new();
+    };
+    let published = published(state);
+    project_keys(snapshot, &published)
+        .into_iter()
+        .map(|row| SettingsRow {
+            label: format!("{} {}", row.context.as_str(), row.label),
+            value: key_value(&row),
+            kind: SettingsRowKind::KeyBinding {
+                context: row.context,
+                action: row.action,
+                protected: row.protected,
+            },
+        })
+        .collect()
+}
+
+fn key_value(row: &crate::state::keys_editor_project::KeyEditorRow) -> String {
+    let chords = if row.chords.is_empty() {
+        "unbound".to_owned()
+    } else {
+        row.chords
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    match row.protected.as_deref() {
+        Some(reason) => format!("{chords} — protected: {reason}"),
+        None => chords,
     }
 }
 

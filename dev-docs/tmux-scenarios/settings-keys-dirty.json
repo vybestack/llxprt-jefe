@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "name": "settings-keys-dirty",
+  "platform": "macos",
+  "terminal": {
+    "cols": 100,
+    "rows": 32
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": ",",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Diagnostics",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>Keys",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "j",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>actions Focus search",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "delete",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">>actions Focus search: unbound",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Save changes?",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Save",
+        "Discard",
+        "Cancel"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

@@ -1,8 +1,6 @@
 //! Lowering and transactional composition (issue #385, CW05-02, CW05-03,
 //! CW05-04, CW05-10).
 
-use std::collections::BTreeSet;
-
 use crate::persistence::diagnostic::{CfgCode, Severity};
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
 
@@ -18,6 +16,7 @@ use super::relationship_propagation::{PortValue, RelationshipState, SourceIntent
 use super::relationships::{ActivationMode, EmptyPolicy, RelationshipKind};
 use super::resolve::{PanelState, resolve_layout};
 use super::screens::{ScreenRegistry, builtin_screens};
+use crate::persistence::settings_document::PublishedSettings;
 
 fn compiled() -> ScreenRegistry {
     builtin_screens().unwrap_or_else(|error| unreachable!("compiled screens must build: {error}"))
@@ -418,7 +417,7 @@ fn a_definition_is_left_out_when_the_enabled_set_is_empty() {
     let composition = compose_screens(
         &compiled(),
         &[candidate("review", &review_definition())],
-        &BTreeSet::new(),
+        &PublishedSettings::default(),
     )
     .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 

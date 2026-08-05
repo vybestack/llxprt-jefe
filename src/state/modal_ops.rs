@@ -171,14 +171,6 @@ impl AppState {
     pub(super) fn apply_modal_message(&mut self, message: ModalMessage) {
         match message {
             ModalMessage::OpenHelp => self.modal = ModalState::Help,
-            ModalMessage::OpenKeys { recovery } => {
-                if let Some(snapshot) = self.action_registry_snapshot.as_ref() {
-                    self.modal = ModalState::Keys {
-                        editor: Box::new(super::KeysEditorState::from_snapshot(snapshot, recovery)),
-                    };
-                }
-            }
-            ModalMessage::Keys(message) => self.apply_keys_message(message),
             ModalMessage::OpenSearch => {
                 self.modal = ModalState::Search {
                     query: String::new(),
@@ -201,27 +193,6 @@ impl AppState {
         }
     }
 
-    fn apply_keys_message(&mut self, message: crate::messages::KeysEditorMessage) {
-        use crate::messages::KeysEditorMessage;
-        if matches!(message, KeysEditorMessage::ConfirmDiscard) {
-            self.modal = ModalState::None;
-            return;
-        }
-        if let KeysEditorMessage::SaveSucceeded(snapshot) = message {
-            self.action_registry_snapshot = Some(snapshot);
-            self.modal = ModalState::None;
-            return;
-        }
-        let close_clean = matches!(message, KeysEditorMessage::RequestClose)
-            && matches!(&self.modal, ModalState::Keys { editor } if !editor.is_dirty());
-        if close_clean {
-            self.modal = ModalState::None;
-            return;
-        }
-        if let ModalState::Keys { editor } = &mut self.modal {
-            editor.apply(message);
-        }
-    }
     pub(super) fn apply_repository_agent_message(&mut self, message: RepositoryAgentMessage) {
         match message {
             RepositoryAgentMessage::OpenNewRepository => self.open_new_repository_modal(),

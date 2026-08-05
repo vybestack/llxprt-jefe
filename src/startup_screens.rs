@@ -90,8 +90,7 @@ pub fn compose(
 ) -> Result<ScreenComposition, ScreenStartupError> {
     let compiled = builtin_screens().map_err(ScreenStartupError::Compiled)?;
     let candidates = discover(&paths.definitions).map_err(ScreenStartupError::Definitions)?;
-    let enabled = settings.workbench.enabled_screens.iter().cloned().collect();
-    compose_screens(&compiled, &candidates, &enabled)
+    compose_screens(&compiled, &candidates, settings)
         .map_err(|refusal| ScreenStartupError::Refused(Box::new(refusal)))
 }
 

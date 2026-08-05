@@ -14,11 +14,6 @@ mod app_shell_liveness;
 mod app_shell_panic;
 mod app_shell_workers;
 mod detail_wrap_map;
-mod domain {
-    pub use jefe::domain::*;
-}
-#[path = "keys_view.rs"]
-mod keys_view;
 mod mouse_routing;
 mod panic_capture;
 mod pty_encoding;
@@ -40,9 +35,7 @@ use jefe::theme::FileThemeManager;
 /// Shared application context passed to the root component.
 struct AppContext {
     keymap_snapshot: Option<jefe::domain::action_registry::ActionRegistrySnapshot>,
-    settings_document: jefe::persistence::settings_document::SettingsDocument,
     settings_expected_hash: jefe::persistence::writer::ExpectedHash,
-    keymap_recovery: Option<String>,
     settings_revision: u64,
     /// Whether `--config` isolated this session from the default locations.
     ///
@@ -322,9 +315,7 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     };
     let themes_dir = startup.paths.themes.clone();
     let keymap_diagnostic = startup.keymap_diagnostic_message();
-    let keymap_recovery = keymap_diagnostic.clone();
     let keymap_snapshot = startup.keymap_snapshot;
-    let settings_document = startup.settings_document;
     let settings_expected_hash = startup.settings_expected_hash;
     let published_settings = startup.settings;
     let persistence = startup.manager;
@@ -359,9 +350,7 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         keymap_snapshot: Some(keymap_snapshot),
-        settings_document,
         settings_expected_hash,
-        keymap_recovery,
         settings_revision: 0,
         config_isolated: cli_args.config_dir.is_some(),
         persistence,

@@ -258,20 +258,6 @@ fn run_startup_session_host_cleanup(state: &AppState, runtime: &TmuxRuntimeManag
         });
 }
 
-fn agent_type_enabled(
-    settings: &jefe::persistence::settings_document::PublishedSettings,
-    type_id: &jefe::domain::agent_definition::AgentTypeId,
-) -> bool {
-    let Ok(owner_id) = jefe::domain::Id::parse(type_id.as_str()) else {
-        return true;
-    };
-    settings
-        .agents
-        .get(&owner_id)
-        .and_then(|owner| owner.enabled)
-        .unwrap_or(true)
-}
-
 fn normalize_persisted_sandbox_engines(_state: &mut AppState) -> bool {
     false
 }
@@ -472,7 +458,7 @@ fn observe_agent_types(
                 &registry,
                 &repository_root,
                 state.agent_probe_generation,
-                |type_id| agent_type_enabled(settings, type_id),
+                |type_id| jefe::agent_registry::agent_type_enabled(settings, type_id),
             ) {
                 Ok(startup) => startup,
                 Err(error) => {

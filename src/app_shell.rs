@@ -581,7 +581,13 @@ fn handle_terminal_event(
             if crate::app_input::handle_dirty_guard_key(app_state, &ctx.cloned(), &key_event) {
                 return;
             }
-            if crate::app_input::handle_keys_editor_key(app_state, &ctx.cloned(), &key_event) {
+            // A waiting chord capture and an open layout tree each own the
+            // keyboard while they are up, so the key the user is aiming at them
+            // cannot also do whatever it is bound to underneath.
+            if crate::app_input::handle_capture_key(app_state, &key_event) {
+                return;
+            }
+            if crate::app_input::handle_layout_key(app_state, &key_event) {
                 return;
             }
             if key_event.kind != iocraft::KeyEventKind::Release {

@@ -37,6 +37,26 @@ impl KeymapDiagnostic {
             detail: detail.into(),
         }
     }
+
+    /// This refusal as one settings diagnostic the Settings shell can report.
+    ///
+    /// The Settings screen reports every reason a candidate cannot be saved in
+    /// one list, and a keymap refusal is one of those reasons. Translating it
+    /// here keeps `KEY-E401` the resolver's own answer while giving the screen
+    /// the shape it already knows how to draw.
+    #[must_use]
+    pub fn as_settings_diagnostic(&self) -> Diagnostic {
+        use super::diagnostic::{CfgCode, DiagnosticPath, Severity};
+        let mut diagnostic = Diagnostic::new(
+            CfgCode::E005,
+            Severity::Error,
+            DiagnosticPath::new("/keymap"),
+            None,
+            "correct the conflicting binding, or reset it to its compiled chords",
+        );
+        diagnostic.redacted_detail = self.to_string();
+        diagnostic
+    }
 }
 
 impl fmt::Display for KeymapDiagnostic {

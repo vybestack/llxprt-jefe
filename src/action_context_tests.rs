@@ -247,7 +247,7 @@ fn compiled_snapshot() -> jefe::domain::action_registry::ActionRegistrySnapshot 
 /// works if the modal derives a valid context: a stack that repeats `global`
 /// is rejected as a duplicate, which would swallow the exit instead.
 #[test]
-fn keys_modal_context_keeps_the_protected_exit_reachable() {
+fn a_modal_context_keeps_the_protected_exit_reachable() {
     let snapshot = compiled_snapshot();
 
     for screen in [
@@ -264,13 +264,11 @@ fn keys_modal_context_keeps_the_protected_exit_reachable() {
             ..AppState::default()
         };
         state.action_registry_snapshot = Some(snapshot.clone());
-        state.modal = ModalState::Keys {
-            editor: Box::new(jefe::state::KeysEditorState::from_snapshot(&snapshot, None)),
-        };
+        state.modal = ModalState::Help;
 
         let result = derive_action_context(&state, jefe::input::input_mode_for_state(&state));
         let Ok(context) = result else {
-            panic!("keys modal on {screen:?} should derive a context, got {result:?}");
+            panic!("a modal on {screen:?} should derive a context, got {result:?}");
         };
         let names: Vec<String> = context
             .stack
@@ -279,7 +277,7 @@ fn keys_modal_context_keeps_the_protected_exit_reachable() {
             .collect();
         assert!(
             names.iter().any(|name| name == "global"),
-            "keys modal on {screen:?} must keep global reachable, got {names:?}"
+            "a modal on {screen:?} must keep global reachable, got {names:?}"
         );
     }
 }

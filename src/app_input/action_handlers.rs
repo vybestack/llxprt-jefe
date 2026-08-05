@@ -33,7 +33,6 @@ pub enum BoundaryAction {
     FocusRepositories,
     FocusAgents,
     FocusTerminal,
-    OpenKeys,
     Settings(super::settings::SettingsAction),
     TerminalManagerCloseShell,
     TerminalManagerFocusShell,
@@ -176,7 +175,6 @@ fn apply_boundary(
             super::normal::set_pane_focus(app_state, ctx, PaneFocus::Agents);
         }
         BoundaryAction::FocusTerminal => super::normal::focus_terminal_pane(app_state, ctx),
-        BoundaryAction::OpenKeys => super::keys_editor::open(app_state, ctx),
         BoundaryAction::Settings(action) => super::settings::apply(action, app_state, ctx),
         BoundaryAction::TerminalManagerCloseShell | BoundaryAction::TerminalManagerFocusShell => {
             apply_terminal_manager_boundary(boundary, app_state, ctx);
@@ -260,7 +258,7 @@ macro_rules! handler_execution {
         let page_items = $page_items;
         match handler {
             H::EmergencyExit => E::Boundary(B::Quit),
-            H::OpenKeys => E::Boundary(B::OpenKeys),
+            H::OpenKeys => settings_boundary(SettingsAction::OpenKeys),
             H::OpenSettings => settings_boundary(SettingsAction::Open),
             H::SettingsBack => settings_boundary(SettingsAction::Back),
             H::SettingsUp => settings_boundary(SettingsAction::Up),
@@ -273,6 +271,11 @@ macro_rules! handler_execution {
             H::SettingsSave => settings_boundary(SettingsAction::Save),
             H::SettingsSaveAndExit => settings_boundary(SettingsAction::SaveAndExit),
             H::SettingsReset => settings_boundary(SettingsAction::Reset),
+            H::SettingsToggle => settings_boundary(SettingsAction::Toggle),
+            H::SettingsUnbind => settings_boundary(SettingsAction::Unbind),
+            H::SettingsAddChord => settings_boundary(SettingsAction::AddChord),
+            H::SettingsMoveUp => settings_boundary(SettingsAction::MoveUp),
+            H::SettingsMoveDown => settings_boundary(SettingsAction::MoveDown),
             H::JumpAgent(slot) => E::Boundary(B::JumpAgent(slot)),
             H::TerminalScrollPageUp
             | H::TerminalScrollPageDown

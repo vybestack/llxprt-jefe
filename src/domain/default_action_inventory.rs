@@ -411,11 +411,30 @@ const SPECS: &[Spec] = &[
         H::SettingsCyclePaneReverse,
         ["BackTab"]
     ),
+    // Enter opens what a row leads to — a layout tree, a chord capture — and
+    // Space changes what it holds. Binding both to one action would make
+    // "open this screen's layout" and "stop composing this screen" the same
+    // keystroke.
     spec!(
         "settings",
         "settings.activate",
         H::SettingsActivate,
-        ["Enter", " "]
+        ["Enter"]
+    ),
+    spec!("settings", "settings.toggle", H::SettingsToggle, [" "]),
+    spec!("settings", "settings.unbind", H::SettingsUnbind, ["Delete"]),
+    spec!("settings", "settings.add-chord", H::SettingsAddChord, ["a"]),
+    spec!(
+        "settings",
+        "settings.move-up",
+        H::SettingsMoveUp,
+        ["Shift+K", "Alt+Up"]
+    ),
+    spec!(
+        "settings",
+        "settings.move-down",
+        H::SettingsMoveDown,
+        ["Shift+J", "Alt+Down"]
     ),
     // Left/Right step the horizontal choice a recovery offers, and otherwise
     // move the same selection the vertical keys do.

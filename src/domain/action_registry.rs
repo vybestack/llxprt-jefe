@@ -75,6 +75,11 @@ pub enum HandlerKey {
     SettingsSave,
     SettingsSaveAndExit,
     SettingsReset,
+    SettingsToggle,
+    SettingsUnbind,
+    SettingsAddChord,
+    SettingsMoveUp,
+    SettingsMoveDown,
     JumpAgent(u8),
     TerminalScrollPageUp,
     TerminalScrollPageDown,
@@ -219,6 +224,15 @@ pub enum HandlerKey {
     ActionsActivate,
     ActionsBack,
 }
+/// Why a protected action cannot be rebound.
+///
+/// The rule is the registry's own: a protected action must stay bound and
+/// available in every context that declares it, and composition refuses a
+/// candidate that breaks either half. The wording lives beside the rule so a
+/// screen reporting it and a refusal say the same thing.
+pub const PROTECTED_ACTION_REASON: &str =
+    "protected controls are read-only: they must stay bound and available";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Provenance {
     Compiled,

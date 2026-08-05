@@ -70,6 +70,19 @@ impl DraftStatus {
 pub enum DraftCandidate {
     /// The candidate validates and can be saved.
     Valid(Box<SettingsCandidate>),
+    /// The document publishes, but a registry owner refuses what it composes.
+    ///
+    /// This is not the same as a document that cannot be read. The values are
+    /// still exactly what the user is looking at, and they have to stay
+    /// visible: a screen that fell back to the file on disk would report a
+    /// conflict while showing the binding that does not conflict, leaving the
+    /// user to correct something they cannot see.
+    Refused {
+        /// The complete candidate, which publishes but must not be saved.
+        candidate: Box<SettingsCandidate>,
+        /// The sorted refusals from the registry owners.
+        diagnostics: Vec<Diagnostic>,
+    },
     /// These sorted diagnostics stop the candidate from existing.
     Blocked(Vec<Diagnostic>),
 }
@@ -80,6 +93,15 @@ impl DraftCandidate {
     pub fn valid(&self) -> Option<&SettingsCandidate> {
         match self {
             Self::Valid(candidate) => Some(candidate),
+            Self::Refused { .. } | Self::Blocked(_) => None,
+        }
+    }
+
+    /// The complete candidate this draft describes, saveable or not.
+    #[must_use]
+    pub fn described(&self) -> Option<&SettingsCandidate> {
+        match self {
+            Self::Valid(candidate) | Self::Refused { candidate, .. } => Some(candidate),
             Self::Blocked(_) => None,
         }
     }
@@ -89,7 +111,7 @@ impl DraftCandidate {
     pub fn diagnostics(&self) -> &[Diagnostic] {
         match self {
             Self::Valid(_) => &[],
-            Self::Blocked(diagnostics) => diagnostics,
+            Self::Refused { diagnostics, .. } | Self::Blocked(diagnostics) => diagnostics,
         }
     }
 }
@@ -182,14 +204,14 @@ impl SettingsDraft {
     }
 
     /// The exact leaves this draft holds edits for.
-    pub fn edited_paths(&self) -> impl Iterator<Item = SyntaxPath> + '_ {
-        self.edits.keys().copied()
+    pub fn edited_paths(&self) -> impl Iterator<Item = &SyntaxPath> + '_ {
+        self.edits.keys()
     }
 
     /// The edit held for one leaf, if there is one.
     #[must_use]
-    pub fn edit(&self, path: SyntaxPath) -> Option<&SettingsEdit> {
-        self.edits.get(&path)
+    pub fn edit(&self, path: &SyntaxPath) -> Option<&SettingsEdit> {
+        self.edits.get(path)
     }
 
     /// The complete candidate this draft would save, or what blocks it.
@@ -206,13 +228,14 @@ impl SettingsDraft {
 
     /// The typed settings this draft currently describes.
     ///
-    /// A blocked candidate falls back to the base's published values, so the
-    /// screen keeps showing what the document actually holds while the user
-    /// corrects whatever is wrong with it.
+    /// A refused candidate still describes the document the user is editing, so
+    /// its values are what the screen shows. Only a candidate that could not be
+    /// built at all falls back to the base, because then there is nothing else
+    /// to show.
     #[must_use]
     pub fn published(&self) -> &PublishedSettings {
         self.candidate
-            .valid()
+            .described()
             .map_or_else(|| self.base.published(), SettingsCandidate::published)
     }
 
@@ -325,6 +348,30 @@ impl SettingsDraft {
     }
 }
 
+/// The binding one waiting chord capture will bind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChordCapture {
+    /// The context to bind in.
+    pub context: crate::domain::input_context::ContextId,
+    /// The action to bind.
+    pub action: crate::domain::action_registry::ActionId,
+    /// What the captured chord does to the chords already bound.
+    pub mode: CaptureMode,
+}
+
+/// Whether a capture replaces the binding or adds to it.
+///
+/// An action may carry several chords, and the way to give it a second one is
+/// to capture a second one. Without this the editor could only ever express a
+/// single-chord binding, which is narrower than the registry allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureMode {
+    /// The captured chord becomes the whole binding.
+    Replace,
+    /// The captured chord joins the chords already bound.
+    Add,
+}
+
 /// Where the Settings screen's keyboard focus is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsFocus {
@@ -369,6 +416,22 @@ pub struct SettingsState {
     pub guard_correlation: Option<crate::domain::effects::Correlation>,
     /// The facts the read-only rows report.
     pub environment: Option<SettingsEnvironment>,
+    /// The agent-type probe snapshot the Agent Types rows project from.
+    ///
+    /// Bound once when the screen opens and never changed while it is open. An
+    /// editor reads a snapshot of what the session found; it does not probe,
+    /// and a probe completing underneath it must not make the list move while
+    /// the user is choosing from it.
+    pub agent_types: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
+    /// The action registry snapshot the Keys rows project from.
+    pub actions: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
+    /// The binding a chord capture is waiting for, while one is waiting.
+    ///
+    /// A capture takes exactly the next chord, so what it is for has to be
+    /// remembered across exactly one keystroke and no longer.
+    pub capture: Option<ChordCapture>,
+    /// The layout tree editor, while it is open.
+    pub layout_editor: Option<super::layout_editor::LayoutEditorState>,
     /// The selected recovery choice, when a recovery is offered.
     pub recovery_row: usize,
     /// The newest revision this session has scheduled a save for.

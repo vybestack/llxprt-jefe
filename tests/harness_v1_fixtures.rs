@@ -451,33 +451,6 @@ fn settings_unavailable_theme_fixture_says_so_at_reduced_geometry() {
 }
 
 #[test]
-fn keys_editor_fixture_covers_validation_dirty_save_and_reopen() {
-    let outcome = run_fixture("keys-editor.json");
-    assert_passed("keys-editor", &outcome);
-    cleanup(&outcome);
-}
-
-#[test]
-fn keys_editor_unbind_reset_fixture_covers_schema2_intents() {
-    let outcome = run_fixture("keys-editor-unbind-reset.json");
-    assert_passed("keys-editor-unbind-reset", &outcome);
-    cleanup(&outcome);
-}
-
-#[test]
-fn keys_editor_recovery_small_fixture_keeps_back_and_quit_reachable() {
-    let outcome = run_fixture("keys-editor-recovery-small.json");
-    assert_passed("keys-editor-recovery-small", &outcome);
-    cleanup(&outcome);
-}
-
-#[test]
-fn mouse_action_fixture_covers_drag_and_no_hit_without_capture_schema_changes() {
-    let outcome = run_fixture("mouse-action-consistency.json");
-    assert_passed("mouse-action-consistency", &outcome);
-    cleanup(&outcome);
-}
-#[test]
 fn containment_fixture_rejects_symlink_swapped_ancestor() {
     let outcome = run_fixture("harness-containment.json");
     let err = outcome

@@ -4,8 +4,10 @@ use jefe::domain::action_registry::{ActionId, ActionRegistrySnapshot, Resolution
 use jefe::domain::input_context::ContextStack;
 use jefe::domain::keymap::Chord;
 use jefe::pane_content_projection::projected_pane_content;
+use jefe::persistence::settings_document::PublishedSettings;
 use jefe::selection::{SelectablePane, point_to_content_coords};
-use jefe::state::{AppState, KeysEditorState, ModalState};
+use jefe::state::AppState;
+use jefe::state::keys_editor_project::{ChordText, project_keys};
 
 /// One mouse target after resolving its `ActionId` through the current snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,11 +40,8 @@ pub(super) fn resolve_action_click(
     }
     let (up_col, up_row) = click.up;
     let (cols, rows) = click.terminal;
-    if let Some(action) = confirm_action_at(state, up_col, up_row, cols, rows) {
-        return resolve_action(snapshot, &action, "confirm.button");
-    }
-    let action = keys_action_at(state, up_col, up_row, cols, rows)?;
-    resolve_action(snapshot, &action, "keys.row")
+    let action = confirm_action_at(state, up_col, up_row, cols, rows)?;
+    resolve_action(snapshot, &action, "confirm.button")
 }
 
 fn confirm_action_at(
@@ -78,36 +77,31 @@ fn button_contains(line: &str, label: &str, column: usize) -> bool {
     (start..end).contains(&column)
 }
 
-fn keys_action_at(state: &AppState, col: u16, row: u16, cols: u16, rows: u16) -> Option<ActionId> {
-    let ModalState::Keys { editor } = &state.modal else {
-        return None;
-    };
-    let view = crate::keys_view::project_keys_view(editor, cols, rows);
-    let line = usize::from(row.checked_sub(3)?);
-    let column = usize::from(col.checked_sub(2)?);
-    view.action_targets
-        .iter()
-        .find(|target| target.line == line && target.columns.contains(&column))
-        .map(|target| target.action.clone())
-}
-
 fn resolve_action(
     snapshot: &ActionRegistrySnapshot,
     target: &ActionId,
     hit: &'static str,
 ) -> Option<MouseActionRoute> {
-    let editor = KeysEditorState::from_snapshot(snapshot, None);
-    let row = editor.rows.iter().find(|row| &row.action == target)?;
+    let rows = project_keys(snapshot, &PublishedSettings::default());
+    let row = rows.iter().find(|row| &row.action == target)?;
     let stack = ContextStack::from_ordered([row.context.as_str()], false).ok()?;
-    row.effective_chords.iter().find_map(|chord| {
-        let resolution = snapshot.resolve(chord, &stack);
-        resolution_targets(&resolution, target).then_some(MouseActionRoute {
-            chord: *chord,
-            resolution,
-            hit,
-            action: target.clone(),
+    // Only a chord the grammar read can be resolved; text it could not read
+    // names nothing to dispatch, which is exactly why the row keeps showing it.
+    row.chords
+        .iter()
+        .filter_map(|chord| match chord {
+            ChordText::Chord(chord) => Some(*chord),
+            ChordText::Unreadable(_) => None,
         })
-    })
+        .find_map(|chord| {
+            let resolution = snapshot.resolve(&chord, &stack);
+            resolution_targets(&resolution, target).then_some(MouseActionRoute {
+                chord,
+                resolution,
+                hit,
+                action: target.clone(),
+            })
+        })
 }
 
 fn resolution_targets(resolution: &Resolution, target: &ActionId) -> bool {

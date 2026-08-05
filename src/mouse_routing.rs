@@ -748,7 +748,6 @@ fn is_blocking_modal_open(state: &AppState) -> bool {
     matches!(
         state.modal,
         ModalState::Help
-            | ModalState::Keys { .. }
             | ModalState::NewAgent { .. }
             | ModalState::EditAgent { .. }
             | ModalState::NewRepository { .. }
@@ -787,7 +786,6 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
             return OverlayPane::ConfirmModal;
         }
         jefe::state::ModalState::None
-        | jefe::state::ModalState::Keys { .. }
         | jefe::state::ModalState::Search { .. }
         | jefe::state::ModalState::WorkflowDispatch { .. } => {}
     }

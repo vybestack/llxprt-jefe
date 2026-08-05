@@ -47,6 +47,13 @@ pub fn settings_save_key() -> SemanticKey {
 /// The notice a structural save shows, verbatim.
 pub const RESTART_NOTICE: &str = "Restart Jefe to apply structural changes";
 
+/// The prompt a waiting chord capture shows, verbatim.
+/// The prompt shown while a capture is waiting to add one more chord.
+pub const ADD_CHORD_PROMPT: &str = "Press the chord to add to this action, or Esc to cancel";
+
+/// The prompt shown while a capture is waiting for one chord.
+pub const CAPTURE_PROMPT: &str = "Press a key to bind it; Esc cancels";
+
 impl AppState {
     /// Apply one settings intent or completion.
     pub(super) fn reduce_settings(&mut self, message: SettingsMessage) -> bool {
@@ -61,6 +68,17 @@ impl AppState {
             SettingsMessage::Activate => self.activate_settings_row(),
             SettingsMessage::Edit(edit) => self.edit_settings(edit),
             SettingsMessage::Reset(path) => self.edit_settings(SettingsEdit::Reset(path)),
+            SettingsMessage::Agent(intent) => self.draft_agent(intent),
+            SettingsMessage::Screen(intent) => self.draft_screen(*intent),
+            SettingsMessage::Key(intent) => self.draft_key(*intent),
+            SettingsMessage::ToggleRow => self.act_on_row(settings_view::SettingsRow::toggle),
+            SettingsMessage::ResetRow => self.act_on_row(settings_view::SettingsRow::reset),
+            SettingsMessage::UnbindRow => self.act_on_row(settings_view::SettingsRow::unbind),
+            SettingsMessage::ReorderRow(direction) => self.reorder_row(direction),
+            SettingsMessage::AddChord => self.act_on_row(settings_view::SettingsRow::add_chord),
+            SettingsMessage::CapturedChord(chord) => self.resolve_chord_capture(chord),
+            SettingsMessage::CaptureCancelled => self.cancel_chord_capture(),
+            SettingsMessage::Layout(message) => self.reduce_layout(message),
             SettingsMessage::Save => self.save_settings(false),
             SettingsMessage::SaveAndExit => self.save_settings(true),
             SettingsMessage::Discard => self.discard_settings(),
@@ -85,6 +103,11 @@ impl AppState {
         self.settings_state.recovery_row = 0;
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = None;
+        // The registries the editors project from are snapshotted with the
+        // draft, so what the rows say and what the draft would save are two
+        // halves of one moment rather than two moments that can disagree.
+        self.settings_state.agent_types = self.agent_type_availability.clone();
+        self.settings_state.actions = self.action_registry_snapshot.clone();
         self.bind_settings_source(source);
         let _ = self.enter_screen(ScreenId::Settings);
         true
@@ -180,6 +203,8 @@ impl AppState {
         self.settings_state.active = false;
         self.settings_state.draft = None;
         self.settings_state.blocked.clear();
+        self.settings_state.agent_types.clear();
+        self.settings_state.actions = None;
         self.settings_state.restore_theme = unsaved_preview
             .then(|| self.settings_state.opened_theme.clone())
             .flatten();
@@ -248,23 +273,35 @@ impl AppState {
             return true;
         }
         let rows = settings_view::detail_rows(&self.settings_state);
-        let Some(edit) = rows
+        let Some(activation) = rows
             .get(self.settings_state.selected_row)
             .and_then(settings_view::SettingsRow::activation)
         else {
             return false;
         };
-        self.edit_settings(edit)
+        self.apply_settings_activation(activation)
     }
 
     /// Write one typed value into the draft and revalidate the whole candidate.
-    fn edit_settings(&mut self, edit: SettingsEdit) -> bool {
-        if self.settings_state.draft.is_none() {
+    pub(super) fn edit_settings(&mut self, edit: SettingsEdit) -> bool {
+        self.edit_settings_all(vec![edit])
+    }
+
+    /// Write these typed values into the draft and revalidate once.
+    ///
+    /// Some intents change more than one leaf — enabling a screen rewrites both
+    /// the membership array and the order array — and those leaves have to
+    /// reach the candidate together, or the document would be revalidated in a
+    /// state the user never asked for.
+    pub(super) fn edit_settings_all(&mut self, edits: Vec<SettingsEdit>) -> bool {
+        if self.settings_state.draft.is_none() || edits.is_empty() {
             return false;
         }
-        if let SettingsEdit::Theme(theme) = &edit
-            && !self.settings_theme_available(theme)
-        {
+        let unavailable = edits.iter().find_map(|edit| match edit {
+            SettingsEdit::Theme(theme) if !self.settings_theme_available(theme) => Some(theme),
+            _ => None,
+        });
+        if let Some(theme) = unavailable {
             self.settings_state.notice = Some(format!("{theme} is not installed"));
             return true;
         }
@@ -274,8 +311,10 @@ impl AppState {
         if draft.status().is_saving() {
             return false;
         }
-        let touches_theme = edit.path() == SyntaxPath::Theme;
-        draft.record(edit);
+        let touches_theme = edits.iter().any(|edit| edit.path() == SyntaxPath::Theme);
+        for edit in edits {
+            draft.record(edit);
+        }
         revalidate(draft);
         if touches_theme {
             self.refresh_theme_preview();
@@ -667,7 +706,7 @@ impl AppState {
     }
 }
 
-fn step(current: usize, count: usize, direction: NavDir) -> usize {
+pub(super) fn step(current: usize, count: usize, direction: NavDir) -> usize {
     if count == 0 {
         return 0;
     }
@@ -720,7 +759,13 @@ fn build_candidate(
         )]);
     };
     match SettingsCandidate::from_edits(base, &catalog, edits, expected) {
-        Ok(candidate) => DraftCandidate::Valid(Box::new(candidate)),
+        Ok(candidate) => match super::settings_registry_ops::registry_refusals(&candidate) {
+            refusals if refusals.is_empty() => DraftCandidate::Valid(Box::new(candidate)),
+            diagnostics => DraftCandidate::Refused {
+                candidate: Box::new(candidate),
+                diagnostics,
+            },
+        },
         Err(diagnostics) => DraftCandidate::Blocked(diagnostics),
     }
 }

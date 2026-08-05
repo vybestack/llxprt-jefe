@@ -167,10 +167,6 @@ pub enum ModalState {
     #[default]
     None,
     Help,
-    /// Schema-2 action-binding editor.
-    Keys {
-        editor: Box<super::KeysEditorState>,
-    },
     Search {
         query: String,
     },

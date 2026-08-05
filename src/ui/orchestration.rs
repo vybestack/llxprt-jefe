@@ -12,7 +12,7 @@ use crate::ui::screens::{
     TerminalManagerScreen,
 };
 use crate::ui::{
-    AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, KeysModal, NewAgentForm,
+    AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, NewAgentForm,
     NewRepositoryForm, SplitScreen, WorkflowDispatchForm,
 };
 
@@ -347,7 +347,6 @@ pub fn build_modal_element(
     viewport: ModalViewport,
 ) -> Option<AnyElement<'static>> {
     match modal {
-        ModalState::Keys { editor } => Some(keys_modal(editor, colors, viewport)),
         ModalState::Help => Some(help_modal(
             snapshot,
             colors,
@@ -391,22 +390,6 @@ pub fn build_modal_element(
         ModalState::Auth { state } => Some(auth_modal_element(state, colors, snapshot)),
         _ => None,
     }
-}
-
-fn keys_modal(
-    editor: &crate::state::KeysEditorState,
-    colors: &ThemeColors,
-    viewport: ModalViewport,
-) -> AnyElement<'static> {
-    element! {
-        KeysModal(
-            editor: Some(editor.clone()),
-            colors: colors.clone(),
-            available_cols: viewport.cols,
-            available_rows: viewport.rows,
-        )
-    }
-    .into_any()
 }
 
 fn help_modal(

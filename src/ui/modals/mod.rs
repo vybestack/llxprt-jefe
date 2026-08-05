@@ -5,7 +5,6 @@
 
 mod confirm;
 mod help;
-mod keys;
 
 // In-app device-code auth remediation modal (issue #244).
 mod auth;
@@ -16,6 +15,5 @@ pub use help::{
     HELP_CHROME_ROWS, HELP_MODAL_WIDTH, HELP_TITLE, HelpModal, HelpModalProps, help_content_lines,
     help_viewport_rows,
 };
-pub use keys::{KeysModal, KeysModalProps};
 
 pub(crate) use confirm::confirm_button_row;

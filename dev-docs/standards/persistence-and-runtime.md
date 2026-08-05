@@ -161,9 +161,81 @@ values in them. It holds:
   leaves rather than an open path space;
 - the complete validated candidate, or the sorted diagnostics that block it.
 
+A candidate that publishes is not yet a candidate the session could start from.
+The registries composed out of it have rules of their own, so after every edit
+the candidate is offered to the owners that compose it — the action/key resolver
+and the descriptor/layout validator — and whatever they refuse is stored as
+diagnostics. Those owners remain the only validators; the draft records their
+answers and never forms its own.
+
+A refused candidate is not a candidate that could not be built. Its values stay
+on screen and Save stays blocked, because a screen that fell back to the file on
+disk would report a conflict while showing syntax that does not conflict. Only a
+document that cannot be read at all falls back to the base.
+
 Editing mutates the candidate only. The published settings, the theme manager,
 the composed keymap, and the screen registry are all unchanged until a save
 succeeds.
+
+### The editable leaves
+
+A leaf carries the identity it names. There is no open path space and no
+generic-map payload: an agent, a screen, or an action/context pair is decided at
+runtime by what the registries hold, and those identity types have already
+proved their own grammar, so an ill-formed path stays unrepresentable.
+
+| Leaf | Written syntax | Removed by Reset |
+|---|---|---|
+| `appearance.theme` | the theme slug as a string | the assignment |
+| `appearance.override_agent_theme` | `true` or `false` | the assignment |
+| `workbench.initial_screen` | the screen id as a string | the assignment |
+| `workbench.enabled_screens` | a replacement array of screen ids | the assignment |
+| `workbench.screen_order` | a replacement array of screen ids | the assignment |
+| `agents.<id>.enabled` | `true` or `false` | the assignment |
+| `workbench.layout_overrides.<id>` | the whole layout tree as one inline value | the whole override |
+| `keymap.<context>.<action>` | a replacement array of canonical chords | the assignment |
+
+- An identity containing a `.` is written as a quoted key, so `core.llxprt` is
+  one owner rather than an owner named `llxprt` inside a table named `core`.
+- Membership and order are rewritten together from the projected rows, so every
+  enabled screen appears exactly once and no disabled screen appears at all —
+  because of how the arrays are built, not because something checks them after.
+- Unbinding an action writes `[]`. That is a different statement from removing
+  the assignment: an empty list says "this action has no chord", and a removed
+  assignment says "inherit the compiled chords".
+- A layout override is one whole tree, replaced or removed as a unit. It is
+  written in the same grammar a screen definition file declares its layout in,
+  so one shape of layout syntax is readable by anyone who has read either file.
+  Whatever spelling the file used before — an inline value or its own `[table]`
+  block — the replacement is written as one inline value, which is the one part
+  of the document an override edit reshapes.
+- Every leaf except the two appearance leaves is structural: it composes a
+  registry that is built once, at startup, so a saved change applies at the next
+  start and the running session is untouched.
+
+### What the next start does with each leaf
+
+Nothing here is written for its own sake. Every leaf the editors write is read
+by exactly one owner, once, while that owner composes:
+
+| Leaf | Read by | Effect at the next start |
+|---|---|---|
+| `agents.<id>.enabled` | the agent registry probe boundary | a disabled type is not offered and is not probed |
+| `workbench.enabled_screens` | screen composition | a definition whose `local.<member>` identity is absent is dormant |
+| `workbench.screen_order` | screen composition | the registry publishes the named screens first, in the order given |
+| `workbench.layout_overrides.<id>` | screen composition | that screen's layout is the saved tree instead of the compiled one |
+| `keymap.<context>.<action>` | action-registry composition | the action resolves from the saved chords |
+
+- A screen the order does not name keeps the position it already had, so an
+  order naming one screen moves that one and nothing else.
+- A layout override is validated on its own, against the screen it names, by the
+  same descriptor validator every registry publication goes through. An override
+  it refuses is a startup **warning** and the compiled layout stands: an invalid
+  layout is correctable only from inside the program, and refusing to start
+  would leave the user unable to reach the screen that corrects it. The Settings
+  Screens editor shows the same refusal against the same row.
+- An override naming a screen that is not composed is reported for the same
+  reason: settings that do nothing should say so rather than look applied.
 
 ### Save
 

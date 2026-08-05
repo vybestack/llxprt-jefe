@@ -14,6 +14,8 @@ mod actions_tests;
 #[cfg(test)]
 #[path = "actions_tests_sort.rs"]
 mod actions_tests_sort;
+/// Pure projection of the Agent Types editor into rows (issue #388).
+pub mod agent_types_editor;
 mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
@@ -100,13 +102,10 @@ pub mod durable_projection;
 mod durable_projection_tests;
 /// Restoration of runtime state from the durable schema-2 document.
 pub mod durable_restore;
-mod keys_editor;
-pub use keys_editor::{
-    KeysBindingEdit, KeysBindingRow, KeysConfirmFocus, KeysEditorState, KeysValidation,
-};
-#[cfg(test)]
-#[path = "keys_editor_tests.rs"]
-mod keys_editor_tests;
+/// Pure projection of the Keys editor into rows (issue #388).
+pub mod keys_editor_project;
+/// The layout tree editor's state and pure transitions (issue #388).
+pub mod layout_editor;
 /// The sole owner of route, stack, and dirty transitions (issue #386).
 pub mod navigation;
 /// The host dirty guard the navigation reducer raises (issue #386).
@@ -136,8 +135,15 @@ mod navigation_vertical;
 mod persistence_effect_tests;
 /// Durable-save staging and persistence completion handling.
 pub mod persistence_ops;
+/// Pure projection of the Screens/Layout editor into rows (issue #388).
+pub mod screens_editor;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;
+/// The registry editors' half of the Settings reducer (issue #388).
+mod settings_registry_ops;
+#[cfg(test)]
+#[path = "settings_registry_tests.rs"]
+mod settings_registry_tests;
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod settings_tests;

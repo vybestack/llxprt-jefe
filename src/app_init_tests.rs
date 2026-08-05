@@ -496,11 +496,17 @@ fn published_agent_enablement_is_separate_from_availability() {
     let type_id = jefe::domain::agent_definition::AgentTypeId::parse("core.codex")
         .unwrap_or_else(|error| panic!("type id must parse: {error}"));
 
-    assert!(!agent_type_enabled(migration.published(), &type_id));
+    assert!(!jefe::agent_registry::agent_type_enabled(
+        migration.published(),
+        &type_id
+    ));
 
     let absent = jefe::domain::agent_definition::AgentTypeId::parse("core.llxprt")
         .unwrap_or_else(|error| panic!("type id must parse: {error}"));
-    assert!(agent_type_enabled(migration.published(), &absent));
+    assert!(jefe::agent_registry::agent_type_enabled(
+        migration.published(),
+        &absent
+    ));
 }
 
 // -- Startup multiplexer qualification (issue #540 req 3) -----------------
