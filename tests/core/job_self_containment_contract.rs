@@ -180,16 +180,10 @@ fn worker_containment_is_established_only_while_running_a_launch_plan() {
 #[test]
 fn the_launch_plan_runner_is_reachable_only_through_the_internal_launch_argument() {
     let main = read_repo_text("src/main.rs");
-    let entry = main
-        .split_once("fn run_internal_agent_launch_if_requested()")
-        .map(|(_, rest)| rest)
-        .unwrap_or_else(|| {
-            panic!("src/main.rs must define `run_internal_agent_launch_if_requested`")
-        });
-    let body = entry
-        .split_once("\nfn ")
-        .map(|(body, _)| body)
-        .unwrap_or(entry);
+    let Some((_, entry)) = main.split_once("fn run_internal_agent_launch_if_requested()") else {
+        panic!("src/main.rs must define `run_internal_agent_launch_if_requested`");
+    };
+    let body = entry.split_once("\nfn ").map_or(entry, |(body, _)| body);
 
     assert!(
         body.contains("INTERNAL_LAUNCH_ARGUMENT")

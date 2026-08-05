@@ -47,9 +47,9 @@ fn a_spawn_waits_for_an_in_flight_teardown_to_finish() {
         let admitted_at = Instant::now();
 
         assert!(became_idle, "the gate must go idle once teardown releases");
-        let released_at = observed
-            .recv_timeout(VIEWER_TEARDOWN_WAIT)
-            .expect("the teardown thread must report when it released");
+        let Ok(released_at) = observed.recv_timeout(VIEWER_TEARDOWN_WAIT) else {
+            panic!("the teardown thread must report when it released");
+        };
         assert!(
             admitted_at >= released_at,
             "the spawn was admitted before teardown released"
