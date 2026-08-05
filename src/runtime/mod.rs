@@ -158,8 +158,8 @@ pub use manager::{
     drop_viewer_in_background_pub,
 };
 pub use multiplexer::{
-    AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation,
-    MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
+    AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIdentity,
+    MultiplexerIsolation, MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
 };
 pub use multiplexer_conformance::{
     ConformanceFinding, ConformanceReport, ConformanceVerdict, MultiplexerQualification,

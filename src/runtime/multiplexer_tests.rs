@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use super::agent_executable::{AgentExecutablePlatform, AgentExecutableResolver};
 use super::agent_launcher::INTERNAL_LAUNCH_ARGUMENT;
 use super::multiplexer::{
-    LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
-    MultiplexerVersion, ProbeObservation, classify_probe, executable_candidates,
-    validate_namespace,
+    LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIdentity,
+    MultiplexerIsolation, MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
+    executable_candidates, validate_namespace,
 };
 
 #[test]
@@ -121,6 +121,71 @@ fn version_parser_accepts_final_release_letter_suffix() {
 }
 
 #[test]
+fn identity_parser_captures_the_psmux_build_commit() {
+    // `psmux -V` reports two lines: the tmux compatibility version it emulates,
+    // then its own version and the commit it was built from. Keying binary
+    // identity on the version alone cannot tell two builds apart, because psmux
+    // has shipped many commits under 3.3.7 (issue #547 V10).
+    let identity = MultiplexerIdentity::parse("tmux 3.3.7\npsmux 3.3.7 (cb098c0 2026-08-03)\n");
+
+    assert_eq!(
+        identity.clone().map(|parsed| parsed.version()),
+        Ok(MultiplexerVersion::new(3, 3, 7))
+    );
+    assert_eq!(
+        identity.map(|parsed| parsed.commit().map(str::to_owned)),
+        Ok(Some("cb098c0".to_owned()))
+    );
+}
+
+#[test]
+fn identity_parser_reports_no_commit_for_plain_tmux() {
+    // Upstream tmux prints only its version, so there is no commit to key on.
+    // That absence has to be representable rather than fabricated.
+    let identity = MultiplexerIdentity::parse("tmux 3.4\n");
+
+    assert_eq!(
+        identity.clone().map(|parsed| parsed.version()),
+        Ok(MultiplexerVersion::new(3, 4, 0))
+    );
+    assert_eq!(
+        identity.map(|parsed| parsed.commit().map(str::to_owned)),
+        Ok(None)
+    );
+}
+
+#[test]
+fn identity_distinguishes_builds_that_share_a_version() {
+    // The whole reason for carrying the commit: these two report the same
+    // version and must still not be treated as the same binary.
+    let first = MultiplexerIdentity::parse("tmux 3.3.7\npsmux 3.3.7 (cb098c0 2026-08-03)");
+    let second = MultiplexerIdentity::parse("tmux 3.3.7\npsmux 3.3.7 (9f2a1de 2026-08-04)");
+
+    assert_eq!(
+        first.clone().map(|parsed| parsed.version()),
+        second.clone().map(|parsed| parsed.version())
+    );
+    assert_ne!(first, second);
+}
+
+#[test]
+fn identity_ignores_a_commit_field_that_is_not_a_hash() {
+    // A malformed or missing hash degrades to "no commit" rather than becoming
+    // a namespace input that changes on every launch.
+    for output in [
+        "tmux 3.3.7\npsmux 3.3.7 (unknown 2026-08-03)",
+        "tmux 3.3.7\npsmux 3.3.7 ()",
+        "tmux 3.3.7\npsmux 3.3.7",
+    ] {
+        assert_eq!(
+            MultiplexerIdentity::parse(output).map(|parsed| parsed.commit().map(str::to_owned)),
+            Ok(None),
+            "commit should be absent: {output:?}"
+        );
+    }
+}
+
+#[test]
 fn probe_classification_accepts_homebrew_tmux_release_letter() {
     let observation = ProbeObservation::Output {
         platform: LocalPlatform::Unix,
@@ -130,7 +195,7 @@ fn probe_classification_accepts_homebrew_tmux_release_letter() {
         stderr: String::new(),
     };
     assert_eq!(
-        classify_probe(observation),
+        classify_probe(observation).map(|identity| identity.version()),
         Ok(MultiplexerVersion::new(3, 7, 0))
     );
 }

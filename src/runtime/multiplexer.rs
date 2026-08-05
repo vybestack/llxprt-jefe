@@ -131,6 +131,80 @@ impl std::fmt::Display for MultiplexerVersion {
         write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
+/// Identity of the multiplexer binary: the version it reports, plus the commit
+/// it was built from when it reports one.
+///
+/// `psmux -V` prints two lines — the tmux version it emulates, then its own
+/// version and build commit:
+///
+/// ```text
+/// tmux 3.3.7
+/// psmux 3.3.7 (cb098c0 2026-08-03)
+/// ```
+///
+/// Builds routinely share a version while differing in commit, so the version
+/// alone cannot serve as the identity of anything that must notice the binary
+/// changing underneath it (issue #547 V8-V10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultiplexerIdentity {
+    version: MultiplexerVersion,
+    commit: Option<String>,
+}
+
+impl MultiplexerIdentity {
+    /// Parse the full stdout of a `-V` invocation.
+    ///
+    /// The version is required; the commit is optional, because upstream tmux
+    /// does not report one.
+    pub fn parse(output: &str) -> Result<Self, MultiplexerError> {
+        Ok(Self {
+            version: MultiplexerVersion::parse(output)?,
+            commit: parse_build_commit(output),
+        })
+    }
+
+    /// The reported version.
+    #[must_use]
+    pub const fn version(&self) -> MultiplexerVersion {
+        self.version
+    }
+
+    /// The build commit, when the binary reports one.
+    #[must_use]
+    pub fn commit(&self) -> Option<&str> {
+        self.commit.as_deref()
+    }
+}
+
+impl std::fmt::Display for MultiplexerIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.commit {
+            Some(commit) => write!(formatter, "{} ({commit})", self.version),
+            None => write!(formatter, "{}", self.version),
+        }
+    }
+}
+
+/// Extract the build commit from a `psmux <version> (<commit> <date>)` line.
+///
+/// A token that is not a plausible abbreviated hash is treated as absent.
+/// Accepting one would be worse than reporting none: a value that varies per
+/// launch would key a namespace that can never be found again, which is the
+/// exact failure this issue exists to remove.
+fn parse_build_commit(output: &str) -> Option<String> {
+    let line = output
+        .lines()
+        .find(|line| line.trim_start().starts_with("psmux"))?;
+    let open = line.find('(')?;
+    let close = line[open..].find(')')? + open;
+    let token = line[open + 1..close].split_whitespace().next()?;
+    is_commit_hash(token).then(|| token.to_owned())
+}
+
+/// Whether a token looks like an abbreviated git hash.
+fn is_commit_hash(token: &str) -> bool {
+    (7..=40).contains(&token.len()) && token.chars().all(|character| character.is_ascii_hexdigit())
+}
 
 /// Everything a pane needs in order to launch one agent.
 ///
@@ -343,7 +417,7 @@ impl MultiplexerPlan {
     pub fn preflight(
         &self,
         required: &[MultiplexerCapability],
-    ) -> Result<MultiplexerVersion, MultiplexerError> {
+    ) -> Result<MultiplexerIdentity, MultiplexerError> {
         let output =
             self.command()
                 .arg("-V")
@@ -353,17 +427,17 @@ impl MultiplexerPlan {
                     reason: error.to_string(),
                     guidance: guidance(self.platform),
                 })?;
-        let version = classify_probe(output_observation(self.platform, &self.executable, output))?;
+        let identity = classify_probe(output_observation(self.platform, &self.executable, output))?;
         for capability in required {
             if !self.supports(*capability) {
                 return Err(MultiplexerError::RequiredCapabilityUnavailable {
                     path: self.executable.clone(),
-                    version,
+                    version: identity.version(),
                     capability: *capability,
                 });
             }
         }
-        Ok(version)
+        Ok(identity)
     }
 }
 
@@ -401,7 +475,7 @@ pub enum ProbeObservation {
 /// Classify dependency observations into a qualified version or typed error.
 pub fn classify_probe(
     observation: ProbeObservation,
-) -> Result<MultiplexerVersion, MultiplexerError> {
+) -> Result<MultiplexerIdentity, MultiplexerError> {
     match observation {
         ProbeObservation::Missing { platform, path } => Err(MultiplexerError::MissingExecutable {
             path,
@@ -962,7 +1036,7 @@ fn classify_output(
     status_success: bool,
     stdout: String,
     stderr: String,
-) -> Result<MultiplexerVersion, MultiplexerError> {
+) -> Result<MultiplexerIdentity, MultiplexerError> {
     if !status_success {
         return Err(MultiplexerError::LaunchFailed {
             path,
@@ -970,22 +1044,22 @@ fn classify_output(
             guidance: guidance(platform),
         });
     }
-    let version = MultiplexerVersion::parse(&stdout).map_err(|error| match error {
+    let identity = MultiplexerIdentity::parse(&stdout).map_err(|error| match error {
         MultiplexerError::MalformedVersion { output, .. } => MultiplexerError::MalformedVersion {
             path: Some(path.clone()),
             output,
         },
         other => other,
     })?;
-    if platform == LocalPlatform::Windows && version < MINIMUM_PSMUX_VERSION {
+    if platform == LocalPlatform::Windows && identity.version() < MINIMUM_PSMUX_VERSION {
         return Err(MultiplexerError::UnsupportedVersion {
             path,
-            detected: version,
+            detected: identity.version(),
             minimum: MINIMUM_PSMUX_VERSION,
             guidance: WINDOWS_INSTALL_GUIDANCE,
         });
     }
-    Ok(version)
+    Ok(identity)
 }
 
 const fn guidance(platform: LocalPlatform) -> &'static str {

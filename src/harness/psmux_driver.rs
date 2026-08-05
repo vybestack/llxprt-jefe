@@ -6,9 +6,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
+use crate::runtime::{MultiplexerIdentity, MultiplexerVersion};
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 7);
+const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 7);
 const PANE_DEAD_FORMAT: &str = "#{pane_dead}";
 const HISTORY_SIZE_FORMAT: &str = "#{history_size}";
 const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
@@ -310,13 +311,14 @@ impl TmuxDriver {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    fn qualified_version(&self) -> Result<PsmuxVersion, TmuxDriverError> {
+    fn qualified_version(&self) -> Result<MultiplexerIdentity, TmuxDriverError> {
         let text = self.version_output()?;
-        let version =
-            PsmuxVersion::parse(&text).map_err(|reason| TmuxDriverError::Incompatible {
+        let identity =
+            MultiplexerIdentity::parse(&text).map_err(|error| TmuxDriverError::Incompatible {
                 executable: self.executable.clone(),
-                reason,
+                reason: error.to_string(),
             })?;
+        let version = identity.version();
         if version < MINIMUM_PSMUX_VERSION {
             return Err(TmuxDriverError::Incompatible {
                 executable: self.executable.clone(),
@@ -325,7 +327,7 @@ impl TmuxDriver {
                 ),
             });
         }
-        Ok(version)
+        Ok(identity)
     }
 
     fn version_output(&self) -> Result<String, TmuxDriverError> {
@@ -442,41 +444,6 @@ impl std::fmt::Display for TmuxDriverError {
 
 impl std::error::Error for TmuxDriverError {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct PsmuxVersion {
-    major: u32,
-    minor: u32,
-    patch: u32,
-}
-
-impl PsmuxVersion {
-    const fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self {
-            major,
-            minor,
-            patch,
-        }
-    }
-
-    fn parse(value: &str) -> Result<Self, String> {
-        let token = value
-            .split_whitespace()
-            .find(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
-            .ok_or_else(|| format!("version output contains no numeric token: {value:?}"))?;
-        let mut parts = token.split('.');
-        let major = parse_version_part(parts.next(), "major", value)?;
-        let minor = parse_version_part(parts.next(), "minor", value)?;
-        let patch = parse_version_part(parts.next(), "patch", value)?;
-        Ok(Self::new(major, minor, patch))
-    }
-}
-
-impl std::fmt::Display for PsmuxVersion {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
-    }
-}
-
 fn invalid_request(reason: &str) -> TmuxDriverError {
     TmuxDriverError::InvalidRequest(reason.to_string())
 }
@@ -501,15 +468,6 @@ fn is_absent_cleanup_error(stderr: &str) -> bool {
     stderr.contains("no server running")
         || stderr.contains("no sessions")
         || stderr.contains("can't find session")
-}
-
-fn parse_version_part(part: Option<&str>, name: &str, source: &str) -> Result<u32, String> {
-    let value =
-        part.ok_or_else(|| format!("version output has no {name} component: {source:?}"))?;
-    value
-        .trim_matches(|character: char| !character.is_ascii_digit())
-        .parse::<u32>()
-        .map_err(|error| format!("invalid {name} version component in {source:?}: {error}"))
 }
 
 fn literal_send_args(session: &TmuxSession, text: &str) -> Vec<String> {
