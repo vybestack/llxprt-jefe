@@ -188,10 +188,48 @@ fn psmux_is_required() -> bool {
 /// A freshly reaped PID would be more lifelike, but Windows hands PIDs out
 /// again quickly and a busy test suite spawns enough short-lived processes to
 /// resurrect the "departed" owner mid-test. This value is far outside the range
-/// the kernel allocates, so it reads as departed every time and the sweep sees
-/// exactly the evidence a crashed jefe leaves behind.
+/// the kernel allocates and is not a multiple of four, which every Windows
+/// process ID is, so it reads as departed every time and the sweep sees exactly
+/// the evidence a crashed jefe leaves behind.
 #[cfg(windows)]
-const DEPARTED_OWNER_PID: u32 = 4_294_967_280;
+const DEPARTED_OWNER_PID: u32 = 4_294_967_293;
+
+/// A namespace the test brought up, ended when the test lets go of it.
+///
+/// This test is about a namespace nobody was left to clean up, so it must not
+/// become another way to strand one: a panic between bringing the session up
+/// and the last assertion would otherwise leave the server running.
+#[cfg(windows)]
+struct TestNamespace {
+    plan: super::MultiplexerPlan,
+}
+
+#[cfg(windows)]
+impl TestNamespace {
+    /// Bring up the scratch session in `namespace`.
+    fn start(plan: &super::MultiplexerPlan, namespace: &str) -> Self {
+        let plan = plan
+            .with_isolation(super::MultiplexerIsolation::Namespace(namespace.to_owned()))
+            .unwrap_or_else(|error| panic!("{namespace} must be addressable: {error}"));
+        start_session(&plan);
+        Self { plan }
+    }
+
+    /// The plan addressing this namespace.
+    fn plan(&self) -> &super::MultiplexerPlan {
+        &self.plan
+    }
+}
+
+#[cfg(windows)]
+impl Drop for TestNamespace {
+    fn drop(&mut self) {
+        let _ = super::multiplexer_conformance_io::execute_probe(
+            &self.plan,
+            &["kill-server".to_owned()],
+        );
+    }
+}
 
 /// Bring up the scratch session inside `plan`'s namespace.
 #[cfg(windows)]
@@ -249,7 +287,6 @@ fn session_stops_serving(plan: &super::MultiplexerPlan) -> bool {
 #[cfg(windows)]
 #[test]
 fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use() {
-    use super::MultiplexerIsolation;
     use super::multiplexer_conformance_io::{ScratchNamespace, qualify_multiplexer_for_startup};
 
     if !psmux_is_required() {
@@ -262,10 +299,7 @@ fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use()
 
     // A namespace an earlier jefe left behind: its owner is a PID that is gone.
     let stranded_namespace = format!("jefe-conformance-{DEPARTED_OWNER_PID}-0");
-    let stranded = plan
-        .with_isolation(MultiplexerIsolation::Namespace(stranded_namespace.clone()))
-        .unwrap_or_else(|error| panic!("the stranded namespace must be addressable: {error}"));
-    start_session(&stranded);
+    let stranded = TestNamespace::start(&plan, &stranded_namespace);
 
     // A namespace a running jefe owns. Killing this is the failure the sweep
     // must never commit, so it is held live across the whole startup.
@@ -276,12 +310,8 @@ fn startup_reclaims_a_namespace_whose_jefe_is_gone_and_spares_one_still_in_use()
 
     let _qualification = qualify_multiplexer_for_startup(&plan);
 
-    let reclaimed = session_stops_serving(&stranded);
+    let reclaimed = session_stops_serving(stranded.plan());
     let spared = session_is_serving(live.plan());
-    // Observe first, then clean up, so a failing run does not strand the very
-    // namespace this test exists to talk about.
-    let _ =
-        super::multiplexer_conformance_io::execute_probe(&stranded, &["kill-server".to_owned()]);
     assert!(
         reclaimed,
         "startup must reclaim {stranded_namespace}, whose jefe is gone"
