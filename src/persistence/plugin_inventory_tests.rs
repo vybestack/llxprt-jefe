@@ -4,14 +4,40 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::domain::plugin::HostTriple;
+use crate::domain::plugin::limits::MANIFEST_BYTE_LIMIT;
 use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
+
+/// A minimal valid manifest for `id` at `version`.
+fn manifest_json(id: &str, version: &str) -> String {
+    format!(
+        r#"{{
+          "manifest_schema": 1,
+          "id": "{id}",
+          "version": "{version}",
+          "display_name": "Package {id}",
+          "host_api": {{ "minimum": "1.0.0", "maximum": "1.0.0" }},
+          "protocol": 1,
+          "provider": {{ "mode": "none", "binaries": {{}} }},
+          "actions": [],
+          "panels": [],
+          "routes": [],
+          "screens": []
+        }}"#
+    )
+}
 
 /// Build one package directory `<root>/<id>/<version>/plugin.json`.
 fn write_package(root: &Path, id: &str, version: &str) -> PathBuf {
+    write_package_with(root, id, version, &manifest_json(id, version))
+}
+
+/// Build one package directory carrying exactly `manifest`.
+fn write_package_with(root: &Path, id: &str, version: &str, manifest: &str) -> PathBuf {
     let directory = root.join(id).join(version);
     fs::create_dir_all(&directory)
         .unwrap_or_else(|error| panic!("staging {} must succeed: {error}", directory.display()));
-    fs::write(directory.join(MANIFEST_FILE_NAME), b"{}")
+    fs::write(directory.join(MANIFEST_FILE_NAME), manifest.as_bytes())
         .unwrap_or_else(|error| panic!("manifest must write: {error}"));
     directory
 }
@@ -138,14 +164,10 @@ fn byte_identical_but_physically_distinct_packages_are_still_ambiguous() {
     };
     let low = temp.path().join("low");
     let high = temp.path().join("high");
-    let first = write_package(&low, "vendor.pkg", "1.0.0");
-    let second = write_package(&high, "vendor.pkg", "1.0.0");
-    let body = b"{\"identical\":true}";
-    for directory in [&first, &second] {
-        if fs::write(directory.join(MANIFEST_FILE_NAME), body).is_err() {
-            return;
-        }
-    }
+    // Both carry exactly the same manifest bytes, so only their physical
+    // location distinguishes them.
+    write_package(&low, "vendor.pkg", "1.0.0");
+    write_package(&high, "vendor.pkg", "1.0.0");
 
     let inventory = scan(&[read_only_root(&low), user_root(&high)]);
 
@@ -212,7 +234,7 @@ fn a_well_named_package_without_a_manifest_is_listed_unavailable() {
         .first()
         .unwrap_or_else(|| panic!("the manifest-less package must be listed"));
     assert_eq!(unavailable.coordinate().to_string(), "vendor.bare@1.0.0");
-    assert_eq!(unavailable.reason(), UnavailableReason::MissingManifest);
+    assert_eq!(unavailable.reason(), &UnavailableReason::MissingManifest);
 }
 
 #[cfg(unix)]
@@ -247,7 +269,150 @@ fn a_package_whose_directory_escapes_its_root_is_rejected() {
         .unavailable()
         .first()
         .unwrap_or_else(|| panic!("the escape must be reported"));
-    assert_eq!(unavailable.reason(), UnavailableReason::EscapesRoot);
+    assert_eq!(unavailable.reason(), &UnavailableReason::EscapesRoot);
+}
+
+#[test]
+fn a_selected_package_carries_its_parsed_manifest() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.pkg", "1.0.0");
+
+    let inventory = scan(&[user_root(&root)]);
+    let entry = inventory
+        .packages()
+        .first()
+        .unwrap_or_else(|| panic!("the package must be listed"));
+    assert_eq!(entry.display_name(), "Package vendor.pkg");
+    assert_eq!(entry.manifest().id().as_str(), "vendor.pkg");
+}
+
+#[test]
+fn a_manifest_that_does_not_parse_is_listed_unavailable() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.good", "1.0.0");
+    // Schema 9 is not a schema this executable reads.
+    let broken = manifest_json("vendor.broken", "1.0.0")
+        .replace(r#""manifest_schema": 1"#, r#""manifest_schema": 9"#);
+    write_package_with(&root, "vendor.broken", "1.0.0", &broken);
+
+    let inventory = scan(&[user_root(&root)]);
+
+    assert_eq!(
+        coordinates(&inventory),
+        vec!["vendor.good@1.0.0"],
+        "a broken package must not block a valid neighbour"
+    );
+    let unavailable = inventory
+        .unavailable()
+        .first()
+        .unwrap_or_else(|| panic!("the broken package must be listed"));
+    assert_eq!(unavailable.coordinate().to_string(), "vendor.broken@1.0.0");
+    assert!(
+        matches!(
+            unavailable.reason(),
+            UnavailableReason::InvalidManifest { .. }
+        ),
+        "expected an invalid-manifest reason, got {:?}",
+        unavailable.reason()
+    );
+}
+
+#[test]
+fn a_manifest_whose_identity_contradicts_its_directory_is_rejected() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    // The directory says 1.0.0; the manifest claims 2.0.0.
+    let mismatched = manifest_json("vendor.pkg", "2.0.0");
+    write_package_with(&root, "vendor.pkg", "1.0.0", &mismatched);
+
+    let inventory = scan(&[user_root(&root)]);
+
+    assert!(coordinates(&inventory).is_empty());
+    let unavailable = inventory
+        .unavailable()
+        .first()
+        .unwrap_or_else(|| panic!("the mismatch must be reported"));
+    assert_eq!(
+        unavailable.reason(),
+        &UnavailableReason::IdentityMismatch {
+            declared: "vendor.pkg@2.0.0".to_owned()
+        }
+    );
+}
+
+#[test]
+fn a_package_with_no_binary_for_this_host_is_listed_with_its_reason() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    let unsupported = manifest_json("vendor.pkg", "1.0.0").replace(
+        r#""provider": { "mode": "none", "binaries": {} }"#,
+        r#""provider": { "mode": "one-shot", "binaries": { "mips-unknown-linux-gnu": "bin/p" } }"#,
+    );
+    write_package_with(&root, "vendor.pkg", "1.0.0", &unsupported);
+
+    let inventory = scan(&[user_root(&root)]);
+
+    // The package is still listed — it is installed and valid, just not
+    // runnable here — so the UI can show its name alongside the reason.
+    assert_eq!(coordinates(&inventory), vec!["vendor.pkg@1.0.0"]);
+    let entry = inventory
+        .packages()
+        .first()
+        .unwrap_or_else(|| panic!("the package must be listed"));
+    let host = HostTriple::current();
+    let reason = entry
+        .unsupported_reason(&host)
+        .unwrap_or_else(|| panic!("this host has no binary"));
+    assert_eq!(reason, format!("no binary for {host}"));
+}
+
+#[test]
+fn a_provider_free_package_is_not_reported_as_unsupported() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.pkg", "1.0.0");
+
+    let inventory = scan(&[user_root(&root)]);
+    let entry = inventory
+        .packages()
+        .first()
+        .unwrap_or_else(|| panic!("the package must be listed"));
+    assert_eq!(entry.unsupported_reason(&HostTriple::current()), None);
+}
+
+#[test]
+fn a_manifest_over_the_byte_bound_is_not_read_into_memory() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    let oversize = format!(
+        "{}{}",
+        manifest_json("vendor.pkg", "1.0.0"),
+        " ".repeat(MANIFEST_BYTE_LIMIT)
+    );
+    write_package_with(&root, "vendor.pkg", "1.0.0", &oversize);
+
+    let inventory = scan(&[user_root(&root)]);
+
+    assert!(coordinates(&inventory).is_empty());
+    let unavailable = inventory
+        .unavailable()
+        .first()
+        .unwrap_or_else(|| panic!("the oversize manifest must be reported"));
+    assert_eq!(unavailable.reason(), &UnavailableReason::ManifestTooLarge);
 }
 
 #[test]

@@ -1,11 +1,12 @@
 //! Provider-free physical package inventory
 //! (issue #389 CW-09, acceptance rows R4–R9).
 //!
-//! The scan walks the ordered roots and reports every package it can identify
-//! physically. It starts no process, and it reads no file content: identifying
-//! a package requires only its directory names and the presence of its
-//! manifest, so discovery is provider-free by construction. Interpreting the
-//! manifest is a later, separate step.
+//! The scan walks the ordered roots and reports every package it can identify.
+//! It reads and validates each manifest, but it **starts no process**: a
+//! manifest is data, and every rule in it is checked by pure domain code, so
+//! discovery is provider-free by construction. A package that declares a
+//! provider is listed exactly like one that does not; whether its binary could
+//! run here is reported as a reason, never by trying.
 //!
 //! Three rules define the result:
 //!
@@ -34,7 +35,8 @@ use std::path::{Path, PathBuf};
 
 use super::paths::{PhysicalIdentity, physical_identity};
 use super::plugin_roots::{PluginRoot, PluginRootKind};
-use crate::domain::plugin::{PackageCoordinate, PluginCode};
+use crate::domain::plugin::limits::MANIFEST_BYTE_LIMIT;
+use crate::domain::plugin::{HostTriple, Manifest, PackageCoordinate, PluginCode, read_manifest};
 
 /// File naming a package's manifest inside its version directory.
 pub const MANIFEST_FILE_NAME: &str = "plugin.json";
@@ -47,6 +49,7 @@ pub struct InstalledPackage {
     root_kind: PluginRootKind,
     directory: PathBuf,
     aliases: Vec<PathBuf>,
+    manifest: Manifest,
 }
 
 impl InstalledPackage {
@@ -54,6 +57,27 @@ impl InstalledPackage {
     #[must_use]
     pub const fn coordinate(&self) -> &PackageCoordinate {
         &self.coordinate
+    }
+
+    /// The package's validated manifest.
+    #[must_use]
+    pub const fn manifest(&self) -> &Manifest {
+        &self.manifest
+    }
+
+    /// The operator-facing package name.
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        self.manifest.display_name()
+    }
+
+    /// Why this package cannot run on `host`, if that is the case.
+    ///
+    /// A package with no provider is not unsupported: it simply has nothing to
+    /// run, which is a normal and fully usable state.
+    #[must_use]
+    pub fn unsupported_reason(&self, host: &HostTriple) -> Option<String> {
+        self.manifest.provider().unsupported_message(host)
     }
 
     /// The root this package was first found under.
@@ -82,7 +106,7 @@ impl InstalledPackage {
 }
 
 /// Why a well-named package directory cannot be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnavailableReason {
     /// The version directory carries no manifest.
     MissingManifest,
@@ -90,16 +114,29 @@ pub enum UnavailableReason {
     EscapesRoot,
     /// The package directory could not be inspected.
     Unreadable,
+    /// The manifest is larger than any manifest may be.
+    ManifestTooLarge,
+    /// The manifest could not be read or failed validation.
+    InvalidManifest { reason: String },
+    /// The manifest's identity contradicts its directory names.
+    IdentityMismatch { declared: String },
 }
 
 impl UnavailableReason {
     /// Operator-facing explanation.
     #[must_use]
-    pub const fn message(self) -> &'static str {
+    pub fn message(&self) -> String {
         match self {
-            Self::MissingManifest => "no plugin.json in the version directory",
-            Self::EscapesRoot => "the package resolves outside its package root",
-            Self::Unreadable => "the package directory could not be inspected",
+            Self::MissingManifest => "no plugin.json in the version directory".to_owned(),
+            Self::EscapesRoot => "the package resolves outside its package root".to_owned(),
+            Self::Unreadable => "the package directory could not be inspected".to_owned(),
+            Self::ManifestTooLarge => {
+                format!("plugin.json is larger than {MANIFEST_BYTE_LIMIT} bytes")
+            }
+            Self::InvalidManifest { reason } => reason.clone(),
+            Self::IdentityMismatch { declared } => {
+                format!("plugin.json declares {declared}, which its directory contradicts")
+            }
         }
     }
 }
@@ -127,8 +164,8 @@ impl UnavailablePackage {
 
     /// Why it cannot be used.
     #[must_use]
-    pub const fn reason(&self) -> UnavailableReason {
-        self.reason
+    pub const fn reason(&self) -> &UnavailableReason {
+        &self.reason
     }
 }
 
@@ -194,6 +231,7 @@ struct Discovered {
     root_kind: PluginRootKind,
     path: PathBuf,
     identity: PhysicalIdentity,
+    manifest: Manifest,
 }
 
 /// Scan the ordered roots and build the physical inventory.
@@ -268,8 +306,16 @@ fn classify(
         reject(UnavailableReason::EscapesRoot);
         return;
     }
-    if !path.join(MANIFEST_FILE_NAME).is_file() {
-        reject(UnavailableReason::MissingManifest);
+    let manifest = match load_manifest(&path) {
+        Ok(manifest) => manifest,
+        Err(reason) => {
+            reject(reason);
+            return;
+        }
+    };
+    if manifest.coordinate() != &coordinate {
+        let declared = manifest.coordinate().to_string();
+        reject(UnavailableReason::IdentityMismatch { declared });
         return;
     }
     discovered.push(Discovered {
@@ -278,7 +324,30 @@ fn classify(
         root_kind: root.kind(),
         path,
         identity,
+        manifest,
     });
+}
+
+/// Read and validate one package's manifest.
+///
+/// The size is checked from directory metadata before any content is read, so
+/// an oversize or hostile manifest is rejected without being pulled into
+/// memory.
+fn load_manifest(directory: &Path) -> Result<Manifest, UnavailableReason> {
+    let file = directory.join(MANIFEST_FILE_NAME);
+    let metadata = std::fs::metadata(&file).map_err(|_| UnavailableReason::MissingManifest)?;
+    if !metadata.is_file() {
+        return Err(UnavailableReason::MissingManifest);
+    }
+    if metadata.len() > u64::try_from(MANIFEST_BYTE_LIMIT).unwrap_or(u64::MAX) {
+        return Err(UnavailableReason::ManifestTooLarge);
+    }
+    let bytes = std::fs::read(&file).map_err(|error| UnavailableReason::InvalidManifest {
+        reason: error.to_string(),
+    })?;
+    read_manifest(&bytes).map_err(|error| UnavailableReason::InvalidManifest {
+        reason: error.to_string(),
+    })
 }
 
 /// Collapse discoveries that name one physical package into one entry.
@@ -300,6 +369,7 @@ fn collapse_aliases(discovered: Vec<Discovered>) -> Vec<InstalledPackage> {
                 root_kind: entry.root_kind,
                 directory: entry.identity.canonical_path().to_path_buf(),
                 aliases: Vec::new(),
+                manifest: entry.manifest,
             },
         ));
     }
