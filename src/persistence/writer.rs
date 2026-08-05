@@ -417,8 +417,9 @@ fn temp_path(target: &Path) -> Result<PathBuf, Box<Diagnostic>> {
     Ok(target.with_file_name(temp_name))
 }
 
+/// Create a file readable and writable only by the current user.
 #[cfg(unix)]
-fn open_user_only(path: &Path) -> std::io::Result<File> {
+pub(super) fn open_user_only(path: &Path) -> std::io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
     OpenOptions::new()
         .write(true)
@@ -427,22 +428,26 @@ fn open_user_only(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
+/// Create a file readable and writable only by the current user.
 #[cfg(not(unix))]
-fn open_user_only(path: &Path) -> std::io::Result<File> {
+pub(super) fn open_user_only(path: &Path) -> std::io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
 }
 
-fn remove_owned_temp(path: &Path) {
+/// Remove a temporary file this process created, ignoring absence.
+pub(super) fn remove_owned_temp(path: &Path) {
     let _ = fs::remove_file(path);
 }
 
+/// Replace `to` with `from` in a single step.
 #[cfg(not(windows))]
-fn atomic_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(super) fn atomic_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::rename(from, to)
 }
 
+/// Replace `to` with `from` in a single step.
 #[cfg(windows)]
-fn atomic_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(super) fn atomic_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     let from = path_to_windows_text(from)?;
     let to = path_to_windows_text(to)?;
     // MOVEFILE is an ordinary constant type in winsafe, so the flags cannot be
@@ -459,8 +464,9 @@ fn path_to_windows_text(path: &Path) -> std::io::Result<String> {
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path is not Unicode"))
 }
 
+/// Flush the directory entry created by a replacement, where the platform can.
 #[cfg(unix)]
-fn sync_parent(parent: &Path) -> std::io::Result<()> {
+pub(super) fn sync_parent(parent: &Path) -> std::io::Result<()> {
     File::open(parent)?.sync_all()
 }
 
@@ -468,8 +474,9 @@ fn sync_parent(parent: &Path) -> std::io::Result<()> {
 // platforms provide no way to flush a directory entry, and the rename itself
 // already carries the durability guarantee, so this reports the parent's
 // reachability rather than inventing a success it did not verify.
+/// Flush the directory entry created by a replacement, where the platform can.
 #[cfg(not(unix))]
-fn sync_parent(parent: &Path) -> std::io::Result<()> {
+pub(super) fn sync_parent(parent: &Path) -> std::io::Result<()> {
     parent.metadata().map(|_| ())
 }
 
