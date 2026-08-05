@@ -71,7 +71,6 @@ fn each_upstream_availability_projects_its_own_status_with_the_probes_exact_reas
             true,
             Availability::InstalledCompatible {
                 identity: "llxprt".to_owned(),
-                capabilities: vec!["prompt".to_owned()],
                 generation: 1,
             },
         ),
