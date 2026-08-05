@@ -52,6 +52,12 @@ pub use errors::{ERROR_STORE_CAPACITY, ErrorEntry, ErrorSource};
 mod sandbox;
 pub use sandbox::*;
 
+/// Run-boundary records and unclean-shutdown classification (issue #662).
+mod run_record;
+pub use run_record::{
+    PriorRunDisposition, PriorRunProbe, RunEndReason, RunMarker, UncleanRun, classify_prior_run,
+};
+
 /// Role-separated operating-system process identities (issue #543).
 mod process_identity;
 pub use process_identity::{
