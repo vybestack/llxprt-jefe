@@ -24,6 +24,36 @@ pub enum ConfigCommand {
     MigrateState,
 }
 
+/// Provider-free plugin package operation (issue #389 CW-09).
+///
+/// Every one of these is static: they read the package roots, validate
+/// manifests, and write settings or the installed tree. None starts a provider
+/// process, and there is deliberately no update or search command — packages
+/// arrive as files, never over a network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginCommand {
+    /// List every installed package version.
+    List,
+    /// Show one package, optionally at an exact version.
+    Inspect { id: String, version: Option<String> },
+    /// Install an archive, or an unpacked directory with `--developer`.
+    ///
+    /// Installing leaves the package disabled unless `--enable` grants trust.
+    Install {
+        source: PathBuf,
+        developer: bool,
+        enable: bool,
+    },
+    /// Trust a package, optionally selecting an exact version.
+    Enable { id: String, version: Option<String> },
+    /// Withdraw trust, preserving the selected version and configuration.
+    Disable { id: String },
+    /// Select an installed exact version.
+    Rollback { id: String, version: String },
+    /// Delete an installed exact version.
+    Remove { id: String, version: String },
+}
+
 /// Arguments owned by `jefe explain binding`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExplainBindingArgs {
@@ -46,6 +76,8 @@ pub struct CliArgs {
     pub command: Option<ConfigCommand>,
     /// Provider-free binding explanation, when selected.
     pub explain_binding: Option<ExplainBindingArgs>,
+    /// Provider-free plugin package operation, when selected.
+    pub plugin: Option<PluginCommand>,
     /// `doctor` subcommand was requested (issue #264).
     pub doctor: bool,
 }
@@ -133,6 +165,7 @@ where
             "--config" | "-c" => set_config_value(&mut result, &arg, iter.next())?,
             "config" => parse_config_command(&mut result, &mut iter)?,
             "explain" => parse_explain_command(&mut result, &mut iter)?,
+            "plugin" => parse_plugin_command(&mut result, &mut iter)?,
             other => parse_config_equals(&mut result, other)?,
         }
     }
@@ -254,6 +287,91 @@ fn parse_explain_command(
     }
     result.explain_binding = Some(ExplainBindingArgs { chord, context });
     Ok(())
+}
+
+/// Flags a plugin subcommand may carry.
+#[derive(Default)]
+struct PluginFlags {
+    version: Option<String>,
+    developer: bool,
+    enable: bool,
+}
+
+/// Parse `jefe plugin <subcommand> [operand] [flags]`.
+fn parse_plugin_command<I>(result: &mut CliArgs, iter: &mut I) -> Result<(), CliError>
+where
+    I: Iterator<Item = String>,
+{
+    let name = iter
+        .next()
+        .filter(|value| !value.starts_with('-'))
+        .ok_or_else(|| CliError::MissingOperand("plugin".to_owned()))?;
+    let operand = if name == "list" {
+        None
+    } else {
+        Some(
+            iter.next()
+                .filter(|value| !value.starts_with('-'))
+                .ok_or_else(|| CliError::MissingOperand(format!("plugin {name}")))?,
+        )
+    };
+    let mut flags = PluginFlags::default();
+    while let Some(argument) = iter.next() {
+        match argument.as_str() {
+            "--version" => flags.version = Some(required_flag_value("--version", iter.next())?),
+            "--developer" => flags.developer = true,
+            "--enable" => flags.enable = true,
+            "--config" | "-c" => set_config_value(result, &argument, iter.next())?,
+            other => parse_config_equals(result, other)?,
+        }
+    }
+    result.plugin = Some(build_plugin_command(&name, operand, flags)?);
+    Ok(())
+}
+
+/// Assemble one plugin command from its parsed parts.
+fn build_plugin_command(
+    name: &str,
+    operand: Option<String>,
+    flags: PluginFlags,
+) -> Result<PluginCommand, CliError> {
+    // `list` is the only subcommand without an operand, and it is the only one
+    // that reaches here with `None`.
+    let id = operand.unwrap_or_default();
+    // Selecting or deleting one of several side-by-side versions is only
+    // meaningful with the version named, so these two require it.
+    let exact = || {
+        flags
+            .version
+            .clone()
+            .ok_or_else(|| CliError::MissingValue("--version".to_owned()))
+    };
+    match name {
+        "list" => Ok(PluginCommand::List),
+        "inspect" => Ok(PluginCommand::Inspect {
+            id,
+            version: flags.version,
+        }),
+        "install" => Ok(PluginCommand::Install {
+            source: PathBuf::from(id),
+            developer: flags.developer,
+            enable: flags.enable,
+        }),
+        "enable" => Ok(PluginCommand::Enable {
+            id,
+            version: flags.version,
+        }),
+        "disable" => Ok(PluginCommand::Disable { id }),
+        "rollback" => Ok(PluginCommand::Rollback {
+            id,
+            version: exact()?,
+        }),
+        "remove" => Ok(PluginCommand::Remove {
+            id,
+            version: exact()?,
+        }),
+        other => Err(CliError::UnknownArgument(format!("plugin {other}"))),
+    }
 }
 
 fn required_flag_value(flag: &str, value: Option<String>) -> Result<String, CliError> {
