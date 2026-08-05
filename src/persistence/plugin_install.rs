@@ -34,11 +34,14 @@ const STAGING_DIRECTORY: &str = ".staging";
 const INSTALLED_DIRECTORY: &str = "installed";
 
 /// Mode for the staging root: private to this user.
-#[cfg(unix)]
+///
+/// Declared on every platform so the call sites stay platform-neutral; the
+/// POSIX mode is applied only where the filesystem has one.
 const STAGING_MODE: u32 = 0o700;
 
 /// Mode for a created package directory.
-#[cfg(unix)]
+///
+/// Declared on every platform for the same reason as [`STAGING_MODE`].
 const DIRECTORY_MODE: u32 = 0o755;
 
 /// What a committed install produced.
@@ -224,8 +227,8 @@ fn set_mode_if_created(path: &Path) -> Result<(), InstallError> {
 
 /// Windows has no POSIX mode to apply.
 #[cfg(not(unix))]
-const fn set_mode_if_created(_path: &Path) -> Result<(), InstallError> {
-    Ok(())
+fn set_mode_if_created(path: &Path) -> Result<(), InstallError> {
+    set_mode(path, DIRECTORY_MODE)
 }
 
 /// Apply an explicit POSIX mode.
@@ -240,10 +243,20 @@ fn set_mode(path: &Path, mode: u32) -> Result<(), InstallError> {
     })
 }
 
-/// Windows carries no POSIX mode, so there is nothing to apply.
+/// Windows carries no POSIX mode, so the intended mode cannot be applied.
+///
+/// Rather than silently succeeding for any path at all, this confirms the
+/// target the caller meant to secure actually exists. Reporting "mode applied"
+/// for a directory that is not there would hide a broken install behind a
+/// platform difference.
 #[cfg(not(unix))]
-const fn set_mode(_path: &Path, _mode: u32) -> Result<(), InstallError> {
-    Ok(())
+fn set_mode(path: &Path, _mode: u32) -> Result<(), InstallError> {
+    fs::metadata(path)
+        .map(|_| ())
+        .map_err(|error| InstallError::Filesystem {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        })
 }
 
 /// Flush every directory of the staged tree so the rename has something
