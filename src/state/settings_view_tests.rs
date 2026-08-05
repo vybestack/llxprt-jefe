@@ -101,6 +101,7 @@ fn the_sections_run_from_the_session_outwards_to_its_registries_and_problems() {
             "Agent Types",
             "Screens",
             "Keys",
+            "Plugins",
             "Diagnostics",
         ]
     );

@@ -70,18 +70,21 @@ pub enum SettingsSection {
     Screens,
     /// Which chords dispatch which actions.
     Keys,
+    /// Which packages are installed and which are trusted to run.
+    Plugins,
     /// Read-only provenance and validation reporting.
     Diagnostics,
 }
 
 impl SettingsSection {
     /// Every section, in display order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::General,
         Self::Appearance,
         Self::AgentTypes,
         Self::Screens,
         Self::Keys,
+        Self::Plugins,
         Self::Diagnostics,
     ];
 
@@ -94,6 +97,7 @@ impl SettingsSection {
             Self::AgentTypes => "Agent Types",
             Self::Screens => "Screens",
             Self::Keys => "Keys",
+            Self::Plugins => "Plugins",
             Self::Diagnostics => "Diagnostics",
         }
     }

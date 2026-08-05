@@ -136,6 +136,7 @@ mod persistence_effect_tests;
 /// Durable-save staging and persistence completion handling.
 pub mod persistence_ops;
 /// Pure projection of the Screens/Layout editor into rows (issue #388).
+pub mod plugins_editor;
 pub mod screens_editor;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;

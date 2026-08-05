@@ -377,7 +377,7 @@ fn section_count(
     match section {
         SettingsSection::Diagnostics if diagnostics > 0 => Some(diagnostics),
         SettingsSection::AgentTypes => Some(state.agent_types.len()),
-        SettingsSection::Screens | SettingsSection::Keys => {
+        SettingsSection::Screens | SettingsSection::Keys | SettingsSection::Plugins => {
             let mut showing = state.clone();
             showing.section = section;
             Some(detail_rows(&showing).len())
@@ -397,6 +397,7 @@ pub fn detail_rows(state: &SettingsState) -> Vec<SettingsRow> {
         SettingsSection::AgentTypes => agent_type_rows(state),
         SettingsSection::Screens => screen_rows(state),
         SettingsSection::Keys => key_rows(state),
+        SettingsSection::Plugins => plugin_rows(state),
         SettingsSection::Diagnostics => diagnostic_rows(state),
     }
 }
@@ -454,6 +455,48 @@ fn published(state: &SettingsState) -> PublishedSettings {
         .map_or_else(PublishedSettings::default, |draft| {
             draft.published().clone()
         })
+}
+
+fn plugin_rows(state: &SettingsState) -> Vec<SettingsRow> {
+    let published = published(state);
+    // A package is trusted only when the draft says so. Unlike an agent type,
+    // the default is *not* trusted: an installed package that nobody has
+    // enabled must never render as ready to run.
+    let trusted = |id: &str| {
+        crate::domain::Id::parse(id).is_ok_and(|owner| {
+            published
+                .plugins
+                .get(&owner)
+                .and_then(|owner| owner.enabled)
+                .unwrap_or(false)
+        })
+    };
+    crate::state::plugins_editor::project_plugins(&state.plugins, &trusted)
+        .into_iter()
+        .map(|row| SettingsRow {
+            label: row.label,
+            value: format!(
+                "{} {}{}",
+                if row.enabled { "[x]" } else { "[ ]" },
+                row.status,
+                row.detail
+                    .map(|detail| format!(" — {detail}"))
+                    .unwrap_or_default()
+            ),
+            kind: crate::domain::Id::parse(&row.id).map_or(SettingsRowKind::Fact, |owner| {
+                if row.selectable {
+                    SettingsRowKind::Toggle {
+                        path: SyntaxPath::PluginEnabled(owner),
+                        value: row.enabled,
+                    }
+                } else {
+                    // A package that cannot be selected has nothing to toggle,
+                    // so its row reports rather than invites an edit.
+                    SettingsRowKind::Fact
+                }
+            }),
+        })
+        .collect()
 }
 
 fn agent_type_rows(state: &SettingsState) -> Vec<SettingsRow> {
