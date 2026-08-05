@@ -67,3 +67,27 @@ pub const CONFIG_FIELD_LIMIT: usize = 128;
 
 /// Lowest accepted configuration schema version.
 pub const CONFIG_SCHEMA_VERSION_MINIMUM: u32 = 1;
+
+/// The only manifest schema this executable reads.
+pub const MANIFEST_SCHEMA: u32 = 1;
+
+/// The only provider protocol this executable speaks.
+pub const MANIFEST_PROTOCOL: u32 = 1;
+
+/// Maximum bytes in one manifest or resource file.
+pub const MANIFEST_BYTE_LIMIT: usize = 1_048_576;
+
+/// Maximum bytes in a package display name.
+pub const DISPLAY_NAME_BYTE_LIMIT: usize = 256;
+
+/// Maximum actions one manifest may declare.
+pub const ACTION_LIMIT: usize = 128;
+
+/// Maximum panels one manifest may declare.
+pub const PANEL_LIMIT: usize = 32;
+
+/// Maximum routes one manifest may declare.
+pub const ROUTE_LIMIT: usize = 32;
+
+/// Maximum screen contributions one manifest may declare.
+pub const SCREEN_CONTRIBUTION_LIMIT: usize = 32;

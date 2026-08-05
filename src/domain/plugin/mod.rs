@@ -10,6 +10,7 @@ pub mod code;
 pub mod coordinate;
 pub mod field;
 pub mod limits;
+pub mod manifest;
 pub mod plugin_id;
 pub mod provider;
 pub mod surface;
@@ -19,6 +20,7 @@ pub use action::{Action, ActionConfirmation, ActionDraft, ActionError, ActionOut
 pub use code::PluginCode;
 pub use coordinate::{PackageCoordinate, PackageCoordinateError};
 pub use field::{Field, FieldDraft, FieldError, FieldKind, RestartScope, Scalar};
+pub use manifest::{Manifest, ManifestDraft, ManifestError, PluginDefaults};
 pub use plugin_id::{PluginId, PluginIdError, PluginIdErrorReason};
 pub use provider::{Provider, ProviderError, ProviderMode, ProviderSelection};
 pub use surface::{
