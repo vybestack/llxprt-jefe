@@ -11,6 +11,7 @@ mod domain_state_contracts;
 mod job_self_containment_contract;
 mod message_bus_contracts;
 mod multiplexer_socket_scoping_contract;
+mod namespace_derivation_contract;
 mod ocr_workflow_contracts;
 mod persistence_theme_contracts;
 mod plugin_dependency_decision_contracts;

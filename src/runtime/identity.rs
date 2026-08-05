@@ -1,4 +1,8 @@
-//! Privacy-conscious user identity for private multiplexer namespaces.
+//! Privacy-conscious derivation of private multiplexer namespaces.
+//!
+//! Namespaces are keyed on the resolved state path, never on machine identity;
+//! `tests/core/namespace_derivation_contract.rs` enforces that. See
+//! `state_path_identity_material` for why.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
