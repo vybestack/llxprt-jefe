@@ -58,6 +58,16 @@ pub struct PluginRoot {
 }
 
 impl PluginRoot {
+    /// Name a root directory and its provenance.
+    ///
+    /// [`candidate_roots`] is the ordering authority for a running process;
+    /// this constructor exists so the inventory can be exercised against an
+    /// arbitrary explicit root set without reproducing platform layouts.
+    #[must_use]
+    pub const fn new(path: PathBuf, kind: PluginRootKind) -> Self {
+        Self { path, kind }
+    }
+
     /// Borrow the root directory.
     #[must_use]
     pub fn path(&self) -> &Path {
@@ -102,21 +112,21 @@ pub struct PluginRootRequest {
 pub fn candidate_roots(request: &PluginRootRequest) -> Vec<PluginRoot> {
     let mut roots = Vec::new();
     if let Some(prefix) = request.executable_dir.as_deref().and_then(Path::parent) {
-        roots.push(PluginRoot {
-            path: prefix.join(PREFIX_RELATIVE_ROOT),
-            kind: PluginRootKind::Executable,
-        });
+        roots.push(PluginRoot::new(
+            prefix.join(PREFIX_RELATIVE_ROOT),
+            PluginRootKind::Executable,
+        ));
     }
     for prefix in system_prefixes(request.platform) {
-        roots.push(PluginRoot {
-            path: Path::new(prefix).join(PREFIX_RELATIVE_ROOT),
-            kind: PluginRootKind::System,
-        });
+        roots.push(PluginRoot::new(
+            Path::new(prefix).join(PREFIX_RELATIVE_ROOT),
+            PluginRootKind::System,
+        ));
     }
-    roots.push(PluginRoot {
-        path: request.config_plugins_dir.join(USER_ROOT_DIRECTORY),
-        kind: PluginRootKind::User,
-    });
+    roots.push(PluginRoot::new(
+        request.config_plugins_dir.join(USER_ROOT_DIRECTORY),
+        PluginRootKind::User,
+    ));
     roots
 }
 
