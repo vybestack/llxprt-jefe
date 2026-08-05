@@ -69,6 +69,12 @@ fn a_wedged_teardown_expires_the_bound_instead_of_blocking_forever() {
     /// asserted exactly would flake; a small multiple still excludes every
     /// value a hardcoded default could take.
     const SLACK: u32 = 4;
+    /// A timed condvar wait and [`Instant`] do not share a clock source, so the
+    /// wait can return a scheduler tick (~15.6 ms on Windows) short of the
+    /// duration it was asked for. Observed on CI at 49.54 ms against a 50 ms
+    /// bound. One tick of headroom keeps the lower bound meaningful — a wait
+    /// that returned immediately still fails it — without encoding a race.
+    const TIMER_SLOP: Duration = Duration::from_millis(20);
 
     let gate = ViewerTeardown::new();
     let guard = gate.begin();
@@ -82,8 +88,8 @@ fn a_wedged_teardown_expires_the_bound_instead_of_blocking_forever() {
         "a still-held teardown must not be reported idle"
     );
     assert!(
-        waited >= BOUND,
-        "the wait returned after {waited:?}, before its own {BOUND:?} bound elapsed"
+        waited + TIMER_SLOP >= BOUND,
+        "the wait returned after {waited:?}, far short of its own {BOUND:?} bound"
     );
     assert!(
         waited < BOUND * SLACK,
