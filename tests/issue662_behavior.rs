@@ -364,6 +364,40 @@ fn a_run_that_ends_for_a_reason_records_both_boundaries_and_retires_its_marker()
 }
 
 #[test]
+fn the_run_end_record_names_the_last_operation_the_run_was_doing() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+        jefe::run_diagnostics::record_breadcrumb("attach agent-11");
+        guard.finish(RunEndReason::RenderFailed);
+        std::process::exit(0);
+    }
+
+    let root = temp_root("end-breadcrumb");
+    let output = run_child(
+        "the_run_end_record_names_the_last_operation_the_run_was_doing",
+        &root,
+    );
+    assert!(output.status.success(), "child run should have exited 0");
+
+    let log = child_log(&root);
+    let ended = log
+        .lines()
+        .find(|line| line.contains("run-end"))
+        .unwrap_or_else(|| panic!("missing run-end record: {log}"));
+    assert!(
+        ended.contains("attach agent-11"),
+        "the run-end record must carry the breadcrumb, because the marker is \
+         deleted on a clean exit and the log is then the only place an operator \
+         can see what the run was last doing: {ended}"
+    );
+    assert!(
+        ended.contains("render-failed"),
+        "the run-end record must still name its typed reason: {ended}"
+    );
+}
+
+#[test]
 fn a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb() {
     if let Some(root) = child_root() {
         jefe::logging::init();
