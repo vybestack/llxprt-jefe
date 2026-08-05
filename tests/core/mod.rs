@@ -12,6 +12,7 @@ mod message_bus_contracts;
 mod multiplexer_socket_scoping_contract;
 mod ocr_workflow_contracts;
 mod persistence_theme_contracts;
+mod plugin_dependency_decision_contracts;
 mod pr_review_workflow_contracts;
 mod release_workflow_contracts;
 mod session_liveness_collapse_contracts;

@@ -85,7 +85,7 @@ fn listing_order_compares_cores_numerically_not_lexically() {
 
 #[test]
 fn listing_order_sorts_by_identifier_before_version() {
-    let mut coordinates = vec![
+    let mut coordinates = [
         coordinate("vendor.zeta", "9.0.0"),
         coordinate("vendor.alpha", "1.0.0"),
         coordinate("vendor.alpha", "2.0.0"),
