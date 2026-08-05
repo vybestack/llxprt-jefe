@@ -144,6 +144,9 @@ pub use agent_chooser::{
 pub mod agent_definition;
 pub use agent_definition::AgentTypeId;
 
+/// Bounded strict JSON reader shared by every closed contract (issue #389 D1).
+pub mod bounded_json;
+
 /// Closed plugin package contract (issue #389 CW-09).
 pub mod plugin;
 pub use plugin::{PluginId, PluginIdError, PluginIdErrorReason};

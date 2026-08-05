@@ -122,6 +122,7 @@ fn bounded_kind(value: &BoundedJson) -> &'static str {
         BoundedJson::Null => "null",
         BoundedJson::Bool(_) => "bool",
         BoundedJson::Int(_) => "int",
+        BoundedJson::Number(_) => "decimal",
         BoundedJson::Str(_) => "string",
         BoundedJson::Array(_) => "array",
         BoundedJson::Object(_) => "object",
@@ -584,7 +585,9 @@ fn read_default(
             }
             FieldValue::StringList(out)
         }
-        BoundedJson::Object(_) | BoundedJson::Null => {
+        // A definition field has no decimal kind, so a decimal default cannot
+        // match any kind even if the document somehow carried one.
+        BoundedJson::Object(_) | BoundedJson::Null | BoundedJson::Number(_) => {
             return Err(unknown("default must be a scalar or array"));
         }
     };

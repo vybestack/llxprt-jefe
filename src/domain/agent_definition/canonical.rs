@@ -73,6 +73,10 @@ fn write_canonical(value: &BoundedJson, out: &mut String) {
             use std::fmt::Write as _;
             let _ = write!(out, "{i}");
         }
+        // The definition schema is integer-only, so its reader never produces
+        // a decimal. Canonical text is still defined for one, because a
+        // decimal's canonical spelling is its own text by construction.
+        BoundedJson::Number(decimal) => out.push_str(decimal.as_str()),
         BoundedJson::Str(s) => {
             out.push('"');
             for ch in s.chars() {
