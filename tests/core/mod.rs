@@ -18,6 +18,7 @@ mod pr_review_workflow_contracts;
 mod release_workflow_contracts;
 mod session_liveness_collapse_contracts;
 mod tmux_harness_docs_contracts;
+mod unix_socket_gating_contract;
 mod visibility_filter_contracts;
 mod windows_ci_signal_contracts;
 mod windows_ownership_model_contracts;

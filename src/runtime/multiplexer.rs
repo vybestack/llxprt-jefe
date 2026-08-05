@@ -192,16 +192,7 @@ impl MultiplexerPlan {
     fn resolved(unique: bool) -> Result<Self, MultiplexerError> {
         let platform = LocalPlatform::current();
         let executable = resolve_executable(platform)?;
-        let isolation = match platform {
-            LocalPlatform::Unix => {
-                MultiplexerIsolation::Socket(super::socket::jefe_tmux_socket_path().to_path_buf())
-            }
-            LocalPlatform::Windows if unique => {
-                MultiplexerIsolation::Namespace(unique_test_namespace())
-            }
-            LocalPlatform::Windows => MultiplexerIsolation::Namespace(stable_jefe_namespace()),
-        };
-        Self::for_platform(platform, executable, isolation)
+        Self::for_platform(platform, executable, current_isolation(unique))
     }
 
     /// Return the resolved executable without converting it to UTF-8.
@@ -884,10 +875,36 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
     None
 }
 
+/// Isolation for the machine this build runs on.
+///
+/// Split by `cfg` rather than matched on `LocalPlatform` so the Windows build
+/// never names the Unix socket resolver (issue #547 V7). A runtime match left
+/// the Unix arm compiled in and reachable by anyone who introduced a platform
+/// override; a `cfg` split makes it a compile error instead.
+#[cfg(unix)]
+fn current_isolation(_unique: bool) -> MultiplexerIsolation {
+    MultiplexerIsolation::Socket(super::socket::jefe_tmux_socket_path().to_path_buf())
+}
+
+/// Isolation for the machine this build runs on. See the `cfg(unix)` twin.
+///
+/// `unique` requests a per-process namespace so concurrent test processes never
+/// share a psmux server with each other or with the developer's live agents.
+#[cfg(windows)]
+fn current_isolation(unique: bool) -> MultiplexerIsolation {
+    if unique {
+        MultiplexerIsolation::Namespace(unique_test_namespace())
+    } else {
+        MultiplexerIsolation::Namespace(stable_jefe_namespace())
+    }
+}
+
+#[cfg(windows)]
 fn unique_test_namespace() -> String {
     super::identity::unique_current_user_namespace()
 }
 
+#[cfg(windows)]
 fn stable_jefe_namespace() -> String {
     super::identity::stable_current_user_namespace()
 }

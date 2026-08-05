@@ -39,6 +39,11 @@ mod errors;
 mod external_terminal;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
+/// Namespace derivation for the Windows `-L` server-isolation model (issue #547 V7).
+///
+/// Unix isolates by socket path, so nothing there derives a namespace. Slice S4
+/// makes namespace resolution cross-platform and un-gates this.
+#[cfg(windows)]
 mod identity;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
@@ -91,6 +96,12 @@ mod session;
 pub(crate) mod session_host;
 /// Embedded shell-window tmux operations (issue #222).
 mod shell_window;
+/// Unix-domain socket resolution for tmux's `-S` flag (issue #547 V7).
+///
+/// Windows isolates by server namespace (`-L`), never by socket path, and the
+/// resolver shells out to `id -u`, which does not exist there. Gating the module
+/// makes the unreachable path unnameable rather than merely unreached.
+#[cfg(unix)]
 mod socket;
 mod stub_manager;
 /// Serialization gate between viewer teardown and viewer spawn (issue #664).
@@ -207,6 +218,7 @@ pub use shell_window::{
     close_shell_window, hide_shell_window, observe_shell_window_sessions, open_shell_window,
     shell_window_exists,
 };
+#[cfg(unix)]
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
 
@@ -221,6 +233,7 @@ mod agent_executable_tests;
 
 #[cfg(test)]
 #[path = "identity_tests.rs"]
+#[cfg(windows)]
 mod identity_tests;
 
 #[cfg(test)]
