@@ -440,7 +440,12 @@ impl Collector {
     }
 
     /// Resolve the package identity and validate the manifest.
-    fn finish(self) -> Result<ArchiveContents, ArchiveError> {
+    fn finish(mut self) -> Result<ArchiveContents, ArchiveError> {
+        // Canonical path order, so an archive and a developer directory of the
+        // same tree digest identically however their entries were listed. The
+        // digest is the only thing that lets the two install paths be
+        // compared, so it cannot depend on tar entry order.
+        self.files.sort_by(|left, right| left.path.cmp(&right.path));
         let root = self.root.ok_or(ArchiveError::NoRootDirectory)?;
         let coordinate = split_root(&root)?;
         let manifest_bytes = self

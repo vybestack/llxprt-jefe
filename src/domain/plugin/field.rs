@@ -280,6 +280,18 @@ impl Field {
         self.draft.default.as_ref()
     }
 
+    /// The declared inclusive lower bound, if any.
+    #[must_use]
+    pub const fn minimum(&self) -> Option<&Scalar> {
+        self.draft.minimum.as_ref()
+    }
+
+    /// The declared inclusive upper bound, if any.
+    #[must_use]
+    pub const fn maximum(&self) -> Option<&Scalar> {
+        self.draft.maximum.as_ref()
+    }
+
     /// The declared choices, empty for every kind but `enum`.
     #[must_use]
     pub fn choices(&self) -> &[Scalar] {

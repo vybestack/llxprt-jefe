@@ -147,6 +147,11 @@ fn commit(plugins_dir: &Path, contents: &ArchiveContents) -> Result<InstallOutco
 fn create_staging(plugins_dir: &Path) -> Result<PathBuf, InstallError> {
     let root = plugins_dir.join(STAGING_DIRECTORY);
     create_directory_all(&root)?;
+    // `create_directory_all` gives a package directory its public 0755 mode.
+    // The staging root is not a package directory: it holds uncommitted
+    // contents, so it is narrowed to this user before anything is written
+    // beneath it.
+    set_mode(&root, STAGING_MODE)?;
     let mut token = [0u8; 16];
     getrandom::fill(&mut token).map_err(|error| InstallError::Filesystem {
         path: root.clone(),
@@ -273,9 +278,10 @@ fn sync_ancestors(destination: &Path) -> Result<(), String> {
         // Two levels above the version directory is `installed`, which is as
         // far as this transaction owns.
         if cursor.is_some_and(|parent| parent.ends_with(INSTALLED_DIRECTORY)) {
-            File::open(parent_of(path))
+            let owner = parent_of(path);
+            File::open(owner)
                 .and_then(|handle| handle.sync_all())
-                .map_err(|error| format!("{}: {error}", path.display()))?;
+                .map_err(|error| format!("{}: {error}", owner.display()))?;
             return Ok(());
         }
     }

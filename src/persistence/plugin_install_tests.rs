@@ -242,9 +242,38 @@ fn the_staging_root_is_private_to_this_user() {
     let plugins = temp.path().join("plugins");
     install_archive(&plugins, &archive("vendor.pkg", "1.0.0", &[]))
         .unwrap_or_else(|error| panic!("install must succeed: {error}"));
-    // The per-install directory is removed on success, so the observable
-    // guarantee is that the staging area itself is not world-readable.
-    assert_eq!(mode_of(&plugins.join(".staging")), 0o755);
+    // Uncommitted package contents pass through here, so no other user may
+    // traverse it. 0755 would let them read a package mid-install.
+    assert_eq!(mode_of(&plugins.join(".staging")), 0o700);
+}
+
+#[test]
+fn entry_order_does_not_change_the_digest() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    // The same two files listed in opposite order are the same package, so
+    // they must digest identically for an archive and a directory install to
+    // be comparable at all.
+    let forward = install_archive(
+        &temp.path().join("a"),
+        &archive(
+            "vendor.pkg",
+            "1.0.0",
+            &[("a.txt", "one", 0o644), ("b.txt", "two", 0o644)],
+        ),
+    )
+    .unwrap_or_else(|error| panic!("install must succeed: {error}"));
+    let reversed = install_archive(
+        &temp.path().join("b"),
+        &archive(
+            "vendor.pkg",
+            "1.0.0",
+            &[("b.txt", "two", 0o644), ("a.txt", "one", 0o644)],
+        ),
+    )
+    .unwrap_or_else(|error| panic!("install must succeed: {error}"));
+    assert_eq!(forward.digest(), reversed.digest());
 }
 
 #[test]

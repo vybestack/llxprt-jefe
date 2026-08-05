@@ -36,6 +36,9 @@ const EXIT_CONFLICT: u8 = 3;
 /// Exit code for a request the filesystem refused.
 const EXIT_FILESYSTEM: u8 = 4;
 
+/// Exit code for a malformed invocation, matching `sysexits.h` `EX_USAGE`.
+const EXIT_USAGE: u8 = 64;
+
 /// Run one provider-free plugin command.
 #[must_use]
 pub fn run(command: &PluginCommand, config_dir: Option<&Path>) -> RecoveryOutput {
@@ -207,7 +210,7 @@ fn install(paths: &ResolvedPaths, source: &Path, developer: bool, enable: bool) 
                 "{} is a directory; use --developer to install an unpacked package",
                 source.display()
             ),
-            64,
+            EXIT_USAGE,
         );
     }
     let outcome = if developer {
@@ -384,7 +387,19 @@ fn is_selected_and_enabled(paths: &ResolvedPaths, coordinate: &PackageCoordinate
 
 /// Apply sparse settings edits through the lossless writer.
 fn apply_edits(paths: &ResolvedPaths, edits: &[SettingsEdit]) -> Result<(), RecoveryOutput> {
-    let bytes = std::fs::read(&paths.settings.path).unwrap_or_default();
+    // An absent settings file is a legitimate starting point; an unreadable
+    // one is not. Defaulting both to empty would let a permissions failure
+    // turn into a write derived from nothing.
+    let bytes = match std::fs::read(&paths.settings.path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            return Err(fail(
+                format!("{}: {error}", paths.settings.path.display()),
+                EXIT_FILESYSTEM,
+            ));
+        }
+    };
     let catalog = builtin_owner_catalog().map_err(|error| fail(error.to_string(), EXIT_INVALID))?;
     let migration = migrate_settings(&bytes, &catalog)
         .map_err(|diagnostics| diagnostics_output(&diagnostics, EXIT_INVALID))?;

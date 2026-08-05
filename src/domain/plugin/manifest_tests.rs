@@ -422,6 +422,54 @@ fn a_default_config_value_must_match_its_field_kind() {
 }
 
 #[test]
+fn a_default_outside_the_fields_declared_bounds_is_rejected() {
+    let bounded = Field::parse(FieldDraft {
+        id: id("depth"),
+        kind: FieldKind::Integer,
+        required: false,
+        default: None,
+        minimum: Some(Scalar::Integer(10)),
+        maximum: Some(Scalar::Integer(100)),
+        choices: Vec::new(),
+        visible_when: None,
+        restart: RestartScope::None,
+    })
+    .unwrap_or_else(|error| panic!("must parse: {error}"));
+
+    let mut candidate = draft();
+    candidate.config = Some(
+        ConfigSchema::parse(1, vec![bounded.clone()])
+            .unwrap_or_else(|error| panic!("must parse: {error}")),
+    );
+    candidate.defaults = Some(PluginDefaults {
+        actions_enabled: Vec::new(),
+        screens_enabled: Vec::new(),
+        config: vec![(id("depth"), Scalar::Integer(5))],
+    });
+    assert_eq!(
+        error_of(candidate),
+        ManifestError::DefaultKindMismatch {
+            field: "depth".to_owned()
+        },
+        "5 is below the field's declared minimum of 10"
+    );
+
+    let mut inside = draft();
+    inside.config = Some(
+        ConfigSchema::parse(1, vec![bounded]).unwrap_or_else(|error| panic!("must parse: {error}")),
+    );
+    inside.defaults = Some(PluginDefaults {
+        actions_enabled: Vec::new(),
+        screens_enabled: Vec::new(),
+        config: vec![(id("depth"), Scalar::Integer(10))],
+    });
+    assert!(
+        Manifest::parse(inside).is_ok(),
+        "the bound itself is inside it"
+    );
+}
+
+#[test]
 fn declaration_arrays_accept_their_limits_and_reject_one_more() {
     let mut at_limit = draft();
     at_limit.provider = provider_one_shot();

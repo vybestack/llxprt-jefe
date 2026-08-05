@@ -23,7 +23,12 @@ fn main() {
     // runtime: `env::consts` gives only architecture and OS, which cannot tell
     // `-gnu` from `-musl`, or `-msvc` from `-gnu` on Windows. Cargo does give
     // it to build scripts, so it is baked in here.
-    let target = std::env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
+    // Cargo always sets TARGET for a build script. Falling back to a
+    // placeholder would bake in a value that `HostTriple::parse` rejects,
+    // breaking the type's invariant everywhere downstream, so a missing TARGET
+    // fails the build loudly instead.
+    let target = std::env::var("TARGET")
+        .unwrap_or_else(|error| panic!("cargo must provide TARGET to the build script: {error}"));
     println!("cargo:rustc-env=JEFE_HOST_TRIPLE={target}");
 }
 

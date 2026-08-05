@@ -345,6 +345,12 @@ fn load_manifest(directory: &Path) -> Result<Manifest, UnavailableReason> {
     let bytes = std::fs::read(&file).map_err(|error| UnavailableReason::InvalidManifest {
         reason: error.to_string(),
     })?;
+    // The file can grow between the metadata check and the read, so the bound
+    // is enforced again on what was actually read rather than trusted from the
+    // earlier stat.
+    if bytes.len() > MANIFEST_BYTE_LIMIT {
+        return Err(UnavailableReason::ManifestTooLarge);
+    }
     read_manifest(&bytes).map_err(|error| UnavailableReason::InvalidManifest {
         reason: error.to_string(),
     })
@@ -433,6 +439,13 @@ fn read_directories(path: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(path) else {
         return Vec::new();
     };
+    // `is_dir` deliberately follows symlinks here. Refusing to enumerate a
+    // linked directory would make an escaping package silently invisible;
+    // enumerating it lets the containment check see it and report
+    // `EscapesRoot`, which is the difference between a package an operator can
+    // diagnose and one that merely fails to appear. The walk is bounded to two
+    // levels and every candidate is containment-checked, so following a link
+    // cannot reach anything that is then selected.
     let mut directories: Vec<PathBuf> = entries
         .flatten()
         .map(|entry| entry.path())

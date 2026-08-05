@@ -429,7 +429,11 @@ fn a_header_size_over_the_per_file_bound_is_rejected_before_the_body_is_read() {
 
 #[test]
 fn exceeding_the_total_expanded_bound_is_rejected() {
-    // Each file is inside the per-file bound; together they cross the total.
+    // Each file sits at the per-file bound; together they cross the total, so
+    // this is the only shape that exercises the *total* rather than the
+    // per-file rule. The content has to be real: a header that overstates its
+    // body produces a malformed tar, which the tar layer rejects for a
+    // different reason and would leave this bound untested.
     let chunk = "x".repeat(MANIFEST_BYTE_LIMIT);
     let count = usize::try_from(ARCHIVE_EXPANDED_BYTE_LIMIT).unwrap_or(usize::MAX)
         / MANIFEST_BYTE_LIMIT

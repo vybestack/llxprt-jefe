@@ -358,8 +358,11 @@ fn value_matches(value: &Scalar, field: &super::field::Field) -> bool {
         kind: field.kind(),
         required: field.required(),
         default: Some(value.clone()),
-        minimum: None,
-        maximum: None,
+        // The field's own bounds must travel with it: without them the
+        // reconstructed draft skips the bounds check and a default outside the
+        // field's declared range would be accepted.
+        minimum: field.minimum().cloned(),
+        maximum: field.maximum().cloned(),
         choices: field.choices().to_vec(),
         visible_when: None,
         restart: field.restart(),
