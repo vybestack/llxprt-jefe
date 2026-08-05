@@ -127,6 +127,7 @@ fn run_end_reasons_have_stable_log_labels() {
     assert_eq!(RunEndReason::UserQuit.as_str(), "user-quit");
     assert_eq!(RunEndReason::RenderFailed.as_str(), "render-failed");
     assert_eq!(RunEndReason::Panic.as_str(), "panic");
+    assert_eq!(RunEndReason::HostTerminated.as_str(), "host-terminated");
     assert_eq!(RunEndReason::Unknown.as_str(), "unknown");
 }
 
@@ -586,5 +587,49 @@ fn a_breadcrumb_recorded_while_the_run_heartbeats_survives_the_kill() {
         "a heartbeat running alongside the breadcrumb must not cost the run \
          the last operation it recorded, which is the whole point of the \
          breadcrumb"
+    );
+}
+
+#[test]
+fn a_run_the_host_tears_down_records_why_before_it_dies() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+        jefe::run_diagnostics::record_breadcrumb("attach agent-13");
+        // The console control handler runs on a thread the OS injects, with a
+        // few seconds before the process is killed outright. Nothing after this
+        // is guaranteed to run, so the death is simulated the same way an
+        // external kill is: no unwinding, no destructors, no exit path.
+        jefe::run_diagnostics::record_host_termination();
+        std::mem::forget(guard);
+        std::process::exit(0);
+    }
+
+    let root = temp_root("host-teardown");
+    let output = run_child(
+        "a_run_the_host_tears_down_records_why_before_it_dies",
+        &root,
+    );
+    assert!(output.status.success(), "child run should have exited 0");
+
+    let log = child_log(&root);
+    let ended = log
+        .lines()
+        .find(|line| line.contains("run-end"))
+        .unwrap_or_else(|| panic!("a host teardown must still record a run end: {log}"));
+    assert!(
+        ended.contains("host-terminated"),
+        "the run end must name the host teardown as its typed reason, so the \
+         death is attributable instead of anonymous: {ended}"
+    );
+    assert!(
+        ended.contains("attach agent-13"),
+        "the run end must still name the operation in flight: {ended}"
+    );
+
+    assert!(
+        run_marker::read_markers(&root).is_empty(),
+        "a death the run explained must retire its marker, or the next start \
+         would also report it as having ended without a recorded reason"
     );
 }

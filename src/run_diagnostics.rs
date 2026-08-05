@@ -143,6 +143,43 @@ pub fn heartbeat() {
     refresh(None);
 }
 
+/// Record that the host is tearing this run down, and retire the run.
+///
+/// Called from the platform's console control handler, which the OS runs on an
+/// injected thread with only a few seconds (far less at machine shutdown)
+/// before the process is killed outright. No destructor, no unwind, and no
+/// exit path runs afterwards, so the record has to be complete and flushed by
+/// the time this returns.
+///
+/// This deliberately does not terminate the process. The events that reach it
+/// are already fatal — the OS kills the process once the handler returns — and
+/// exiting here would mean stealing `Ctrl-C` from the attached agent terminal
+/// in the one case where it is not fatal.
+pub fn record_host_termination() {
+    end_run(RunEndReason::HostTerminated);
+}
+
+/// Ask the OS to tell this run when the console is closing.
+///
+/// Closing a console window, logging off, and shutting down all kill jefe
+/// without running any of its code, which is exactly the anonymous death this
+/// module exists to eliminate. Registering a handler converts that into a
+/// recorded reason.
+///
+/// Registration failures are swallowed: a run that cannot install the handler
+/// is no worse off than one that never tried, and refusing to start over it
+/// would trade a diagnostic for an outage.
+pub fn install_host_termination_handler() {
+    #[cfg(windows)]
+    {
+        // `SetConsoleCtrlHandler` takes a raw FFI callback, which this package
+        // forbids; ctrlc owns that unsafe block. Its `termination` feature is
+        // what widens the registration past Ctrl-C to the close, logoff, and
+        // shutdown events that actually kill an unattended run.
+        let _ = ctrlc::try_set_handler(record_host_termination);
+    }
+}
+
 /// Rewrite the marker of the run that is still open.
 ///
 /// The write happens while the run is held, not after a snapshot of it is

@@ -33,6 +33,11 @@ pub enum RunEndReason {
     RenderFailed,
     /// The run is unwinding from a panic.
     Panic,
+    /// The host asked the run to go away: the console was closed, the user
+    /// logged off, or the machine is shutting down. The run does not choose
+    /// this and gets only a few seconds of notice, but it is still a reason,
+    /// which is what separates it from a silent kill.
+    HostTerminated,
     /// The run ended without any path recording a reason.
     Unknown,
 }
@@ -48,6 +53,7 @@ impl RunEndReason {
             Self::UserQuit => "user-quit",
             Self::RenderFailed => "render-failed",
             Self::Panic => "panic",
+            Self::HostTerminated => "host-terminated",
             Self::Unknown => "unknown",
         }
     }

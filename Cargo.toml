@@ -75,6 +75,12 @@ win32job = "2.0.3"
 # unsafe Win32 calls stay inside this crate so jefe source remains `unsafe`-free.
 win32console = "0.1.5"
 whoami = "2.1.2"
+# Console control handler for CTRL_CLOSE/LOGOFF/SHUTDOWN (issue #662). Windows
+# grants a closing console only a few seconds before killing the process, and
+# Rust Drop never runs, so the run-end record has to be written from the
+# handler. `SetConsoleCtrlHandler` needs a raw FFI callback, which this package
+# forbids via `unsafe_code = "forbid"`; ctrlc keeps that unsafe inside the crate.
+ctrlc = { version = "3.5", features = ["termination"] }
 
 [target.'cfg(unix)'.dependencies]
 # Signal-aware cleanup for the tmux harness (issue #375): catches SIGINT/SIGTERM/

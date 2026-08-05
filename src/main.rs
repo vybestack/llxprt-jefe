@@ -350,6 +350,10 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     let (run_guard, unclean_prior_runs) = jefe::run_diagnostics::begin_run(
         &jefe::persistence::run_marker::run_marker_dir(&startup.paths.state.path),
     );
+    // Registered only once the run exists, so a teardown arriving during
+    // startup keeps the host's default handling rather than reporting the end
+    // of a run that never began.
+    jefe::run_diagnostics::install_host_termination_handler();
 
     // Get terminal size and derive PTY viewport size from dashboard geometry.
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
