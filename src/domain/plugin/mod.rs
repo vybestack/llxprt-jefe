@@ -9,11 +9,13 @@ pub mod code;
 pub mod coordinate;
 pub mod limits;
 pub mod plugin_id;
+pub mod provider;
 pub mod values;
 
 pub use code::PluginCode;
 pub use coordinate::{PackageCoordinate, PackageCoordinateError};
 pub use plugin_id::{PluginId, PluginIdError, PluginIdErrorReason};
+pub use provider::{Provider, ProviderError, ProviderMode, ProviderSelection};
 pub use values::{
     HostTriple, HostTripleError, RelativePath, RelativePathError, RelativePathErrorReason,
     SecretReference, SecretReferenceError,
