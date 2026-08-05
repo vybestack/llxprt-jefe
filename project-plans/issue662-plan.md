@@ -76,15 +76,16 @@ indistinguishable from a kill.
 - Log rotation, log size management, or changing the existing log format.
 - A general-purpose event/audit subsystem. The marker records exactly the fields
   named above and nothing else.
-- Any dependency, schema version bump, or quality-gate change.
-- **A8 (Windows console control handler) is deferred pending an explicit user
-  decision** — see "Blocked scope" below. Nothing in this plan installs a console
-  control handler until that decision is recorded here.
+- Schema version bumps and quality-gate changes.
+- Any dependency beyond the one the user explicitly approved for A8 (`ctrlc`,
+  `cfg(windows)`, `termination` feature) — see the A8 section below.
 
-## Blocked scope: A8, `SetConsoleCtrlHandler`
+## A8, `SetConsoleCtrlHandler` — approved and delivered
+
+**Decision: the user approved the dependency; A8 is delivered in `47288b64`.**
 
 Issue item 4 asks for a console control handler so `CTRL_CLOSE_EVENT`,
-`CTRL_LOGOFF_EVENT`, and `CTRL_SHUTDOWN_EVENT` are recorded. It cannot be
+`CTRL_LOGOFF_EVENT`, and `CTRL_SHUTDOWN_EVENT` are recorded. It could not be
 implemented under current project rules without a decision:
 
 - `Cargo.toml` sets `unsafe_code = "forbid"` at package level, so jefe cannot
@@ -105,9 +106,22 @@ returns immediately while the user closure runs elsewhere. The record is
 therefore best-effort. It also would not have captured the deaths in this issue,
 whose evidence shows *no* exit window was granted.
 
-Options: (a) approve the dependency and implement A8; (b) defer A8 to a
-follow-up issue. A4/A5 already attribute a window-less kill, which is the case
-actually observed.
+As delivered, `ctrlc 3.5.2` is a `cfg(windows)` dependency with the
+`termination` feature. `run_diagnostics::install_host_termination_handler` is
+registered from `main.rs` immediately after `begin_run`, so a teardown arriving
+during startup keeps the host's default handling rather than reporting the end
+of a run that never began. The handler calls `record_host_termination`, which
+ends the run with the new `RunEndReason::HostTerminated` (`"host-terminated"`),
+flushes the log, and retires the marker so an explained death is not also
+reported as unexplained.
+
+The handler deliberately does **not** exit the process. The events that reach
+it are already fatal — the OS kills the process once the handler returns — and
+exiting would steal `Ctrl-C` from the attached agent terminal in the one case
+where it is not fatal (issue #200). In the TUI this is largely theoretical
+because raw mode clears `ENABLE_PROCESSED_INPUT` and Windows then delivers
+`Ctrl-C` as a key event rather than a control event, but not exiting means the
+handler cannot regress that routing even if the terminal layer changes.
 
 ## Slices
 
@@ -159,9 +173,13 @@ actually observed.
 - GREEN: carry the detected unclean runs on `AppContext` and surface them through the existing `append_warning` route.
 - Stop condition: if surfacing requires a new screen, message variant, or state field beyond `warning_message`.
 
-### Slice 6 — A8, blocked
+### Slice 6 — A8, console control handler (delivered, `47288b64`)
 
-Not started. See "Blocked scope".
+- Rows: A8.
+- Allowed paths: `Cargo.toml`, `Cargo.lock`, `src/domain/run_record.rs`, `src/run_diagnostics.rs`, `src/main.rs`, `tests/issue662_behavior.rs`.
+- RED: `a_run_the_host_tears_down_records_why_before_it_dies` failed to compile because `record_host_termination` did not exist.
+- GREEN: `RunEndReason::HostTerminated`, `record_host_termination`, `install_host_termination_handler`, registered from `main.rs` after `begin_run`.
+- Teeth proven by mutation: ending with `RunEndReason::Unknown` instead makes the test fail on the recorded reason.
 
 ## Scope ledger
 
@@ -171,7 +189,7 @@ Not started. See "Blocked scope".
 | `run_app` swallows render-loop errors, losing the exit reason | In scope (A2) — the typed reason needs it. |
 | `ErrorSource::Startup` has display mappings but no producer | Defer — surfacing via `warning_message` satisfies A4; adding the first `Startup` error producer is adjacent scope. |
 | `app_shell_liveness` early-returns when there are no local targets, so it is not a dependable heartbeat | In scope (A3) — heartbeat gets its own small `use_future` instead of changing liveness. |
-| Windows console control handler needs a new dependency | Blocked — user decision required (A8). |
+| Windows console control handler needs a new dependency | Resolved — user approved `ctrlc` (`cfg(windows)`, `termination` feature); A8 delivered in `47288b64`. |
 
 ## Review counters
 
@@ -211,6 +229,7 @@ Commits on `issue662`:
 | `bddbcc70` | review | A6/A7 coverage gap closed: the run-end record is proven to carry the breadcrumb |
 | `548b643a` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
 | `3d99a495` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
+| `47288b64` | 6 | A8: a host teardown (console close, logoff, shutdown) records `host-terminated` and retires the marker |
 
 Acceptance rows to proof:
 
@@ -223,6 +242,7 @@ Acceptance rows to proof:
 | A5 | `a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb`; owner-alive classification tests | pass |
 | A6 | child-process tests assert the tail survives process death; panic hook calls `logging::flush()` | pass |
 | A7 | breadcrumb carried in the marker and repeated in the unclean report; attach/detach record breadcrumbs | pass |
+| A8 | `a_run_the_host_tears_down_records_why_before_it_dies` (child records a breadcrumb, calls `record_host_termination`, then dies without unwinding; parent asserts the flushed `run-end` line carries `host-terminated` and the breadcrumb, and that the marker is retired) | pass; attribution is best effort by construction, see the A8 section |
 
 Local gates on `3d99a495`:
 
@@ -241,7 +261,6 @@ without these changes; it is environment-dependent and untouched by this work.
 
 ## Deferred findings and follow-ups
 
-- A8 console control handler, if deferred by the user decision.
 - First producer for `ErrorSource::Startup`.
 - Make run-diagnostics run state instance-owned rather than a process-global
   `Mutex<Option<ActiveRun>>` (local review D1).
