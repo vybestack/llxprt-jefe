@@ -49,7 +49,7 @@ Branch: `issue664` (from `origin/main` @ `0b73a19a`).
 ## 5. Review counters
 
 - Local review runs used: 1 / 2
-- Post-PR OCR runs used: 1 / 2
+- Post-PR OCR runs used: 2 / 2 (cap reached)
 
 ### Local review 1 — triage
 
@@ -74,6 +74,18 @@ tests remain.
 | `matches("establish_worker_containment()").count()` also counts comments | valid but immaterial | **Reject** | Fails in the loud direction only: a stray comment reddens the test, it can never hide a real caller. |
 | `split_once("\nfn ")` body extraction is fragile | partial | **Reject** | `src/main.rs` has later top-level `fn`s, so the split terminates correctly today; the residual risk is a narrow over-capture that does not justify a parser dependency here. |
 | `is_none_or` requires Rust 1.82, may break MSRV | invalid | **Reject** | `edition = "2024"` already requires ≥ 1.85, and CI compiled the file on every platform. |
+
+### Post-PR OpenCodeReview 2 — triage
+
+| Finding | Validity | Disposition | Reason |
+|---|---|---|---|
+| `a_wedged_teardown_expires_the_bound_instead_of_blocking_forever` passes a 50 ms bound but asserts only `waited < VIEWER_TEARDOWN_WAIT` (500 ms) | valid | **In-scope—Fix** | This test *is* the A5 evidence that a wedged teardown cannot freeze the UI, and the assertion did not exercise the argument: an implementation that ignored its bound and used a longer internal default would still have passed. Now asserts `waited >= BOUND` and `waited < BOUND * 4`, so the honoured value must be the one passed. |
+| `replaces` fails open when either `started_at` is absent | valid, already covered | **Reject** | This is the recorded boundary decision (§1), and the requested justification comment is already present verbatim at `server_health_io.rs` L92–94: an absent discriminator makes the ordering *unverifiable*, not contradictory, so manufacturing a conflict from weak evidence would regress liveness on hosts that cannot supply creation times. |
+| `classify_resolved_identity` clones `current` into each observation variant | valid, immaterial | **Reject** | `ServerIdentity` is a pid, an optional `u64` and a short version string, cloned once per 2 s liveness poll. Borrowing would push a lifetime through `ServerLivenessObservation` and every consumer for no measurable gain. |
+| `production_text` brace counting ignores braces inside string literals and comments | unverifiable hypothesis | **Defer** | Not demonstrated against current sources, and mis-stripping is anchored loudly: `worker_containment_is_established_only_while_running_a_launch_plan` asserts exact `establish_worker_containment()` counts on the same extracted text, so a truncation reddens the suite. The proposed `syn` remedy is a new dependency and out of scope. |
+| Global `viewer_teardown()` singleton makes the tests order-dependent | valid, immaterial | **Reject** | Four of the five tests construct isolated `ViewerTeardown::new()` instances; only the wiring proof touches the process-global, and it asserts a *lower* bound (`waited >= HOLD`), which concurrent teardown can only strengthen. |
+| `is_none_or` requires Rust 1.70+, may break MSRV | invalid | **Reject** | Duplicate of an OCR 1 finding: `edition = "2024"` already requires ≥ 1.85 and CI compiles the file on every platform. |
+| `a_viewer_spawn_waits_for_a_teardown_held_on_the_shared_gate` is a valid, non-vacuous wiring proof | — | **No action** | Reviewer confirmation, not a finding. |
 
 ## 6. Verification evidence
 

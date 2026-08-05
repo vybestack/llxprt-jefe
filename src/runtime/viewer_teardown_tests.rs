@@ -58,14 +58,23 @@ fn a_spawn_waits_for_an_in_flight_teardown_to_finish() {
 }
 
 /// A teardown that never finishes must not freeze the UI. The wait is bounded,
-/// and an expired wait reports failure rather than blocking forever.
+/// and an expired wait reports failure rather than blocking forever. The bound
+/// asserted here is the one this test passes, not [`VIEWER_TEARDOWN_WAIT`]: a
+/// wait that ignored its argument in favour of some longer internal default
+/// would still finish inside the production bound and prove nothing.
 #[test]
 fn a_wedged_teardown_expires_the_bound_instead_of_blocking_forever() {
+    const BOUND: Duration = Duration::from_millis(50);
+    /// Windows CI schedules a woken thread late often enough that a bound
+    /// asserted exactly would flake; a small multiple still excludes every
+    /// value a hardcoded default could take.
+    const SLACK: u32 = 4;
+
     let gate = ViewerTeardown::new();
     let guard = gate.begin();
 
     let started = Instant::now();
-    let became_idle = gate.wait_until_idle(Duration::from_millis(50));
+    let became_idle = gate.wait_until_idle(BOUND);
     let waited = started.elapsed();
 
     assert!(
@@ -73,8 +82,12 @@ fn a_wedged_teardown_expires_the_bound_instead_of_blocking_forever() {
         "a still-held teardown must not be reported idle"
     );
     assert!(
-        waited < VIEWER_TEARDOWN_WAIT,
-        "the bounded wait ran for {waited:?}, so it is not bounded"
+        waited >= BOUND,
+        "the wait returned after {waited:?}, before its own {BOUND:?} bound elapsed"
+    );
+    assert!(
+        waited < BOUND * SLACK,
+        "the wait ran for {waited:?}, so it did not honour its {BOUND:?} bound"
     );
     drop(guard);
 }
