@@ -488,11 +488,42 @@ fn observe_agent_types(
 }
 
 /// tmux sessions, marking stale ones Dead.  Also activates the saved theme.
+/// Scan the ordered package roots into the pure snapshot the Settings section
+/// projects (issue #389).
+///
+/// A scan never fails startup: an unreadable root contributes nothing, exactly
+/// as a missing one does, because a broken package directory is not a reason to
+/// refuse to start.
+fn scan_plugin_inventory(
+    ctx: &SharedContext,
+) -> Vec<jefe::state::plugins_editor::PluginSnapshotRow> {
+    use jefe::persistence::plugin_inventory::{scan, snapshot};
+    use jefe::persistence::plugin_roots::{PluginRootRequest, candidate_roots};
+
+    let Some(ctx_arc) = ctx else {
+        return Vec::new();
+    };
+    let Ok(guard) = ctx_arc.lock() else {
+        return Vec::new();
+    };
+    let settings_path = guard.persistence.paths_ref().settings_path.clone();
+    drop(guard);
+    let roots = candidate_roots(&PluginRootRequest {
+        executable_dir: std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+        platform: jefe::persistence::paths::Platform::current(),
+        config_plugins_dir: jefe::persistence::paths::plugins_dir_for(&settings_path),
+    });
+    snapshot(&scan(&roots), &jefe::domain::plugin::HostTriple::current())
+}
+
 pub fn init_app_state(
     app_state: &mut HookState<AppState>,
     ctx: &SharedContext,
 ) -> Vec<jefe::domain::effects::IssuedEffect> {
     let multiplexer_warning = windows_multiplexer_startup_warning();
+    let plugin_inventory = scan_plugin_inventory(ctx);
     let Some(ctx_arc) = ctx else {
         return Vec::new();
     };
@@ -525,6 +556,7 @@ pub fn init_app_state(
     surface_durable_read_hold(&mut state, durable_read_held);
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
+    state.plugin_inventory = plugin_inventory;
     state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();

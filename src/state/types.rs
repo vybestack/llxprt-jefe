@@ -352,6 +352,12 @@ pub struct AppState {
     pub available_agent_type_ids: Vec<crate::domain::agent_definition::AgentTypeId>,
     /// Definition-driven runtime availability observed once during startup.
     pub agent_type_availability: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
+    /// The plugin package inventory this session found at startup.
+    ///
+    /// Scanned once at the persistence boundary and held as data. Nothing in
+    /// the state or UI layers rescans, and holding it here is what lets the
+    /// Settings Plugins section be a pure projection (issue #389).
+    pub plugin_inventory: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
     /// Monotonic generation allocated by the state-owned availability boundary.
     pub agent_probe_generation: u64,
 

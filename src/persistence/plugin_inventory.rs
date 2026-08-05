@@ -442,6 +442,71 @@ fn read_directories(path: &Path) -> Vec<PathBuf> {
     directories
 }
 
+/// Lower a physical scan into the pure snapshot the Settings section projects.
+///
+/// The state and UI layers never see an `InstalledPackage`: they see plain
+/// text they can render. Converting here is what keeps the projection pure
+/// while the scan stays at the persistence boundary where the I/O belongs.
+#[must_use]
+pub fn snapshot(
+    inventory: &PluginInventory,
+    host: &HostTriple,
+) -> Vec<crate::state::plugins_editor::PluginSnapshotRow> {
+    use crate::state::plugins_editor::{PluginRowState, PluginSnapshotRow};
+
+    let mut rows: Vec<PluginSnapshotRow> = Vec::new();
+    for package in inventory.packages() {
+        let versions = inventory
+            .packages()
+            .iter()
+            .filter(|other| other.coordinate().id() == package.coordinate().id())
+            .map(|other| other.coordinate().version().as_str().to_owned())
+            .collect();
+        rows.push(PluginSnapshotRow {
+            id: package.coordinate().id().as_str().to_owned(),
+            display_name: package.display_name().to_owned(),
+            version: package.coordinate().version().as_str().to_owned(),
+            versions,
+            root: package.root().display().to_string(),
+            state: package
+                .unsupported_reason(host)
+                .map_or(PluginRowState::Installed, |reason| {
+                    PluginRowState::UnsupportedPlatform { reason }
+                }),
+        });
+    }
+    for ambiguity in inventory.ambiguities() {
+        rows.push(PluginSnapshotRow {
+            id: ambiguity.coordinate().id().as_str().to_owned(),
+            display_name: ambiguity.coordinate().id().as_str().to_owned(),
+            version: ambiguity.coordinate().version().as_str().to_owned(),
+            versions: Vec::new(),
+            root: String::new(),
+            state: PluginRowState::Ambiguous {
+                code: ambiguity.code(),
+                paths: ambiguity
+                    .paths()
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect(),
+            },
+        });
+    }
+    for unavailable in inventory.unavailable() {
+        rows.push(PluginSnapshotRow {
+            id: unavailable.coordinate().id().as_str().to_owned(),
+            display_name: unavailable.coordinate().id().as_str().to_owned(),
+            version: unavailable.coordinate().version().as_str().to_owned(),
+            versions: Vec::new(),
+            root: String::new(),
+            state: PluginRowState::Unavailable {
+                reason: unavailable.reason().message(),
+            },
+        });
+    }
+    rows
+}
+
 #[cfg(test)]
 #[path = "plugin_inventory_tests.rs"]
 mod tests;

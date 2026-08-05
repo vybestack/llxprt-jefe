@@ -425,6 +425,18 @@ fn normalize_path(path: &Path, current_dir: &Path) -> Result<PathBuf, PathError>
     Ok(normalized)
 }
 
+/// The package root directory that belongs beside a settings file.
+///
+/// Path resolution and any later consumer must agree on where packages live,
+/// so the rule is stated once here rather than re-derived by each caller.
+#[must_use]
+pub fn plugins_dir_for(settings_path: &Path) -> PathBuf {
+    settings_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("plugins")
+}
+
 /// Platform-native identity for an existing file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PhysicalFileKey {
