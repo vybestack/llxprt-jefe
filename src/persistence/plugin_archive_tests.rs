@@ -157,13 +157,53 @@ fn a_well_formed_archive_yields_its_package_and_entries() {
 }
 
 #[test]
-fn the_digest_covers_the_exact_archive_bytes() {
-    let bytes = archive_with(Vec::new());
-    let contents = read(&bytes).unwrap_or_else(|error| panic!("archive must read: {error}"));
-    assert_eq!(
-        contents.digest(),
-        crate::domain::sha256::Sha256::digest(&bytes)
-    );
+fn the_digest_covers_content_rather_than_the_archive_envelope() {
+    use flate2::Compression;
+
+    // The same tree compressed at a different level is a different archive
+    // file but the same package, so the digest must agree.
+    let raw = tar_bytes(vec![
+        Entry::directory("vendor.pkg-1.0.0/"),
+        Entry::file("vendor.pkg-1.0.0/plugin.json", &manifest_body()),
+    ]);
+    let mut best = GzEncoder::new(Vec::new(), Compression::best());
+    best.write_all(&raw)
+        .unwrap_or_else(|error| panic!("gzip must write: {error}"));
+    let best = best
+        .finish()
+        .unwrap_or_else(|error| panic!("gzip must finish: {error}"));
+
+    let fast = read(&gzip(&raw)).unwrap_or_else(|error| panic!("archive must read: {error}"));
+    let best = read(&best).unwrap_or_else(|error| panic!("archive must read: {error}"));
+    assert_eq!(fast.content_digest(), best.content_digest());
+}
+
+#[test]
+fn a_changed_byte_changes_the_content_digest() {
+    let first = read(&archive_with(vec![Entry::file(
+        "vendor.pkg-1.0.0/a.txt",
+        "one",
+    )]))
+    .unwrap_or_else(|error| panic!("archive must read: {error}"));
+    let second = read(&archive_with(vec![Entry::file(
+        "vendor.pkg-1.0.0/a.txt",
+        "two",
+    )]))
+    .unwrap_or_else(|error| panic!("archive must read: {error}"));
+    assert_ne!(first.content_digest(), second.content_digest());
+}
+
+#[test]
+fn a_changed_mode_changes_the_content_digest() {
+    let resource = read(&archive_with(vec![
+        Entry::file("vendor.pkg-1.0.0/a.bin", "x").mode(0o644),
+    ]))
+    .unwrap_or_else(|error| panic!("archive must read: {error}"));
+    let executable = read(&archive_with(vec![
+        Entry::file("vendor.pkg-1.0.0/a.bin", "x").mode(0o755),
+    ]))
+    .unwrap_or_else(|error| panic!("archive must read: {error}"));
+    assert_ne!(resource.content_digest(), executable.content_digest());
 }
 
 #[test]

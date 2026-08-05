@@ -33,7 +33,7 @@ use crate::domain::plugin::limits::{
 use crate::domain::plugin::{
     Manifest, ManifestReadError, PackageCoordinate, RelativePath, read_manifest,
 };
-use crate::domain::sha256::Sha256;
+use crate::domain::sha256::{Sha256, Sha256Hasher};
 use crate::persistence::plugin_inventory::MANIFEST_FILE_NAME;
 
 /// Mode given to an executable file.
@@ -98,11 +98,35 @@ impl ArchiveContents {
         &self.files
     }
 
-    /// SHA-256 of the exact archive bytes.
+    /// SHA-256 over the package's normalized content.
+    ///
+    /// The digest covers each file's path, resulting mode and bytes in
+    /// listing order — not the archive envelope. That makes it stable across
+    /// recompression and identical for an archive install and a developer
+    /// directory install of the same tree, which is what lets the two paths be
+    /// compared at all.
     #[must_use]
-    pub const fn digest(&self) -> Sha256 {
+    pub const fn content_digest(&self) -> Sha256 {
         self.digest
     }
+}
+
+/// Digest a package's normalized content.
+fn content_digest(files: &[ArchiveFile]) -> Sha256 {
+    let mut hasher = Sha256Hasher::new();
+    for file in files {
+        hasher.update(file.path.as_str().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(file.mode.to_be_bytes().as_slice());
+        hasher.update(
+            u64::try_from(file.contents.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes()
+                .as_slice(),
+        );
+        hasher.update(&file.contents);
+    }
+    hasher.finalize()
 }
 
 /// Read and validate a complete `tar.gz` package archive.
@@ -117,7 +141,37 @@ pub fn read_archive(bytes: &[u8]) -> Result<ArchiveContents, ArchiveError> {
     let expanded = decompress_single_member(bytes)?;
     let mut collector = Collector::default();
     collector.absorb(&expanded)?;
-    collector.finish(Sha256::digest(bytes))
+    collector.finish()
+}
+
+/// Read and validate an unpacked package directory.
+///
+/// A developer install applies the identical containment, schema, mode and
+/// digest rules as an archive install, so it produces the same
+/// [`ArchiveContents`] rather than a parallel type with its own near-copy of
+/// the rules. Source symlinks are never followed: a link is refused exactly as
+/// an archive link entry is.
+///
+/// # Errors
+///
+/// Returns [`ArchiveError`] for the same reasons [`read_archive`] does.
+pub fn read_directory(source: &std::path::Path) -> Result<ArchiveContents, ArchiveError> {
+    let root = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| ArchiveError::RootName {
+            root: source.display().to_string(),
+        })?
+        .to_owned();
+    let mut collector = Collector {
+        root: Some(root),
+        ..Collector::default()
+    };
+    collector.absorb_directory(source, source)?;
+    collector
+        .files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    collector.finish()
 }
 
 /// Decompress exactly one gzip member, rejecting trailing bytes.
@@ -303,8 +357,90 @@ impl Collector {
         Ok(())
     }
 
+    /// Walk an unpacked package directory, applying the archive rules.
+    fn absorb_directory(
+        &mut self,
+        root: &std::path::Path,
+        directory: &std::path::Path,
+    ) -> Result<(), ArchiveError> {
+        let entries = std::fs::read_dir(directory).map_err(tar_error)?;
+        for entry in entries {
+            let entry = entry.map_err(tar_error)?;
+            let path = entry.path();
+            // `symlink_metadata` does not follow links, so a link is seen as a
+            // link and refused rather than silently resolved to its target.
+            let metadata = std::fs::symlink_metadata(&path).map_err(tar_error)?;
+            let relative_text = path
+                .strip_prefix(root)
+                .ok()
+                .and_then(|rest| rest.to_str())
+                .ok_or_else(|| ArchiveError::OutsideRoot {
+                    path: path.display().to_string(),
+                })?
+                .replace('\\', "/");
+            if metadata.is_symlink() {
+                return Err(ArchiveError::ForbiddenEntry {
+                    path: relative_text,
+                    kind: "symbolic link",
+                });
+            }
+            if metadata.is_dir() {
+                self.absorb_directory(root, &path)?;
+                continue;
+            }
+            if !metadata.is_file() {
+                return Err(ArchiveError::ForbiddenEntry {
+                    path: relative_text,
+                    kind: "special file",
+                });
+            }
+            self.absorb_source_file(&path, &relative_text, &metadata)?;
+        }
+        Ok(())
+    }
+
+    /// Validate and record one regular file from an unpacked directory.
+    fn absorb_source_file(
+        &mut self,
+        path: &std::path::Path,
+        relative_text: &str,
+        metadata: &std::fs::Metadata,
+    ) -> Result<(), ArchiveError> {
+        self.entries += 1;
+        if self.entries > ARCHIVE_ENTRY_LIMIT {
+            return Err(ArchiveError::TooManyEntries {
+                limit: ARCHIVE_ENTRY_LIMIT,
+            });
+        }
+        let relative =
+            RelativePath::parse(relative_text).map_err(|_| ArchiveError::ForbiddenPath {
+                path: relative_text.to_owned(),
+                reason: "path is not a contained package-relative path",
+            })?;
+        self.record_path(&relative, relative_text)?;
+        if metadata.len() > u64::try_from(MANIFEST_BYTE_LIMIT).unwrap_or(u64::MAX) {
+            return Err(ArchiveError::FileTooLarge {
+                path: relative.as_str().to_owned(),
+                limit: MANIFEST_BYTE_LIMIT,
+            });
+        }
+        self.expanded = self.expanded.saturating_add(metadata.len());
+        if self.expanded > ARCHIVE_EXPANDED_BYTE_LIMIT {
+            return Err(ArchiveError::ExpandedTooLarge {
+                limit: ARCHIVE_EXPANDED_BYTE_LIMIT,
+            });
+        }
+        let contents = std::fs::read(path).map_err(tar_error)?;
+        self.files.push(ArchiveFile {
+            path: relative,
+            mode: normalize_mode(source_mode(metadata)),
+            contents,
+        });
+        Ok(())
+    }
+
     /// Resolve the package identity and validate the manifest.
-    fn finish(self, digest: Sha256) -> Result<ArchiveContents, ArchiveError> {
+    fn finish(self) -> Result<ArchiveContents, ArchiveError> {
         let root = self.root.ok_or(ArchiveError::NoRootDirectory)?;
         let coordinate = split_root(&root)?;
         let manifest_bytes = self
@@ -320,6 +456,7 @@ impl Collector {
                 manifest: manifest.coordinate().to_string(),
             });
         }
+        let digest = content_digest(&self.files);
         Ok(ArchiveContents {
             coordinate,
             manifest,
@@ -327,6 +464,19 @@ impl Collector {
             digest,
         })
     }
+}
+
+/// The executable bit of a source file, where the platform reports one.
+#[cfg(unix)]
+fn source_mode(metadata: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    metadata.mode()
+}
+
+/// Windows has no executable bit, so a developer install produces resources.
+#[cfg(not(unix))]
+const fn source_mode(_metadata: &std::fs::Metadata) -> u32 {
+    RESOURCE_MODE
 }
 
 /// Split `<plugin-id>-<canonical-semver>` into a coordinate.
