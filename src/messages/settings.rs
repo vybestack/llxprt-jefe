@@ -194,6 +194,8 @@ pub enum SettingsMessage {
     ReorderRow(NavDir),
     /// Unbind the focused row, when it binds anything.
     UnbindRow,
+    /// Wait for one more chord to add to the focused binding.
+    AddChord,
     /// Offer one chord to a waiting capture.
     CapturedChord(Chord),
     /// Withdraw a waiting capture.
@@ -249,6 +251,7 @@ impl SettingsMessage {
             Self::ResetRow => "SettingsResetRow",
             Self::ReorderRow(_) => "SettingsReorderRow",
             Self::UnbindRow => "SettingsUnbindRow",
+            Self::AddChord => "SettingsAddChord",
             Self::CapturedChord(_) => "SettingsCapturedChord",
             Self::CaptureCancelled => "SettingsCaptureCancelled",
             Self::Layout(_) => "SettingsLayout",

@@ -179,6 +179,7 @@ handler_surface! {
     SettingsReset,
     SettingsToggle,
     SettingsUnbind,
+    SettingsAddChord,
     SettingsMoveUp,
     SettingsMoveDown,
     JumpAgent(1),

@@ -57,6 +57,8 @@ pub enum SettingsAction {
     Toggle,
     /// Bind nothing to the focused action.
     Unbind,
+    /// Wait for one more chord to add to the focused binding.
+    AddChord,
     /// Move the focused screen one place earlier.
     MoveUp,
     /// Move the focused screen one place later.
@@ -85,6 +87,7 @@ pub fn apply(action: SettingsAction, app_state: &mut AppStateHandle, ctx: &Share
         SettingsAction::Reset => reset(app_state),
         SettingsAction::Toggle => dispatch(app_state, SettingsMessage::ToggleRow),
         SettingsAction::Unbind => dispatch(app_state, SettingsMessage::UnbindRow),
+        SettingsAction::AddChord => dispatch(app_state, SettingsMessage::AddChord),
         SettingsAction::MoveUp => {
             dispatch(app_state, SettingsMessage::ReorderRow(NavDir::Up));
         }

@@ -17,6 +17,9 @@
 pub mod activation;
 pub mod allocate;
 pub mod compose;
+#[cfg(test)]
+#[path = "compose_settings_tests.rs"]
+mod compose_settings_tests;
 pub mod config;
 pub mod descriptor;
 pub mod diagnostics;

@@ -467,9 +467,33 @@ fn opened_with_keys(bytes: &[u8]) -> AppState {
         .unwrap_or_else(|error| panic!("owner catalog fixture: {error}"));
     let loaded = crate::persistence::keymap_edit::load_bytes(Some(bytes), &catalog, "settings")
         .unwrap_or_else(|diagnostics| panic!("keymap fixture: {diagnostics:?}"));
-    let mut state = opened(bytes);
-    state.action_registry_snapshot = Some(loaded.composed.snapshot().clone());
+    // The snapshot is in place before the screen opens, which is the order the
+    // boundary produces: composition happens at startup, Settings binds later.
+    let mut state = AppState {
+        action_registry_snapshot: Some(loaded.composed.snapshot().clone()),
+        ..AppState::default()
+    };
+    state.reduce_settings(SettingsMessage::Open(Box::new(source(bytes))));
     state
+}
+
+/// Focus the Keys row for one action, the way a user reaches it.
+fn focus_key_row(state: &mut AppState, action_id: &str) {
+    state.reduce_settings(SettingsMessage::SelectSection(
+        crate::messages::settings::SettingsSection::Keys,
+    ));
+    state.settings_state.focus = crate::state::SettingsFocus::Detail;
+    let rows = crate::state::settings_view::detail_rows(&state.settings_state);
+    let index = rows
+        .iter()
+        .position(|row| match &row.kind {
+            crate::state::settings_view::SettingsRowKind::KeyBinding { action, .. } => {
+                action.as_str() == action_id
+            }
+            _ => false,
+        })
+        .unwrap_or_else(|| panic!("a Keys row for {action_id}"));
+    state.settings_state.selected_row = index;
 }
 
 #[test]
@@ -745,5 +769,56 @@ fn opening_a_layout_the_grammar_cannot_read_says_so_rather_than_showing_another_
     assert!(
         fresh.settings_state.notice.is_some(),
         "and the reason is reported"
+    );
+}
+
+#[test]
+fn a_second_capture_adds_a_chord_rather_than_replacing_the_first() {
+    let mut state = opened_with_keys(b"settings_schema = 2\n");
+
+    key_intent(
+        &mut state,
+        KeyIntent::CaptureSingleChord {
+            context: context("global"),
+            action: action("core.open-settings"),
+            chord: chord("F2"),
+        },
+    );
+    focus_key_row(&mut state, "core.open-settings");
+    state.reduce_settings(SettingsMessage::AddChord);
+    state.reduce_settings(SettingsMessage::CapturedChord(chord("F3")));
+
+    assert_eq!(
+        published(&state)
+            .keymap
+            .get("global")
+            .and_then(|actions| actions.get("core.open-settings"))
+            .map(Vec::len),
+        Some(2),
+        "an action can carry more than one chord, as the registry allows"
+    );
+}
+
+#[test]
+fn adding_a_chord_to_an_unbound_action_binds_exactly_that_one() {
+    let mut state = opened_with_keys(b"settings_schema = 2\n");
+
+    key_intent(
+        &mut state,
+        KeyIntent::Unbind {
+            context: context("global"),
+            action: action("core.open-settings"),
+        },
+    );
+    focus_key_row(&mut state, "core.open-settings");
+    state.reduce_settings(SettingsMessage::AddChord);
+    state.reduce_settings(SettingsMessage::CapturedChord(chord("F3")));
+
+    assert_eq!(
+        published(&state)
+            .keymap
+            .get("global")
+            .and_then(|actions| actions.get("core.open-settings")),
+        Some(&vec!["F3".to_owned()])
     );
 }

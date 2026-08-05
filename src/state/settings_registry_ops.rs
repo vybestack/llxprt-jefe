@@ -24,11 +24,13 @@ use crate::workbench::descriptor::{LayoutNode, ScreenDescriptor};
 
 use super::AppState;
 use super::agent_types_editor::AgentIntent;
-use super::keys_editor_project::{self, CaptureOutcome, KeyIntent, classify_capture};
+use super::keys_editor_project::{
+    self, CaptureOutcome, ChordText, KeyIntent, classify_capture, project_keys,
+};
 use super::layout_editor::{LayoutEditorState, NodeDialog};
 use super::screens_editor::{self, CompositionStatus, ScreenEditorRow, ScreenIntent};
-use super::settings::{CAPTURE_PROMPT, step};
-use super::settings_types::ChordCapture;
+use super::settings::{ADD_CHORD_PROMPT, CAPTURE_PROMPT, step};
+use super::settings_types::{CaptureMode, ChordCapture};
 use super::settings_view::{self, SettingsActivation};
 
 /// What a reorder did.
@@ -95,9 +97,11 @@ impl AppState {
             SettingsActivation::Agent(intent) => self.draft_agent(intent),
             SettingsActivation::Screen(intent) => self.draft_screen(*intent),
             SettingsActivation::Key(intent) => self.draft_key(*intent),
-            SettingsActivation::CaptureChord { context, action } => {
-                self.begin_chord_capture(context, action)
-            }
+            SettingsActivation::CaptureChord {
+                context,
+                action,
+                mode,
+            } => self.begin_chord_capture(context, action, mode),
             SettingsActivation::OpenLayout { screen_id } => self.open_layout_editor(&screen_id),
         }
     }
@@ -343,14 +347,60 @@ impl AppState {
     }
 
     /// Wait for exactly the next chord, to bind it to this action.
-    fn begin_chord_capture(&mut self, context: ContextId, action: ActionId) -> bool {
+    fn begin_chord_capture(
+        &mut self,
+        context: ContextId,
+        action: ActionId,
+        mode: CaptureMode,
+    ) -> bool {
         if let Some(reason) = self.protected_reason(&context, &action) {
             self.settings_state.notice = Some(reason);
             return true;
         }
-        self.settings_state.capture = Some(ChordCapture { context, action });
-        self.settings_state.notice = Some(CAPTURE_PROMPT.to_owned());
+        self.settings_state.capture = Some(ChordCapture {
+            context,
+            action,
+            mode,
+        });
+        self.settings_state.notice = Some(match mode {
+            CaptureMode::Replace => CAPTURE_PROMPT.to_owned(),
+            CaptureMode::Add => ADD_CHORD_PROMPT.to_owned(),
+        });
         true
+    }
+
+    /// The chords one binding already carries, in order.
+    ///
+    /// Read from the same projection the row shows, so a chord added to a
+    /// binding the user has already edited joins that edit rather than
+    /// whatever the file still says.
+    ///
+    /// # Errors
+    ///
+    /// Returns the text a chord in this binding is spelled with when the
+    /// grammar cannot read it. Adding to such a binding would have to write the
+    /// whole array back, and the only ways to do that are to drop the text the
+    /// user wrote or to write it again as something it is not.
+    fn bound_chords(&self, context: &ContextId, action: &ActionId) -> Result<Vec<Chord>, String> {
+        let Some(snapshot) = self.settings_state.actions.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let Some(draft) = self.settings_state.draft.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let Some(row) = project_keys(snapshot, draft.published())
+            .into_iter()
+            .find(|row| &row.context == context && &row.action == action)
+        else {
+            return Ok(Vec::new());
+        };
+        row.chords
+            .into_iter()
+            .map(|text| match text {
+                ChordText::Chord(chord) => Ok(chord),
+                ChordText::Unreadable(text) => Err(text),
+            })
+            .collect()
     }
 
     /// Take, cancel, or refuse one chord offered to a waiting capture.
@@ -361,11 +411,40 @@ impl AppState {
         match classify_capture(chord) {
             CaptureOutcome::Captured(chord) => {
                 self.settings_state.notice = None;
-                self.draft_key(KeyIntent::CaptureSingleChord {
-                    context: capture.context,
-                    action: capture.action,
-                    chord,
-                })
+                match capture.mode {
+                    CaptureMode::Replace => self.draft_key(KeyIntent::CaptureSingleChord {
+                        context: capture.context,
+                        action: capture.action,
+                        chord,
+                    }),
+                    CaptureMode::Add => {
+                        let mut chords = match self.bound_chords(&capture.context, &capture.action)
+                        {
+                            Ok(chords) => chords,
+                            Err(text) => {
+                                self.settings_state.notice = Some(format!(
+                                    "correct {text} on this binding before adding to it"
+                                ));
+                                return true;
+                            }
+                        };
+                        // A chord already on this binding is not added twice:
+                        // the array would then name the same way in twice, and
+                        // the resolver would report the binding as conflicting
+                        // with itself.
+                        if chords.contains(&chord) {
+                            self.settings_state.notice =
+                                Some(format!("{chord} is already bound to this action"));
+                            return true;
+                        }
+                        chords.push(chord);
+                        self.draft_key(KeyIntent::SetChords {
+                            context: capture.context,
+                            action: capture.action,
+                            chords,
+                        })
+                    }
+                }
             }
             CaptureOutcome::Cancelled => {
                 self.settings_state.notice = Some("Capture cancelled".to_owned());

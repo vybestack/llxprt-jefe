@@ -48,6 +48,10 @@ pub fn settings_save_key() -> SemanticKey {
 pub const RESTART_NOTICE: &str = "Restart Jefe to apply structural changes";
 
 /// The prompt a waiting chord capture shows, verbatim.
+/// The prompt shown while a capture is waiting to add one more chord.
+pub const ADD_CHORD_PROMPT: &str = "Press the chord to add to this action, or Esc to cancel";
+
+/// The prompt shown while a capture is waiting for one chord.
 pub const CAPTURE_PROMPT: &str = "Press a key to bind it; Esc cancels";
 
 impl AppState {
@@ -71,6 +75,7 @@ impl AppState {
             SettingsMessage::ResetRow => self.act_on_row(settings_view::SettingsRow::reset),
             SettingsMessage::UnbindRow => self.act_on_row(settings_view::SettingsRow::unbind),
             SettingsMessage::ReorderRow(direction) => self.reorder_row(direction),
+            SettingsMessage::AddChord => self.act_on_row(settings_view::SettingsRow::add_chord),
             SettingsMessage::CapturedChord(chord) => self.resolve_chord_capture(chord),
             SettingsMessage::CaptureCancelled => self.cancel_chord_capture(),
             SettingsMessage::Layout(message) => self.reduce_layout(message),

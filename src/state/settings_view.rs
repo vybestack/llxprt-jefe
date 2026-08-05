@@ -22,7 +22,7 @@ use crate::workbench::ScreenId;
 use super::agent_types_editor::{AgentAvailability, AgentIntent, project_agent_types};
 use super::keys_editor_project::{KeyIntent, project_keys};
 use super::screens_editor::{CompositionStatus, ScreenIntent, project_screens};
-use super::settings_types::{DraftStatus, SettingsDraft, SettingsState};
+use super::settings_types::{CaptureMode, DraftStatus, SettingsDraft, SettingsState};
 
 /// What one detail row lets the user do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +115,8 @@ pub enum SettingsActivation {
         context: ContextId,
         /// The action to bind.
         action: ActionId,
+        /// What the captured chord does to the chords already bound.
+        mode: CaptureMode,
     },
     /// Open the layout tree editor on this screen.
     OpenLayout {
@@ -174,6 +176,7 @@ impl SettingsRow {
             } => Some(SettingsActivation::CaptureChord {
                 context: context.clone(),
                 action: action.clone(),
+                mode: CaptureMode::Replace,
             }),
             SettingsRowKind::ScreenMember { .. }
             | SettingsRowKind::KeyBinding { .. }
@@ -254,6 +257,27 @@ impl SettingsRow {
             | SettingsRowKind::KeyBinding { .. }
             | SettingsRowKind::Fact
             | SettingsRowKind::Diagnostic { .. } => None,
+        }
+    }
+
+    /// What adding one more chord to this row asks for, when it binds anything.
+    ///
+    /// An action may carry several chords. Capturing one more is how a binding
+    /// gets its second, so the editor can express every binding the registry
+    /// accepts rather than only the single-chord ones.
+    #[must_use]
+    pub fn add_chord(&self) -> Option<SettingsActivation> {
+        match &self.kind {
+            SettingsRowKind::KeyBinding {
+                context,
+                action,
+                protected: None,
+            } => Some(SettingsActivation::CaptureChord {
+                context: context.clone(),
+                action: action.clone(),
+                mode: CaptureMode::Add,
+            }),
+            _ => None,
         }
     }
 

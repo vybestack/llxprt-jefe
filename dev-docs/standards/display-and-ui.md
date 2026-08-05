@@ -409,6 +409,7 @@ to hold need list and detail space. It is opened with `,` from anywhere.
 | `K` / Alt-Up | Move the focused screen one place earlier |
 | `J` / Alt-Down | Move the focused screen one place later |
 | Delete | Bind nothing to the focused action |
+| a | Wait for one more chord to add to the focused action |
 | Left / Right | Step the recovery choices, or move the same selection |
 | `s` | Save |
 | `S` | Save and exit |

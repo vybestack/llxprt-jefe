@@ -355,6 +355,21 @@ pub struct ChordCapture {
     pub context: crate::domain::input_context::ContextId,
     /// The action to bind.
     pub action: crate::domain::action_registry::ActionId,
+    /// What the captured chord does to the chords already bound.
+    pub mode: CaptureMode,
+}
+
+/// Whether a capture replaces the binding or adds to it.
+///
+/// An action may carry several chords, and the way to give it a second one is
+/// to capture a second one. Without this the editor could only ever express a
+/// single-chord binding, which is narrower than the registry allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureMode {
+    /// The captured chord becomes the whole binding.
+    Replace,
+    /// The captured chord joins the chords already bound.
+    Add,
 }
 
 /// Where the Settings screen's keyboard focus is.

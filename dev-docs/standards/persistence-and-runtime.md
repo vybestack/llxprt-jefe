@@ -213,6 +213,30 @@ proved their own grammar, so an ill-formed path stays unrepresentable.
   registry that is built once, at startup, so a saved change applies at the next
   start and the running session is untouched.
 
+### What the next start does with each leaf
+
+Nothing here is written for its own sake. Every leaf the editors write is read
+by exactly one owner, once, while that owner composes:
+
+| Leaf | Read by | Effect at the next start |
+|---|---|---|
+| `agents.<id>.enabled` | the agent registry probe boundary | a disabled type is not offered and is not probed |
+| `workbench.enabled_screens` | screen composition | a definition whose `local.<member>` identity is absent is dormant |
+| `workbench.screen_order` | screen composition | the registry publishes the named screens first, in the order given |
+| `workbench.layout_overrides.<id>` | screen composition | that screen's layout is the saved tree instead of the compiled one |
+| `keymap.<context>.<action>` | action-registry composition | the action resolves from the saved chords |
+
+- A screen the order does not name keeps the position it already had, so an
+  order naming one screen moves that one and nothing else.
+- A layout override is validated on its own, against the screen it names, by the
+  same descriptor validator every registry publication goes through. An override
+  it refuses is a startup **warning** and the compiled layout stands: an invalid
+  layout is correctable only from inside the program, and refusing to start
+  would leave the user unable to reach the screen that corrects it. The Settings
+  Screens editor shows the same refusal against the same row.
+- An override naming a screen that is not composed is reported for the same
+  reason: settings that do nothing should say so rather than look applied.
+
 ### Save
 
 A save requires zero validation errors. It moves the draft to

@@ -26,8 +26,9 @@ use std::collections::BTreeSet;
 use crate::domain::Id;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
+use crate::persistence::settings_document::PublishedSettings;
 
-use super::descriptor::ScreenDescriptor;
+use super::descriptor::{LayoutNode, ScreenDescriptor};
 use super::diagnostics::ScreenDiagnostic;
 use super::ids::CUSTOM_SCREEN_NAMESPACE;
 use super::lowering_error::LoweringError;
@@ -35,6 +36,7 @@ use super::screen_file::parse_screen_file;
 use super::screen_file_bounds::ScreenSyntaxError;
 use super::screen_lowering::lower_screen;
 use super::screens::{RegistryError, ScreenRegistry};
+use super::validate::validate_descriptor;
 
 /// A published screen registry and the warnings composing it produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,10 +68,17 @@ impl std::fmt::Display for CompositionRefused {
 
 impl std::error::Error for CompositionRefused {}
 
-/// Compose compiled screens with every enabled definition.
+/// Compose compiled screens with every enabled definition, as settings ask.
 ///
-/// `enabled` is the schema-2 `workbench.enabled_screens` set. A definition whose
-/// `local.<member>` identity is absent from it is dormant.
+/// `settings.workbench.enabled_screens` decides which definitions contribute: a
+/// definition whose `local.<member>` identity is absent from it is dormant.
+/// `layout_overrides` then replaces the layout of any screen it names, and
+/// `screen_order` decides the order the registry publishes them in.
+///
+/// A layout override is the one input here that a user can only correct from
+/// inside the program, so an override the descriptor validator refuses is a
+/// warning and the compiled layout stands. Refusing to start would leave them
+/// unable to reach the screen that edits it.
 ///
 /// # Errors
 ///
@@ -78,20 +87,89 @@ impl std::error::Error for CompositionRefused {}
 pub fn compose_screens(
     compiled: &ScreenRegistry,
     candidates: &[ScreenFileCandidate],
-    enabled: &BTreeSet<Id>,
+    settings: &PublishedSettings,
 ) -> Result<ScreenComposition, CompositionRefused> {
+    let enabled: BTreeSet<Id> = settings.workbench.enabled_screens.iter().cloned().collect();
     let mut screens: Vec<ScreenDescriptor> = compiled.screens().to_vec();
     let mut warnings = Vec::new();
     for candidate in candidates {
         let path = DiagnosticPath::new(candidate.path.to_string_lossy());
-        let Some(lowered) = compose_one(candidate, enabled, &path, &mut warnings)? else {
+        let Some(lowered) = compose_one(candidate, &enabled, &path, &mut warnings)? else {
             continue;
         };
         screens.push(lowered);
     }
+    apply_layout_overrides(&mut screens, settings, &mut warnings);
+    order_screens(&mut screens, &settings.workbench.screen_order);
     let registry = ScreenRegistry::new(screens)
         .map_err(|error| registry_refusal(&error, candidates_root(candidates)))?;
     Ok(ScreenComposition { registry, warnings })
+}
+
+/// Replace the layout of every screen settings override, or say why not.
+///
+/// Each candidate descriptor is validated on its own before it is kept, so an
+/// override that breaks an invariant is reported against the screen it names
+/// rather than failing the whole registry with a message about something else.
+fn apply_layout_overrides(
+    screens: &mut [ScreenDescriptor],
+    settings: &PublishedSettings,
+    warnings: &mut Vec<Diagnostic>,
+) {
+    for (owner, values) in &settings.workbench.layout_overrides {
+        let Some(index) = screens
+            .iter()
+            .position(|screen| screen.id.as_str() == owner.as_str())
+        else {
+            warnings.push(layout_warning(
+                owner,
+                "no screen of this name is composed, so its layout override does nothing",
+            ));
+            continue;
+        };
+        match candidate_layout(&screens[index], values) {
+            Ok(layout) => screens[index].layout = layout,
+            Err(reason) => warnings.push(layout_warning(owner, &reason)),
+        }
+    }
+}
+
+/// The layout one override describes, if this screen can be given it.
+fn candidate_layout(
+    screen: &ScreenDescriptor,
+    values: &crate::domain::TypedMap,
+) -> Result<LayoutNode, String> {
+    let layout = super::screen_lowering_layout::lower_settings_layout(values)?;
+    let mut candidate = screen.clone();
+    candidate.layout = layout;
+    validate_descriptor(&candidate).map_err(|error| error.to_string())?;
+    Ok(candidate.layout)
+}
+
+/// Put the screens settings name first, in the order they are named.
+///
+/// A screen the order does not name keeps the position it already had, so an
+/// order that names one screen moves that one and nothing else.
+fn order_screens(screens: &mut [ScreenDescriptor], order: &[Id]) {
+    screens.sort_by_key(|screen| {
+        order
+            .iter()
+            .position(|named| named.as_str() == screen.id.as_str())
+            .map_or(usize::MAX, |position| position)
+    });
+}
+
+/// One warning about a layout override, naming the screen it was written for.
+fn layout_warning(owner: &Id, detail: &str) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new(
+        CfgCode::E006,
+        Severity::Warning,
+        DiagnosticPath::new(format!("/workbench/layout_overrides/{}", owner.as_str())),
+        None,
+        "correct the override in Settings, or reset it to the compiled layout",
+    );
+    detail.clone_into(&mut diagnostic.redacted_detail);
+    diagnostic
 }
 
 /// Compose one candidate, or explain why it contributes nothing.

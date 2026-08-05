@@ -77,6 +77,7 @@ pub enum HandlerKey {
     SettingsReset,
     SettingsToggle,
     SettingsUnbind,
+    SettingsAddChord,
     SettingsMoveUp,
     SettingsMoveDown,
     JumpAgent(u8),

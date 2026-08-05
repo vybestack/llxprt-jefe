@@ -273,6 +273,7 @@ macro_rules! handler_execution {
             H::SettingsReset => settings_boundary(SettingsAction::Reset),
             H::SettingsToggle => settings_boundary(SettingsAction::Toggle),
             H::SettingsUnbind => settings_boundary(SettingsAction::Unbind),
+            H::SettingsAddChord => settings_boundary(SettingsAction::AddChord),
             H::SettingsMoveUp => settings_boundary(SettingsAction::MoveUp),
             H::SettingsMoveDown => settings_boundary(SettingsAction::MoveDown),
             H::JumpAgent(slot) => E::Boundary(B::JumpAgent(slot)),

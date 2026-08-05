@@ -423,6 +423,7 @@ const SPECS: &[Spec] = &[
     ),
     spec!("settings", "settings.toggle", H::SettingsToggle, [" "]),
     spec!("settings", "settings.unbind", H::SettingsUnbind, ["Delete"]),
+    spec!("settings", "settings.add-chord", H::SettingsAddChord, ["a"]),
     spec!(
         "settings",
         "settings.move-up",

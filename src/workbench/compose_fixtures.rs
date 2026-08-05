@@ -1,11 +1,11 @@
 //! Definition-file fixtures shared by the lowering and composition tests
 //! (issue #385).
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::domain::Id;
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
+use crate::persistence::settings_document::{PublishedSettings, PublishedWorkbench};
 
 /// The worked example, as it sits on disk.
 const REVIEW_SOURCE: &str = include_str!("testdata/local-review.screen.toml");
@@ -42,13 +42,20 @@ pub fn unreadable_candidate(member: &str, rejection: ScreenFileRejection) -> Scr
     }
 }
 
-/// The enabled-screens set naming the given members.
-pub fn enabled(members: &[&str]) -> BTreeSet<Id> {
-    members
-        .iter()
-        .map(|member| {
-            Id::parse(&format!("local.{member}"))
-                .unwrap_or_else(|error| unreachable!("fixture owner id must parse: {error}"))
-        })
-        .collect()
+/// Published settings enabling exactly the given members.
+pub fn enabled(members: &[&str]) -> PublishedSettings {
+    PublishedSettings {
+        workbench: PublishedWorkbench {
+            enabled_screens: members
+                .iter()
+                .map(|member| {
+                    Id::parse(&format!("local.{member}")).unwrap_or_else(|error| {
+                        unreachable!("fixture owner id must parse: {error}")
+                    })
+                })
+                .collect(),
+            ..PublishedWorkbench::default()
+        },
+        ..PublishedSettings::default()
+    }
 }
