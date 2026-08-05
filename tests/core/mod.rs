@@ -8,6 +8,7 @@ mod attach_ownership_contracts;
 mod clippy_allow_policy;
 mod dashboard_search_contracts;
 mod domain_state_contracts;
+mod job_self_containment_contract;
 mod message_bus_contracts;
 mod multiplexer_socket_scoping_contract;
 mod ocr_workflow_contracts;

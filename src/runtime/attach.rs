@@ -515,6 +515,27 @@ fn open_pty(rows: u16, cols: u16) -> Result<PtyPair, RuntimeError> {
         .map_err(|e| RuntimeError::SpawnFailed(format!("openpty: {e}")))
 }
 
+/// Hold a spawn until no viewer teardown is in flight.
+///
+/// Issue #664: the background attach scheduler and the synchronous attach path
+/// are unaware of each other, so a spawn could begin while the previous viewer
+/// was still being killed. Every spawn funnels through `spawn_command`, so
+/// waiting there serializes both paths against teardown.
+///
+/// The wait is bounded. A teardown that over-runs its budget degrades to the
+/// previous overlapping behavior rather than freezing the UI, so this gate can
+/// never become a new way for jefe to stop responding.
+fn await_viewer_teardown(session_name: &str) {
+    let became_idle = super::viewer_teardown::viewer_teardown()
+        .wait_until_idle(super::viewer_teardown::VIEWER_TEARDOWN_WAIT);
+    if !became_idle {
+        warn!(
+            session_name = %session_name,
+            "AttachedViewer::spawn proceeding with a viewer teardown still in flight"
+        );
+    }
+}
+
 impl AttachedViewer {
     /// Spawn a new attached viewer for a tmux session.
     ///
@@ -552,6 +573,8 @@ impl AttachedViewer {
         multiplexer_plan: Option<&super::multiplexer::MultiplexerPlan>,
     ) -> Result<Self, RuntimeError> {
         debug!(session_name = %session_name, rows, cols, remote = ssh_plan.is_some(), "AttachedViewer::spawn start");
+
+        await_viewer_teardown(session_name);
 
         let pty_pair = open_pty(rows, cols)?;
         let cmd = attach_command(session_name, ssh_plan, multiplexer_plan)?;

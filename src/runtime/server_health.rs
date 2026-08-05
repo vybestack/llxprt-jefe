@@ -210,6 +210,17 @@ pub enum ServerLivenessObservation {
     /// A different process now occupies the server role. Same recovery action
     /// as `Gone`, but the caller also knows the prior server was replaced.
     Replaced(ServerIdentity),
+    /// A different process answered the identity probe, but it cannot be the
+    /// replacement it appears to be because it was not created after the
+    /// pinned server (issue #664).
+    ///
+    /// The multiplexer runs one server per session, so several servers can
+    /// share a namespace and the probe answers with whichever one replies.
+    /// When that reply flips to an *older* process the two identities
+    /// conflict and neither can be trusted as the current server. Carries the
+    /// observed identity so the conflict is attributable. The caller must make
+    /// no state change, exactly as for `Unavailable`.
+    ConflictingIdentity(ServerIdentity),
     /// The probe could not establish a verdict (spawn failure, timeout,
     /// malformed output, or a nonzero command that does not indicate a
     /// missing server). The caller must make no state change.

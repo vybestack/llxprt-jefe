@@ -310,9 +310,18 @@ pub struct TmuxRuntimeManager {
 /// tmux child and waiting up to 300ms for it to exit. Running that inline
 /// blocks the caller. Dropping on a detached thread keeps the executor
 /// responsive while still guaranteeing eventual cleanup.
+///
+/// Issue #664: the teardown is registered on the shared gate here, on the
+/// caller's thread, and only then moved into the background thread. Registering
+/// inside that thread would leave a window in which the viewer is already being
+/// killed while the gate still looks idle to a concurrent spawn.
 fn drop_viewer_in_background(viewer: &mut Option<AttachedViewer>) {
     if let Some(old_viewer) = viewer.take() {
-        std::thread::spawn(move || drop(old_viewer));
+        let teardown = super::viewer_teardown::viewer_teardown().begin();
+        std::thread::spawn(move || {
+            drop(old_viewer);
+            drop(teardown);
+        });
     }
 }
 

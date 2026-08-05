@@ -185,14 +185,14 @@ async fn handle_windows_cycle(
         }
     };
 
-    match observation {
-        ServerLivenessObservation::Healthy(current) => {
+    match plan_server_cycle(observation) {
+        ServerCycleAction::Reconcile(current) => {
             *pinned_prior = current.or_else(|| pinned_prior.clone());
             reconcile_healthy_agents(app_state, ctx, running_targets).await;
             recover_server_lost_agents(app_state, ctx, lost_targets).await;
         }
-        ServerLivenessObservation::Gone | ServerLivenessObservation::Replaced(_) => {
-            if let ServerLivenessObservation::Replaced(next) = observation {
+        ServerCycleAction::DeclareLost(next) => {
+            if let Some(next) = next {
                 *pinned_prior = Some(next);
             }
             let state = app_state.read();
@@ -203,11 +203,40 @@ async fn handle_windows_cycle(
             }
             transition_to_server_lost(app_state, ctx, &affected);
         }
-        ServerLivenessObservation::Unavailable => {
-            // The server probe did not answer. No agent status changes this
-            // cycle, in either direction: an unanswered probe is no more
-            // evidence that a lost agent recovered than that a live one died.
-        }
+        ServerCycleAction::Hold => {}
+    }
+}
+
+/// What one server observation authorises this liveness cycle to do.
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ServerCycleAction {
+    /// Pin the carried identity, then reconcile healthy agents and recover
+    /// previously lost ones.
+    Reconcile(Option<ServerIdentity>),
+    /// Pin the carried identity, then transition eligible running agents to
+    /// [`AgentStatus::ServerLost`].
+    DeclareLost(Option<ServerIdentity>),
+    /// Make no state change at all, in either direction.
+    Hold,
+}
+
+/// Decide the cycle's action from the probe's verdict.
+///
+/// `Hold` covers every observation that is not evidence about agent liveness:
+/// an unanswered probe (issue #493), and a conflicting server identity where
+/// two servers under one namespace answered inconsistently (issue #664). An
+/// unanswered probe is no more evidence that a lost agent recovered than that
+/// a live one died, and a process that cannot have replaced the pinned server
+/// is no more trustworthy as the current server than silence.
+#[cfg(windows)]
+fn plan_server_cycle(observation: ServerLivenessObservation) -> ServerCycleAction {
+    match observation {
+        ServerLivenessObservation::Healthy(current) => ServerCycleAction::Reconcile(current),
+        ServerLivenessObservation::Gone => ServerCycleAction::DeclareLost(None),
+        ServerLivenessObservation::Replaced(next) => ServerCycleAction::DeclareLost(Some(next)),
+        ServerLivenessObservation::Unavailable
+        | ServerLivenessObservation::ConflictingIdentity(_) => ServerCycleAction::Hold,
     }
 }
 
@@ -671,6 +700,68 @@ mod tests {
         assert_eq!(
             compute_binding_matches(&state, &[stale_session, stale_generation]),
             vec![false, false]
+        );
+    }
+
+    #[cfg(windows)]
+    fn server_identity(pid: u32, started_at: u64) -> ServerIdentity {
+        ServerIdentity::new(
+            jefe::domain::ServerProcessIdentity::new(pid, started_at),
+            jefe::runtime::MultiplexerVersion::new(3, 3, 7),
+        )
+    }
+
+    /// A healthy probe pins the observed server and reconciles agent health.
+    #[cfg(windows)]
+    #[test]
+    fn a_healthy_observation_reconciles_and_pins() {
+        let observed = server_identity(656, 100);
+
+        assert_eq!(
+            plan_server_cycle(ServerLivenessObservation::Healthy(Some(observed.clone()))),
+            ServerCycleAction::Reconcile(Some(observed))
+        );
+    }
+
+    /// A genuine replacement still declares the old agents lost and re-pins to
+    /// the new server, so the #664 guard does not weaken real restart handling.
+    #[cfg(windows)]
+    #[test]
+    fn a_replacement_declares_agents_lost_and_repins() {
+        let replacement = server_identity(19948, 200);
+
+        assert_eq!(
+            plan_server_cycle(ServerLivenessObservation::Replaced(replacement.clone())),
+            ServerCycleAction::DeclareLost(Some(replacement))
+        );
+    }
+
+    /// A vanished server declares agents lost with nothing new to pin.
+    #[cfg(windows)]
+    #[test]
+    fn a_vanished_server_declares_agents_lost() {
+        assert_eq!(
+            plan_server_cycle(ServerLivenessObservation::Gone),
+            ServerCycleAction::DeclareLost(None)
+        );
+    }
+
+    /// Issue #664: two servers under one namespace answered the identity probe
+    /// inconsistently. That says nothing about whether any agent is alive, so
+    /// the cycle holds — it must not declare agents lost and must not re-pin
+    /// to the conflicting process, exactly as for an unanswered probe.
+    #[cfg(windows)]
+    #[test]
+    fn a_conflicting_identity_holds_like_an_unanswered_probe() {
+        assert_eq!(
+            plan_server_cycle(ServerLivenessObservation::ConflictingIdentity(
+                server_identity(19948, 100)
+            )),
+            ServerCycleAction::Hold
+        );
+        assert_eq!(
+            plan_server_cycle(ServerLivenessObservation::Unavailable),
+            ServerCycleAction::Hold
         );
     }
 
