@@ -93,4 +93,5 @@ tests remain.
 - [x] `cargo test --workspace --all-features --locked` — 0 failures (3754 lib, 870 integration, all other targets green)
 - [x] `cargo xtask coverage` — 71.21% lines against the 30% floor. A3 evidence: `src/runtime/server_health_io.rs` moved from **0% to 83.78%** lines; `src/runtime/viewer_teardown.rs` 97.92%
 - [x] `cargo xtask coverage-windows` — every Windows-only floor met: `job_object.rs` 71.15% (floor 65), `app_shell_liveness.rs` 46.98% (floor 38), `server_health_io.rs` 33.33% (floor 0), `session_host.rs` 74.11% (floor 65), `agent_launcher.rs` 80.70% (floor 75), `attach.rs` 57.83% (floor 34)
-- [ ] CI (including native Windows and coverage) green on exact head
+- [x] CI green on exact head `01fa2b3a` — 18 pass / 0 fail / 3 skipped, including Native Windows (MSVC + psmux), Windows coverage floors, Coverage gate, Windows Clippy, Architecture boundary policy, Uncertain-observation coercion policy, and Mergeability gate. Skipped jobs are `Main flake baseline record` (main-only), `Optional TUI smoke (tmux)`, and `Notify OCR infrastructure failure` (fires only on OCR failure)
+- [x] Ancestry: `git rev-list --left-right --count origin/main...issue664` — 0 behind, 7 ahead; no conflicts
