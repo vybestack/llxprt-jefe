@@ -5,19 +5,26 @@
 //! It performs no file I/O, starts no process, and depends on nothing outside
 //! the `domain` layer.
 
+pub mod action;
 pub mod code;
 pub mod coordinate;
 pub mod field;
 pub mod limits;
 pub mod plugin_id;
 pub mod provider;
+pub mod surface;
 pub mod values;
 
+pub use action::{Action, ActionConfirmation, ActionDraft, ActionError, ActionOutcome};
 pub use code::PluginCode;
 pub use coordinate::{PackageCoordinate, PackageCoordinateError};
 pub use field::{Field, FieldDraft, FieldError, FieldKind, RestartScope, Scalar};
 pub use plugin_id::{PluginId, PluginIdError, PluginIdErrorReason};
 pub use provider::{Provider, ProviderError, ProviderMode, ProviderSelection};
+pub use surface::{
+    ConfigSchema, ConfigSchemaError, EventKind, ModelKind, Panel, PanelDraft, PanelError, Port,
+    Route, RouteDraft, RouteError, ScreenContribution, ScreenContributionError,
+};
 pub use values::{
     HostTriple, HostTripleError, RelativePath, RelativePathError, RelativePathErrorReason,
     SecretReference, SecretReferenceError,

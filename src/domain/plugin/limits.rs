@@ -31,3 +31,39 @@ pub const SECRET_ENV_BYTE_LIMIT: usize = 128;
 
 /// Maximum enum choices declared by one field.
 pub const FIELD_CHOICE_LIMIT: usize = 64;
+
+/// Minimum input contexts one action must declare.
+pub const ACTION_CONTEXT_MINIMUM: usize = 1;
+
+/// Maximum input contexts one action may declare.
+pub const ACTION_CONTEXT_LIMIT: usize = 32;
+
+/// Maximum argument fields one action may declare.
+pub const ACTION_ARGUMENT_LIMIT: usize = 128;
+
+/// Shortest action timeout, in seconds.
+pub const ACTION_TIMEOUT_SECONDS_MINIMUM: u32 = 1;
+
+/// Longest action timeout, in seconds.
+pub const ACTION_TIMEOUT_SECONDS_LIMIT: u32 = 600;
+
+/// Minimum model kinds one panel must declare.
+pub const PANEL_MODEL_KIND_MINIMUM: usize = 1;
+
+/// Maximum data ports one panel may declare.
+pub const PANEL_PORT_LIMIT: usize = 32;
+
+/// Maximum activation fields one route may declare.
+pub const ROUTE_ACTIVATION_FIELD_LIMIT: usize = 32;
+
+/// Minimum screen identifiers one contribution must bind.
+pub const SCREEN_ID_MINIMUM: usize = 1;
+
+/// Maximum screen identifiers one contribution may bind.
+pub const SCREEN_ID_LIMIT: usize = 32;
+
+/// Maximum fields one configuration schema may declare.
+pub const CONFIG_FIELD_LIMIT: usize = 128;
+
+/// Lowest accepted configuration schema version.
+pub const CONFIG_SCHEMA_VERSION_MINIMUM: u32 = 1;
