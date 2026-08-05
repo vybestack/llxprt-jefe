@@ -2,6 +2,7 @@
 
 use crate::agent_registry::{AgentTypeRegistry, RegistryPublishError};
 use crate::domain::agent_definition::diagnostics::DefinitionError;
+use crate::domain::agent_definition::normalize::Normalize;
 use crate::domain::agent_definition::probe::{
     AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream,
 };
@@ -28,17 +29,17 @@ fn definition(id: &str, candidate_name: &str) -> AgentDefinition {
         schema: DEFINITION_SCHEMA,
         id: parsed_id,
         display_name: id.to_string(),
+        minimum_version: String::new(),
         candidates: vec![path_name(candidate_name)],
         probe: ProbeSpec {
             argv: vec!["--version".to_string()],
             stream: ProbeStream::Stdout,
             framing: ProbeFraming::Utf8Text,
+            normalize: Normalize::None,
             identity: IdentityRecognizer::Line {
                 prefix: String::new(),
                 anchored_pattern: AnchoredPattern::VersionToken,
             },
-            capabilities: None,
-            required: vec!["x".to_string()],
             timeout_ms: 5_000,
             max_bytes: 65_536,
         },

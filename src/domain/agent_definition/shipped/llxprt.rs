@@ -14,7 +14,7 @@ use super::super::types::{
 };
 use super::common::{
     DefinitionParts, assemble, bool_field, bool_field_with_default, enum_field, line_version_probe,
-    npm_candidate, path_candidate, sig_string_field, trusted_capability_probe,
+    npm_candidate, path_candidate, sig_string_field,
 };
 
 fn emitters() -> Vec<Emitter> {
@@ -28,15 +28,19 @@ fn emitters() -> Vec<Emitter> {
             field: "profile".to_string(),
         },
         Emitter::Flag {
+            name: "--yolo".to_string(),
             field: "yolo".to_string(),
         },
         Emitter::Flag {
+            name: "--prompt-interactive".to_string(),
             field: "prompt_interactive".to_string(),
         },
         Emitter::Flag {
+            name: "--continue".to_string(),
             field: "continue".to_string(),
         },
         Emitter::Flag {
+            name: "--sandbox".to_string(),
             field: "sandbox_enabled".to_string(),
         },
         Emitter::Option {
@@ -55,6 +59,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.llxprt",
         display_name: "LLxprt",
+        minimum_version: "0.10.0",
         candidates: vec![
             ExecutableCandidate {
                 kind: CandidateKind::RepositoryLlxprt,
@@ -107,21 +112,5 @@ pub fn build() -> AgentDefinition {
     })
 }
 fn llxprt_probe() -> super::super::probe::ProbeSpec {
-    line_version_probe(
-        Normalize::None,
-        trusted_capability_probe(
-            Normalize::None,
-            &[
-                ("prompt-interactive", "--prompt-interactive"),
-                ("profile", "--profile-load"),
-                ("sandbox-enabled", "--sandbox"),
-                ("sandbox-engine", "--sandbox-engine"),
-                ("yolo", "--yolo"),
-                ("approval", "--approval-mode"),
-                ("continue", "--continue"),
-            ],
-            true,
-        ),
-        &["prompt-interactive"],
-    )
+    line_version_probe(Normalize::None)
 }

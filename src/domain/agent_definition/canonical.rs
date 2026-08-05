@@ -7,10 +7,7 @@
 use super::bounded_json::BoundedJson;
 use super::definition::{AgentDefinition, DEFINITION_SCHEMA};
 use super::fields::{Emitter, Field, FieldKind, FieldValue};
-use super::probe::{
-    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
-    ProbeStream,
-};
+use super::probe::{AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream};
 use super::type_id::{CandidateKind, ExecutableCandidate};
 use super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
@@ -31,6 +28,10 @@ pub fn definition_to_json(def: &AgentDefinition) -> BoundedJson {
         (
             "display_name".to_string(),
             BoundedJson::Str(def.display_name.clone()),
+        ),
+        (
+            "minimum_version".to_string(),
+            BoundedJson::Str(def.minimum_version.clone()),
         ),
         (
             "executable_candidates".to_string(),
@@ -183,14 +184,8 @@ fn probe_to_json(probe: &ProbeSpec) -> BoundedJson {
         ),
         ("identity".to_string(), identity_to_json(&probe.identity)),
         (
-            "required".to_string(),
-            BoundedJson::Array(
-                probe
-                    .required
-                    .iter()
-                    .map(|s| BoundedJson::Str(s.clone()))
-                    .collect(),
-            ),
+            "normalize".to_string(),
+            BoundedJson::Str(normalize_str(probe.normalize).to_string()),
         ),
         (
             "timeout_ms".to_string(),
@@ -201,12 +196,6 @@ fn probe_to_json(probe: &ProbeSpec) -> BoundedJson {
             BoundedJson::Int(i64::try_from(probe.max_bytes).unwrap_or(i64::MAX)),
         ),
     ];
-    if let Some(capability_probe) = &probe.capabilities {
-        members.push((
-            "capability_probe".to_string(),
-            capability_probe_to_json(capability_probe),
-        ));
-    }
     members.sort_by(|a, b| a.0.cmp(&b.0));
     BoundedJson::Object(members)
 }
@@ -286,45 +275,6 @@ fn anchored_to_json(pattern: &AnchoredPattern) -> BoundedJson {
             BoundedJson::Str("version_token".to_string()),
         )],
     };
-    members.sort_by(|a, b| a.0.cmp(&b.0));
-    BoundedJson::Object(members)
-}
-
-fn capability_probe_to_json(probe: &CapabilityProbe) -> BoundedJson {
-    let mut members = vec![
-        (
-            "argv".to_string(),
-            BoundedJson::Array(
-                probe
-                    .argv
-                    .iter()
-                    .map(|s| BoundedJson::Str(s.clone()))
-                    .collect(),
-            ),
-        ),
-        (
-            "stream".to_string(),
-            BoundedJson::Str(stream_str(probe.stream).to_string()),
-        ),
-        (
-            "normalize".to_string(),
-            BoundedJson::Str(normalize_str(probe.normalize).to_string()),
-        ),
-        (
-            "tokens".to_string(),
-            BoundedJson::Array(probe.tokens.iter().map(capability_token_to_json).collect()),
-        ),
-        ("trusted".to_string(), BoundedJson::Bool(probe.trusted)),
-    ];
-    members.sort_by(|a, b| a.0.cmp(&b.0));
-    BoundedJson::Object(members)
-}
-
-fn capability_token_to_json(token: &CapabilityToken) -> BoundedJson {
-    let mut members = vec![
-        ("id".to_string(), BoundedJson::Str(token.id.clone())),
-        ("token".to_string(), BoundedJson::Str(token.token.clone())),
-    ];
     members.sort_by(|a, b| a.0.cmp(&b.0));
     BoundedJson::Object(members)
 }
@@ -485,10 +435,11 @@ fn emitter_to_json(emitter: &Emitter) -> BoundedJson {
         Emitter::Fixed { value } => {
             members.push(("value".to_string(), BoundedJson::Str(value.clone())));
         }
-        Emitter::Flag { field } | Emitter::Positional { field } => {
+        Emitter::Positional { field } => {
             members.push(("field".to_string(), BoundedJson::Str(field.clone())));
         }
-        Emitter::Option { name, field }
+        Emitter::Flag { name, field }
+        | Emitter::Option { name, field }
         | Emitter::RepeatedOption { name, field }
         | Emitter::Environment { name, field } => {
             members.push(("name".to_string(), BoundedJson::Str(name.clone())));

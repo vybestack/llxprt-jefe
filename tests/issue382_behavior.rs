@@ -260,7 +260,6 @@ fn status_projection() {
         Availability::NotFound,
         Availability::InstalledCompatible {
             identity: "fixture identity".to_string(),
-            capabilities: vec!["optional-present".to_string()],
             generation: 1,
         },
         Availability::InstalledIncompatible {
@@ -363,7 +362,6 @@ fn stale_availability_completion_is_a_no_op() {
         result: Ok(EffectResponse::AgentProbe(ProbeResponse::Availability {
             availability: Box::new(Availability::InstalledCompatible {
                 identity: "stale identity".to_owned(),
-                capabilities: Vec::new(),
                 generation: 1,
             }),
             generation: 1,

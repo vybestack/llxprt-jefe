@@ -33,14 +33,14 @@ pub use diagnostics::{DefinitionError, FieldScope};
 pub use fields::{Emitter, EmitterValidateError, Field, FieldKind, FieldValidateError, FieldValue};
 pub use normalize::Normalize;
 pub use probe::{
-    AnchoredPattern, CapabilityEvaluation, CapabilityProbe, CapabilityToken, IdentityRecognizer,
-    ProbeFraming, ProbeParseError, ProbeSpec, ProbeStream, ProbeValidateError,
+    AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeParseError, ProbeSpec, ProbeStream,
+    ProbeValidateError,
 };
 pub use sha256::DefinitionSha256;
 pub use signature::LaunchSignatureV1;
 pub use type_id::{
     AgentTypeId, AgentTypeIdError, AgentTypeIdErrorReason, CandidateKind, CandidateValidateError,
-    CapabilityIdError, ExecutableCandidate,
+    ExecutableCandidate,
 };
 pub use types::{
     AgentLaunchPlan, Availability, Operation, OperationMatrix, OperationSupport, Preflight,

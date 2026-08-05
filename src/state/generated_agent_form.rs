@@ -98,7 +98,7 @@ impl GeneratedAgentForm {
         definition: &AgentDefinition,
         availability: &Availability,
     ) -> Result<Self, GeneratedFormBuildError> {
-        let draft = GeneratedFormDraft::from_definition(definition, availability)?;
+        let draft = GeneratedFormDraft::from_definition(definition)?;
         let operation_support = OPERATIONS
             .into_iter()
             .map(|operation| {
@@ -455,40 +455,16 @@ fn projected_operation_support(
     if declared.is_unsupported() {
         return declared.clone();
     }
+    // The definition is the sole authority on which operations it supports;
+    // availability only says whether the executable can be reached at all.
     match availability {
         Availability::NotFound => Support::unsupported("no executable candidate resolved"),
         Availability::InstalledIncompatible { reason, .. } => Support::unsupported(reason),
         Availability::ProbeError { code, reason, .. } => {
             Support::unsupported(format!("{}: {reason}", code.as_str()))
         }
-        Availability::InstalledCompatible { capabilities, .. } => {
-            let required = operation_capability(definition, operation);
-            if let Some(capability) = required
-                && !capabilities.iter().any(|found| found == capability)
-            {
-                return Support::unsupported(format!(
-                    "installed {} lacks required capability `{capability}`",
-                    definition.display_name
-                ));
-            }
-            Support::Supported
-        }
+        Availability::InstalledCompatible { .. } => Support::Supported,
     }
-}
-
-fn operation_capability(definition: &AgentDefinition, operation: Operation) -> Option<&str> {
-    let capability = match operation {
-        Operation::Resume => "resume",
-        Operation::Normal | Operation::FreshIssue | Operation::FreshPullRequest => return None,
-    };
-    definition
-        .probe
-        .capabilities
-        .as_ref()?
-        .tokens
-        .iter()
-        .any(|token| token.id == capability)
-        .then_some(capability)
 }
 
 fn declared_target_support(definition: &AgentDefinition, target: GeneratedTarget) -> Support {

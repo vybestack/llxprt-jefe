@@ -21,15 +21,11 @@ use jefe::runtime::agent_plan::{
     AgentPlanError, LaunchFieldValues, PlanOutcome, PlanRequest, plan_local_launch,
 };
 
-/// A compatible probe result for a definition with the given identity,
-/// capabilities, and generation.
-fn compatible(identity: &str, capabilities: &[&str], generation: u64) -> Availability {
+/// A compatible probe result for a definition with the given identity and
+/// generation.
+fn compatible(identity: &str, generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity: identity.to_string(),
-        capabilities: capabilities
-            .iter()
-            .map(|&capability| capability.to_string())
-            .collect(),
         generation,
     }
 }
@@ -69,18 +65,7 @@ fn llxprt_plan_request<'a>(
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible(
-            "0.10.0",
-            &[
-                "prompt-interactive",
-                "profile",
-                "sandbox-enabled",
-                "sandbox-engine",
-                "yolo",
-                "continue",
-            ],
-            3,
-        ),
+        probe: compatible("0.10.0", 3),
         probe_generation: 3,
         target_generation: 1,
         values,
@@ -202,7 +187,7 @@ fn code_puppy_normal_golden_plan() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("0.0.634", &["interactive", "model", "yolo"], 5),
+        probe: compatible("0.0.634", 5),
         probe_generation: 5,
         target_generation: 1,
         values: &values,
@@ -255,11 +240,7 @@ fn codex_normal_golden_plan() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible(
-            "codex-cli 0.142.0",
-            &["model", "profile", "sandbox", "cwd", "resume"],
-            2,
-        ),
+        probe: compatible("codex-cli 0.142.0", 2),
         probe_generation: 2,
         target_generation: 1,
         values: &values,
@@ -310,11 +291,7 @@ fn claude_normal_golden_plan() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible(
-            "2.1.212 (Claude Code)",
-            &["continue", "resume", "model", "permission-mode"],
-            4,
-        ),
+        probe: compatible("2.1.212 (Claude Code)", 4),
         probe_generation: 4,
         target_generation: 1,
         values: &values,
@@ -364,7 +341,7 @@ fn empty_optional_values_skip_emitters() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex-cli", &["sandbox"], 1),
+        probe: compatible("codex-cli", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -397,7 +374,7 @@ fn optional_boolean_none_skips_boolean_option() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("0.0.634", &["interactive", "model"], 1),
+        probe: compatible("0.0.634", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -436,7 +413,7 @@ fn unsupported_operation_emits_zero_effects() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &[], 1),
+        probe: compatible("codex", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -475,7 +452,7 @@ fn unsupported_target_emits_zero_effects() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &[], 1),
+        probe: compatible("codex", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -517,7 +494,7 @@ fn unknown_field_value_is_rejected() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &[], 1),
+        probe: compatible("codex", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -617,7 +594,7 @@ fn probe_generation_mismatch_is_rejected() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &[], 2),
+        probe: compatible("codex", 2),
         probe_generation: 1, // mismatch
         target_generation: 1,
         values: &values,
@@ -650,7 +627,7 @@ fn remote_target_rejected_for_local_planner() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("0.10.0", &["prompt-interactive"], 1),
+        probe: compatible("0.10.0", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -694,7 +671,7 @@ fn env_emitter_adds_declared_name_only() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &["profile"], 1),
+        probe: compatible("codex", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -741,7 +718,7 @@ fn argv_preserves_osstring() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &[], 1),
+        probe: compatible("codex", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,
@@ -841,7 +818,7 @@ fn repeated_option_emits_one_per_element() {
         ),
         executable_wrapper: jefe::agent_candidate_path::AgentWrapperKind::Direct,
         argv_prefix: Vec::new(),
-        probe: compatible("codex", &[], 1),
+        probe: compatible("codex", 1),
         probe_generation: 1,
         target_generation: 1,
         values: &values,

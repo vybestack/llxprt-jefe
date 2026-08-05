@@ -1,11 +1,8 @@
 //! Behavioral tests for issue #382 S5's generated typed form model.
 
-use jefe::domain::agent_definition::{
-    AgentDefinition, Availability, Field, FieldKind, FieldValue, ProbeErrorCode,
-};
+use jefe::domain::agent_definition::{AgentDefinition, Field, FieldKind, FieldValue};
 use jefe::state::generated_form::{
-    FormEditError, FormFieldDisabledReason, FormFieldId, FormIntent, FormValidationProblem,
-    GeneratedFormDraft,
+    FormEditError, FormFieldId, FormIntent, FormValidationProblem, GeneratedFormDraft,
 };
 
 fn field(id: &str, kind: FieldKind) -> Field {
@@ -70,22 +67,10 @@ fn comprehensive_definition() -> AgentDefinition {
     definition
 }
 
-fn compatible() -> Availability {
-    Availability::InstalledCompatible {
-        identity: "fixture".to_string(),
-        capabilities: vec![
-            "profile".to_string(),
-            "prompt-interactive".to_string(),
-            "yolo".to_string(),
-        ],
-        generation: 7,
-    }
-}
-
 #[test]
 fn definition_generates_all_typed_fields_in_declaration_order() {
     let definition = comprehensive_definition();
-    let draft = GeneratedFormDraft::from_definition(&definition, &compatible());
+    let draft = GeneratedFormDraft::from_definition(&definition);
     let Ok(draft) = draft else {
         panic!("validated definition should generate a form: {draft:?}");
     };
@@ -169,7 +154,7 @@ fn assert_hidden_values_preserved_and_inactive(draft: &GeneratedFormDraft) {
 #[test]
 fn reducer_preserves_hidden_values_and_projects_deterministic_focus_and_emission() {
     let definition = comprehensive_definition();
-    let draft = GeneratedFormDraft::from_definition(&definition, &compatible());
+    let draft = GeneratedFormDraft::from_definition(&definition);
     let Ok(draft) = draft else {
         panic!("validated definition should generate a form: {draft:?}");
     };
@@ -220,7 +205,7 @@ fn reducer_preserves_hidden_values_and_projects_deterministic_focus_and_emission
 #[test]
 fn typed_validation_covers_required_bounds_choices_kind_and_unknown_ids() {
     let definition = comprehensive_definition();
-    let draft = GeneratedFormDraft::from_definition(&definition, &compatible());
+    let draft = GeneratedFormDraft::from_definition(&definition);
     let Ok(draft) = draft else {
         panic!("validated definition should generate a form: {draft:?}");
     };
@@ -282,50 +267,9 @@ fn typed_validation_covers_required_bounds_choices_kind_and_unknown_ids() {
 }
 
 #[test]
-fn unavailable_capability_fields_remain_visible_with_typed_disabled_reasons() {
-    let definition = AgentDefinition::shipped()
-        .into_iter()
-        .find(|definition| definition.id.as_str() == "core.codex");
-    let Some(definition) = definition else {
-        panic!("shipped definition should exist");
-    };
-    let unavailable = Availability::ProbeError {
-        code: ProbeErrorCode::Agte202,
-        reason: "invalid probe stream".to_string(),
-        generation: 11,
-    };
-    let draft = GeneratedFormDraft::from_definition(&definition, &unavailable);
-    let Ok(draft) = draft else {
-        panic!("unavailable definition should still generate a form: {draft:?}");
-    };
-
-    let model_id = FormFieldId::repository("model");
-    let model = draft.field(&model_id);
-    let Some(model) = model else {
-        panic!("capability-backed field should remain present");
-    };
-    assert!(model.visible());
-    assert!(matches!(
-        model.disabled_reason(),
-        Some(FormFieldDisabledReason::ProbeError {
-            capability,
-            code: ProbeErrorCode::Agte202,
-            reason,
-        }) if capability == "model" && reason == "invalid probe stream"
-    ));
-    assert!(draft.visible_field_ids().contains(&model_id));
-
-    let edit = draft.reduce(FormIntent::SetValue {
-        field: model_id,
-        value: FieldValue::String("new-model".to_string()),
-    });
-    assert!(matches!(edit, Err(FormEditError::DisabledField { .. })));
-}
-
-#[test]
 fn reducer_edits_remaining_typed_kinds_and_reports_lower_bound() {
     let definition = comprehensive_definition();
-    let draft = GeneratedFormDraft::from_definition(&definition, &compatible());
+    let draft = GeneratedFormDraft::from_definition(&definition);
     let Ok(draft) = draft else {
         panic!("validated definition should generate a form: {draft:?}");
     };
@@ -388,25 +332,12 @@ fn llxprt_shipped() -> AgentDefinition {
         .unwrap_or_else(|| panic!("LLxprt definition must be shipped"))
 }
 
-fn llxprt_compatible() -> Availability {
-    Availability::InstalledCompatible {
-        identity: "0.10.0".to_string(),
-        capabilities: vec![
-            "prompt-interactive".to_string(),
-            "profile".to_string(),
-            "yolo".to_string(),
-            "continue".to_string(),
-        ],
-        generation: 1,
-    }
-}
-
 /// A newly generated LLxprt form must default repository `yolo` to true so the
 /// product-specific launch default is restored without touching other agents.
 #[test]
 fn llxprt_generated_form_defaults_yolo_to_true() {
     let definition = llxprt_shipped();
-    let draft = GeneratedFormDraft::from_definition(&definition, &llxprt_compatible());
+    let draft = GeneratedFormDraft::from_definition(&definition);
     let Ok(draft) = draft else {
         panic!("LLxprt definition should generate a form: {draft:?}");
     };
@@ -429,7 +360,7 @@ fn llxprt_generated_form_exposes_only_the_continue_boolean() {
             .any(|field| field.id == "continue" && field.kind == FieldKind::Boolean),
         "LLxprt must declare an agent-scope continue boolean field"
     );
-    let draft = GeneratedFormDraft::from_definition(&definition, &llxprt_compatible());
+    let draft = GeneratedFormDraft::from_definition(&definition);
     let Ok(draft) = draft else {
         panic!("LLxprt definition should generate a form: {draft:?}");
     };

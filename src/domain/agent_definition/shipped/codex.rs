@@ -5,31 +5,14 @@
 
 use super::super::definition::AgentDefinition;
 use super::super::fields::Emitter;
-use super::super::normalize::Normalize;
 use super::common::{
-    DefinitionParts, assemble, capability_probe, enum_field, line_prefix_probe, local_only_targets,
-    npm_candidate, path_candidate, sig_string_field,
+    DefinitionParts, assemble, enum_field, line_prefix_probe, local_only_targets, npm_candidate,
+    path_candidate, sig_string_field,
 };
 
 /// Build the core.codex shipped definition.
 pub fn build() -> AgentDefinition {
-    let probe = line_prefix_probe(
-        "codex-cli ",
-        capability_probe(
-            Normalize::None,
-            &[
-                ("model", "--model"),
-                ("profile", "--profile"),
-                ("sandbox", "--sandbox"),
-                ("approval", "--ask-for-approval"),
-                ("bypass", "--dangerously-bypass-approvals-and-sandbox"),
-                ("cwd", "--cd"),
-                ("resume", "resume"),
-                ("resume-last", "--last"),
-            ],
-        ),
-        &[],
-    );
+    let probe = line_prefix_probe("codex-cli ");
     // `help.stdout` in the fixture declares `codex [OPTIONS] [PROMPT]` with
     // `[PROMPT]  Optional user prompt to start the session`, so the prompt shape
     // below is fixture-proven for every prompt-bearing operation.
@@ -37,6 +20,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.codex",
         display_name: "Codex CLI",
+        minimum_version: "0.142.0",
         candidates: vec![
             path_candidate("codex"),
             npm_candidate("@openai/codex", "codex"),

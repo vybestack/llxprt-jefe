@@ -170,14 +170,6 @@ fn valid_type_id(bytes: &[u8]) -> bool {
     !separator
 }
 
-/// Capability-id grammar: lowercase ASCII alphanumerics with optional `.`
-/// separators between groups, matching the agent-type-id grammar minus the
-/// leading-letter restriction's strictness — but per the closed contract the
-/// capability id reuses the same grammar as the type id.
-fn valid_capability_id(bytes: &[u8]) -> bool {
-    valid_type_id(bytes)
-}
-
 /// One declared way to discover an agent executable.
 ///
 /// Candidates are inspected in declaration order; the first physically valid
@@ -328,38 +320,6 @@ impl ExecutableCandidate {
         self.kind.validate(&self.value)
     }
 }
-
-/// Validate a capability id against the closed grammar.
-pub fn validate_capability_id(id: &str) -> Result<(), CapabilityIdError> {
-    if id.is_empty() || id.len() > STRING_VALUE_BYTE_LIMIT {
-        return Err(CapabilityIdError::Length);
-    }
-    if !valid_capability_id(id.as_bytes()) {
-        return Err(CapabilityIdError::Grammar);
-    }
-    Ok(())
-}
-
-/// Capability-id validation error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CapabilityIdError {
-    /// Empty or too long.
-    Length,
-    /// Failed the grammar.
-    Grammar,
-}
-
-impl fmt::Display for CapabilityIdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let msg = match self {
-            Self::Length => "capability id must be 1..=4096 bytes",
-            Self::Grammar => "capability id must match [a-z][a-z0-9]*(?:[.-][a-z0-9]+)*",
-        };
-        f.write_str(msg)
-    }
-}
-
-impl std::error::Error for CapabilityIdError {}
 
 #[cfg(test)]
 #[path = "type_id_tests.rs"]

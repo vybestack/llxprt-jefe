@@ -10,8 +10,8 @@ use super::super::types::{
     OperationMatrix, OperationSupport, PromptShape, Support, TargetMatrix, TargetSupport,
 };
 use super::common::{
-    DefinitionParts, assemble, bool_field, capability_probe, line_version_probe,
-    optional_bool_field, path_candidate, sig_string_field, uvx_candidate,
+    DefinitionParts, assemble, bool_field, line_version_probe, optional_bool_field, path_candidate,
+    sig_string_field, uvx_candidate,
 };
 
 /// Build the core.code-puppy shipped definition.
@@ -19,6 +19,7 @@ pub fn build() -> AgentDefinition {
     assemble(DefinitionParts {
         id: "core.code-puppy",
         display_name: "Code Puppy",
+        minimum_version: "0.0.634",
         candidates: vec![
             path_candidate("code-puppy"),
             uvx_candidate("code-puppy", "code-puppy"),
@@ -56,41 +57,35 @@ pub fn build() -> AgentDefinition {
             sig_string_field("prompt"),
             bool_field("interactive"),
         ],
-        emitters: vec![
-            Emitter::Option {
-                name: "--prompt".to_string(),
-                field: "prompt".to_string(),
-            },
-            Emitter::Option {
-                name: "--model".to_string(),
-                field: "model".to_string(),
-            },
-            Emitter::BooleanOption {
-                name: "--yolo".to_string(),
-                field: "yolo".to_string(),
-                true_value: "true".to_string(),
-                false_value: Some("false".to_string()),
-            },
-            Emitter::Flag {
-                field: "interactive".to_string(),
-            },
-        ],
+        emitters: emitters(),
     })
 }
 
+fn emitters() -> Vec<Emitter> {
+    vec![
+        Emitter::Option {
+            name: "--prompt".to_string(),
+            field: "prompt".to_string(),
+        },
+        Emitter::Option {
+            name: "--model".to_string(),
+            field: "model".to_string(),
+        },
+        Emitter::BooleanOption {
+            name: "--yolo".to_string(),
+            field: "yolo".to_string(),
+            true_value: "true".to_string(),
+            false_value: Some("false".to_string()),
+        },
+        Emitter::Flag {
+            name: "--interactive".to_string(),
+            field: "interactive".to_string(),
+        },
+    ]
+}
+
 fn code_puppy_probe() -> super::super::probe::ProbeSpec {
-    line_version_probe(
-        Normalize::StripAnsi,
-        capability_probe(
-            Normalize::StripAnsi,
-            &[
-                ("interactive", "--interactive"),
-                ("model", "--model"),
-                ("resume", "--resume"),
-                ("quick-resume", "--quick-resume"),
-                ("yolo", "--yolo"),
-            ],
-        ),
-        &["interactive"],
-    )
+    // `code-puppy --version` wraps its version in OSC colour sequences, so the
+    // identity stream must be stripped before the version token is recognized.
+    line_version_probe(Normalize::StripAnsi)
 }

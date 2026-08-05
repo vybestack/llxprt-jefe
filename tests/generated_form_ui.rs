@@ -15,10 +15,9 @@ fn claude_definition() -> AgentDefinition {
         .unwrap_or_else(|| panic!("Claude definition must be shipped"))
 }
 
-fn compatible_without_optional_capabilities() -> Availability {
+fn compatible() -> Availability {
     Availability::InstalledCompatible {
         identity: "2.1.212 (Claude Code)".to_string(),
-        capabilities: Vec::new(),
         generation: 9,
     }
 }
@@ -30,7 +29,7 @@ fn generated_state() -> AppState {
         agent_type_availability: vec![AgentAvailabilityObservation::new(
             &definition,
             true,
-            compatible_without_optional_capabilities(),
+            compatible(),
         )],
         ..AppState::default()
     }
@@ -48,11 +47,10 @@ fn selected_definition_generates_visible_unsupported_cells_and_fields() {
     assert_eq!(form.draft().display_name(), "Claude Code");
     assert_eq!(form.selected_operation(), Operation::Resume);
     assert_eq!(form.selected_target(), GeneratedTarget::Local);
-    assert!(!form.create_enabled());
-    assert_eq!(
-        form.operation_support(Operation::Resume).reason(),
-        Some("installed Claude Code lacks required capability `resume`")
-    );
+    // Declared support now stands on its own: the definition declares Resume,
+    // and a reachable executable is no longer second-guessed (#657).
+    assert!(form.create_enabled());
+    assert_eq!(form.operation_support(Operation::Resume).reason(), None);
     // Fixture-proven positional prompt, so fresh-issue carries no reason (#620).
     assert_eq!(form.operation_support(Operation::FreshIssue).reason(), None);
     assert_eq!(
@@ -71,7 +69,6 @@ fn selected_definition_generates_visible_unsupported_cells_and_fields() {
         ids,
         vec!["model", "permission_mode", "version_selector", "prompt"]
     );
-    assert!(form.draft().fields()[0].disabled_reason().is_some());
 }
 
 #[test]

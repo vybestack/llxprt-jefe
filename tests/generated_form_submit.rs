@@ -29,10 +29,9 @@ fn claude_definition() -> AgentDefinition {
         .unwrap_or_else(|| panic!("Claude definition must be shipped"))
 }
 
-fn compatible_with_capability(capability: &str) -> Availability {
+fn installed_compatible() -> Availability {
     Availability::InstalledCompatible {
         identity: "0.10.0".to_string(),
-        capabilities: vec![capability.to_string()],
         generation: 1,
     }
 }
@@ -40,7 +39,6 @@ fn compatible_with_capability(capability: &str) -> Availability {
 fn compatible_without_capabilities() -> Availability {
     Availability::InstalledCompatible {
         identity: "2.1.212 (Claude Code)".to_string(),
-        capabilities: Vec::new(),
         generation: 9,
     }
 }
@@ -58,7 +56,7 @@ fn test_repository(type_id: AgentTypeId) -> Repository {
 
 fn state_with_llxprt_form_open_and_create_enabled() -> AppState {
     let definition = llxprt_definition();
-    let availability = compatible_with_capability("prompt-interactive");
+    let availability = installed_compatible();
     let observation = AgentAvailabilityObservation::new(&definition, true, availability);
     let repository = test_repository(definition.id.clone());
     AppState {
@@ -205,7 +203,7 @@ fn enabled_create_restores_pane_focus_from_modal() {
 #[test]
 fn enabled_create_selects_remote_target_respects_repository_remote() {
     let definition = llxprt_definition();
-    let availability = compatible_with_capability("prompt-interactive");
+    let availability = installed_compatible();
     let observation = AgentAvailabilityObservation::new(&definition, true, availability);
     let mut repository = test_repository(definition.id.clone());
     // LLxprt supports remote targets; we do not invent remote settings, but
@@ -292,7 +290,7 @@ fn submit_without_repository_has_zero_effects() {
     // No repositories at all — agent creation must fail gracefully with
     // zero state effects.
     let definition = llxprt_definition();
-    let availability = compatible_with_capability("prompt-interactive");
+    let availability = installed_compatible();
     let observation = AgentAvailabilityObservation::new(&definition, true, availability);
     let mut state = AppState {
         repositories: Vec::new(),

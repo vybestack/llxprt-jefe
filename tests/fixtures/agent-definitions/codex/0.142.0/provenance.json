@@ -9,20 +9,62 @@
     "executable_sha256": "d3be844c45c4fd89392536e56e1010963f94785592596b50cd0c45bb8a341406"
   },
   "captures": {
-    "help": {"argv":["codex","--help"],"exit_code":0,"stdout":"help.stdout","stderr":"help.stderr"},
-    "probe": {"argv":["codex","--version"],"exit_code":0,"stdout":"probe.stdout","stderr":"probe.stderr"},
-    "version": {"argv":["codex","--version"],"exit_code":0,"stdout":"version.stdout","stderr":"version.stderr"}
+    "probe": {
+      "argv": [
+        "codex",
+        "--version"
+      ],
+      "exit_code": 0,
+      "stdout": "probe.stdout",
+      "stderr": "probe.stderr"
+    },
+    "version": {
+      "argv": [
+        "codex",
+        "--version"
+      ],
+      "exit_code": 0,
+      "stdout": "version.stdout",
+      "stderr": "version.stderr"
+    }
   },
+  "notes": [
+    "Fixture bytes are deterministic provenance, not a runtime version allow-list."
+  ],
   "verified_mappings": {
-    "initial_prompt": ["<prompt>"],
-    "model": ["--model","<model>"],
-    "profile": ["--profile","<profile>"],
-    "sandbox": ["--sandbox","<mode>"],
-    "approval": ["--ask-for-approval","<policy>"],
-    "bypass": ["--dangerously-bypass-approvals-and-sandbox"],
-    "cwd": ["--cd","<cwd>"],
-    "resume": ["resume","<session-id>"],
-    "resume_last": ["resume","--last"]
-  },
-  "notes": ["Fixture bytes are deterministic provenance, not a runtime version allow-list."]
+    "initial_prompt": [
+      "<prompt>"
+    ],
+    "model": [
+      "--model",
+      "<model>"
+    ],
+    "profile": [
+      "--profile",
+      "<profile>"
+    ],
+    "sandbox": [
+      "--sandbox",
+      "<mode>"
+    ],
+    "approval": [
+      "--ask-for-approval",
+      "<policy>"
+    ],
+    "bypass": [
+      "--dangerously-bypass-approvals-and-sandbox"
+    ],
+    "cwd": [
+      "--cd",
+      "<cwd>"
+    ],
+    "resume": [
+      "resume",
+      "<session-id>"
+    ],
+    "resume_last": [
+      "resume",
+      "--last"
+    ]
+  }
 }

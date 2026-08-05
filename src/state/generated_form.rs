@@ -10,8 +10,7 @@
 use std::fmt;
 
 use crate::domain::agent_definition::{
-    AgentDefinition, AgentTypeId, Availability, DefinitionError, Field, FieldKind, FieldScope,
-    FieldValue, ProbeErrorCode,
+    AgentDefinition, AgentTypeId, DefinitionError, Field, FieldKind, FieldScope, FieldValue,
 };
 
 use super::generated_form_projection::{
@@ -57,37 +56,6 @@ impl FormFieldId {
     }
 }
 
-/// Typed reason that a capability-backed field cannot be edited.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FormFieldDisabledReason {
-    /// No executable candidate resolved for the definition.
-    NotFound {
-        /// Capability represented by the field.
-        capability: String,
-    },
-    /// The installed executable is incompatible.
-    InstalledIncompatible {
-        /// Capability represented by the field.
-        capability: String,
-        /// Exact probe-provided incompatibility reason.
-        reason: String,
-    },
-    /// The capability probe failed.
-    ProbeError {
-        /// Capability represented by the field.
-        capability: String,
-        /// Closed probe diagnostic code.
-        code: ProbeErrorCode,
-        /// Exact probe-provided error reason.
-        reason: String,
-    },
-    /// A successful probe did not find this optional authored capability.
-    MissingCapability {
-        /// Capability represented by the field.
-        capability: String,
-    },
-}
-
 /// One field projected from a definition into a typed form draft.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFormField {
@@ -97,8 +65,6 @@ pub struct GeneratedFormField {
     pub(super) value: FieldValue,
     pub(super) cursor: usize,
     pub(super) visible: bool,
-    pub(super) capability: Option<String>,
-    pub(super) disabled_reason: Option<FormFieldDisabledReason>,
 }
 
 impl GeneratedFormField {
@@ -166,18 +132,6 @@ impl GeneratedFormField {
     #[must_use]
     pub const fn launch_signature(&self) -> bool {
         self.definition.launch_signature
-    }
-
-    /// Authored capability represented by this field, when one exists.
-    #[must_use]
-    pub fn capability(&self) -> Option<&str> {
-        self.capability.as_deref()
-    }
-
-    /// Typed disabled reason; disabled fields remain present and visible.
-    #[must_use]
-    pub const fn disabled_reason(&self) -> Option<&FormFieldDisabledReason> {
-        self.disabled_reason.as_ref()
     }
 }
 
@@ -261,13 +215,6 @@ pub enum FormEditError {
         expected: FieldKind,
         /// Supplied value.
         actual: FieldValue,
-    },
-    /// A disabled capability-backed field was edited.
-    DisabledField {
-        /// Field being edited.
-        field: FormFieldId,
-        /// Typed availability reason.
-        reason: FormFieldDisabledReason,
     },
     /// The requested field is currently hidden.
     HiddenField {
@@ -363,15 +310,12 @@ pub struct GeneratedFormDraft {
 }
 
 impl GeneratedFormDraft {
-    /// Generate a typed form from a validated definition and availability.
+    /// Generate a typed form from a validated definition.
     ///
     /// Repository fields precede agent fields, with declaration order retained
     /// inside each scope. Defaults are copied exactly; absent defaults receive
     /// only their kind's empty draft value.
-    pub fn from_definition(
-        definition: &AgentDefinition,
-        availability: &Availability,
-    ) -> Result<Self, GeneratedFormBuildError> {
+    pub fn from_definition(definition: &AgentDefinition) -> Result<Self, GeneratedFormBuildError> {
         definition
             .validate()
             .map_err(GeneratedFormBuildError::InvalidDefinition)?;
@@ -381,16 +325,8 @@ impl GeneratedFormDraft {
             &mut fields,
             FieldScope::Repository,
             &definition.repository_fields,
-            definition,
-            availability,
         );
-        append_fields(
-            &mut fields,
-            FieldScope::Agent,
-            &definition.agent_fields,
-            definition,
-            availability,
-        );
+        append_fields(&mut fields, FieldScope::Agent, &definition.agent_fields);
         let mut draft = Self {
             type_id: definition.id.clone(),
             display_name: definition.display_name.clone(),
@@ -466,11 +402,7 @@ impl GeneratedFormDraft {
     #[must_use]
     pub fn validation_issues(&self) -> Vec<FormValidationIssue> {
         let mut issues = Vec::new();
-        for field in self
-            .fields
-            .iter()
-            .filter(|field| field.visible && field.disabled_reason.is_none())
-        {
+        for field in self.fields.iter().filter(|field| field.visible) {
             validate_field(field, &mut issues);
         }
         issues
@@ -481,7 +413,7 @@ impl GeneratedFormDraft {
     pub fn active_values(&self) -> Vec<FormFieldValue> {
         self.fields
             .iter()
-            .filter(|field| field.visible && field.disabled_reason.is_none())
+            .filter(|field| field.visible)
             .map(to_field_value)
             .collect()
     }
@@ -491,18 +423,13 @@ impl GeneratedFormDraft {
     pub fn launch_signature_values(&self) -> Vec<FormFieldValue> {
         self.fields
             .iter()
-            .filter(|field| {
-                field.visible
-                    && field.disabled_reason.is_none()
-                    && field.definition.launch_signature
-            })
+            .filter(|field| field.visible && field.definition.launch_signature)
             .map(to_field_value)
             .collect()
     }
 
     fn set_value(&mut self, id: &FormFieldId, value: FieldValue) -> Result<(), FormEditError> {
         let field = self.field_mut(id)?;
-        reject_disabled(field)?;
         if !value.matches_kind(field.definition.kind) {
             return Err(FormEditError::KindMismatch {
                 field: id.clone(),
@@ -517,7 +444,6 @@ impl GeneratedFormDraft {
 
     fn move_cursor(&mut self, id: &FormFieldId, movement: CursorMove) -> Result<(), FormEditError> {
         let field = self.field_mut(id)?;
-        reject_disabled(field)?;
         let end = value_cursor(&field.value);
         field.cursor = match movement {
             CursorMove::Left => field.cursor.saturating_sub(1),
@@ -530,7 +456,6 @@ impl GeneratedFormDraft {
 
     fn toggle(&mut self, id: &FormFieldId) -> Result<(), FormEditError> {
         let field = self.field_mut(id)?;
-        reject_disabled(field)?;
         field.value = match field.value {
             FieldValue::Boolean(value) => FieldValue::Boolean(!value),
             FieldValue::OptionalBoolean(value) => FieldValue::OptionalBoolean(match value {
@@ -663,14 +588,4 @@ fn push_issue(
         field: field.id.clone(),
         problem,
     });
-}
-
-fn reject_disabled(field: &GeneratedFormField) -> Result<(), FormEditError> {
-    if let Some(reason) = &field.disabled_reason {
-        return Err(FormEditError::DisabledField {
-            field: field.id.clone(),
-            reason: reason.clone(),
-        });
-    }
-    Ok(())
 }

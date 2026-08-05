@@ -247,6 +247,8 @@ pub enum Emitter {
     },
     /// A boolean flag emitted only when the field is true.
     Flag {
+        /// Literal argv element emitted when the field is true (e.g. `--yolo`).
+        name: String,
         /// Field id to read.
         field: String,
     },
@@ -297,7 +299,7 @@ impl Emitter {
     pub fn field(&self) -> Option<&str> {
         match self {
             Self::Fixed { .. } => None,
-            Self::Flag { field }
+            Self::Flag { field, .. }
             | Self::Option { field, .. }
             | Self::BooleanOption { field, .. }
             | Self::RepeatedOption { field, .. }
@@ -315,10 +317,11 @@ impl Emitter {
     pub fn validate(&self) -> Result<(), EmitterValidateError> {
         match self {
             Self::Fixed { value } => validate_bounded_string(value, "emitter fixed value")?,
-            Self::Flag { field } | Self::Positional { field } => {
+            Self::Positional { field } => {
                 validate_field_ref(field)?;
             }
-            Self::Option { name, field }
+            Self::Flag { name, field }
+            | Self::Option { name, field }
             | Self::RepeatedOption { name, field }
             | Self::Environment { name, field } => {
                 validate_bounded_string(name, "emitter name")?;

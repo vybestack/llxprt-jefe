@@ -286,14 +286,17 @@ pub enum Availability {
     InstalledCompatible {
         /// Recognized identity token.
         identity: String,
-        /// Sorted, deduplicated capabilities.
-        capabilities: Vec<String>,
         /// Probe generation stamp.
         generation: u64,
     },
-    /// Executable present but a required capability is absent.
+    /// Executable present but rejected as unusable, with an exact reason.
+    ///
+    /// The capability gate was this verdict's only producer, so since #657 no
+    /// runtime path emits it: an unrecognized identity is reported as
+    /// `ProbeError`. Consumers still handle it, and it remains the contract's
+    /// home for a non-probe-error rejection.
     InstalledIncompatible {
-        /// Exact reason (including the missing capability).
+        /// Exact reason.
         reason: String,
         /// Probe generation stamp.
         generation: u64,

@@ -98,7 +98,6 @@ fn installed_compatible_observation() -> AgentAvailabilityObservation {
         true,
         Availability::InstalledCompatible {
             identity: "0.10.0".to_string(),
-            capabilities: vec!["prompt-interactive".to_string()],
             generation: 1,
         },
     )

@@ -59,7 +59,6 @@ fn availability_variants() {
 
     let compatible = Availability::InstalledCompatible {
         identity: "x".to_string(),
-        capabilities: vec!["a".to_string()],
         generation: 1,
     };
     assert!(compatible.is_installed());

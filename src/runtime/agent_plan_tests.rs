@@ -14,7 +14,6 @@ fn llxprt() -> AgentDefinition {
 fn compatible(generation: u64) -> Availability {
     Availability::InstalledCompatible {
         identity: "id".to_string(),
-        capabilities: Vec::new(),
         generation,
     }
 }
@@ -108,7 +107,56 @@ fn default_field_values_are_used_when_not_provided() {
 }
 
 #[test]
-fn flag_resolves_token_from_capability_probe() {
+fn flag_emitters_produce_declared_tokens_in_order() {
+    let definition = llxprt();
+    let mut values = LaunchFieldValues::new();
+    values.set_agent("continue", FieldValue::Boolean(true));
+    let request = PlanRequest {
+        definition: &definition,
+        operation: Operation::Normal,
+        target: Target::Local {
+            canonical_cwd: std::path::PathBuf::from("/r"),
+        },
+        executable: std::path::PathBuf::from("/x"),
+        executable_fingerprint: crate::agent_candidate_fingerprint::CandidateFingerprint::new(
+            std::path::PathBuf::from("/x"),
+            None,
+            None,
+            0,
+            0,
+        ),
+        executable_wrapper: crate::agent_candidate_path::AgentWrapperKind::Direct,
+        argv_prefix: Vec::new(),
+        probe: compatible(1),
+        probe_generation: 1,
+        target_generation: 1,
+        values: &values,
+        activation_generation: 1,
+        preflight: Preflight::default(),
+    };
+    let plan = match plan_local_launch(&request) {
+        PlanOutcome::Supported(plan) => *plan,
+        other => panic!("expected supported, got {other:?}"),
+    };
+    let argv: Vec<String> = plan
+        .argv
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        argv,
+        vec![
+            "--yolo".to_string(),
+            "--prompt-interactive".to_string(),
+            "--continue".to_string()
+        ]
+    );
+}
+
+/// A flag emitter carries its own argv token: nothing outside the emitter
+/// decides what a flag emits (issue #657).
+#[test]
+fn flag_emits_its_own_declared_token() {
     let definition = llxprt();
     let mut values = LaunchFieldValues::new();
     values.set_agent("continue", FieldValue::Boolean(true));

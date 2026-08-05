@@ -13,10 +13,7 @@ use super::bounded_json::{BoundedJson, parse_definition_json};
 use super::diagnostics::DefinitionError;
 use super::fields::{Emitter, Field, FieldKind, FieldValue};
 use super::limits::{CANDIDATE_LIMIT, DEFINITION_SCHEMA, STRING_VALUE_BYTE_LIMIT};
-use super::probe::{
-    AnchoredPattern, CapabilityProbe, CapabilityToken, IdentityRecognizer, ProbeFraming, ProbeSpec,
-    ProbeStream,
-};
+use super::probe::{AnchoredPattern, IdentityRecognizer, ProbeFraming, ProbeSpec, ProbeStream};
 use super::type_id::{AgentTypeId, CandidateKind, ExecutableCandidate};
 
 /// Closed definition field set at the top level (used by the JSON reader).
@@ -24,6 +21,7 @@ const TOP_LEVEL_FIELDS: &[&str] = &[
     "agent_type_schema",
     "id",
     "display_name",
+    "minimum_version",
     "executable_candidates",
     "probe",
     "operations",
@@ -55,6 +53,7 @@ fn read_definition_from_json(
     let id_raw = require_string(object, "id")?;
     let id = AgentTypeId::parse(&id_raw)?;
     let display_name = require_string(object, "display_name")?;
+    let minimum_version = optional_string(object, "minimum_version").unwrap_or_default();
     let candidates = read_candidates(object)?;
     let probe = read_probe(object)?;
     let operations = read_operations(object)?;
@@ -66,6 +65,7 @@ fn read_definition_from_json(
         schema,
         id,
         display_name,
+        minimum_version,
         candidates,
         probe,
         operations,
@@ -247,8 +247,7 @@ fn map_probe(value: &BoundedJson) -> Result<ProbeSpec, DefinitionError> {
         "stream",
         "framing",
         "identity",
-        "capability_probe",
-        "required",
+        "normalize",
         "timeout_ms",
         "max_bytes",
     ]
@@ -264,8 +263,7 @@ fn map_probe(value: &BoundedJson) -> Result<ProbeSpec, DefinitionError> {
     let stream = read_probe_stream(object)?;
     let framing = read_probe_framing(object)?;
     let identity = read_identity(object)?;
-    let capabilities = read_capability_probe(object)?;
-    let required = string_array(object, "required")?;
+    let normalize = read_normalize(object)?;
     let timeout_ms =
         u64_field(object, "timeout_ms")?.unwrap_or(super::limits::LOCAL_PROBE_TIMEOUT_MS);
     let max_bytes = usize_field(object, "max_bytes")?.unwrap_or(super::limits::PROBE_STREAM_LIMIT);
@@ -273,9 +271,8 @@ fn map_probe(value: &BoundedJson) -> Result<ProbeSpec, DefinitionError> {
         argv,
         stream,
         framing,
+        normalize,
         identity,
-        capabilities,
-        required,
         timeout_ms,
         max_bytes,
     })
@@ -352,57 +349,6 @@ fn read_anchored_pattern(
     }
 }
 
-fn read_capability_probe(
-    object: &[(String, BoundedJson)],
-) -> Result<Option<CapabilityProbe>, DefinitionError> {
-    let Some(raw) = object.iter().find(|(k, _)| k == "capability_probe") else {
-        return Ok(None);
-    };
-    if raw.1.is_null() {
-        return Ok(None);
-    }
-    let cap_obj = raw
-        .1
-        .as_object()
-        .ok_or_else(|| unknown("capability_probe must be an object"))?;
-    let allowed: HashSet<&str> = ["argv", "stream", "normalize", "tokens", "trusted"]
-        .into_iter()
-        .collect();
-    reject_unknown_fields(cap_obj, &allowed)?;
-    let argv = string_array(cap_obj, "argv")?;
-    let stream = read_optional_probe_stream(cap_obj)?;
-    let normalize = read_normalize(cap_obj)?;
-    let tokens = read_capability_tokens(cap_obj)?;
-    let trusted = read_trusted(cap_obj)?;
-    Ok(Some(CapabilityProbe {
-        argv,
-        stream,
-        normalize,
-        tokens,
-        trusted,
-    }))
-}
-
-fn read_optional_probe_stream(
-    object: &[(String, BoundedJson)],
-) -> Result<ProbeStream, DefinitionError> {
-    let Some(raw) = object.iter().find(|(k, _)| k == "stream") else {
-        return Ok(ProbeStream::Stdout);
-    };
-    match &raw.1 {
-        BoundedJson::Str(s) => match s.as_str() {
-            "stdout" => Ok(ProbeStream::Stdout),
-            "stderr" => Ok(ProbeStream::Stderr),
-            "combined" => Ok(ProbeStream::Combined),
-            other => Err(unknown(format!("unknown probe stream {other:?}"))),
-        },
-        other => Err(unknown(format!(
-            "stream must be a string, found {}",
-            bounded_kind(other)
-        ))),
-    }
-}
-
 fn read_normalize(
     object: &[(String, BoundedJson)],
 ) -> Result<super::normalize::Normalize, DefinitionError> {
@@ -420,48 +366,6 @@ fn read_normalize(
             bounded_kind(other)
         ))),
     }
-}
-
-fn read_trusted(object: &[(String, BoundedJson)]) -> Result<bool, DefinitionError> {
-    let Some(raw) = object.iter().find(|(k, _)| k == "trusted") else {
-        return Ok(false);
-    };
-    match &raw.1 {
-        BoundedJson::Bool(value) => Ok(*value),
-        other => Err(unknown(format!(
-            "trusted must be a boolean, found {}",
-            bounded_kind(other)
-        ))),
-    }
-}
-
-fn read_capability_tokens(
-    object: &[(String, BoundedJson)],
-) -> Result<Vec<CapabilityToken>, DefinitionError> {
-    let Some(raw) = object.iter().find(|(k, _)| k == "tokens") else {
-        return Ok(Vec::new());
-    };
-    let arr = raw
-        .1
-        .as_array()
-        .ok_or_else(|| unknown("capability tokens must be an array"))?;
-    if arr.len() > super::limits::CAPABILITY_LIMIT {
-        return Err(DefinitionError::Probe(Box::new(
-            super::probe::ProbeValidateError::CapabilityBounds { len: arr.len() },
-        )));
-    }
-    let mut tokens = Vec::with_capacity(arr.len());
-    for element in arr {
-        let tok_obj = element
-            .as_object()
-            .ok_or_else(|| unknown("capability token must be an object"))?;
-        let allowed: HashSet<&str> = ["id", "token"].into_iter().collect();
-        reject_unknown_fields(tok_obj, &allowed)?;
-        let id = require_string(tok_obj, "id")?;
-        let token = require_string(tok_obj, "token")?;
-        tokens.push(CapabilityToken { id, token });
-    }
-    Ok(tokens)
 }
 
 fn read_operations(
@@ -729,6 +633,7 @@ fn read_emitter(value: &BoundedJson) -> Result<Emitter, DefinitionError> {
             value: require_string(object, "value")?,
         },
         "flag" => Emitter::Flag {
+            name: require_string(object, "name")?,
             field: require_string(object, "field")?,
         },
         "option" => Emitter::Option {

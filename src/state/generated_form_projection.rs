@@ -4,23 +4,16 @@
 //! display labels, cursors, and active-value projection. It is I/O-free and is
 //! consumed only by [`super::generated_form`].
 
-use crate::domain::agent_definition::{
-    AgentDefinition, Availability, Field, FieldKind, FieldScope, FieldValue,
-};
+use crate::domain::agent_definition::{Field, FieldKind, FieldScope, FieldValue};
 
-use super::generated_form::{
-    FormFieldDisabledReason, FormFieldId, FormFieldValue, GeneratedFormField,
-};
+use super::generated_form::{FormFieldId, FormFieldValue, GeneratedFormField};
 
 pub(super) fn append_fields(
     output: &mut Vec<GeneratedFormField>,
     scope: FieldScope,
     fields: &[Field],
-    definition: &AgentDefinition,
-    availability: &Availability,
 ) {
     for field in fields {
-        let capability = capability_for(field, definition);
         output.push(GeneratedFormField {
             id: match scope {
                 FieldScope::Repository => FormFieldId::repository(&field.id),
@@ -33,10 +26,6 @@ pub(super) fn append_fields(
                 .unwrap_or_else(|| empty_value(field.kind)),
             cursor: field.default.as_ref().map_or(0, value_cursor),
             visible: true,
-            disabled_reason: capability
-                .as_deref()
-                .and_then(|capability| disabled_reason(capability, availability)),
-            capability,
             definition: field.clone(),
         });
     }
@@ -95,48 +84,6 @@ fn empty_value(kind: FieldKind) -> FieldValue {
         FieldKind::Integer => FieldValue::Integer(0),
         FieldKind::Path => FieldValue::Path(String::new()),
         FieldKind::StringList => FieldValue::StringList(Vec::new()),
-    }
-}
-
-fn capability_for(field: &Field, definition: &AgentDefinition) -> Option<String> {
-    let normalized = field.id.replace('_', "-");
-    definition
-        .probe
-        .capabilities
-        .as_ref()?
-        .tokens
-        .iter()
-        .find(|token| token.id == field.id || token.id == normalized)
-        .map(|token| token.id.clone())
-}
-
-fn disabled_reason(
-    capability: &str,
-    availability: &Availability,
-) -> Option<FormFieldDisabledReason> {
-    match availability {
-        Availability::NotFound => Some(FormFieldDisabledReason::NotFound {
-            capability: capability.to_string(),
-        }),
-        Availability::InstalledCompatible { capabilities, .. } => (!capabilities
-            .iter()
-            .any(|found| found == capability))
-        .then(|| FormFieldDisabledReason::MissingCapability {
-            capability: capability.to_string(),
-        }),
-        Availability::InstalledIncompatible { reason, .. } => {
-            Some(FormFieldDisabledReason::InstalledIncompatible {
-                capability: capability.to_string(),
-                reason: reason.clone(),
-            })
-        }
-        Availability::ProbeError { code, reason, .. } => {
-            Some(FormFieldDisabledReason::ProbeError {
-                capability: capability.to_string(),
-                code: *code,
-                reason: reason.clone(),
-            })
-        }
     }
 }
 
