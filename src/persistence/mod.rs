@@ -69,8 +69,10 @@ pub(crate) mod keymap_edit;
 pub use keymap_edit::{KeymapCandidate, KeymapEdit};
 pub mod migration;
 pub mod paths;
+pub mod plugin_archive;
 pub mod plugin_inventory;
 pub mod plugin_roots;
+pub use plugin_archive::{ArchiveContents, ArchiveError, ArchiveFile, read_archive};
 pub use plugin_inventory::{
     InstalledPackage, PluginInventory, UnavailablePackage, UnavailableReason, scan,
 };

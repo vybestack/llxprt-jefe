@@ -91,3 +91,9 @@ pub const ROUTE_LIMIT: usize = 32;
 
 /// Maximum screen contributions one manifest may declare.
 pub const SCREEN_CONTRIBUTION_LIMIT: usize = 32;
+
+/// Maximum entries one package archive may contain.
+pub const ARCHIVE_ENTRY_LIMIT: usize = 4_096;
+
+/// Maximum total expanded regular-file bytes in one package archive.
+pub const ARCHIVE_EXPANDED_BYTE_LIMIT: u64 = 67_108_864;
