@@ -103,13 +103,9 @@ impl Sha256 {
     /// Compute SHA-256 for an in-memory byte slice.
     #[must_use]
     pub fn digest(input: &[u8]) -> Self {
-        let mut state = INITIAL_STATE;
-        let mut chunks = input.chunks_exact(64);
-        for chunk in &mut chunks {
-            compress(&mut state, chunk);
-        }
-        finish(&mut state, chunks.remainder(), input.len());
-        Self(state_to_bytes(&state))
+        let mut hasher = Sha256Hasher::new();
+        hasher.update(input);
+        hasher.finalize()
     }
 
     /// Borrow the fixed digest bytes.
@@ -119,16 +115,101 @@ impl Sha256 {
     }
 }
 
-fn finish(state: &mut [u32; 8], remainder: &[u8], input_len: usize) {
-    let block_count = if remainder.len() < 56 { 1 } else { 2 };
-    let mut final_blocks = [0u8; 128];
-    final_blocks[..remainder.len()].copy_from_slice(remainder);
-    final_blocks[remainder.len()] = 0x80;
-    let bit_len = u64::try_from(input_len).unwrap_or(u64::MAX).wrapping_mul(8);
-    let end = block_count * 64;
-    final_blocks[end - 8..end].copy_from_slice(&bit_len.to_be_bytes());
-    for block in final_blocks[..end].chunks_exact(64) {
-        compress(state, block);
+/// Bytes in one SHA-256 compression block.
+const BLOCK_BYTES: usize = 64;
+
+/// Largest remainder that still leaves room for the 8-byte length suffix.
+const MAX_SINGLE_BLOCK_REMAINDER: usize = BLOCK_BYTES - 8;
+
+/// Incremental SHA-256 over a byte stream.
+///
+/// An archive is digested while it is being validated, so its bytes are never
+/// buffered whole in memory just to be hashed. Feeding the same bytes in any
+/// chunking produces the same digest as [`Sha256::digest`] over the
+/// concatenation, which is what lets a bounded streaming reader and an
+/// in-memory known-answer vector be compared directly.
+#[derive(Debug, Clone)]
+pub struct Sha256Hasher {
+    state: [u32; 8],
+    /// Bytes accepted but not yet part of a complete compression block.
+    pending: [u8; BLOCK_BYTES],
+    pending_len: usize,
+    /// Total bytes consumed, which the padding encodes as a bit count.
+    total: u64,
+}
+
+impl Sha256Hasher {
+    /// Start a digest over an empty stream.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            state: INITIAL_STATE,
+            pending: [0u8; BLOCK_BYTES],
+            pending_len: 0,
+            total: 0,
+        }
+    }
+
+    /// Total bytes consumed so far.
+    #[must_use]
+    pub const fn len(&self) -> u64 {
+        self.total
+    }
+
+    /// Whether no bytes have been consumed yet.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.total == 0
+    }
+
+    /// Consume the next slice of the stream.
+    pub fn update(&mut self, input: &[u8]) {
+        self.total = self
+            .total
+            .wrapping_add(u64::try_from(input.len()).unwrap_or(u64::MAX));
+        let mut input = input;
+        if self.pending_len > 0 {
+            let wanted = BLOCK_BYTES - self.pending_len;
+            let take = wanted.min(input.len());
+            self.pending[self.pending_len..self.pending_len + take].copy_from_slice(&input[..take]);
+            self.pending_len += take;
+            input = &input[take..];
+            if self.pending_len < BLOCK_BYTES {
+                return;
+            }
+            let block = self.pending;
+            compress(&mut self.state, &block);
+            self.pending_len = 0;
+        }
+        let mut blocks = input.chunks_exact(BLOCK_BYTES);
+        for block in &mut blocks {
+            compress(&mut self.state, block);
+        }
+        let remainder = blocks.remainder();
+        self.pending[..remainder.len()].copy_from_slice(remainder);
+        self.pending_len = remainder.len();
+    }
+
+    /// Pad the stream and produce the digest.
+    #[must_use]
+    pub fn finalize(mut self) -> Sha256 {
+        let remainder_len = self.pending_len;
+        let block_count = usize::from(remainder_len >= MAX_SINGLE_BLOCK_REMAINDER) + 1;
+        let mut final_blocks = [0u8; 2 * BLOCK_BYTES];
+        final_blocks[..remainder_len].copy_from_slice(&self.pending[..remainder_len]);
+        final_blocks[remainder_len] = 0x80;
+        let end = block_count * BLOCK_BYTES;
+        final_blocks[end - 8..end].copy_from_slice(&self.total.wrapping_mul(8).to_be_bytes());
+        for block in final_blocks[..end].chunks_exact(BLOCK_BYTES) {
+            compress(&mut self.state, block);
+        }
+        Sha256(state_to_bytes(&self.state))
+    }
+}
+
+impl Default for Sha256Hasher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -266,3 +347,7 @@ impl<'de> Deserialize<'de> for Sha256 {
         value.parse().map_err(serde::de::Error::custom)
     }
 }
+
+#[cfg(test)]
+#[path = "sha256_tests.rs"]
+mod tests;
