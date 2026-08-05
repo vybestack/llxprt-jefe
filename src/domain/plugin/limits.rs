@@ -28,3 +28,6 @@ pub const PACKAGE_PATH_DEPTH_LIMIT: usize = 16;
 
 /// Maximum bytes in a secret reference's environment-variable name.
 pub const SECRET_ENV_BYTE_LIMIT: usize = 128;
+
+/// Maximum enum choices declared by one field.
+pub const FIELD_CHOICE_LIMIT: usize = 64;

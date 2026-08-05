@@ -7,6 +7,7 @@
 
 pub mod code;
 pub mod coordinate;
+pub mod field;
 pub mod limits;
 pub mod plugin_id;
 pub mod provider;
@@ -14,6 +15,7 @@ pub mod values;
 
 pub use code::PluginCode;
 pub use coordinate::{PackageCoordinate, PackageCoordinateError};
+pub use field::{Field, FieldDraft, FieldError, FieldKind, RestartScope, Scalar};
 pub use plugin_id::{PluginId, PluginIdError, PluginIdErrorReason};
 pub use provider::{Provider, ProviderError, ProviderMode, ProviderSelection};
 pub use values::{
