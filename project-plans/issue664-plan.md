@@ -49,7 +49,7 @@ Branch: `issue664` (from `origin/main` @ `0b73a19a`).
 ## 5. Review counters
 
 - Local review runs used: 1 / 2
-- Post-PR OCR runs used: 0 / 2
+- Post-PR OCR runs used: 1 / 2
 
 ### Local review 1 — triage
 
@@ -64,6 +64,16 @@ Branch: `issue664` (from `origin/main` @ `0b73a19a`).
 Reviewer verdict: no blockers; all four accepted behaviors correctly and provably
 implemented; the gate is free of deadlock, livelock, and UI wedging; no vacuous
 tests remain.
+
+### Post-PR OpenCodeReview 1 — triage
+
+| Finding | Validity | Disposition | Reason |
+|---|---|---|---|
+| `production_text` strips `#[cfg(not(any(test, …)))]` and `#[cfg(not(all(test, windows)))]`, which are compiled **in** production, so a real call site could be hidden | valid | **In-scope—Fix** | Supersedes the local reviewer's hypothetical version of the same finding, which was rejected as speculative: OCR named concrete negated-`cfg` forms whose mis-stripping is a false *negative* on the #664 invariant. Fixed by keeping any negated `cfg`, so the scan errs toward a loud failure instead of silent blindness. The suggested `cargo-expand`/`syn` remedy is rejected — a new build dependency is out of scope. |
+| `Mutex` poison recovery via `into_inner()` is silent in `viewer_teardown.rs` | partial | **Reject** | The protected state is a counter whose `TeardownGuard::drop` decrements during unwind, so the invariant survives poisoning by construction. Failing closed would wedge the attach path — the exact freeze this issue removes. The logging half is #662's scope. |
+| `matches("establish_worker_containment()").count()` also counts comments | valid but immaterial | **Reject** | Fails in the loud direction only: a stray comment reddens the test, it can never hide a real caller. |
+| `split_once("\nfn ")` body extraction is fragile | partial | **Reject** | `src/main.rs` has later top-level `fn`s, so the split terminates correctly today; the residual risk is a narrow over-capture that does not justify a parser dependency here. |
+| `is_none_or` requires Rust 1.82, may break MSRV | invalid | **Reject** | `edition = "2024"` already requires ≥ 1.85, and CI compiled the file on every platform. |
 
 ## 6. Verification evidence
 

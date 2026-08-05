@@ -45,14 +45,20 @@ fn read_repo_text(relative: &str) -> String {
 /// (`#[cfg(all(test, windows))] #[path = "..."] mod x_tests;`) *above*
 /// production functions, so truncation would blind the scan to most of the
 /// file and let a real call site through unseen.
+///
+/// Any negated `cfg` is kept, because a negation is the one shape whose truth
+/// value this scan cannot judge by looking for the word `test`:
+/// `#[cfg(not(any(test, ...)))]` names `test` yet ships in production. Keeping
+/// it can only add a call site the contract then has to justify, which shows up
+/// as a loud failure; dropping it would delete evidence and let a real
+/// violation of the #664 invariant pass unseen. Err toward the noisy direction.
 fn production_text(contents: &str) -> String {
     let mut kept = String::new();
     let mut lines = contents.lines();
     while let Some(line) = lines.next() {
         let trimmed = line.trim_start();
-        let guards_test_only_item = trimmed.starts_with("#[cfg(")
-            && trimmed.contains("test")
-            && !trimmed.contains("not(test");
+        let guards_test_only_item =
+            trimmed.starts_with("#[cfg(") && trimmed.contains("test") && !trimmed.contains("not(");
         if !guards_test_only_item {
             kept.push_str(line);
             kept.push('\n');
