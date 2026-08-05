@@ -495,10 +495,16 @@ pub fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString
             let launch_path = super::agent_executable::strip_verbatim_prefix(path);
             let program = std::env::var_os("COMSPEC").unwrap_or_else(|| OsString::from("cmd.exe"));
             let mut command = Command::new(program);
-            command
-                .args(["/D", "/S", "/C"])
-                .arg(&launch_path)
-                .args(argv);
+            // Issue #529: `/S` strips the first and last quote of everything
+            // after `/C` and runs the remainder as-is. A wrapper path holding a
+            // space is quoted by the argument encoder, and that lone pair is
+            // exactly what `/S` removes, so cmd.exe then parses `C:\Program` as
+            // the program name. Bracket the remainder in an outer pair for `/S`
+            // to consume; the encoded arguments in between survive untouched.
+            command.args(["/D", "/S", "/C"]);
+            push_cmd_outer_quote(&mut command);
+            command.arg(&launch_path).args(argv);
+            push_cmd_outer_quote(&mut command);
             command
         }
         AgentWrapperKind::PowerShellScript => {
@@ -514,6 +520,24 @@ pub fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString
         }
     }
 }
+
+/// Append the bare quote that brackets a `cmd.exe /S` command line (#529).
+///
+/// `raw_arg` is the only way to emit a quote the argument encoder will not
+/// itself escape. The two calls that surround the encoded arguments form the
+/// single outer pair `/S` consumes, so a wrapper path containing a space keeps
+/// the quoting it needs. This composes the command through the standard
+/// argument API rather than building a shell string, so no argument becomes
+/// shell-interpreted.
+#[cfg(windows)]
+fn push_cmd_outer_quote(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.raw_arg("\"");
+}
+
+/// Non-Windows builds never reach `cmd.exe`; the arm exists only to compile.
+#[cfg(not(windows))]
+fn push_cmd_outer_quote(_command: &mut Command) {}
 
 fn command_with_args(program: &OsStr, argv: &[OsString]) -> Command {
     let mut command = Command::new(program);
@@ -613,8 +637,22 @@ mod tests {
         let command_script = command_for_path(path, AgentWrapperKind::CommandScript, &argv);
         let command_args = command_script.get_args().collect::<Vec<_>>();
         assert_eq!(command_args[0..3], ["/D", "/S", "/C"]);
-        assert_eq!(command_args[3], path.as_os_str());
-        assert_eq!(command_args[4..], argv);
+        // Issue #529: on Windows the encoded arguments are bracketed by a bare
+        // outer quote pair for `/S` to strip, so a wrapper path containing a
+        // space keeps its own quoting. The elements in between are unchanged.
+        #[cfg(windows)]
+        {
+            let last = command_args.len() - 1;
+            assert_eq!(command_args[3], "\"");
+            assert_eq!(command_args[4], path.as_os_str());
+            assert_eq!(command_args[5..last], argv);
+            assert_eq!(command_args[last], "\"");
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(command_args[3], path.as_os_str());
+            assert_eq!(command_args[4..], argv);
+        }
 
         let powershell = command_for_path(path, AgentWrapperKind::PowerShellScript, &argv);
         let powershell_args = powershell.get_args().collect::<Vec<_>>();
@@ -826,8 +864,10 @@ mod tests {
             &[OsString::from("--version")],
         );
         let args = command.get_args().collect::<Vec<_>>();
+        // Index 3 is the issue #529 outer quote that `/S` strips; the wrapper
+        // path follows it.
         assert_eq!(
-            args[3],
+            args[4],
             super::super::agent_executable::strip_verbatim_prefix(&canonical),
             "cmd.exe cannot launch a canonical verbatim wrapper path"
         );
@@ -838,6 +878,49 @@ mod tests {
             output.status.success(),
             "normalized wrapper failed: {}",
             String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // ── Issue #529: a wrapper path containing a space must still launch ──
+    //
+    // `cmd.exe /S` strips the first and last quote characters after `/C` and
+    // runs the remainder as-is. Rust quotes an argument containing a space, so
+    // `cmd.exe /D /S /C "C:\Program Files\nodejs\npm.cmd" install` has its only
+    // quote pair stripped and cmd then parses an unprotected spaced path,
+    // reporting `'C:\Program' is not recognized`.
+    //
+    // This is why every nonblank LLxprt Version selector failed on Windows
+    // while a blank one worked: only a nonblank selector runs npm to install,
+    // and the default Windows npm lives under `C:\Program Files`, whereas the
+    // PATH-resolved `llxprt.cmd` sits in a space-free npm prefix.
+    #[cfg(windows)]
+    #[test]
+    fn spaced_wrapper_paths_launch_through_cmd_exe() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create wrapper fixture: {error}"));
+        let spaced = dir.path().join("Program Fixture");
+        std::fs::create_dir_all(&spaced)
+            .unwrap_or_else(|error| panic!("could not create spaced fixture dir: {error}"));
+        let wrapper = spaced.join("probe.cmd");
+        std::fs::write(&wrapper, b"@echo off\r\necho 0.10.0\r\n")
+            .unwrap_or_else(|error| panic!("could not write wrapper fixture: {error}"));
+
+        let output = command_for_path(
+            &wrapper,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from("--version")],
+        )
+        .output()
+        .unwrap_or_else(|error| panic!("could not execute spaced wrapper: {error}"));
+
+        assert!(
+            output.status.success(),
+            "a wrapper path containing a space must launch: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("0.10.0"),
+            "the wrapper's own output must survive the cmd.exe boundary"
         );
     }
 }
