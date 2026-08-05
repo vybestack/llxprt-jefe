@@ -144,6 +144,10 @@ pub use agent_chooser::{
 pub mod agent_definition;
 pub use agent_definition::AgentTypeId;
 
+/// Closed plugin package contract (issue #389 CW-09).
+pub mod plugin;
+pub use plugin::{PluginId, PluginIdError, PluginIdErrorReason};
+
 /// Return a shipped definition type id by its canonical registry position.
 #[doc(hidden)]
 #[must_use]
