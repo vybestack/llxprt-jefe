@@ -529,6 +529,12 @@ pub fn command_for_path(path: &Path, wrapper: AgentWrapperKind, argv: &[OsString
 /// the quoting it needs. This composes the command through the standard
 /// argument API rather than building a shell string, so no argument becomes
 /// shell-interpreted.
+///
+/// The literal `"` below is the only value this function may ever pass to
+/// `raw_arg`. `raw_arg` bypasses argument escaping entirely, so routing a path,
+/// an argument, or any other runtime-derived string through it would hand
+/// `cmd.exe` unescaped text and reintroduce command injection. Anything
+/// variable belongs on `Command::arg`, which escapes it.
 #[cfg(windows)]
 fn push_cmd_outer_quote(command: &mut Command) {
     use std::os::windows::process::CommandExt;
