@@ -453,3 +453,104 @@ fn a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended() {
         "a reported prior run must not be reported again forever"
     );
 }
+
+#[test]
+fn a_heartbeat_in_flight_at_shutdown_cannot_resurrect_a_retired_marker() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut beating = Vec::new();
+        for _ in 0..4 {
+            let stop = std::sync::Arc::clone(&stop);
+            beating.push(std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    jefe::run_diagnostics::heartbeat();
+                }
+            }));
+        }
+
+        // Let the heartbeats saturate, then end the run underneath them, which
+        // is exactly what happens when the render loop exits while a dispatched
+        // heartbeat is still on the blocking pool.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        guard.finish(RunEndReason::UserQuit);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for thread in beating {
+            let _ = thread.join();
+        }
+        std::process::exit(0);
+    }
+
+    let root = temp_root("heartbeat-shutdown-race");
+    let output = run_child(
+        "a_heartbeat_in_flight_at_shutdown_cannot_resurrect_a_retired_marker",
+        &root,
+    );
+    assert!(output.status.success(), "child run should have exited 0");
+
+    let log = child_log(&root);
+    assert!(
+        log.contains("user-quit"),
+        "the run must still have recorded a clean end: {log}"
+    );
+    assert!(
+        run_marker::read_markers(&root).is_empty(),
+        "a run that ended for a recorded reason must stay retired; a late \
+         heartbeat that rewrites the marker makes the next start report a \
+         clean quit as an unclean death"
+    );
+}
+
+#[test]
+fn a_breadcrumb_recorded_while_the_run_heartbeats_survives_the_kill() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+
+        // The real run records breadcrumbs from the attach worker while the
+        // heartbeat future refreshes the same marker, both on the blocking
+        // pool. Neither may drop the other's write.
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let beating = {
+            let stop = std::sync::Arc::clone(&stop);
+            std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    jefe::run_diagnostics::heartbeat();
+                }
+            })
+        };
+
+        for step in 0..200 {
+            jefe::run_diagnostics::record_breadcrumb(&format!("attach agent-{step}"));
+        }
+        jefe::run_diagnostics::record_breadcrumb("attach agent-final");
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = beating.join();
+
+        // Simulate an external kill: no unwinding, no destructors.
+        std::mem::forget(guard);
+        std::process::exit(0);
+    }
+
+    let root = temp_root("concurrent-breadcrumb");
+    let output = run_child(
+        "a_breadcrumb_recorded_while_the_run_heartbeats_survives_the_kill",
+        &root,
+    );
+    assert!(output.status.success(), "child run should have exited 0");
+
+    let found = run_marker::read_markers(&root);
+    assert_eq!(found.len(), 1, "the killed run must own exactly one marker");
+    assert_eq!(
+        found[0].marker.breadcrumb.as_deref(),
+        Some("attach agent-final"),
+        "a heartbeat running alongside the breadcrumb must not cost the run \
+         the last operation it recorded, which is the whole point of the \
+         breadcrumb"
+    );
+}

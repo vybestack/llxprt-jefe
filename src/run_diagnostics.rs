@@ -143,31 +143,42 @@ pub fn heartbeat() {
     refresh(None);
 }
 
+/// Rewrite the marker of the run that is still open.
+///
+/// The write happens while the run is held, not after a snapshot of it is
+/// taken. A refresh that released the lock before writing could be overtaken
+/// by [`end_run`] and land *after* the marker was retired, resurrecting it and
+/// making the next start report a clean quit as an unclean death. Holding the
+/// run across the write also serializes concurrent refreshes, so a heartbeat
+/// and a breadcrumb never contend for the same scratch file.
 fn refresh(breadcrumb: Option<&str>) {
-    let snapshot = {
-        let Ok(mut active) = ACTIVE.lock() else {
-            return;
-        };
-        let Some(active) = active.as_mut() else {
-            return;
-        };
-        active.marker.last_seen_unix = now_unix();
-        if let Some(operation) = breadcrumb {
-            active.marker.breadcrumb = Some(operation.to_string());
-        }
-        (active.dir.clone(), active.marker.clone())
+    let Ok(mut active) = ACTIVE.lock() else {
+        return;
+    };
+    let Some(run) = active.as_mut() else {
+        return;
     };
 
-    let (dir, marker) = snapshot;
-    let _ = run_marker::write_marker(&dir, &marker);
+    run.marker.last_seen_unix = now_unix();
+    if let Some(operation) = breadcrumb {
+        run.marker.breadcrumb = Some(operation.to_string());
+    }
+    let _ = run_marker::write_marker(&run.dir, &run.marker);
 }
 
 fn end_run(reason: RunEndReason) {
+    // Retiring the run and removing its marker under one lock is what makes
+    // the retirement final: a concurrent refresh either completes before the
+    // run is taken, or finds no run and declines to write.
     let taken = {
         let Ok(mut active) = ACTIVE.lock() else {
             return;
         };
-        active.take()
+        let taken = active.take();
+        if let Some(run) = taken.as_ref() {
+            run_marker::remove_marker(&run.dir, run.marker.identity.pid);
+        }
+        taken
     };
     let Some(run) = taken else {
         return;
@@ -182,7 +193,6 @@ fn end_run(reason: RunEndReason) {
         "jefe run ended"
     );
 
-    run_marker::remove_marker(&run.dir, run.marker.identity.pid);
     crate::logging::flush();
 }
 
