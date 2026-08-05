@@ -250,6 +250,10 @@ mod multiplexer_conformance_io_tests;
 mod multiplexer_conformance_sweep_tests;
 
 #[cfg(test)]
+#[path = "server_health_io_tests.rs"]
+mod server_health_io_tests;
+
+#[cfg(test)]
 #[path = "session_host_tests.rs"]
 mod session_host_tests;
 

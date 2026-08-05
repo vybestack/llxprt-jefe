@@ -37,7 +37,7 @@ pub fn observe_server_liveness(
     observation
 }
 
-fn classify_observation(
+pub(super) fn classify_observation(
     prior: Option<&ServerIdentity>,
     evidence: &ServerLivenessEvidence,
 ) -> ServerLivenessObservation {
@@ -46,6 +46,8 @@ fn classify_observation(
             let Some(parsed) = parse_server_identity_output(stdout) else {
                 return ServerLivenessObservation::Unavailable;
             };
+            // The parser only knows the PID the multiplexer printed; the
+            // creation discriminator has to come from the operating system.
             let current = match capture_process_identity(parsed.process.pid()) {
                 Ok(process) => ServerIdentity::new(
                     crate::domain::ServerProcessIdentity::from_identity(process),
@@ -53,13 +55,47 @@ fn classify_observation(
                 ),
                 Err(_) => return ServerLivenessObservation::Unavailable,
             };
-            match classify_server_health(prior, Some(&current), true) {
-                super::ServerHealth::Healthy => ServerLivenessObservation::Healthy(Some(current)),
-                super::ServerHealth::Replaced => ServerLivenessObservation::Replaced(current),
-                super::ServerHealth::Gone => ServerLivenessObservation::Unavailable,
-            }
+            classify_resolved_identity(prior, &current)
         }
         _ => super::classify_server_liveness(prior, evidence),
+    }
+}
+
+/// Classify a freshly resolved server identity against the pinned prior.
+///
+/// Split out of [`classify_observation`] so the verdict is decided without
+/// touching the operating system: everything above this line is probe I/O,
+/// everything below is a pure comparison of two identities (issue #664).
+pub(super) fn classify_resolved_identity(
+    prior: Option<&ServerIdentity>,
+    current: &ServerIdentity,
+) -> ServerLivenessObservation {
+    match classify_server_health(prior, Some(current), true) {
+        super::ServerHealth::Healthy => ServerLivenessObservation::Healthy(Some(current.clone())),
+        super::ServerHealth::Replaced => match prior {
+            Some(prior) if !replaces(prior, current) => {
+                ServerLivenessObservation::ConflictingIdentity(current.clone())
+            }
+            _ => ServerLivenessObservation::Replaced(current.clone()),
+        },
+        super::ServerHealth::Gone => ServerLivenessObservation::Unavailable,
+    }
+}
+
+/// Whether `current` can be the process that replaced `prior`.
+///
+/// A restart necessarily creates the new server after the old one, so the
+/// creation discriminator must be strictly newer. Equality is excluded: two
+/// servers created in the same tick are unordered, and neither can be shown to
+/// have replaced the other.
+///
+/// When either side lacks a discriminator the ordering is unverifiable rather
+/// than contradictory, so this fails open and preserves the pre-#664
+/// `Replaced` verdict instead of manufacturing a conflict from weak evidence.
+fn replaces(prior: &ServerIdentity, current: &ServerIdentity) -> bool {
+    match (prior.process.started_at(), current.process.started_at()) {
+        (Some(prior_started), Some(current_started)) => current_started > prior_started,
+        _ => true,
     }
 }
 
@@ -108,6 +144,31 @@ fn log_server_observation(
         observation = ?observation,
         "server liveness probe",
     );
+    if let ServerLivenessObservation::ConflictingIdentity(observed) = observation {
+        tracing::warn!(
+            namespace = %namespace,
+            prior_pid = prior.map(|id| id.process.pid()),
+            prior_started_at = prior.and_then(|id| id.process.started_at()),
+            observed_pid = observed.process.pid(),
+            observed_started_at = observed.process.started_at(),
+            "server identity probe answered with a process that cannot have replaced the pinned server; making no state change",
+        );
+    }
+}
+
+/// The identity, if any, that exit-empty remediation should be applied to.
+///
+/// Only identities jefe has accepted as the current server qualify. A
+/// conflicting identity has not been accepted, so remediation must not
+/// reconfigure whichever server happened to answer (issue #664).
+#[cfg(windows)]
+pub(super) fn exit_empty_target(observation: &ServerLivenessObservation) -> Option<ServerIdentity> {
+    match observation {
+        ServerLivenessObservation::Healthy(Some(id)) | ServerLivenessObservation::Replaced(id) => {
+            Some(id.clone())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(windows)]
@@ -116,12 +177,7 @@ fn apply_exit_empty_if_new_identity(
     observation: &ServerLivenessObservation,
     applied: &RefCell<Option<ServerIdentity>>,
 ) {
-    let current = match observation {
-        ServerLivenessObservation::Healthy(Some(id)) | ServerLivenessObservation::Replaced(id) => {
-            Some(id.clone())
-        }
-        _ => None,
-    };
+    let current = exit_empty_target(observation);
     if current.is_none() || *applied.borrow() == current {
         return;
     }
