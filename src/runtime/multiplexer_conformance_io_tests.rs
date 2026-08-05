@@ -22,7 +22,11 @@ fn recording_multiplexer(directory: &std::path::Path, log: &std::path::Path) -> 
     use std::os::unix::fs::PermissionsExt;
 
     let executable = directory.join("tmux");
-    let script = format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\n", log.display());
+    // The temporary directory is chosen by the platform, so the destination is
+    // single-quoted (with any embedded quote closed and reopened) rather than
+    // trusted to be free of spaces and shell metacharacters.
+    let quoted = log.display().to_string().replace('\'', r"'\''");
+    let script = format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{quoted}'\n");
     std::fs::write(&executable, script)
         .unwrap_or_else(|error| panic!("recorder must be writable: {error}"));
     let permissions = std::fs::Permissions::from_mode(0o755);
