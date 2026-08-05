@@ -111,7 +111,7 @@ actually observed.
 
 ## Slices
 
-### Slice 1 — pure run-record domain
+### Slice 1 — pure run-record domain (delivered, `ad4f11c4`)
 
 - Rows: A2 (reason type), A3 (marker shape), A4/A5 (classification rule), A7 (breadcrumb field).
 - Allowed paths: `src/domain/run_record.rs`, `src/domain/mod.rs`, `tests/issue662_behavior.rs`.
@@ -122,7 +122,7 @@ actually observed.
   the `ProcessLiveness` -> `PriorRunProbe` mapping happens at the caller.
 - Stop condition: if the classification needs process probing inside `domain/`.
 
-### Slice 2 — marker persistence
+### Slice 2 — marker persistence (delivered, `5ac78df2`)
 
 - Rows: A3, A4, A5.
 - Allowed paths: `src/persistence/run_marker.rs`, `src/persistence/mod.rs`, `tests/issue662_behavior.rs`.
@@ -130,7 +130,7 @@ actually observed.
 - GREEN: `run_marker_dir`, `write_marker` (temp file + atomic replace), `read_markers`, `remove_marker`. One file per pid so concurrent instances never clobber each other.
 - Stop condition: if this needs the revision/hash-gated `persistence::writer::write` contract.
 
-### Slice 3 — log flush and run boundary records
+### Slice 3 — log flush and run boundary records (delivered, `548b643a`)
 
 - Rows: A1, A2, A6.
 - Allowed paths: `src/logging.rs`, `src/run_diagnostics.rs`, `src/lib.rs`, `tests/issue662_behavior.rs`.
@@ -141,7 +141,7 @@ actually observed.
   flush from the panic hook and from run end.
 - Stop condition: if flushing requires changing the subscriber's writer type or the log format.
 
-### Slice 4 — wiring into the binary
+### Slice 4 — wiring into the binary (delivered, `3d99a495`)
 
 - Rows: A1, A2, A6, A7.
 - Allowed paths: `src/main.rs`, `src/app_shell.rs`, `src/app_shell_attach.rs`, `src/panic_capture.rs`.
@@ -151,10 +151,10 @@ actually observed.
   scheduler; flush from the panic hook.
 - Stop condition: if the heartbeat needs a new worker/thread subsystem rather than an existing loop.
 
-### Slice 5 — UI surfacing of an unclean prior run
+### Slice 5 — UI surfacing of an unclean prior run (delivered, `3d99a495`)
 
 - Rows: A4, A5.
-- Allowed paths: `src/main.rs` (context field), `src/app_init.rs`, `src/app_init_tests.rs`, `dev-docs/tmux-scenarios/v1/issue662-unclean-shutdown.json`.
+- Allowed paths: `src/main.rs` (context field), `src/app_init.rs`, `src/app_init_tests.rs`, `dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json`, `tests/harness_v1_fixtures.rs`.
 - RED: TUI scenario seeding a dead-owner marker and asserting the warning appears; `init_app_state` test asserting `warning_message` names the pid and last-seen time.
 - GREEN: carry the detected unclean runs on `AppContext` and surface them through the existing `append_warning` route.
 - Stop condition: if surfacing requires a new screen, message variant, or state field beyond `warning_message`.
@@ -180,7 +180,41 @@ Not started. See "Blocked scope".
 
 ## Verification evidence
 
-Pending.
+Commits on `issue662`:
+
+| Commit | Slices | Behavior landed |
+|---|---|---|
+| `ad4f11c4` | 1 | pure run-record domain types and `classify_prior_run` |
+| `5ac78df2` | 2 | per-run marker persistence beside the durable state file |
+| `548b643a` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
+| `3d99a495` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
+
+Acceptance rows to proof:
+
+| Row | Proof | Result |
+|---|---|---|
+| A1 | `tests/issue662_behavior.rs::a_run_that_ends_for_a_reason_records_both_boundaries_and_retires_its_marker` (child process, real log file) | pass |
+| A2 | same test plus `a_panicking_run_still_records_why_it_ended`; `run_app` now returns `RenderFailed` / `UserQuit` | pass |
+| A3 | 8 persistence tests in `tests/issue662_behavior.rs` (round-trip, foreign files, unparseable, missing dir) | pass |
+| A4 | `a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended`; `src/app_init_tests.rs` x4; TUI scenario `issue662-unclean-prior-run.json` | pass locally; scenario runs on CI (harness is unix-only) |
+| A5 | `a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb`; owner-alive classification tests | pass |
+| A6 | child-process tests assert the tail survives process death; panic hook calls `logging::flush()` | pass |
+| A7 | breadcrumb carried in the marker and repeated in the unclean report; attach/detach record breadcrumbs | pass |
+
+Local gates on `3d99a495`:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | exit 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 |
+| `cargo test --all-features --locked --lib --bins` | 3734 + 870 + 12 passed, 0 failed |
+| `cargo test --all-features --locked --tests` | all targets ok, 0 failed |
+| `cargo xtask check architecture` | exit 0 |
+| `cargo xtask check source-size` | exit 0 (warnings only, no file at or over the 1000-line limit) |
+
+Note: `harness::tmux_driver::tests::real_psmux_runs_a_stable_native_process_when_available`
+failed once under full-suite parallelism and passed in isolation both with and
+without these changes; it is environment-dependent and untouched by this work.
 
 ## Deferred findings and follow-ups
 
