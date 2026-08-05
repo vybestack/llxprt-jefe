@@ -86,7 +86,7 @@ The fix is the pair the issue asks for: make teardown run on unwind, and reclaim
 ## Review counters
 
 - Local Open Code Review: 1/2
-- Post-PR Open Code Review: 0/2
+- Post-PR Open Code Review: 1/2 (run by the pull request's own review workflow)
 
 ## Local review triage
 
@@ -99,6 +99,16 @@ and none in production code.
 | The Unix unwind test asserts the recorded `kill-server` invocation instead of observing that the namespace is gone | partial | explain: the Unix test drives a recorder binary precisely because no real server exists to observe, and its Windows sibling already asserts the observable death of the server; `kill-server` is the contract's own teardown verb |
 | `observed.lock().ok()` hides a poisoned mutex behind the "never recorded" panic message | valid | fix: consume the mutex with `into_inner` and report poisoning distinctly |
 | `is_ok_and(|value| value == "1")` in the `JEFE_REQUIRE_PSMUX` gate is verbose | invalid | dismiss: it is the existing repo convention, character for character, in `tests/runtime_multiplexer_real_binary.rs` |
+
+## Pull request review triage
+
+| Finding | Validity | Disposition |
+|---|---|---|
+| The recorder script interpolates the log path unquoted, so a temporary directory containing a space or a shell metacharacter reshapes the script | valid | fix: single-quote the redirection target and close and reopen the quote around any quote already in the path |
+| The reclaim test brings a namespace up by hand and ends it on a later line, so a panic in between strands it | valid | fix: the namespace now lives in a value that ends it on the way out, which is the same rule this issue imposes on the runner |
+| `4_294_967_280` is technically a valid `u32`, so an extremely long-lived host could in theory reuse it | partial | fix: moved to a PID that is not a multiple of four, which every Windows process ID is, so the kernel cannot allocate it at all |
+| `registry_directory` reads `USERPROFILE`, so the sweep does nothing on Unix | partial | reject: the sweep already returns before that point on Unix, because it runs only for namespace isolation and Unix uses socket isolation; the registry is a psmux structure that tmux does not have, a Unix sweep is a stated non-goal, and `dirs` would be a new dependency |
+| The 100 ms teardown poll costs context switches | invalid | dismiss: the reviewer's own conclusion is that it is acceptable for a test, and the multiplexer offers no synchronous shutdown notification to wait on |
 
 ## Verification evidence
 
