@@ -12,10 +12,15 @@ fn request(platform: Platform, executable_dir: Option<&str>) -> PluginRootReques
     }
 }
 
+/// Root paths with a single separator spelling.
+///
+/// `Path::join` uses the platform separator, so a root built from a Unix-style
+/// prefix renders mixed on Windows. The rule under test is which roots appear
+/// and in what order, not how the platform spells a separator.
 fn paths(request: &PluginRootRequest) -> Vec<String> {
     candidate_roots(request)
         .iter()
-        .map(|root| root.path().display().to_string())
+        .map(|root| root.path().display().to_string().replace('\\', "/"))
         .collect()
 }
 

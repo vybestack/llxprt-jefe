@@ -154,7 +154,7 @@ fn create_staging(plugins_dir: &Path) -> Result<PathBuf, InstallError> {
     // The staging root is not a package directory: it holds uncommitted
     // contents, so it is narrowed to this user before anything is written
     // beneath it.
-    set_mode(&root, STAGING_MODE)?;
+    apply_mode(&root, STAGING_MODE)?;
     let mut token = [0u8; 16];
     getrandom::fill(&mut token).map_err(|error| InstallError::Filesystem {
         path: root.clone(),
@@ -165,7 +165,7 @@ fn create_staging(plugins_dir: &Path) -> Result<PathBuf, InstallError> {
         path: staging.clone(),
         reason: error.to_string(),
     })?;
-    set_mode(&staging, STAGING_MODE)?;
+    apply_mode(&staging, STAGING_MODE)?;
     Ok(staging)
 }
 
@@ -207,7 +207,7 @@ fn write_file(path: &Path, contents: &[u8], mode: u32) -> Result<(), InstallErro
     file.sync_all()
         .map_err(|error| failure(error.to_string()))?;
     drop(file);
-    set_mode(path, mode)
+    apply_mode(path, mode)
 }
 
 /// Create a directory and every missing ancestor.
@@ -220,15 +220,33 @@ fn create_directory_all(path: &Path) -> Result<(), InstallError> {
 }
 
 /// Give a created package directory its fixed mode.
-#[cfg(unix)]
+///
+/// Windows carries no POSIX mode, so there is nothing to narrow there; the
+/// directory inherits the parent ACL, which is already the user's own
+/// configuration tree.
 fn set_mode_if_created(path: &Path) -> Result<(), InstallError> {
-    set_mode(path, DIRECTORY_MODE)
+    apply_mode(path, DIRECTORY_MODE)
 }
 
-/// Windows has no POSIX mode to apply.
-#[cfg(not(unix))]
-fn set_mode_if_created(path: &Path) -> Result<(), InstallError> {
-    set_mode(path, DIRECTORY_MODE)
+/// Apply a POSIX mode where the platform has one.
+///
+/// Windows carries no POSIX mode, so nothing can be narrowed there. Rather than
+/// reporting success for any path at all, it confirms the target the caller
+/// meant to secure exists — otherwise a missing directory would look like a
+/// applied mode.
+fn apply_mode(path: &Path, mode: u32) -> Result<(), InstallError> {
+    #[cfg(unix)]
+    return set_mode(path, mode);
+    #[cfg(not(unix))]
+    {
+        let _ = mode;
+        fs::metadata(path)
+            .map(|_| ())
+            .map_err(|error| InstallError::Filesystem {
+                path: path.to_path_buf(),
+                reason: error.to_string(),
+            })
+    }
 }
 
 /// Apply an explicit POSIX mode.
@@ -241,22 +259,6 @@ fn set_mode(path: &Path, mode: u32) -> Result<(), InstallError> {
             reason: error.to_string(),
         }
     })
-}
-
-/// Windows carries no POSIX mode, so the intended mode cannot be applied.
-///
-/// Rather than silently succeeding for any path at all, this confirms the
-/// target the caller meant to secure actually exists. Reporting "mode applied"
-/// for a directory that is not there would hide a broken install behind a
-/// platform difference.
-#[cfg(not(unix))]
-fn set_mode(path: &Path, _mode: u32) -> Result<(), InstallError> {
-    fs::metadata(path)
-        .map(|_| ())
-        .map_err(|error| InstallError::Filesystem {
-            path: path.to_path_buf(),
-            reason: error.to_string(),
-        })
 }
 
 /// Flush every directory of the staged tree so the rename has something
@@ -273,18 +275,31 @@ fn sync_tree(root: &Path) -> Result<(), InstallError> {
             sync_tree(&entry.path())?;
         }
     }
-    File::open(root)
-        .and_then(|handle| handle.sync_all())
-        .map_err(|error| failure(root, error))
+    sync_directory(root).map_err(|error| failure(root, error))
+}
+
+/// Flush one directory's own metadata.
+///
+/// Opening a directory as a file and syncing it is a POSIX technique. Windows
+/// refuses to open a directory handle that way at all — it fails with access
+/// denied — so there the directory entry's durability is left to the
+/// filesystem, which is what every other Windows writer in this codebase does.
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> std::io::Result<()> {
+    File::open(path).and_then(|handle| handle.sync_all())
+}
+
+/// Windows cannot open a directory handle, so there is nothing to flush.
+#[cfg(not(unix))]
+fn sync_directory(path: &Path) -> std::io::Result<()> {
+    fs::metadata(path).map(|_| ())
 }
 
 /// Flush the destination and its parents after the commit.
 fn sync_ancestors(destination: &Path) -> Result<(), String> {
     let mut cursor = Some(destination);
     while let Some(path) = cursor {
-        File::open(path)
-            .and_then(|handle| handle.sync_all())
-            .map_err(|error| format!("{}: {error}", path.display()))?;
+        sync_directory(path).map_err(|error| format!("{}: {error}", path.display()))?;
         cursor = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty());
@@ -292,9 +307,7 @@ fn sync_ancestors(destination: &Path) -> Result<(), String> {
         // far as this transaction owns.
         if cursor.is_some_and(|parent| parent.ends_with(INSTALLED_DIRECTORY)) {
             let owner = parent_of(path);
-            File::open(owner)
-                .and_then(|handle| handle.sync_all())
-                .map_err(|error| format!("{}: {error}", owner.display()))?;
+            sync_directory(owner).map_err(|error| format!("{}: {error}", owner.display()))?;
             return Ok(());
         }
     }
