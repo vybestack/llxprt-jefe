@@ -923,4 +923,41 @@ mod tests {
             "the wrapper's own output must survive the cmd.exe boundary"
         );
     }
+
+    // Bracketing the argument list in an outer quote pair must not disturb the
+    // arguments themselves: an argument containing a space has to arrive as one
+    // token, not split across `%1` and `%2`.
+    #[cfg(windows)]
+    #[test]
+    fn spaced_arguments_survive_the_cmd_exe_boundary() {
+        let dir = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("could not create wrapper fixture: {error}"));
+        let spaced = dir.path().join("Program Fixture");
+        std::fs::create_dir_all(&spaced)
+            .unwrap_or_else(|error| panic!("could not create spaced fixture dir: {error}"));
+        let wrapper = spaced.join("probe.cmd");
+        std::fs::write(
+            &wrapper,
+            b"@echo off\r\necho first=[%~1]\r\necho second=[%~2]\r\n",
+        )
+        .unwrap_or_else(|error| panic!("could not write wrapper fixture: {error}"));
+
+        let output = command_for_path(
+            &wrapper,
+            AgentWrapperKind::CommandScript,
+            &[OsString::from("literal value"), OsString::from("tail")],
+        )
+        .output()
+        .unwrap_or_else(|error| panic!("could not execute spaced wrapper: {error}"));
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("first=[literal value]"),
+            "an argument containing a space must arrive as a single token: {stdout}"
+        );
+        assert!(
+            stdout.contains("second=[tail]"),
+            "arguments after a spaced argument must keep their position: {stdout}"
+        );
+    }
 }
