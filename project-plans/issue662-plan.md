@@ -175,8 +175,29 @@ Not started. See "Blocked scope".
 
 ## Review counters
 
-- Local OCR runs: 0 / 2
+- Local OCR runs: 0 / 2 completed. Two attempts were made and both **failed**
+  (coverage state `failed`): `ocr review --from origin/main --to HEAD --format json
+  --audience agent --concurrency 2 --timeout 30` exited 1 with empty stdout and
+  stderr and no diagnostics. `ocr llm test` succeeds and `ocr review --preview`
+  succeeds (19 files, +1497/-12, 18 reviewed, the plan excluded as
+  `unsupported_ext`), so the range and scope resolution are fine and the failure is
+  in the review phase. Per `dev-docs/code-review-process.md` no OCR configuration
+  was edited and no provider was switched. Neither attempt produced a review, so
+  neither consumed an allowance.
 - Post-PR OCR runs: 0 / 2
+- Local review pass: delegated to the `rustcoder` subagent in read-only reviewer
+  mode after the OCR failures (the `rustreviewer` subagent is currently unusable -
+  its backend rejects the tool schema). Coverage: complete. Dispositions below.
+
+### Local review dispositions
+
+| Finding | Class | Disposition |
+|---|---|---|
+| Heartbeat in flight at shutdown can resurrect a retired marker | Blocker-Fix | Fixed in `d38ecce3`, RED test first. |
+| `write_marker` uses a fixed per-pid scratch name, so overlapping writes delete each other's temp file | In-scope-Fix -> Reject | Rejected after verification. Every marker write goes through `refresh`, which the blocker fix now serializes under the run lock, and separate processes already get separate scratch names from the pid. A unique scratch name was implemented, then reverted because no test could make it fail; shipping it would have been untested production code. |
+| Make run-diagnostics state instance-owned rather than process-global | Defer | Follow-up; the process-global is what lets the panic hook reach the run. |
+| Add a real-OS-kill marker-survival test | Defer | Follow-up; current coverage simulates the kill with `mem::forget` + `exit(0)`. |
+| Windows ACL on `open_user_only`; `now_unix()` zero sentinel; mutex-poison reachability | Reject | Pre-existing conventions or deliberate choices, all outside this issue. |
 
 ## Verification evidence
 
@@ -186,6 +207,7 @@ Commits on `issue662`:
 |---|---|---|
 | `ad4f11c4` | 1 | pure run-record domain types and `classify_prior_run` |
 | `5ac78df2` | 2 | per-run marker persistence beside the durable state file |
+| `d38ecce3` | review | a heartbeat in flight at shutdown can no longer resurrect a retired marker |
 | `548b643a` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
 | `3d99a495` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
 
@@ -220,3 +242,9 @@ without these changes; it is environment-dependent and untouched by this work.
 
 - A8 console control handler, if deferred by the user decision.
 - First producer for `ErrorSource::Startup`.
+- Make run-diagnostics run state instance-owned rather than a process-global
+  `Mutex<Option<ActiveRun>>` (local review D1).
+- Prove marker survival against a real OS kill rather than `mem::forget` plus
+  `exit(0)` (local review D2).
+- No test asserts that the attach/detach breadcrumb appears in the run-**end**
+  log record; it is asserted in the marker and in the unclean-run report.
