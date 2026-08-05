@@ -139,7 +139,7 @@ No other file changed.
 ## Review counters
 
 - Local OCR runs: 1 / 2
-- PR OCR runs: 0 / 2
+- PR OCR runs: 1 / 2
 
 ### Local review 1 triage
 
@@ -160,3 +160,18 @@ quotes are never glued to the wrapper or to an argument.
 Finding 3 was taken because argument delivery is the specific behavior this
 change puts at risk; findings 2 and 4 are pre-existing conditions that this
 change does not worsen in kind and are out of scope for #529.
+
+### PR review 1 triage
+
+One actionable finding on PR #665, at the `push_cmd_outer_quote` helper. It
+confirmed the implementation is safe — the only value passed to `raw_arg` is a
+hardcoded quote — but asked that the constraint be recorded, since `raw_arg`
+bypasses argument escaping and a later change routing a path or argument through
+it would reintroduce command injection.
+
+| # | Finding | Class | Action |
+| --- | --- | --- | --- |
+| 1 | `raw_arg` bypasses escaping; keep it restricted to the literal quote | In-scope-Fix | Fixed: constraint documented at the call site |
+
+No defect was reported in the shipped behavior. All other CI review surfaces
+passed with no findings.
