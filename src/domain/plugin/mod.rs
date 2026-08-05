@@ -5,9 +5,11 @@
 //! It performs no file I/O, starts no process, and depends on nothing outside
 //! the `domain` layer.
 
+pub mod code;
 pub mod coordinate;
 pub mod limits;
 pub mod plugin_id;
 
+pub use code::PluginCode;
 pub use coordinate::{PackageCoordinate, PackageCoordinateError};
 pub use plugin_id::{PluginId, PluginIdError, PluginIdErrorReason};
