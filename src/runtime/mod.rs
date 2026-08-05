@@ -93,6 +93,8 @@ pub(crate) mod session_host;
 mod shell_window;
 mod socket;
 mod stub_manager;
+/// Serialization gate between viewer teardown and viewer spawn (issue #664).
+mod viewer_teardown;
 /// Session-host report of the agent worker's identity (issue #543).
 pub mod worker_report;
 
@@ -256,6 +258,10 @@ mod server_health_io_tests;
 #[cfg(test)]
 #[path = "session_host_tests.rs"]
 mod session_host_tests;
+
+#[cfg(test)]
+#[path = "viewer_teardown_tests.rs"]
+mod viewer_teardown_tests;
 
 #[cfg(all(test, windows))]
 #[path = "job_object_tests.rs"]

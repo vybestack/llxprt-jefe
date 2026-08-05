@@ -553,6 +553,21 @@ impl AttachedViewer {
     ) -> Result<Self, RuntimeError> {
         debug!(session_name = %session_name, rows, cols, remote = ssh_plan.is_some(), "AttachedViewer::spawn start");
 
+        // Issue #664: the background attach scheduler and the synchronous
+        // attach path are unaware of each other, so a spawn could begin while
+        // the previous viewer was still being killed. Every spawn funnels
+        // through here, so waiting here serializes both paths against teardown.
+        // The wait is bounded: an over-running teardown must degrade to the old
+        // overlapping behavior rather than freeze the UI.
+        if !super::viewer_teardown::viewer_teardown()
+            .wait_until_idle(super::viewer_teardown::VIEWER_TEARDOWN_WAIT)
+        {
+            warn!(
+                session_name = %session_name,
+                "AttachedViewer::spawn proceeding with a viewer teardown still in flight"
+            );
+        }
+
         let pty_pair = open_pty(rows, cols)?;
         let cmd = attach_command(session_name, ssh_plan, multiplexer_plan)?;
 
