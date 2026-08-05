@@ -284,3 +284,172 @@ fn removing_a_marker_retires_only_that_run() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].marker.identity.pid, 8765);
 }
+
+// ---------------------------------------------------------------------------
+// Run boundaries: what a run writes about itself, and what survives its death.
+//
+// These cases re-execute this test binary as a child so that a real process
+// death can be observed from the outside. The child branch is selected by
+// `JEFE_ISSUE662_CHILD`; the parent branch asserts on what the dead child left
+// behind.
+// ---------------------------------------------------------------------------
+
+const CHILD_MARKER_ENV: &str = "JEFE_ISSUE662_CHILD";
+const CHILD_ROOT_ENV: &str = "JEFE_ISSUE662_ROOT";
+
+fn child_root() -> Option<std::path::PathBuf> {
+    if std::env::var(CHILD_MARKER_ENV).is_err() {
+        return None;
+    }
+    std::env::var(CHILD_ROOT_ENV)
+        .ok()
+        .map(std::path::PathBuf::from)
+}
+
+fn run_child(test_name: &str, root: &std::path::Path) -> std::process::Output {
+    let Ok(exe) = std::env::current_exe() else {
+        panic!("the test binary must know its own path");
+    };
+    let Ok(output) = std::process::Command::new(exe)
+        .args(["--exact", test_name, "--nocapture", "--test-threads=1"])
+        .env(CHILD_MARKER_ENV, "1")
+        .env(CHILD_ROOT_ENV, root)
+        .env("JEFE_LOG_FILE", root.join("jefe.log"))
+        .env("JEFE_LOG", "info")
+        .output()
+    else {
+        panic!("the child run must be launchable");
+    };
+    output
+}
+
+fn child_log(root: &std::path::Path) -> String {
+    let Ok(text) = std::fs::read_to_string(root.join("jefe.log")) else {
+        panic!("a run that initialized logging must have produced a log file");
+    };
+    text
+}
+
+#[test]
+fn a_run_that_ends_for_a_reason_records_both_boundaries_and_retires_its_marker() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+        guard.finish(RunEndReason::UserQuit);
+        std::process::exit(0);
+    }
+
+    let root = temp_root("clean-exit");
+    let output = run_child(
+        "a_run_that_ends_for_a_reason_records_both_boundaries_and_retires_its_marker",
+        &root,
+    );
+    assert!(output.status.success(), "child run should have exited 0");
+
+    let log = child_log(&root);
+    assert!(log.contains("run-start"), "missing run-start record: {log}");
+    assert!(log.contains("run-end"), "missing run-end record: {log}");
+    assert!(
+        log.contains("user-quit"),
+        "run-end must name a typed reason: {log}"
+    );
+    assert!(
+        log.contains(jefe::VERSION),
+        "run-start must record the version: {log}"
+    );
+    assert!(
+        run_marker::read_markers(&root).is_empty(),
+        "a run that ended for a recorded reason must retire its marker"
+    );
+}
+
+#[test]
+fn a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+        jefe::run_diagnostics::record_breadcrumb("attach agent-7");
+        // Simulate an external kill: no unwinding, no destructors, no exit path.
+        std::mem::forget(guard);
+        std::process::exit(0);
+    }
+
+    let root = temp_root("killed");
+    let output = run_child(
+        "a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb",
+        &root,
+    );
+    assert!(output.status.success(), "child run should have exited 0");
+
+    let log = child_log(&root);
+    assert!(
+        log.contains("run-start"),
+        "the start record must survive an abrupt death: {log}"
+    );
+    assert!(
+        !log.contains("run-end"),
+        "a killed run must not claim a recorded end: {log}"
+    );
+
+    let found = run_marker::read_markers(&root);
+    assert_eq!(found.len(), 1, "the killed run must have left its marker");
+    assert_eq!(
+        found[0].marker.breadcrumb.as_deref(),
+        Some("attach agent-7"),
+        "the marker must name what the run was doing when it died"
+    );
+}
+
+#[test]
+fn a_panicking_run_still_records_why_it_ended() {
+    if let Some(root) = child_root() {
+        jefe::logging::init();
+        let (_guard, _prior) = jefe::run_diagnostics::begin_run(&root);
+        panic!("simulated unrecoverable failure");
+    }
+
+    let root = temp_root("panic-exit");
+    let output = run_child("a_panicking_run_still_records_why_it_ended", &root);
+    assert!(
+        !output.status.success(),
+        "the panicking child should have failed"
+    );
+
+    let log = child_log(&root);
+    assert!(
+        log.contains("run-end"),
+        "an unwinding run must still record its end: {log}"
+    );
+    assert!(
+        log.contains("panic"),
+        "run-end must attribute the panic: {log}"
+    );
+}
+
+#[test]
+fn a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended() {
+    let root = temp_root("prior-unclean");
+    let dead = RunMarker {
+        identity: ProcessIdentity::new(4_000_000_001, 4_242),
+        version: "0.0.31".to_string(),
+        started_unix: 1_780_400_000,
+        last_seen_unix: 1_780_412_566,
+        breadcrumb: Some("attach agent-3".to_string()),
+    };
+    write(&root, &dead);
+
+    let (guard, prior) = jefe::run_diagnostics::begin_run(&root);
+
+    assert_eq!(prior.len(), 1, "the abandoned run must be reported");
+    assert_eq!(prior[0].pid, 4_000_000_001);
+    assert_eq!(prior[0].last_seen_unix, 1_780_412_566);
+    assert_eq!(prior[0].breadcrumb.as_deref(), Some("attach agent-3"));
+
+    guard.finish(RunEndReason::UserQuit);
+
+    let leftover = run_marker::read_markers(&root);
+    assert!(
+        leftover.is_empty(),
+        "a reported prior run must not be reported again forever"
+    );
+}

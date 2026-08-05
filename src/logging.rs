@@ -5,11 +5,14 @@
 //! - `JEFE_LOG` — filter directive (e.g. `debug`, `jefe=trace`).
 //!   Defaults to `info,jefe=debug` when omitted.
 
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
 use tracing_subscriber::EnvFilter;
+
+static LOG_FILE: OnceLock<Arc<File>> = OnceLock::new();
 
 /// Returns the configured log file path, if any.
 pub fn log_file_path() -> Option<PathBuf> {
@@ -37,6 +40,9 @@ pub fn init() {
         return;
     };
 
+    let file = Arc::new(file);
+    let _ = LOG_FILE.set(Arc::clone(&file));
+
     let filter = std::env::var("JEFE_LOG")
         .ok()
         .and_then(|value| EnvFilter::try_new(value).ok())
@@ -53,6 +59,25 @@ pub fn init() {
         .with_file(true)
         .with_line_number(true)
         .try_init();
+}
+
+/// Push every buffered log byte to durable storage.
+///
+/// The subscriber writes straight to the file handle, so a record is already in
+/// the file by the time the event returns. This adds the operating-system half
+/// of that guarantee: a run that is about to end — cleanly, by panic, or
+/// because something outside it said so — calls this so its final records
+/// survive a death that never reaches a normal exit path.
+///
+/// A run with logging disabled, or one whose log file could not be opened, has
+/// nothing to flush and does nothing here.
+pub fn flush() {
+    let Some(file) = LOG_FILE.get() else {
+        return;
+    };
+    let mut handle: &File = file.as_ref();
+    let _ = handle.flush();
+    let _ = handle.sync_all();
 }
 
 fn write_log_open_warning(path: &std::path::Path) {

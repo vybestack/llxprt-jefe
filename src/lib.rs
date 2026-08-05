@@ -59,6 +59,8 @@ mod pr_diff_content_tests;
 pub mod preview_view;
 /// Provider-free configuration recovery command boundary.
 pub mod recovery;
+/// Run-boundary diagnostics: run-start/run-end records and unclean-run detection.
+pub mod run_diagnostics;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod screen_layout;
