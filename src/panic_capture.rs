@@ -48,6 +48,9 @@ fn capture_panic(message: String, location: Option<String>) {
         panic_thread = %thread,
         "thread panicked"
     );
+    // A panic is exactly the moment the tail of the log matters most, and the
+    // process may not survive long enough to write it later (issue #662).
+    jefe::logging::flush();
     let mut reports = reports_guard();
     if reports.len() == ERROR_STORE_CAPACITY {
         reports.pop_front();

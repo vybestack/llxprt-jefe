@@ -212,6 +212,17 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
             crate::app_shell_workers::run_capture_worker(ctx).await;
         }
     });
+
+    // Issue #662: refresh the run marker while the interface is alive. A run
+    // that is killed without warning leaves behind the last moment it was
+    // known to be running, which is what makes the death attributable.
+    hooks.use_future(async move {
+        const HEARTBEAT_SECONDS: u64 = 5;
+        loop {
+            smol::Timer::after(std::time::Duration::from_secs(HEARTBEAT_SECONDS)).await;
+            smol::unblock(jefe::run_diagnostics::heartbeat).await;
+        }
+    });
     // Background attach/detach future. Polls the AttachScheduler every 50ms
     // and performs the actual runtime.attach()/detach() on a background OS
     // thread (via smol::unblock) so the render/input path is never blocked.

@@ -222,7 +222,12 @@ fn probe_owner(marker: &RunMarker) -> PriorRunProbe {
     }
 }
 
-fn now_unix() -> u64 {
+/// Current wall-clock time in Unix seconds, as run records express it.
+///
+/// A clock that cannot be read yields zero rather than refusing, because a
+/// diagnostic that declines to record itself defeats its own purpose.
+#[must_use]
+pub fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())

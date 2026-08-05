@@ -878,3 +878,85 @@ fn terminal_classifications_without_orphans_still_mark_the_agent_dead() {
         );
     }
 }
+
+fn vanished_run(pid: u32, last_seen_unix: u64, breadcrumb: Option<&str>) -> UncleanRun {
+    UncleanRun {
+        pid,
+        version: "0.0.32".to_owned(),
+        last_seen_unix,
+        breadcrumb: breadcrumb.map(str::to_owned),
+    }
+}
+
+#[test]
+fn a_prior_run_that_vanished_is_named_where_the_operator_will_see_it() {
+    let mut state = AppState::default();
+
+    surface_unclean_prior_runs(
+        &mut state,
+        &[vanished_run(4242, 1_000, Some("attach agent-7"))],
+        1_130,
+    );
+
+    let Some(warning) = state.warning_message.as_deref() else {
+        panic!("a run that vanished must be reported in the UI, not only in the log");
+    };
+    assert!(warning.contains("4242"), "must name the pid: {warning}");
+    assert!(
+        warning.contains("1000"),
+        "must name the last-seen timestamp: {warning}"
+    );
+    assert!(
+        warning.contains("attach agent-7"),
+        "must name what it was doing: {warning}"
+    );
+}
+
+#[test]
+fn a_start_with_nothing_left_behind_says_nothing() {
+    let mut state = AppState::default();
+
+    surface_unclean_prior_runs(&mut state, &[], 1_130);
+
+    assert_eq!(
+        state.warning_message, None,
+        "a clean start must not invent a warning"
+    );
+}
+
+#[test]
+fn every_run_that_vanished_is_reported_not_only_the_first() {
+    let mut state = AppState::default();
+
+    surface_unclean_prior_runs(
+        &mut state,
+        &[
+            vanished_run(4242, 1_000, None),
+            vanished_run(9001, 1_020, None),
+        ],
+        1_130,
+    );
+
+    let Some(warning) = state.warning_message.as_deref() else {
+        panic!("both runs that vanished must be reported");
+    };
+    assert!(warning.contains("4242"), "first pid missing: {warning}");
+    assert!(warning.contains("9001"), "second pid missing: {warning}");
+}
+
+#[test]
+fn a_vanished_run_report_is_added_to_an_existing_warning_rather_than_replacing_it() {
+    let mut state = AppState::default();
+    append_warning(&mut state, "Settings were reset.".to_owned());
+
+    surface_unclean_prior_runs(&mut state, &[vanished_run(4242, 1_000, None)], 1_130);
+
+    let Some(warning) = state.warning_message.as_deref() else {
+        panic!("the existing warning must survive");
+    };
+    assert!(
+        warning.contains("Settings were reset."),
+        "existing warning was lost: {warning}"
+    );
+    assert!(warning.contains("4242"), "new report missing: {warning}");
+}

@@ -62,6 +62,12 @@ struct AppContext {
     /// render path requests a background capture instead of calling
     /// `capture_history` synchronously.
     capture_handle: jefe::services::capture_worker::CaptureHandle,
+    /// Prior runs that ended without recording a reason, found at startup.
+    ///
+    /// Consumed once when the app state is initialized, because the next start
+    /// is the only moment at which a vanished run can still be attributed
+    /// (issue #662).
+    unclean_prior_runs: Vec<jefe::domain::UncleanRun>,
 }
 
 /// Parse CLI arguments, handling early-exit flags (`--version`, `--help`).
@@ -256,17 +262,25 @@ fn init_diagnostics() {
     panic_capture::install_panic_hook();
 }
 
-fn run_app(context: Arc<std::sync::Mutex<AppContext>>) {
+/// Run the interface and report why it stopped.
+///
+/// A render failure used to be logged and then discarded, leaving the exit
+/// indistinguishable from the operator quitting. The reason is returned so the
+/// run-end record can name it (issue #662).
+fn run_app(context: Arc<std::sync::Mutex<AppContext>>) -> jefe::domain::RunEndReason {
     smol::block_on(async {
         let mut app = element!(app_shell::App(context: Some(context)));
         if is_fullscreen_enabled() {
             if let Err(error) = app.fullscreen().await {
                 error!(%error, "fullscreen mode failed");
+                return jefe::domain::RunEndReason::RenderFailed;
             }
         } else if let Err(error) = app.render_loop().await {
             error!(%error, "render loop failed");
+            return jefe::domain::RunEndReason::RenderFailed;
         }
-    });
+        jefe::domain::RunEndReason::UserQuit
+    })
 }
 
 fn main() {
@@ -330,6 +344,13 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
         "logging initialized"
     );
 
+    // Claim the run boundary before anything else can fail: from here on the
+    // run either records why it ended or leaves a marker saying it did not
+    // (issue #662).
+    let (run_guard, unclean_prior_runs) = jefe::run_diagnostics::begin_run(
+        &jefe::persistence::run_marker::run_marker_dir(&startup.paths.state.path),
+    );
+
     // Get terminal size and derive PTY viewport size from dashboard geometry.
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let layout = compute_pty_layout(cols, rows);
@@ -362,10 +383,12 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
         gh_deliveries: app_input::GhDeliveryHandle::default(),
         persist_handle,
         capture_handle,
+        unclean_prior_runs,
     }));
 
     let _console_guard = prepare_console_and_detect_font();
-    run_app(context);
+    let reason = run_app(context);
+    run_guard.finish(reason);
 }
 
 /// Compose and publish the screen registry before anything renders.

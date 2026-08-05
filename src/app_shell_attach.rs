@@ -42,8 +42,13 @@ pub fn perform_async_attach(
     target: Option<AgentId>,
 ) -> AsyncAttachOutcome {
     let Some(agent_id) = target else {
+        // Attach churn was the last thing jefe was seen doing before it
+        // vanished, so the operation in flight is recorded where a post-mortem
+        // will find it (issue #662).
+        jefe::run_diagnostics::record_breadcrumb("detaching the terminal viewer");
         return perform_async_detach(&ctx);
     };
+    jefe::run_diagnostics::record_breadcrumb(&format!("attaching agent {}", agent_id.0));
 
     let inputs = {
         let Ok(ctx_guard) = ctx.lock() else {

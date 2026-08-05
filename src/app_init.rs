@@ -22,7 +22,9 @@ use tracing::warn;
 use jefe::domain::liveness_observation::{
     Observed, ProbeBoundary, RetryPolicy, Uncertainty, retry_observation,
 };
-use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
+use jefe::domain::{
+    Agent, AgentId, AgentLaunchRequest, AgentStatus, UncleanRun, WorkerProcessIdentity,
+};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
@@ -171,6 +173,27 @@ fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
     if let Some(warning) = warning {
         append_warning(state, warning);
     }
+}
+/// Name every prior run that ended without recording a reason.
+///
+/// The log already carries the finding, but a log nobody opens is how the
+/// original incident became undiagnosable; the operator is told in the
+/// interface instead (issue #662). Reports accumulate rather than replace, so a
+/// vanished run cannot silently displace another startup warning.
+fn surface_unclean_prior_runs(state: &mut AppState, runs: &[UncleanRun], now_unix: u64) {
+    for run in runs {
+        append_warning(state, run.notice(now_unix));
+    }
+}
+
+/// Read the wall clock at the boundary and hand the detected runs to the pure
+/// reporter, keeping the clock out of the tested reporting behavior.
+///
+/// The runs are taken, not borrowed: the next start is the only moment a
+/// vanished run can be attributed, so it is reported exactly once.
+fn report_unclean_prior_runs(state: &mut AppState, ctx: &mut crate::AppContext) {
+    let runs = std::mem::take(&mut ctx.unclean_prior_runs);
+    surface_unclean_prior_runs(state, &runs, jefe::run_diagnostics::now_unix());
 }
 
 /// Compose the startup diagnostic from what qualification found.
@@ -525,6 +548,7 @@ pub fn init_app_state(
     surface_durable_read_hold(&mut state, durable_read_held);
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
+    report_unclean_prior_runs(&mut state, &mut ctx_guard);
     state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();

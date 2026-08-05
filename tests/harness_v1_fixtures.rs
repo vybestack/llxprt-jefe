@@ -599,3 +599,13 @@ fn action_capture_records_original_event_chord_and_resolution_separately() {
 
     cleanup(&outcome);
 }
+
+/// Issue #662: a run that vanished leaves a marker behind. The next start finds
+/// it, cannot attribute an end reason to it, and says so where the operator is
+/// looking rather than only in the log.
+#[test]
+fn unclean_prior_run_fixture_names_the_vanished_run_on_screen() {
+    let outcome = run_fixture("issue662-unclean-prior-run.json");
+    assert_passed("issue662-unclean-prior-run", &outcome);
+    cleanup(&outcome);
+}
