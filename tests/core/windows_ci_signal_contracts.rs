@@ -116,15 +116,13 @@ fn windows_native_does_not_serialize_the_workspace_suite() {
 /// `RUST_TEST_THREADS: 1` was papering over.
 #[test]
 fn psmux_test_namespaces_never_depend_on_a_timestamp_alone() {
-    for file in [
-        "tests/psmux_smoke.rs",
-        "tests/psmux_smoke_mouse.rs",
-        "tests/psmux_orphan_reap.rs",
-        "tests/psmux_session_host.rs",
-        "tests/psmux_attach.rs",
-        "tests/psmux_server_loss.rs",
-        "tests/psmux_parallel_isolation.rs",
-    ] {
+    let files = psmux_test_files();
+    assert!(
+        files.len() >= 7,
+        "expected to discover the psmux test suite, found {files:?}; a \
+         discovery bug that finds nothing would make this contract vacuous"
+    );
+    for file in &files {
         let source = read_repo_text(file);
         let generator = namespace_generator_body(&source, file);
         assert!(
@@ -139,6 +137,28 @@ fn psmux_test_namespaces_never_depend_on_a_timestamp_alone() {
              a timestamp to be unique between concurrent threads"
         );
     }
+}
+
+/// Discover every psmux integration test, rather than consulting a list.
+///
+/// A hardcoded roster silently exempts each new psmux test from the very
+/// contract it most needs on the day it is written, so the roster is derived
+/// from the directory instead.
+fn psmux_test_files() -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(repo_path("tests"))
+        .unwrap_or_else(|error| panic!("failed to list tests directory: {error}"))
+        .filter_map(|entry| entry.ok().map(|found| found.path()))
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .map(str::to_owned)
+        })
+        .filter(|name| name.starts_with("psmux_"))
+        .map(|name| format!("tests/{name}"))
+        .collect();
+    files.sort();
+    files
 }
 
 /// Return the body of the namespace-generating function in one psmux test.
