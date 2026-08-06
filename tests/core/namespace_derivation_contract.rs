@@ -246,11 +246,22 @@ fn rust_files(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Walk the tree, refusing to skip anything it cannot read.
+///
+/// A scan that silently ignores an unreadable directory reports success while
+/// having inspected less than it claims, which is the one failure mode a
+/// contract test must not have: it would let a banned construct land in a
+/// directory that happened to be unreadable on the machine running CI.
 fn collect(dir: &Path, found: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("contract scan could not read {}: {error}", dir.display()));
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|error| {
+            panic!(
+                "contract scan could not read an entry in {}: {error}",
+                dir.display()
+            )
+        });
         let path = entry.path();
         if path.is_dir() {
             collect(&path, found);

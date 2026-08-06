@@ -252,7 +252,7 @@ fn identity_outcome(
                 Severity::Error,
                 DiagnosticPath::new(path.to_string_lossy()),
                 None,
-                "unset JEFE_NAMESPACE, or set it to 1-64 characters of A-Z, a-z, 0-9, '-' or '_'",
+                error.correction(),
             );
             error
                 .to_string()
@@ -380,9 +380,14 @@ mod tests {
         let contents = std::fs::read_to_string(&record)
             .value_or_panic("startup should have recorded the active namespace");
 
-        assert!(
-            contents.contains(crate::runtime::installation::current().id().as_str()),
-            "the record must name the namespace actually in force, got: {contents}"
+        let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap_or_else(|error| {
+            panic!("the record must be valid JSON: {error}; got {contents}")
+        });
+
+        assert_eq!(
+            parsed.get("namespace").and_then(serde_json::Value::as_str),
+            Some(crate::runtime::installation::current().id().as_str()),
+            "the namespace field must name the namespace actually in force, got: {contents}"
         );
     }
 

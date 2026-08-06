@@ -152,14 +152,16 @@ fn isolation_evidence(
             format!("private namespace isolation: {ns}")
         }
     };
-    let provenance = match identity.origin().state_path() {
-        Some(state_path) => format!("derived from state directory {}", state_path.display()),
-        None => {
-            "set deliberately by JEFE_NAMESPACE, not from this installation's state directory; \
-             unset JEFE_NAMESPACE to return to the default namespace for this installation"
-                .to_owned()
-        }
-    };
+    let variable = crate::runtime::installation::NAMESPACE_OVERRIDE_ENV;
+    let provenance = identity.origin().state_path().map_or_else(
+        || {
+            format!(
+                "set deliberately by {variable}, not from this installation's state directory; \
+                 unset {variable} to return to the default namespace for this installation"
+            )
+        },
+        |state_path| format!("derived from state directory {}", state_path.display()),
+    );
     format!("{rendered}; {provenance}")
 }
 

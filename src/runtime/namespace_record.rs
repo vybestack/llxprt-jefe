@@ -49,6 +49,11 @@ fn record_path(state_path: &Path) -> Option<PathBuf> {
 /// An override is never recorded and never compared: it is deliberate,
 /// temporary isolation, and treating it as this installation's namespace would
 /// strand the operator's real sessions on the next ordinary launch.
+///
+/// This is called from synchronous startup and `jefe doctor` paths, before any
+/// async runtime exists, so its file access is deliberately blocking.
+#[must_use = "the returned drift is the only signal that the namespace moved; \
+              dropping it silently orphans whatever ran under the old one"]
 pub fn reconcile(
     state_path: &Path,
     origin: &NamespaceOrigin,
@@ -94,9 +99,24 @@ pub fn inspect(
 ///
 /// A corrupt record is indistinguishable from no record for our purposes: in
 /// both cases the previous namespace cannot be named, and that is exactly what
-/// [`NamespaceDrift::PreviousNamespaceUnknown`] means.
+/// [`NamespaceDrift::PreviousNamespaceUnknown`] means. The two are still worth
+/// telling apart in the log: a record that exists but cannot be read points at
+/// permissions or a half-written file, which is actionable, whereas a missing
+/// record is the ordinary first-launch case.
 fn read_record(path: &Path) -> Option<String> {
-    let raw = std::fs::read_to_string(path).ok()?;
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            tracing::warn!(
+                path = %path.display(),
+                %error,
+                "namespace record exists but could not be read; treating the previous \
+                 namespace as unknown"
+            );
+            return None;
+        }
+    };
     match serde_json::from_str::<NamespaceRecord>(&raw) {
         Ok(record) => Some(record.namespace),
         Err(error) => {

@@ -153,7 +153,12 @@ fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, Multiplexe
 }
 
 /// Parse the final present version component, permitting an optional single
-/// trailing ASCII alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+/// trailing *lowercase* ASCII release letter (e.g. Homebrew `tmux 3.7b`).
+///
+/// Uppercase is rejected on purpose: upstream tmux has only ever shipped
+/// lowercase release letters, so `3.7B` is far more likely to be a mangled
+/// version string than a real release, and accepting it would let a
+/// misidentified binary pass as a known one.
 ///
 /// The letter carries no semantic weight beyond release identification; it is
 /// discarded so that `3.7b` resolves to `3.7.0` and `3.3.6a` to `3.3.6`.

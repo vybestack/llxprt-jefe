@@ -156,11 +156,26 @@ fn an_overlong_override_is_refused() {
 }
 
 /// Path separators in an override would escape the socket directory on Unix.
+///
+/// The traversal case alone does not prove this: it is refused on the leading
+/// `.` before any separator is examined. Both separator styles are asserted
+/// directly so the rule this test is named for is the rule it enforces.
 #[test]
 fn an_override_with_path_separators_is_refused() {
     assert_eq!(
         InstallationId::from_override("../escape").err(),
         Some(NamespaceError::IllegalCharacter { character: '.' })
+    );
+    assert_eq!(
+        InstallationId::from_override("foo/bar").err(),
+        Some(NamespaceError::IllegalCharacter { character: '/' })
+    );
+    let backslash = r"\".chars().next().unwrap_or_default();
+    assert_eq!(
+        InstallationId::from_override(r"foo\bar").err(),
+        Some(NamespaceError::IllegalCharacter {
+            character: backslash
+        })
     );
 }
 

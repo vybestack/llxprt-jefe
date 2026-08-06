@@ -4,11 +4,15 @@ use super::namespace::{InstallationId, InstallationIdentity, NamespaceDrift, Nam
 use super::namespace_record::{describe, reconcile};
 use std::path::{Path, PathBuf};
 
+/// Distinguishes concurrent callers without depending on `ThreadId`'s `Debug`
+/// output, whose format is explicitly unstable and has changed between releases.
+static NEXT_TEMP_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn temp_state_dir(tag: &str) -> PathBuf {
+    let unique = NEXT_TEMP_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "jefe-namespace-record-{tag}-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
+        "jefe-namespace-record-{tag}-{}-{unique}",
+        std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir)

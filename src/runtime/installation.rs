@@ -25,7 +25,10 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// Environment variable holding a deliberate namespace override.
-const NAMESPACE_OVERRIDE_ENV: &str = "JEFE_NAMESPACE";
+///
+/// Every message that names this variable interpolates it from here, so
+/// renaming it cannot leave an operator following stale instructions.
+pub const NAMESPACE_OVERRIDE_ENV: &str = "JEFE_NAMESPACE";
 
 static ACTIVE: OnceLock<InstallationIdentity> = OnceLock::new();
 
@@ -53,6 +56,27 @@ impl std::fmt::Display for InstallationError {
                 "installation identity is already resolved as `{active}`; \
                  refusing to switch to `{requested}` mid-process"
             ),
+        }
+    }
+}
+
+impl InstallationError {
+    /// What the operator should do about this failure.
+    ///
+    /// The guidance deliberately does not restate the validation rules. Those
+    /// live with the validation in [`NamespaceError`] and reach the operator
+    /// through this error's own `Display`; repeating them here would give them
+    /// a second place to drift out of sync with the code that enforces them.
+    #[must_use]
+    pub fn correction(&self) -> String {
+        match self {
+            Self::Override(_) => format!(
+                "unset {NAMESPACE_OVERRIDE_ENV}, or set it to a value that satisfies the rule \
+                 reported above"
+            ),
+            Self::AlreadyResolved { active, .. } => {
+                format!("keep using `{active}`; restart jefe to adopt a different namespace")
+            }
         }
     }
 }
