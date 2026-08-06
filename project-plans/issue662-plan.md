@@ -82,7 +82,7 @@ indistinguishable from a kill.
 
 ## A8, `SetConsoleCtrlHandler` — approved and delivered
 
-**Decision: the user approved the dependency; A8 is delivered in `47288b64`.**
+**Decision: the user approved the dependency; A8 is delivered in `4b9a51a8`.**
 
 Issue item 4 asks for a console control handler so `CTRL_CLOSE_EVENT`,
 `CTRL_LOGOFF_EVENT`, and `CTRL_SHUTDOWN_EVENT` are recorded. It could not be
@@ -125,7 +125,7 @@ handler cannot regress that routing even if the terminal layer changes.
 
 ## Slices
 
-### Slice 1 — pure run-record domain (delivered, `ad4f11c4`)
+### Slice 1 — pure run-record domain (delivered, `33d779cc`)
 
 - Rows: A2 (reason type), A3 (marker shape), A4/A5 (classification rule), A7 (breadcrumb field).
 - Allowed paths: `src/domain/run_record.rs`, `src/domain/mod.rs`, `tests/issue662_behavior.rs`.
@@ -136,7 +136,7 @@ handler cannot regress that routing even if the terminal layer changes.
   the `ProcessLiveness` -> `PriorRunProbe` mapping happens at the caller.
 - Stop condition: if the classification needs process probing inside `domain/`.
 
-### Slice 2 — marker persistence (delivered, `5ac78df2`)
+### Slice 2 — marker persistence (delivered, `229863b1`)
 
 - Rows: A3, A4, A5.
 - Allowed paths: `src/persistence/run_marker.rs`, `src/persistence/mod.rs`, `tests/issue662_behavior.rs`.
@@ -144,7 +144,7 @@ handler cannot regress that routing even if the terminal layer changes.
 - GREEN: `run_marker_dir`, `write_marker` (temp file + atomic replace), `read_markers`, `remove_marker`. One file per pid so concurrent instances never clobber each other.
 - Stop condition: if this needs the revision/hash-gated `persistence::writer::write` contract.
 
-### Slice 3 — log flush and run boundary records (delivered, `548b643a`)
+### Slice 3 — log flush and run boundary records (delivered, `ac064b79`)
 
 - Rows: A1, A2, A6.
 - Allowed paths: `src/logging.rs`, `src/run_diagnostics.rs`, `src/lib.rs`, `tests/issue662_behavior.rs`.
@@ -155,7 +155,7 @@ handler cannot regress that routing even if the terminal layer changes.
   flush from the panic hook and from run end.
 - Stop condition: if flushing requires changing the subscriber's writer type or the log format.
 
-### Slice 4 — wiring into the binary (delivered, `3d99a495`)
+### Slice 4 — wiring into the binary (delivered, `ee7d08bc`)
 
 - Rows: A1, A2, A6, A7.
 - Allowed paths: `src/main.rs`, `src/app_shell.rs`, `src/app_shell_attach.rs`, `src/panic_capture.rs`.
@@ -165,7 +165,7 @@ handler cannot regress that routing even if the terminal layer changes.
   scheduler; flush from the panic hook.
 - Stop condition: if the heartbeat needs a new worker/thread subsystem rather than an existing loop.
 
-### Slice 5 — UI surfacing of an unclean prior run (delivered, `3d99a495`)
+### Slice 5 — UI surfacing of an unclean prior run (delivered, `ee7d08bc`)
 
 - Rows: A4, A5.
 - Allowed paths: `src/main.rs` (context field), `src/app_init.rs`, `src/app_init_tests.rs`, `dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json`, `tests/harness_v1_fixtures.rs`.
@@ -173,7 +173,7 @@ handler cannot regress that routing even if the terminal layer changes.
 - GREEN: carry the detected unclean runs on `AppContext` and surface them through the existing `append_warning` route.
 - Stop condition: if surfacing requires a new screen, message variant, or state field beyond `warning_message`.
 
-### Slice 6 — A8, console control handler (delivered, `47288b64`)
+### Slice 6 — A8, console control handler (delivered, `4b9a51a8`)
 
 - Rows: A8.
 - Allowed paths: `Cargo.toml`, `Cargo.lock`, `src/domain/run_record.rs`, `src/run_diagnostics.rs`, `src/main.rs`, `tests/issue662_behavior.rs`.
@@ -189,7 +189,7 @@ handler cannot regress that routing even if the terminal layer changes.
 | `run_app` swallows render-loop errors, losing the exit reason | In scope (A2) — the typed reason needs it. |
 | `ErrorSource::Startup` has display mappings but no producer | Defer — surfacing via `warning_message` satisfies A4; adding the first `Startup` error producer is adjacent scope. |
 | `app_shell_liveness` early-returns when there are no local targets, so it is not a dependable heartbeat | In scope (A3) — heartbeat gets its own small `use_future` instead of changing liveness. |
-| Windows console control handler needs a new dependency | Resolved — user approved `ctrlc` (`cfg(windows)`, `termination` feature); A8 delivered in `47288b64`. |
+| Windows console control handler needs a new dependency | Resolved — user approved `ctrlc` (`cfg(windows)`, `termination` feature); A8 delivered in `4b9a51a8`. |
 
 ## Review counters
 
@@ -211,7 +211,7 @@ handler cannot regress that routing even if the terminal layer changes.
 
 | Finding | Class | Disposition |
 |---|---|---|
-| Heartbeat in flight at shutdown can resurrect a retired marker | Blocker-Fix | Fixed in `d38ecce3`, RED test first. |
+| Heartbeat in flight at shutdown can resurrect a retired marker | Blocker-Fix | Fixed in `5c48969d`, RED test first. |
 | `write_marker` uses a fixed per-pid scratch name, so overlapping writes delete each other's temp file | In-scope-Fix -> Reject | Rejected after verification. Every marker write goes through `refresh`, which the blocker fix now serializes under the run lock, and separate processes already get separate scratch names from the pid. A unique scratch name was implemented, then reverted because no test could make it fail; shipping it would have been untested production code. |
 | Make run-diagnostics state instance-owned rather than process-global | Defer | Follow-up; the process-global is what lets the panic hook reach the run. |
 | Add a real-OS-kill marker-survival test | Defer | Follow-up; current coverage simulates the kill with `mem::forget` + `exit(0)`. |
@@ -223,13 +223,13 @@ Commits on `issue662`:
 
 | Commit | Slices | Behavior landed |
 |---|---|---|
-| `ad4f11c4` | 1 | pure run-record domain types and `classify_prior_run` |
-| `5ac78df2` | 2 | per-run marker persistence beside the durable state file |
-| `d38ecce3` | review | a heartbeat in flight at shutdown can no longer resurrect a retired marker |
-| `bddbcc70` | review | A6/A7 coverage gap closed: the run-end record is proven to carry the breadcrumb |
-| `548b643a` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
-| `3d99a495` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
-| `47288b64` | 6 | A8: a host teardown (console close, logoff, shutdown) records `host-terminated` and retires the marker |
+| `33d779cc` | 1 | pure run-record domain types and `classify_prior_run` |
+| `229863b1` | 2 | per-run marker persistence beside the durable state file |
+| `5c48969d` | review | a heartbeat in flight at shutdown can no longer resurrect a retired marker |
+| `73816bf3` | review | A6/A7 coverage gap closed: the run-end record is proven to carry the breadcrumb |
+| `ac064b79` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
+| `ee7d08bc` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
+| `4b9a51a8` | 6 | A8: a host teardown (console close, logoff, shutdown) records `host-terminated` and retires the marker |
 
 Acceptance rows to proof:
 
@@ -245,7 +245,7 @@ Acceptance rows to proof:
 | A7 | breadcrumb carried in the marker and repeated in the unclean report; attach/detach record breadcrumbs | pass |
 | A8 | `a_run_the_host_tears_down_records_why_before_it_dies` (child records a breadcrumb, calls `record_host_termination`, then dies without unwinding; parent asserts the flushed `run-end` line carries `host-terminated` and the breadcrumb, and that the marker is retired) | pass; attribution is best effort by construction, see the A8 section |
 
-Local gates on `3d99a495`:
+Local gates on `ee7d08bc`:
 
 | Gate | Result |
 |---|---|
@@ -260,8 +260,8 @@ Note: `harness::tmux_driver::tests::real_psmux_runs_a_stable_native_process_when
 failed once under full-suite parallelism and passed in isolation both with and
 without these changes; it is environment-dependent and untouched by this work.
 
-Exact-head `cargo xtask ci` on the A8 tree (`48777008`, which adds only this
-document on top of the code at `47288b64`; no gate compiles markdown):
+Exact-head `cargo xtask ci` on the A8 tree (`30488c47`, which adds only this
+document on top of the code at `4b9a51a8`; no gate compiles markdown):
 
 | Stage | Result |
 |---|---|
@@ -279,6 +279,37 @@ isolation: the `real_psmux` driver test above, plus
 (`cargo test --test psmux_smoke -- --test-threads=1` gives 13 passed, 0 failed).
 Nothing in this branch touches the multiplexer.
 
+## Final CI evidence
+
+CI run `31065295505` succeeded at `d27aaa8b`, the head of the branch. Only
+`Optional TUI smoke (tmux)` and `Main flake baseline record` did not run, both
+skipped by design on a branch run.
+
+Two commits sit between the gate table above and that head, and both exist
+because `main` moved underneath this branch rather than because the delivered
+behaviour changed.
+
+The first is the merge at `708a7889`. Three files conflicted and all three were
+both branches adding at the same place rather than disagreeing: a module
+declaration in `persistence`, a state assignment in `init_app_state`, and a test
+at the end of the harness fixtures. Both sides were kept everywhere.
+
+The second, `d27aaa8b`, is the more interesting one, because it records a failure
+mode that a green local run cannot show you. The merge gave `init_app_state` one
+new line from each side, which pushed it past the sixty-line function gate.
+Extracting `resolve_durable_read` fixed that, but left `app_init.rs` at 1014
+lines, over the thousand-line hard cap that only CI measures. Both were answered
+by extraction rather than by suppression: the startup-warning cluster moved to
+`app_init_warnings.rs`, on the grounds that every function in it answers one
+question, which is how a startup problem reaches the operator instead of only the
+log. `app_init.rs` came out at 859 lines, back under the advisory threshold
+rather than merely under the hard one, and no behaviour changed.
+
+Worth recording for the next person: twice on this branch CI caught a defect that
+local verification structurally could not. The file-length cap above is one. The
+other was the harness scenario, which cannot run on Windows at all and which was
+waiting on a title bar that this branch's own warning displaces.
+
 ## Deferred findings and follow-ups
 
 - First producer for `ErrorSource::Startup`.
@@ -286,4 +317,12 @@ Nothing in this branch touches the multiplexer.
   `Mutex<Option<ActiveRun>>` (local review D1).
 - Prove marker survival against a real OS kill rather than `mem::forget` plus
   `exit(0)` (local review D2).
+- Surface run-marker I/O failures to the operator instead of discarding them
+  (issue #678).
+- Stop the host-termination handler blocking on the run lock in its shutdown
+  window (issue #679).
+- Refuse to follow symlinks on the marker read path (issue #680).
+- Give the `issue662_behavior` temp directories a cleanup path where one is
+  possible (issue #681).
+- Stop fsyncing the marker's parent directory on every heartbeat (issue #682).
 
