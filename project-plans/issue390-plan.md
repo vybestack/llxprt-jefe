@@ -243,7 +243,7 @@ native Windows CI. UI-visible behavior requires the tmux harness before the PR.
 Evidence ledger:
 
 - [x] Slice A RED / GREEN / quick gate — missing protocol module produced the intended compile RED; 45 focused framing/protocol tests pass; full-workspace strict Clippy and source-size gate pass; every provider production file is below 750 lines
-- [ ] Slice B TUI RED first / reducer GREEN / quick gate
+- [x] Slice B reducer GREEN / strict Clippy / source-size / architecture — 65 focused reducer+projection tests pass (24 acceptance CW10-06–10, 41 remediation RED-first across two batches); full-workspace strict Clippy, source-size, and architecture gates pass; `src/messages.rs` held at the 750-line warn boundary and `src/state/types.rs` trimmed below 998; every provider production file is below 750 lines; placeholder TUI scenarios deleted and deferred to Slice D RED-first with deterministic provider fixtures
 - [ ] Slice C supervisor fixtures GREEN / quick gate
 - [ ] Slice D end-to-end TUI GREEN / docs complete
 - [ ] Local Rust review and OCR triaged within counters
@@ -255,6 +255,98 @@ Evidence ledger:
 
 ## 12. Deferred findings and follow-ups
 
-None at shaping time beyond the explicit later configurable-workbench issues in
-§8. Valid review findings outside this matrix will be recorded here and filed as
-follow-ups instead of expanding this PR.
+### Slice B pre-commit remediation (this commit)
+
+Seven source-grounded fixes were applied before the Slice B commit, each with
+RED-first tests:
+
+1. **Placeholder TUI scenarios deleted.** The seven JSON files under
+   `dev-docs/tmux-scenarios/issue390/` only asserted the pre-existing quit text
+   and proved no provider behavior. Meaningful live TUI scenarios must be
+   authored RED-first in Slice D before any thin renderer/live UI integration,
+   when deterministic provider fixtures exist. TUI scenario validation is not
+   behavioral RED; a schema-parser pass is not a scenario RED.
+
+2. **Duplicate outbound queue removed.** `OutboundEnvelope`, `OutboundKind`,
+   `MAX_QUEUED_ENVELOPES`, and all queue methods/constants were removed from the
+   pure state. Staged closed `ProviderEffect` is the single post-commit outbound
+   model; the real 64-envelope queue belongs inside the Slice C supervisor.
+
+3. **Confirmation made exact.** `ActiveRequest` now retains original context
+   refs, arguments, and an immutable `ActionPolicy`. The `RequestHostConfirmation`
+   outcome is the sole confirmation-request path: it validates that the action
+   declared `ProviderContinuation`, declared `RequestHostConfirmation`, and the
+   destructive flag matches policy before persisting the exact title/body/confirm
+   label/schema plus owner/action/context/generation for UI. Confirm validates
+   exact owner/action/context/generation/id/TTL, consumes once, and returns a
+   fresh `ProviderInvocation B` carrying original arguments/context and exact
+   continuation values. The AppState handler stages `ProviderEffect::InvokeAction`
+   for invocation B (not a separate `ConfirmContinuation` effect). The
+   `ConfirmContinuation` and `Confirmed` variants were removed.
+
+4. **Outcome acceptance validates declared kind.** `record_outcome` validates
+   the outcome kind against the immutable action policy before terminal commit.
+   Panel/migrated-config outcomes (`ReplacePanel`, `ClosePanel`, `MigratedConfig`)
+   are rejected as `UnsupportedOutcome` in CW-10. Navigate/refresh/notice are
+   checked against declared allowed outcomes.
+
+5. **Post-terminal PLG-E502 observable.** Later bytes after a terminal result
+   are reported as a typed `PostTerminal` (`PLG-E502`) protocol violation
+   rather than silently ignored; the first terminal result is preserved. A
+   progress monotonicity violation is reported as `ProgressFault` (`PLG-E502`)
+   while marking the generation unavailable.
+
+6. **Generation exhaustion fails typed.** The pure `next_generation` helper
+   returns `GenerationExhausted` on u64::MAX rather than saturating/reusing.
+   Tested directly through the pure helper with no test-only production backdoor.
+
+7. **`provider_requests.rs` split.** Data types moved to
+   `provider_request_model.rs` (375 lines); the reducer is 552 lines; every new
+   production file is below 750. `ProviderMessage` boxed in `AppEvent`/
+   `AppMessage` to avoid `large_enum_variant`.
+
+No other findings at this time. Valid review findings outside this matrix
+will be recorded here and filed as follow-ups instead of expanding this PR.
+
+### Slice B post-review atomicity/view remediation (uncommitted)
+
+Six additional RED-first fixes close the remaining atomicity, confirmation,
+view, cancel, retry, and source-size gaps before the Slice B commit:
+
+8. **Confirm consumes the token before allocating a generation.** `confirm()`
+   now validates by immutable lookup first (owner/action/context/generation +
+   confirmation id), then checks TTL, then computes the next generation
+   without mutating, and only commits generation + request + token removal
+   atomically. An invalid or expired confirm no longer increments the
+   generation counter; generation exhaustion preserves the single-use token.
+
+9. **TTL boundary is `>=` 300 and expired tokens are fail-fast single-use.**
+   Expiration is now `elapsed >= CONFIRMATION_TTL_SECONDS` (300 exactly is
+   expired, not valid). An expired token is consumed once on the failing
+   attempt, so a repeated expired attempt sees `ConfirmationNotFound` rather
+   than probing/reusing the token.
+
+10. **`PendingConfirmationView` feeds the pure projection.** The private
+    title/body/confirm_label/continuation_schema fields are now exposed as a
+    read-only `PendingConfirmationView<'a>` via
+    `ProviderRequestState::latest_pending_confirmation_view()`. The
+    `ProviderViewMode::Confirmation` carries the exact declared
+    title/body/confirm_label/continuation_schema and defaults keyboard focus to
+    `ConfirmFocus::Cancel`; projection tests prove byte-exact content and the
+    default Cancel focus.
+
+11. **Cancel after a terminal request stages no effect.** `CancelOutcome` is
+    now `Cancelled { key } | AlreadyTerminal { key }`. A cancel that arrives
+    after the request already reached a terminal state returns
+    `AlreadyTerminal`; the AppState handler stages no `CancelRequest` effect,
+    consistent with first-terminal semantics. A reducer test and an
+    AppState-level test prove no effect.
+
+12. **Retry of an unknown old key returns `UnknownGeneration`.** `retry()`
+    now requires the old key to match an active request; an unknown old key
+    returns `UnknownGeneration` instead of silently starting a new request.
+
+13. **Pre-existing files trimmed.** `src/messages.rs` is held at the 750-line
+    warn boundary (no new warning) and the `provider_requests` field doc in
+    `src/state/types.rs` is condensed so verbose field docs no longer push it
+    to 998. No unrelated behavior was refactored.

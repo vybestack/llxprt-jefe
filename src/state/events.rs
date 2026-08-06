@@ -103,6 +103,11 @@ pub enum AppEvent {
     /// would otherwise set the size of every event in this enum.
     Settings(Box<crate::messages::SettingsMessage>),
 
+    /// One provider request lifecycle message (issue #390 CW-10, Slice B).
+    /// Boxed because several variants carry multiple `TypedMap` fields and
+    /// would otherwise set the size of every `AppEvent` variant.
+    Provider(Box<crate::messages::ProviderMessage>),
+
     Quit,
     ClearError,
     ClearWarning,

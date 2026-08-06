@@ -24,6 +24,8 @@ mod prs_conversion_agent;
 mod prs_lifecycle_conversion;
 mod prs_property_conversion;
 pub use actions::ActionsMessage;
+pub mod provider;
+pub use provider::ProviderMessage;
 mod errors;
 mod errors_conversion;
 pub use errors::ErrorsMessage;
@@ -51,6 +53,7 @@ pub enum MessageDomain {
     /// @requirement REQ-PR-001
     PullRequests,
     Actions,
+    Provider,
     Errors,
     /// Settings-shell domain (issue #387 CW-07).
     Settings,
@@ -676,6 +679,7 @@ pub enum AppMessage {
     /// @requirement REQ-PR-001
     PullRequests(PullRequestsMessage),
     Actions(ActionsMessage),
+    Provider(Box<ProviderMessage>),
     Errors(ErrorsMessage),
     /// Settings-shell domain (issue #387 CW-07). Boxed because one variant
     /// carries the whole loaded source and would otherwise set the size of
@@ -704,6 +708,7 @@ impl AppMessage {
             // @requirement REQ-PR-001
             Self::PullRequests(_) => MessageDomain::PullRequests,
             Self::Actions(_) => MessageDomain::Actions,
+            Self::Provider(_) => MessageDomain::Provider,
             Self::Errors(_) => MessageDomain::Errors,
             Self::Settings(_) => MessageDomain::Settings,
             Self::TerminalManager(_) => MessageDomain::TerminalManager,
@@ -734,6 +739,7 @@ impl AppMessage {
             // @requirement REQ-PR-002
             Self::PullRequests(message) => message.name(),
             Self::Actions(message) => message.name(),
+            Self::Provider(message) => message.name(),
             Self::Errors(message) => message.name(),
             Self::Settings(message) => message.name(),
             Self::TerminalManager(message) => message.name(),

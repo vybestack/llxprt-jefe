@@ -62,6 +62,14 @@ mod post_mutation_refresh_tests;
 mod pr_lifecycle_events;
 mod preferences_ops;
 mod property_edit;
+/// Provider request reducer data model (issue #390 CW-10, Slice B).
+mod provider_request_model;
+/// Provider request reducer handlers (issue #390 CW-10, Slice B).
+mod provider_request_ops;
+/// Handle-free provider request reducer state (issue #390 CW-10, Slice B).
+pub mod provider_requests;
+/// Pure, iocraft-free provider view projection (issue #390 CW-10, Slice B).
+pub mod provider_view;
 mod prs_delete_ops;
 mod prs_diff_ops;
 #[cfg(test)]
@@ -448,6 +456,7 @@ impl AppState {
             AppMessage::Settings(message) => {
                 self.reduce_settings(*message);
             }
+            AppMessage::Provider(message) => self.apply_provider_message(*message),
             AppMessage::TerminalManager(message) => {
                 let handled = self.apply_terminal_manager_message(message);
                 debug_assert!(handled, "unhandled terminal manager message");
