@@ -70,13 +70,24 @@ so no child split is required.
 
 ## 5. Review counters
 
-- Local review runs used: 0 / 2
+- Local review runs used: 1 / 2
 - Post-PR OCR runs used: 0 / 2
+
+### Local run 1 — `ocr review --from 0b39bd8c --to dd974734` (v1.8.8, stepfun/step-3.7-flash)
+
+Coverage: `complete_best_effort` — 2 selected, 2 completed, 0 failed, 0 waived.
+
+| Finding | Validity | Disposition |
+|---|---|---|
+| `server_health_io_tests.rs:274` (maintainability, low): the `observed` test helper panics through `let ... else` instead of `expect` | Partial — the panic is real, but the reviewer itself records it as acceptable and names no correctness or coverage defect | Reject — `expect` panics identically with a strictly less informative message, whereas `panic!("...got {stdout:?}")` names the offending probe answer; threading `Result` through a test helper adds noise without changing observable behavior. The no-`unwrap`/`expect` rule governs production paths, which this helper is not. |
 
 ## 6. Verification evidence
 
-- [ ] `cargo xtask` gates
-- [ ] `cargo test --workspace --all-features --locked`
-- [ ] coverage gates
+- [x] `cargo xtask` gates — `fmt`, `lint` (strict `clippy --workspace --all-targets --all-features -D warnings`), `check clippy-allows`, `check source-size`, `check architecture`, `complexity`, `build` all clean.
+- [x] `cargo test --workspace --all-features --locked` — 0 failures.
+- [x] coverage gates — `cargo xtask coverage`: total 71.21% lines against the 30% floor; `src/runtime/server_health_io.rs` rises to 84.75% lines / 82.16% regions from the documented 0/82 baseline. The first attempt aborted on `harness::tmux_driver::tests::real_psmux_runs_a_stable_native_process_when_available`, a real-psmux session start that timed out under llvm-cov instrumentation; it passes both unmutated and on the clean rerun, so it is environmental and unrelated to this change.
+- [x] `cargo xtask coverage-windows` per-module floors — every configured module clears its floor, no violations. `src/runtime/server_health_io.rs` reports 37.28% (44/118 lines) against its floor of 0 under the narrower Windows-only selection.
 - [ ] CI on the exact head
 - [ ] Ancestry / conflict check
+
+The Windows floor for `src/runtime/server_health_io.rs` stays at 0 on purpose: raising it is quality-tooling work owned by #663 and needs approval. This change only adds coverage, so the gate cannot regress.
