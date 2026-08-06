@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "issue687-namespace-override-fail-closed",
+  "name": "issue687-socket-override-fail-closed",
   "platform": "macos",
   "terminal": { "cols": 110, "rows": 32 },
   "workspace": {

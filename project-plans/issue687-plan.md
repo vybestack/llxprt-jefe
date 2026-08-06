@@ -203,7 +203,12 @@ Every changed file must map to N1–N10 or be recorded here before edit.
   rejected. `resolve_identity` remains `pub` inside the crate-private module
   because `pub(crate)` violates the repository's `redundant_pub_crate` lint and
   does not alter the external API.
-- OCR post-PR: 0 / 2.
+- Post-PR review: 1 / 2. Approved with no blockers or substantive correctness
+  findings. The one in-scope cosmetic finding was fixed by renaming the
+  fail-closed scenario from namespace override to socket override, matching the
+  `JEFE_SOCKET_PATH` behavior it executes. Pure repeated doctor resolution and
+  isolation status wording were rejected as non-issues; Unix PTY execution
+  remains assigned to compatible CI.
 - Exact-head local gates: fmt, native and Linux-target Clippy, locked build,
   architecture, clippy-allow, multiplexer-surface, source-size, and Windows
   coverage floors pass. Full coverage passes at 71.42% lines.

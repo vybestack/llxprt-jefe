@@ -163,9 +163,9 @@ fn schema_all_ops_fixture_passes() {
 
 #[test]
 fn issue687_invalid_socket_override_fails_closed() {
-    let outcome = run_issue687_scenario("namespace-override-fail-closed.json");
-    assert_passed("issue687-namespace-override-fail-closed", &outcome);
-    assert_exit_code("issue687-namespace-override-fail-closed", &outcome, 2);
+    let outcome = run_issue687_scenario("socket-override-fail-closed.json");
+    assert_passed("issue687-socket-override-fail-closed", &outcome);
+    assert_exit_code("issue687-socket-override-fail-closed", &outcome, 2);
     cleanup(&outcome);
 }
 
