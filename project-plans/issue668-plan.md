@@ -71,7 +71,7 @@ so no child split is required.
 ## 5. Review counters
 
 - Local review runs used: 1 / 2
-- Post-PR OCR runs used: 0 / 2
+- Post-PR OCR runs used: 1 / 2
 
 ### Local run 1 — `ocr review --from 0b39bd8c --to dd974734` (v1.8.8, stepfun/step-3.7-flash)
 
@@ -81,13 +81,19 @@ Coverage: `complete_best_effort` — 2 selected, 2 completed, 0 failed, 0 waived
 |---|---|---|
 | `server_health_io_tests.rs:274` (maintainability, low): the `observed` test helper panics through `let ... else` instead of `expect` | Partial — the panic is real, but the reviewer itself records it as acceptable and names no correctness or coverage defect | Reject — `expect` panics identically with a strictly less informative message, whereas `panic!("...got {stdout:?}")` names the offending probe answer; threading `Result` through a test helper adds noise without changing observable behavior. The no-`unwrap`/`expect` rule governs production paths, which this helper is not. |
 
+### Post-PR run 1 — `ocr review --from 0b39bd8c --to 1803da92` (v1.8.8, stepfun/step-3.7-flash)
+
+Coverage: `complete_best_effort` — 2 selected, 2 completed, 0 failed, 0 waived. **0 findings**, so nothing to triage. This run covers the final head including the test refactor, which means the sole finding from local run 1 was not re-raised. Its disposition stands unchanged.
+
+CI-side reviews on the same head — OpenCodeReview, CodeRabbit and the LLxprt review — all reported success, and `pr.reviews --actionable` returns no unresolved threads.
+
 ## 6. Verification evidence
 
 - [x] `cargo xtask` gates — `fmt`, `lint` (strict `clippy --workspace --all-targets --all-features -D warnings`), `check clippy-allows`, `check source-size`, `check architecture`, `complexity`, `build` all clean.
 - [x] `cargo test --workspace --all-features --locked` — 0 failures.
 - [x] coverage gates — `cargo xtask coverage`: total 71.21% lines against the 30% floor; `src/runtime/server_health_io.rs` rises to 84.75% lines / 82.16% regions from the documented 0/82 baseline. The first attempt aborted on `harness::tmux_driver::tests::real_psmux_runs_a_stable_native_process_when_available`, a real-psmux session start that timed out under llvm-cov instrumentation; it passes both unmutated and on the clean rerun, so it is environmental and unrelated to this change.
 - [x] `cargo xtask coverage-windows` per-module floors — every configured module clears its floor, no violations. `src/runtime/server_health_io.rs` reports 37.28% (44/118 lines) against its floor of 0 under the narrower Windows-only selection.
-- [ ] CI on the exact head
-- [ ] Ancestry / conflict check
+- [x] CI on the exact head — PR #673 @ `1803da92`: 19 checks pass, 0 fail, 2 skipped (the tmux smoke and the main flake baseline, neither of which runs on a PR). The first push failed `Lint (clippy)`, `Complexity checks` and `Coverage gate` on a single Linux-only diagnostic — `constant NAMESPACE_B is never used`, because the new tests re-spelled the tokens as literals so that constant had only a `#[cfg(windows)]` reader. Fixed at the source by rendering probe answers from the constants through an `answer` helper rather than by suppressing the lint.
+- [x] Ancestry / conflict check — `git merge-base --is-ancestor origin/main issue668` held at `0b39bd8c`; `origin/main` has since advanced to `8538fdd1`, and `git merge-tree --write-tree origin/main issue668` reports no conflicts. The branch is cut directly from `main`, not stacked on another PR.
 
 The Windows floor for `src/runtime/server_health_io.rs` stays at 0 on purpose: raising it is quality-tooling work owned by #663 and needs approval. This change only adds coverage, so the gate cannot regress.
