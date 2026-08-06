@@ -1,0 +1,375 @@
+//! Closed envelope and payload data-transfer objects for the action-provider
+//! protocol (issue #390 CW-10, Slice A).
+//!
+//! Pure data types only: no framing, parsing, process, state, effect, or
+//! persistence. Each struct mirrors exactly the closed field set its wire
+//! object admits; the readers in [`super::payload_reader`] enforce those sets.
+
+use std::collections::BTreeMap;
+
+use crate::domain::action_registry::ActionId;
+use crate::domain::plugin::field::Field;
+use crate::domain::{CanonicalSemver, Id, TypedMap};
+
+use super::identifiers::{EnvName, MessageKind, RequestId};
+
+/// A `hello` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelloPayload {
+    /// Host API identifier.
+    pub host_api: String,
+    /// The plugin package being driven.
+    pub plugin_id: Id,
+    /// The plugin package version.
+    pub plugin_version: CanonicalSemver,
+}
+
+/// A `hello-ack` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelloAckPayload {
+    /// Provider-declared name.
+    pub provider_name: String,
+}
+
+/// A `configure` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigurePayload {
+    /// Selected configuration version.
+    pub config_version: u64,
+    /// Resolved configuration values.
+    pub config: TypedMap,
+    /// Resolved secret values keyed by their owning environment binding.
+    pub secrets: BTreeMap<EnvName, String>,
+    /// Declared non-secret environment bindings.
+    pub environment: BTreeMap<EnvName, String>,
+}
+
+/// A `ready` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadyPayload {
+    /// Declared capabilities.
+    pub capabilities: Vec<Capability>,
+}
+
+/// The `context` object inside `invoke-action`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvokeContext {
+    /// Screen the action was invoked from.
+    pub screen_id: Id,
+    /// Screen instance the action was invoked from.
+    pub screen_instance: Id,
+    /// Resource references currently in view.
+    pub resource_refs: TypedMap,
+}
+
+/// The optional `continuation` object inside `invoke-action`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Continuation {
+    /// The host-issued confirmation id.
+    pub confirmation_id: Id,
+    /// Whether the operator approved.
+    pub approved: bool,
+    /// Continuation values.
+    pub values: TypedMap,
+}
+
+/// An `invoke-action` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvokeActionPayload {
+    /// One invocation identifier.
+    pub invocation_id: Id,
+    /// The action being invoked.
+    pub action_id: ActionId,
+    /// Collected arguments.
+    pub arguments: TypedMap,
+    /// Invocation context.
+    pub context: InvokeContext,
+    /// Continuation, present only for the second invocation of a confirmation.
+    pub continuation: Option<Continuation>,
+}
+
+/// A `cancel` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelPayload {
+    /// The in-flight request to cancel.
+    pub target_request_id: RequestId,
+}
+
+/// A `progress` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressPayload {
+    /// Monotonic sequence number.
+    pub sequence: u16,
+    /// Operator-facing progress text.
+    pub message: String,
+    /// Optional completed count.
+    pub completed: Option<u64>,
+    /// Optional total count.
+    pub total: Option<u64>,
+}
+
+/// One field error inside an `error` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldError {
+    /// Dotted path to the offending argument field.
+    pub path: String,
+    /// Why the field was rejected.
+    pub message: String,
+}
+
+/// An `error` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorPayload {
+    /// Provider error code.
+    pub code: String,
+    /// Operator-facing message.
+    pub message: String,
+    /// Whether retrying might succeed.
+    pub retryable: bool,
+    /// Per-field errors, bounded at the CW10-06 limit.
+    pub field_errors: Vec<FieldError>,
+}
+
+/// A `shutdown` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShutdownPayload {
+    /// Why the host is shutting the provider down.
+    pub reason: ShutdownReason,
+}
+
+/// A provider-declared capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capability {
+    /// The provider contributes actions.
+    Actions,
+    /// The provider contributes panels.
+    Panels,
+    /// The provider contributes configuration migration.
+    ConfigMigration,
+}
+
+impl Capability {
+    /// Every capability, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Actions, Self::Panels, Self::ConfigMigration];
+
+    /// The wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Actions => "actions",
+            Self::Panels => "panels",
+            Self::ConfigMigration => "config-migration",
+        }
+    }
+
+    /// Resolve a wire name, exactly and case-sensitively.
+    #[must_use]
+    pub fn from_wire(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|capability| capability.as_str() == value)
+    }
+}
+
+/// A notice severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    /// Informational.
+    Info,
+    /// Cautionary.
+    Warning,
+}
+
+impl Severity {
+    /// Every severity, in declaration order.
+    pub const ALL: [Self; 2] = [Self::Info, Self::Warning];
+
+    /// The wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Warning => "warning",
+        }
+    }
+
+    /// Resolve a wire name, exactly and case-sensitively.
+    #[must_use]
+    pub fn from_wire(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|severity| severity.as_str() == value)
+    }
+}
+
+/// A shutdown reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownReason {
+    /// Normal completion.
+    Completed,
+    /// Operator cancellation.
+    Cancelled,
+    /// The host is exiting.
+    HostExit,
+    /// The provider failed.
+    Failure,
+}
+
+impl ShutdownReason {
+    /// Every reason, in declaration order.
+    pub const ALL: [Self; 4] = [
+        Self::Completed,
+        Self::Cancelled,
+        Self::HostExit,
+        Self::Failure,
+    ];
+
+    /// The wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::HostExit => "host-exit",
+            Self::Failure => "failure",
+        }
+    }
+
+    /// Resolve a wire name, exactly and case-sensitively.
+    #[must_use]
+    pub fn from_wire(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|reason| reason.as_str() == value)
+    }
+}
+
+/// A closed panel snapshot (CW-11 refines its shape).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelSnapshot(pub TypedMap);
+
+/// A closed migrated-config result (CW-11 refines its shape).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigratedConfig(pub TypedMap);
+
+/// The seven-kind outcome a provider may return.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Navigate to a declared route.
+    Navigate {
+        /// The declared route id.
+        route_id: Id,
+        /// Activation parameters.
+        activation: TypedMap,
+    },
+    /// Refresh the current resource.
+    Refresh {
+        /// The resource reference.
+        resource_ref: TypedMap,
+    },
+    /// Show a notice.
+    Notice {
+        /// Notice severity.
+        severity: Severity,
+        /// Notice text.
+        message: String,
+    },
+    /// Replace an owned panel.
+    ReplacePanel {
+        /// The owned panel instance id.
+        panel_instance_id: Id,
+        /// The replacement snapshot.
+        snapshot: PanelSnapshot,
+    },
+    /// Ask the host to confirm a continuation.
+    RequestHostConfirmation {
+        /// The single-use confirmation id.
+        confirmation_id: Id,
+        /// Modal title.
+        title: String,
+        /// Modal body.
+        body: String,
+        /// Confirm button label.
+        confirm_label: String,
+        /// Whether the confirmed action is destructive.
+        destructive: bool,
+        /// Fields to collect on confirmation.
+        continuation_schema: Vec<Field>,
+    },
+    /// Close an owned panel.
+    ClosePanel {
+        /// The owned panel instance id.
+        panel_instance_id: Id,
+    },
+    /// Report a migrated configuration.
+    MigratedConfig {
+        /// The migration result.
+        migration: MigratedConfig,
+    },
+}
+
+/// The fully parsed message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedMessage {
+    /// The validated request id.
+    pub request_id: RequestId,
+    /// The fixed positive generation.
+    pub generation: u64,
+    /// The typed message body.
+    pub message: ProviderMessage,
+}
+
+impl ParsedMessage {
+    /// The message kind.
+    #[must_use]
+    pub fn kind(&self) -> MessageKind {
+        self.message.kind()
+    }
+}
+
+/// The eleven closed message bodies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderMessage {
+    /// `hello`.
+    Hello(HelloPayload),
+    /// `hello-ack`.
+    HelloAck(HelloAckPayload),
+    /// `configure`.
+    Configure(ConfigurePayload),
+    /// `ready`.
+    Ready(ReadyPayload),
+    /// `invoke-action`.
+    InvokeAction(InvokeActionPayload),
+    /// `cancel`.
+    Cancel(CancelPayload),
+    /// `progress`.
+    Progress(ProgressPayload),
+    /// `outcome`.
+    Outcome(Outcome),
+    /// `error`.
+    Error(ErrorPayload),
+    /// `shutdown`.
+    Shutdown(ShutdownPayload),
+    /// `shutdown-ack`.
+    ShutdownAck,
+}
+
+impl ProviderMessage {
+    /// The message kind.
+    #[must_use]
+    pub fn kind(&self) -> MessageKind {
+        match self {
+            Self::Hello(_) => MessageKind::Hello,
+            Self::HelloAck(_) => MessageKind::HelloAck,
+            Self::Configure(_) => MessageKind::Configure,
+            Self::Ready(_) => MessageKind::Ready,
+            Self::InvokeAction(_) => MessageKind::InvokeAction,
+            Self::Cancel(_) => MessageKind::Cancel,
+            Self::Progress(_) => MessageKind::Progress,
+            Self::Outcome(_) => MessageKind::Outcome,
+            Self::Error(_) => MessageKind::Error,
+            Self::Shutdown(_) => MessageKind::Shutdown,
+            Self::ShutdownAck => MessageKind::ShutdownAck,
+        }
+    }
+}
