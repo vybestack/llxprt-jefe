@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 /// elsewhere in the tree (`src/jsp_host/launch.rs` needs the real account), so a
 /// repo-wide ban would be wrong. What matters is that *namespace derivation*
 /// cannot see it.
-const DERIVATION_MODULE: &str = "src/runtime/identity.rs";
+const DERIVATION_MODULE: &str = "src/runtime/namespace.rs";
 
 /// Sources of machine identity, and why each one must not reach the namespace.
 const MACHINE_IDENTITY_SOURCES: &[(&str, &str)] = &[
@@ -103,10 +103,7 @@ fn the_namespace_derivation_reads_no_environment() {
 fn the_stable_namespace_is_a_function_of_a_path_alone() {
     let source = read_source(DERIVATION_MODULE);
 
-    for entry_point in [
-        "namespace_for_state_path",
-        "unique_namespace_for_state_path",
-    ] {
+    for entry_point in ["for_state_path", "unique_for_state_path", "isolated_run"] {
         let signature = format!("pub fn {entry_point}(");
         let index = locate(&source, &signature).unwrap_or_else(|| {
             panic!(
@@ -136,37 +133,43 @@ fn the_stable_namespace_is_a_function_of_a_path_alone() {
 
 #[test]
 fn the_raw_hash_primitive_is_not_reachable_outside_the_derivation() {
+    const PRIMITIVE: &str = "hash_identity_material";
+
+    let derivation = read_source(DERIVATION_MODULE);
+    let definition = locate(&derivation, &format!("fn {PRIMITIVE}(")).unwrap_or_else(|| {
+        panic!(
+            "{DERIVATION_MODULE} no longer defines `{PRIMITIVE}`, so this contract is guarding a \
+             function that does not exist and would pass vacuously. If the hash primitive was \
+             renamed, update this contract deliberately."
+        )
+    });
+    assert!(
+        !derivation[definition].trim_start().starts_with("pub "),
+        "`{PRIMITIVE}` is public. It accepts arbitrary material, so exposing it lets a caller key \
+         the namespace on anything at all -- which is exactly how hostname and account material \
+         got in. Keep it private and route callers through the path-based constructors."
+    );
+
     let mut offenders = Vec::new();
-    let mut sightings = 0_usize;
 
     for file in rust_files(&repo_root().join("src")) {
         let shown = display_path(&file);
-        let is_derivation =
-            shown.ends_with(DERIVATION_MODULE) || shown.ends_with("src/runtime/identity_tests.rs");
-
+        if shown.ends_with(DERIVATION_MODULE) {
+            continue;
+        }
         for (index, line) in read_source_at(&file).iter().enumerate() {
-            if !mentions_in_code(line, "namespace_for_identity(") {
-                continue;
-            }
-            if is_derivation {
-                sightings += 1;
-            } else {
+            if mentions_in_code(line, PRIMITIVE) {
                 offenders.push(format!("{shown} line {}", index + 1));
             }
         }
     }
 
     assert!(
-        sightings > 0,
-        "`namespace_for_identity` was not found inside {DERIVATION_MODULE}, so this contract is \
-         scanning the wrong tree and would pass vacuously"
-    );
-    assert!(
         offenders.is_empty(),
-        "the raw namespace hash is called from outside the derivation module:\n  {}\n\nIt accepts \
-         arbitrary bytes, so a caller elsewhere can key the namespace on anything at all -- which \
-         is exactly how hostname and account material got in. Route new callers through \
-         `namespace_for_state_path` so the state path stays the only input.",
+        "the raw namespace hash is named outside the derivation module:\n  {}\n\nIt accepts \
+         arbitrary material, so a caller elsewhere can key the namespace on anything at all -- \
+         which is exactly how hostname and account material got in. Route new callers through \
+         `InstallationId::for_state_path` so the state path stays the only input.",
         offenders.join("\n  ")
     );
 }

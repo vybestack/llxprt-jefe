@@ -332,6 +332,41 @@ fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
         .unwrap_or_else(|error| panic!("second test plan should resolve: {error}"));
     assert_ne!(first.isolation(), second.isolation());
 }
+/// Issue #547: the server this process talks to belongs to the installation it
+/// was launched as.
+///
+/// This is the cross-platform half of the fix. Windows renders the identity as
+/// a `-L` server name and Unix renders it as a socket file name, but both must
+/// be *the same identity*, so a second worktree cannot land on the first one's
+/// server on either platform.
+#[test]
+fn the_current_plan_is_isolated_by_the_active_installation() {
+    // An explicit socket path deliberately overrides the derived name, so the
+    // assertion below would not hold and is not what this test is about.
+    if std::env::var("JEFE_SOCKET_PATH").is_ok() {
+        return;
+    }
+    let plan = match MultiplexerPlan::current() {
+        Ok(plan) => plan,
+        Err(_) if std::env::var("JEFE_REQUIRE_PSMUX").as_deref() != Ok("1") => return,
+        Err(error) => panic!("required production plan should resolve: {error}"),
+    };
+
+    let rendered = match plan.isolation() {
+        MultiplexerIsolation::Namespace(name) => name.clone(),
+        MultiplexerIsolation::Socket(path) => path
+            .file_stem()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default()
+            .to_owned(),
+    };
+
+    assert_eq!(
+        rendered,
+        crate::runtime::installation::current().id().as_str(),
+        "the multiplexer must be isolated by the active installation identity"
+    );
+}
 
 #[test]
 fn guarded_real_multiplexer_preflight_qualifies_the_current_dependency() {

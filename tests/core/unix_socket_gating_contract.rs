@@ -1,9 +1,10 @@
 //! The Unix tmux socket path must be unreachable on Windows (#547, V7).
 //!
 //! `src/runtime/socket.rs` resolves a Unix-domain socket for tmux's `-S` flag.
-//! Every part of it is Unix-shaped: the `sun_path` length guard, the
-//! `XDG_RUNTIME_DIR` precedence, and `cached_uid()`, which shells out to
-//! `id -u` because `libc::getuid` is forbidden under `unsafe_code = "forbid"`.
+//! Every part of it is Unix-shaped: the `sun_path` length guard and the
+//! `XDG_RUNTIME_DIR` precedence. It also used to shell out to `id -u` to name
+//! the socket after the user; that is gone, because #547 re-keyed the socket on
+//! the installation identity, but the ban below keeps it from coming back.
 //!
 //! None of that means anything on Windows, where isolation is a `-L <namespace>`
 //! server name and `id` is not a program that exists. The module nevertheless
@@ -11,9 +12,8 @@
 //! live `LocalPlatform::Unix` arm calling into it. That arm is unreachable today
 //! only because `LocalPlatform::current()` never returns `Unix` on Windows --
 //! a runtime accident, not a guarantee. Anyone adding a platform override, a
-//! test seam, or a WSL path would silently reach a code path that spawns `id -u`
-//! on a machine with no `id`, and get the shared-fallback `jefe.sock` warning
-//! path instead of a namespace.
+//! test seam, or a WSL path would silently reach a Unix-only code path on a
+//! machine that cannot honour it.
 //!
 //! The fix is to let the compiler enforce it: gate the module on `cfg(unix)` so
 //! the Windows build cannot name it at all. This contract keeps the gate from
@@ -84,15 +84,23 @@ fn nothing_outside_a_unix_gate_names_the_socket_path() {
     );
 }
 
+/// Nothing may identify this instance by the operating-system user.
+///
+/// The Unix socket used to be named `jefe-<uid>.sock`, which meant one server
+/// per account and therefore one shared server for every worktree an operator
+/// had open -- the same collision issue #547 reports on Windows. Issue #547
+/// re-keyed it on the installation identity, which deletes the need for the uid
+/// entirely: different accounts already have different home directories, so
+/// they already derive different identities.
+///
+/// This ban is repo-wide with no exemption. The `id -u` shell-out it names is
+/// gone; the test exists to keep it gone.
 #[test]
-fn the_uid_subprocess_lives_only_in_the_unix_only_module() {
+fn nothing_identifies_the_installation_by_operating_system_user() {
     let mut offenders = Vec::new();
 
     for file in rust_files(&repo_root().join("src")) {
         let shown = display_path(&file);
-        if shown.ends_with("src/runtime/socket.rs") {
-            continue;
-        }
         let source = read_source_at(&file);
         for (index, line) in source.iter().enumerate() {
             if mentions_in_code(line, "Command::new(\"id\")") {
@@ -103,9 +111,12 @@ fn the_uid_subprocess_lives_only_in_the_unix_only_module() {
 
     assert!(
         offenders.is_empty(),
-        "`id -u` is spawned outside the Unix-only socket module:\n  {}\n\nThere is no `id` \
-         on Windows; the call returns `None` and silently degrades multi-user isolation \
-         rather than failing. Keep it inside `src/runtime/socket.rs`, which is `cfg(unix)`.",
+        "the operating-system user id is being read to identify this instance:\n  {}\n\nA jefe \
+         instance is identified by the config/state location it was launched from, not by who \
+         is running it (issue #547). Two worktrees under one account are two installations and \
+         must not share a server; one installation reached after a rename is still the same \
+         installation and must keep its sessions. Keying on the user gets both backwards, and \
+         `id` does not exist on Windows anyway.",
         offenders.join("\n  ")
     );
 }

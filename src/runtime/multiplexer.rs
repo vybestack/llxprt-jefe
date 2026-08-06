@@ -949,45 +949,46 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
     None
 }
 
+/// The identity whose server this process should be talking to.
+///
+/// `unique` requests a single-use identity so concurrent test processes never
+/// share a server with each other or with the developer's live agents.
+fn active_installation(unique: bool) -> super::namespace::InstallationIdentity {
+    if unique {
+        super::installation::isolated_run()
+    } else {
+        super::installation::current().clone()
+    }
+}
+
 /// Isolation for the machine this build runs on.
+///
+/// Both platforms key off the same [`InstallationId`](super::namespace::InstallationId);
+/// only the *rendering* differs, because tmux isolates by socket path and psmux
+/// isolates by `-L` server name. Deriving both from one value is what makes a
+/// second worktree get its own server on every platform (issue #547).
 ///
 /// Split by `cfg` rather than matched on `LocalPlatform` so the Windows build
 /// never names the Unix socket resolver (issue #547 V7). A runtime match left
 /// the Unix arm compiled in and reachable by anyone who introduced a platform
 /// override; a `cfg` split makes it a compile error instead.
 #[cfg(unix)]
-fn current_isolation(_unique: bool) -> MultiplexerIsolation {
-    MultiplexerIsolation::Socket(super::socket::jefe_tmux_socket_path().to_path_buf())
+fn current_isolation(unique: bool) -> MultiplexerIsolation {
+    let installation = active_installation(unique);
+    let socket = if unique {
+        // A single-use run must bypass the process-wide cache, which holds the
+        // stable installation's socket.
+        super::socket::socket_path_for(installation.id())
+    } else {
+        super::socket::jefe_tmux_socket_path(installation.id()).to_path_buf()
+    };
+    MultiplexerIsolation::Socket(socket)
 }
 
 /// Isolation for the machine this build runs on. See the `cfg(unix)` twin.
-///
-/// `unique` requests a per-process namespace so concurrent test processes never
-/// share a psmux server with each other or with the developer's live agents.
 #[cfg(windows)]
 fn current_isolation(unique: bool) -> MultiplexerIsolation {
-    if unique {
-        MultiplexerIsolation::Namespace(unique_test_namespace())
-    } else {
-        MultiplexerIsolation::Namespace(stable_jefe_namespace())
-    }
-}
-
-#[cfg(windows)]
-fn unique_test_namespace() -> String {
-    super::identity::unique_namespace_for_state_path(
-        &crate::persistence::resolve_paths().state_path,
-    )
-}
-
-/// The namespace every production psmux command shares.
-///
-/// Derived from the resolved state path so that a machine rename, an account
-/// rename, or a casing change in `%LOCALAPPDATA%` cannot move it and strand
-/// running agents (issue #547).
-#[cfg(windows)]
-fn stable_jefe_namespace() -> String {
-    super::identity::namespace_for_state_path(&crate::persistence::resolve_paths().state_path)
+    MultiplexerIsolation::Namespace(active_installation(unique).id().as_str().to_owned())
 }
 
 fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {

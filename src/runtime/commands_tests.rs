@@ -644,7 +644,8 @@ fn local_multiplexer_plan_uses_namespace_isolation() {
 fn local_multiplexer_plan_uses_socket_isolation() {
     let plan = MultiplexerPlan::current()
         .unwrap_or_else(|error| panic!("local multiplexer plan should resolve: {error}"));
-    let socket = crate::runtime::jefe_tmux_socket_path();
+    let socket =
+        crate::runtime::jefe_tmux_socket_path(crate::runtime::installation::current().id());
     assert_eq!(
         plan.base_args(),
         [

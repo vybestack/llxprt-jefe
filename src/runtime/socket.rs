@@ -5,61 +5,37 @@
 //! socket. This also means jefe never accidentally destroys unrelated sessions
 //! and is not affected when the shared default server dies.
 //!
-//! The resolution mirrors the persistence layer's precedence pattern:
+//! The socket is named after the [`InstallationId`] of the jefe that owns it,
+//! which is the same value Windows passes to `psmux -L`. Two worktrees launched
+//! from different config/state locations therefore get different servers on
+//! every platform. Naming it after the *user* instead, as this module once did
+//! by shelling out to `id -u`, gave every jefe on the box one shared socket and
+//! reproduced on Unix the collision that issue #547 was filed about on Windows.
+//! User isolation survives the change structurally: distinct accounts resolve
+//! distinct state paths, so they derive distinct identities.
+//!
+//! The directory resolution mirrors the persistence layer's precedence pattern:
 //! 1. `JEFE_SOCKET_PATH` env var (absolute socket file path) — highest precedence
-//! 2. `JEFE_SOCKET_DIR` env var (directory; socket file = `<dir>/jefe.sock`)
+//! 2. `JEFE_SOCKET_DIR` env var (directory; socket file = `<dir>/<id>.sock`)
 //! 3. default: `dirs::runtime_dir()` if available (Linux XDG_RUNTIME_DIR),
 //!    else `dirs::data_local_dir()`, else `std::env::temp_dir()`.
 //!
 //! `dirs::runtime_dir()` returns `None` on macOS/Windows, so the fallback chain
 //! always produces a usable path.
 
+use super::namespace::InstallationId;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-/// Resolve and cache the real UID via `id -u`.
-///
-/// Shells out once and caches the result in a process-global [`OnceLock`] so
-/// [`socket_filename`] (and transitively [`resolve_socket_path`]) is
-/// pure-after-first-call and avoids repeated subprocess spawns.
-///
-/// SAFETY note: this is not `unsafe` code — `std::os::unix::process` would
-/// be, but `libc::getuid` is forbidden by the `unsafe_code = "forbid"` lint.
-/// We shell out to `id -u` to stay within the no-unsafe, no-libc constraint.
-fn cached_uid() -> Option<u32> {
-    static UID: OnceLock<Option<u32>> = OnceLock::new();
-    *UID.get_or_init(|| {
-        std::process::Command::new("id")
-            .arg("-u")
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| {
-                String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse::<u32>()
-                    .ok()
-            })
-    })
-}
-
-/// Stable socket filename (suffixed with the real UID on Unix so concurrent
-/// users on the same host never collide).
-fn socket_filename() -> String {
-    if let Some(uid) = cached_uid() {
-        format!("jefe-{uid}.sock")
-    } else {
-        tracing::warn!(
-            "could not determine UID; falling back to shared jefe.sock — multi-user isolation may be compromised"
-        );
-        "jefe.sock".to_owned()
-    }
+/// Socket file name for an installation.
+fn socket_filename(installation: &InstallationId) -> String {
+    format!("{installation}.sock")
 }
 
 /// Ensure the containing directory for `socket_file` exists, creating it (and
 /// parents) as needed. On failure, fall back to `temp_dir()` so the caller
 /// always gets a writable path rather than panicking.
-fn ensure_dir_or_fallback(socket_file: PathBuf) -> PathBuf {
+fn ensure_dir_or_fallback(socket_file: PathBuf, installation: &InstallationId) -> PathBuf {
     let Some(parent) = socket_file.parent() else {
         return socket_file;
     };
@@ -70,14 +46,14 @@ fn ensure_dir_or_fallback(socket_file: PathBuf) -> PathBuf {
 
     // Fall back to temp_dir + socket filename on creation failure. temp_dir is
     // world-writable, which weakens isolation versus a user-owned runtime/data
-    // dir, but it is still a UID-suffixed private socket (never the shared
+    // dir, but it is still an installation-private socket (never the shared
     // default tmux socket). Warn so the silent fallback is diagnosable.
     tracing::warn!(
         requested_dir = %parent.display(),
         "could not create jefe tmux socket directory; falling back to temp dir",
     );
     let fallback_name = socket_file.file_name().map_or_else(
-        || std::ffi::OsString::from(socket_filename()),
+        || std::ffi::OsString::from(socket_filename(installation)),
         std::ffi::OsStr::to_owned,
     );
     std::env::temp_dir().join(fallback_name)
@@ -95,7 +71,7 @@ fn socket_path_len_ok(candidate: &std::path::Path) -> bool {
 ///
 /// Precedence: `dirs::runtime_dir()` (Linux XDG_RUNTIME_DIR; `None` on macOS)
 /// → `dirs::data_local_dir()` → `std::env::temp_dir()`.
-fn default_socket_dir() -> PathBuf {
+fn default_socket_dir(filename: &str) -> PathBuf {
     if let Some(dir) = dirs::runtime_dir() {
         return dir;
     }
@@ -103,9 +79,9 @@ fn default_socket_dir() -> PathBuf {
         // Unix domain socket paths have a strict kernel limit (104 bytes
         // macOS, 108 Linux). On macOS `runtime_dir()` is `None` so the
         // fallback reaches `data_local_dir()` (`~/Library/Application
-        // Support`), which with a long username + `jefe-<uid>.sock` can
-        // exceed 104 bytes, making tmux fail cryptically.
-        let candidate = dir.join(socket_filename());
+        // Support`), which with a long username + `<id>.sock` can exceed
+        // 104 bytes, making tmux fail cryptically.
+        let candidate = dir.join(filename);
         if socket_path_len_ok(&candidate) {
             return dir;
         }
@@ -126,10 +102,14 @@ fn default_socket_dir() -> PathBuf {
 ///
 /// Precedence:
 /// 1. `socket_path_env` (`JEFE_SOCKET_PATH`) — absolute socket file path
-/// 2. `socket_dir_env` (`JEFE_SOCKET_DIR`) — directory; socket file = `<dir>/jefe-<uid>.sock`
+/// 2. `socket_dir_env` (`JEFE_SOCKET_DIR`) — directory; socket file = `<dir>/<id>.sock`
 /// 3. platform default (`dirs::runtime_dir()` → `dirs::data_local_dir()` → tempdir)
 #[must_use]
-fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>) -> PathBuf {
+fn resolve_from_env(
+    socket_path_env: Option<&str>,
+    socket_dir_env: Option<&str>,
+    filename: &str,
+) -> PathBuf {
     // 1. JEFE_SOCKET_PATH — absolute socket file path. A relative path
     //    resolves against tmux's CWD (not jefe's), causing subtle bugs, so
     //    only honor it when absolute. This is the most explicit user intent,
@@ -152,7 +132,7 @@ fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>)
         );
     }
 
-    // 2. JEFE_SOCKET_DIR — directory; socket file = `<dir>/jefe-<uid>.sock`.
+    // 2. JEFE_SOCKET_DIR — directory; socket file = `<dir>/<id>.sock`.
     //    A relative directory resolves against tmux's CWD (not jefe's),
     //    causing the same bug class as a relative JEFE_SOCKET_PATH, so only
     //    honor it when absolute. Apply the same length guard as the
@@ -162,7 +142,7 @@ fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>)
     if let Some(dir) = socket_dir_env.map(str::trim).filter(|s| !s.is_empty()) {
         let dir_buf = PathBuf::from(dir);
         if dir_buf.is_absolute() {
-            let candidate = dir_buf.join(socket_filename());
+            let candidate = dir_buf.join(filename);
             if socket_path_len_ok(&candidate) {
                 return candidate;
             }
@@ -179,7 +159,7 @@ fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>)
     }
 
     // 3. Platform default.
-    default_socket_dir().join(socket_filename())
+    default_socket_dir(filename).join(filename)
 }
 
 /// Resolve the jefe-private tmux socket path, honoring env precedence.
@@ -187,60 +167,65 @@ fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>)
 /// This is the pure resolver (no side effects beyond optional `create_dir_all`
 /// in the public [`jefe_tmux_socket_path`]). Useful for deterministic tests.
 #[must_use]
-pub fn resolve_socket_path() -> PathBuf {
+pub fn resolve_socket_path(installation: &InstallationId) -> PathBuf {
     resolve_from_env(
         std::env::var("JEFE_SOCKET_PATH").ok().as_deref(),
         std::env::var("JEFE_SOCKET_DIR").ok().as_deref(),
+        &socket_filename(installation),
     )
+}
+
+/// Resolve the socket path for an arbitrary installation, creating its
+/// directory.
+///
+/// Unlike [`jefe_tmux_socket_path`] this is not cached, so it is the right
+/// entry point for a single-use isolated run, which by definition must not
+/// reuse the process-wide answer.
+#[must_use]
+pub fn socket_path_for(installation: &InstallationId) -> PathBuf {
+    ensure_dir_or_fallback(resolve_socket_path(installation), installation)
 }
 
 /// Resolve and cache the jefe-private tmux socket path.
 ///
 /// Honors, in order:
 /// - `JEFE_SOCKET_PATH` (absolute socket file path)
-/// - `JEFE_SOCKET_DIR` (directory; socket file = `<dir>/jefe-<uid>.sock`)
+/// - `JEFE_SOCKET_DIR` (directory; socket file = `<id>.sock`)
 /// - default (`dirs::runtime_dir()` → `dirs::data_local_dir()` → tempdir)
 ///
 /// Ensures the containing directory exists (creating it on first use). If
 /// directory creation fails, falls back to `temp_dir()` rather than panicking.
 ///
 /// The result is cached in a `OnceLock` because it is read on every tmux
-/// invocation; re-resolving (and re-shelling-out to `id -u`) each time would be
-/// wasteful and could race with concurrent env changes.
+/// invocation and `create_dir_all` on each one would be wasteful. Caching is
+/// safe because the active installation identity is itself resolved once per
+/// process; see `installation::current`.
 #[must_use]
-pub fn jefe_tmux_socket_path() -> &'static std::path::Path {
+pub fn jefe_tmux_socket_path(installation: &InstallationId) -> &'static std::path::Path {
     static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
-    SOCKET_PATH.get_or_init(|| ensure_dir_or_fallback(resolve_socket_path()))
+    SOCKET_PATH
+        .get_or_init(|| ensure_dir_or_fallback(resolve_socket_path(installation), installation))
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::path::Path;
 
-    /// Assert a socket filename is either `jefe-<uid>.sock` (numeric uid) or
-    /// the shared `jefe.sock` fallback. When the numeric-uid form is present,
-    /// cross-check the suffix against the actual `id -u` if available.
-    fn assert_valid_jefe_socket_filename(filename: &str) {
-        let suffix = filename.strip_prefix("jefe-").unwrap_or(filename);
-        if suffix.is_empty() {
-            // The shared `jefe.sock` (no-uid) fallback form.
-            assert_eq!(
-                filename, "jefe.sock",
-                "empty suffix means shared fallback, expected jefe.sock, got {filename}"
-            );
-            return;
-        }
-        let digits = suffix.strip_suffix(".sock").unwrap_or(suffix);
-        assert!(
-            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()),
-            "expected jefe-<uid>.sock with numeric uid, got {filename}"
+    fn installation() -> InstallationId {
+        InstallationId::for_state_path(Path::new("/home/dev/.local/share/jefe/state.json"))
+    }
+
+    /// Assert a socket filename names an installation rather than a user.
+    fn assert_installation_socket_filename(filename: &str) {
+        assert_eq!(filename, socket_filename(&installation()));
+        assert!(filename.starts_with("jefe-"));
+        assert_eq!(
+            Path::new(filename)
+                .extension()
+                .and_then(std::ffi::OsStr::to_str),
+            Some("sock")
         );
-        // Cross-check against the real uid when available.
-        if let Some(real_uid) = cached_uid()
-            && let Ok(parsed) = digits.parse::<u32>()
-        {
-            assert_eq!(parsed, real_uid, "socket uid suffix should match `id -u`");
-        }
     }
 
     #[test]
@@ -249,6 +234,7 @@ mod tests {
         let path = resolve_from_env(
             Some("/tmp/explicit-jefe.sock"),
             Some("/tmp/should-be-ignored"),
+            &socket_filename(&installation()),
         );
         assert_eq!(path, PathBuf::from("/tmp/explicit-jefe.sock"));
     }
@@ -257,55 +243,62 @@ mod tests {
     fn resolve_ignores_relative_socket_path() {
         // A relative JEFE_SOCKET_PATH must be ignored (it would resolve
         // against tmux's CWD), falling through to JEFE_SOCKET_DIR.
-        let path = resolve_from_env(Some("relative/jefe.sock"), Some("/tmp/jefe-sockets"));
+        let path = resolve_from_env(
+            Some("relative/jefe.sock"),
+            Some("/tmp/jefe-sockets"),
+            &socket_filename(&installation()),
+        );
         assert!(path.starts_with("/tmp/jefe-sockets"));
         let filename = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("socket must have a filename: {path:?}"));
-        assert_valid_jefe_socket_filename(filename);
+        assert_installation_socket_filename(filename);
     }
 
     #[test]
     fn resolve_honors_socket_dir_with_filename_when_path_absent() {
-        let path = resolve_from_env(None, Some("/tmp/jefe-sockets"));
+        let path = resolve_from_env(
+            None,
+            Some("/tmp/jefe-sockets"),
+            &socket_filename(&installation()),
+        );
         assert!(path.starts_with("/tmp/jefe-sockets"));
         let filename = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("socket must have a filename: {path:?}"));
-        assert_valid_jefe_socket_filename(filename);
+        assert_installation_socket_filename(filename);
     }
 
     #[test]
     fn resolve_ignores_blank_env_values() {
         // Empty/whitespace values are treated as unset.
-        let path = resolve_from_env(Some("   "), Some(""));
+        let path = resolve_from_env(Some("   "), Some(""), &socket_filename(&installation()));
         let filename = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("default must have a filename: {path:?}"));
-        assert_valid_jefe_socket_filename(filename);
+        assert_installation_socket_filename(filename);
     }
 
     #[test]
     fn resolve_falls_back_to_platform_default_when_no_env() {
-        let path = resolve_from_env(None, None);
+        let path = resolve_from_env(None, None, &socket_filename(&installation()));
         let filename = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("default must have a filename: {path:?}"));
-        assert_valid_jefe_socket_filename(filename);
+        assert_installation_socket_filename(filename);
     }
 
     #[test]
     fn resolve_falls_through_when_socket_dir_too_long() {
         // A JEFE_SOCKET_DIR that yields a socket path >= 100 bytes must fall
         // through to the platform default rather than reproducing the cryptic
-        // tmux socket-bind failure. Build a directory long enough that even
-        // the short `jefe-<uid>.sock` suffix pushes the total over the limit.
+        // tmux socket-bind failure.
         let long_dir = "/tmp/".to_owned() + &"a".repeat(95);
-        let path = resolve_from_env(None, Some(&long_dir));
+        let path = resolve_from_env(None, Some(&long_dir), &socket_filename(&installation()));
 
         // The result must NOT live under the over-long custom directory.
         assert!(
@@ -316,7 +309,7 @@ mod tests {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("fallback must have a filename: {path:?}"));
-        assert_valid_jefe_socket_filename(filename);
+        assert_installation_socket_filename(filename);
     }
 
     #[test]
@@ -324,7 +317,11 @@ mod tests {
         // A relative JEFE_SOCKET_DIR must be ignored (it would resolve
         // against tmux's CWD, same bug class as a relative JEFE_SOCKET_PATH),
         // falling through to the platform default.
-        let path = resolve_from_env(None, Some("relative/sockets"));
+        let path = resolve_from_env(
+            None,
+            Some("relative/sockets"),
+            &socket_filename(&installation()),
+        );
         assert!(
             !path.starts_with("relative/sockets"),
             "relative JEFE_SOCKET_DIR should fall through, got {path:?}"
@@ -333,7 +330,7 @@ mod tests {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("fallback must have a filename: {path:?}"));
-        assert_valid_jefe_socket_filename(filename);
+        assert_installation_socket_filename(filename);
     }
 
     #[test]
@@ -342,17 +339,31 @@ mod tests {
         // is still honored (falling through to a different socket would be more
         // surprising). The warning is emitted but the value is returned as-is.
         let overlong = "/tmp/".to_owned() + &"z".repeat(100) + ".sock";
-        let path = resolve_from_env(Some(&overlong), None);
+        let path = resolve_from_env(Some(&overlong), None, &socket_filename(&installation()));
         assert_eq!(path, PathBuf::from(&overlong));
     }
 
     #[test]
     fn socket_path_len_ok_respects_threshold() {
-        assert!(socket_path_len_ok(std::path::Path::new("/tmp/short.sock")));
+        assert!(socket_path_len_ok(Path::new("/tmp/short.sock")));
         // Exactly 100 bytes is NOT ok (guard is strictly < 100).
         let at_limit: String = "a".repeat(100);
-        assert!(!socket_path_len_ok(std::path::Path::new(&at_limit)));
+        assert!(!socket_path_len_ok(Path::new(&at_limit)));
         let just_under: String = "a".repeat(99);
-        assert!(socket_path_len_ok(std::path::Path::new(&just_under)));
+        assert!(socket_path_len_ok(Path::new(&just_under)));
+    }
+
+    /// Issue #547: two worktrees must not share one Unix socket.
+    ///
+    /// This is the Unix half of the collision the issue reports on Windows.
+    #[test]
+    fn distinct_installations_get_distinct_sockets() {
+        let first = InstallationId::for_state_path(Path::new("/work/tree-one/.jefe/state.json"));
+        let second = InstallationId::for_state_path(Path::new("/work/tree-two/.jefe/state.json"));
+
+        let first_path = resolve_from_env(None, Some("/tmp/jefe"), &socket_filename(&first));
+        let second_path = resolve_from_env(None, Some("/tmp/jefe"), &socket_filename(&second));
+
+        assert_ne!(first_path, second_path);
     }
 }

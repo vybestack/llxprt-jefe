@@ -39,12 +39,8 @@ mod errors;
 mod external_terminal;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
-/// Namespace derivation for the Windows `-L` server-isolation model (issue #547 V7).
-///
-/// Unix isolates by socket path, so nothing there derives a namespace. Slice S4
-/// makes namespace resolution cross-platform and un-gates this.
-#[cfg(windows)]
-mod identity;
+/// The boundary that resolves this process's installation identity (issue #547).
+pub(crate) mod installation;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
 mod job_object;
@@ -68,6 +64,13 @@ mod multiplexer_conformance;
 mod multiplexer_conformance_io;
 mod multiplexer_conformance_sweep;
 mod multiplexer_contract;
+/// Pure derivation of an installation identity from a config/state path
+/// (issue #547).
+///
+/// A jefe instance is tied to the config it was launched from, not to the
+/// machine or the account running it, so both platforms key their server
+/// isolation off this one value.
+pub(crate) mod namespace;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
@@ -98,9 +101,10 @@ pub(crate) mod session_host;
 mod shell_window;
 /// Unix-domain socket resolution for tmux's `-S` flag (issue #547 V7).
 ///
-/// Windows isolates by server namespace (`-L`), never by socket path, and the
-/// resolver shells out to `id -u`, which does not exist there. Gating the module
-/// makes the unreachable path unnameable rather than merely unreached.
+/// Windows isolates by server namespace (`-L`), never by socket path, so none
+/// of this — the `sun_path` length guard, the `XDG_RUNTIME_DIR` precedence —
+/// means anything there. Gating the module makes the unreachable path
+/// unnameable rather than merely unreached.
 #[cfg(unix)]
 mod socket;
 mod stub_manager;
@@ -232,9 +236,12 @@ pub use pane_capture::{capture_pane_history, capture_pane_lines_result};
 mod agent_executable_tests;
 
 #[cfg(test)]
-#[path = "identity_tests.rs"]
-#[cfg(windows)]
-mod identity_tests;
+#[path = "installation_tests.rs"]
+mod installation_tests;
+
+#[cfg(test)]
+#[path = "namespace_tests.rs"]
+mod namespace_tests;
 
 #[cfg(test)]
 #[path = "process_tests.rs"]
