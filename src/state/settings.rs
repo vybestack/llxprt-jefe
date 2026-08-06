@@ -107,6 +107,7 @@ impl AppState {
         // draft, so what the rows say and what the draft would save are two
         // halves of one moment rather than two moments that can disagree.
         self.settings_state.agent_types = self.agent_type_availability.clone();
+        self.settings_state.plugins = self.plugin_inventory.clone();
         self.settings_state.actions = self.action_registry_snapshot.clone();
         self.bind_settings_source(source);
         let _ = self.enter_screen(ScreenId::Settings);
@@ -204,6 +205,7 @@ impl AppState {
         self.settings_state.draft = None;
         self.settings_state.blocked.clear();
         self.settings_state.agent_types.clear();
+        self.settings_state.plugins.clear();
         self.settings_state.actions = None;
         self.settings_state.restore_theme = unsaved_preview
             .then(|| self.settings_state.opened_theme.clone())

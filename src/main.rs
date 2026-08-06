@@ -227,7 +227,10 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
         Some(jefe::cli::ConfigCommand::MigrateState) => Some(jefe::recovery::run_migrate_state(
             cli_args.config_dir.as_deref(),
         )),
-        _ => None,
+        _ => cli_args
+            .plugin
+            .as_ref()
+            .map(|command| jefe::plugin_command::run(command, cli_args.config_dir.as_deref())),
     };
     let Some(output) = output else {
         return false;

@@ -49,6 +49,8 @@ pub mod messages;
 /// Boundary-owned display data for mouse-selection content projection.
 pub mod pane_content_projection;
 pub mod persistence;
+/// Provider-free configuration recovery command boundary.
+pub mod plugin_command;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub mod pr_detail_content;
@@ -57,7 +59,6 @@ pub mod pr_diff_content;
 mod pr_diff_content_tests;
 /// Pure selected-agent Preview projection.
 pub mod preview_view;
-/// Provider-free configuration recovery command boundary.
 pub mod recovery;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).

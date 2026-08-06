@@ -469,6 +469,29 @@ There is no event queue, no async event bus, no pub/sub. Events are processed in
 
 ---
 
+## Plugin Packages
+
+A package is a directory `<root>/<plugin-id>/<canonical-semver>/` containing a
+closed `plugin.json`. Packages are found in ordered roots — the executable's own
+prefix, the platform package-manager prefixes, then `<config>/plugins/installed`
+— and deduplicated by physical identity so one package reached through several
+paths is one row.
+
+Discovery, validation and composition are **provider-free**: a manifest is data,
+every rule in it is checked by pure code, and nothing starts a provider. Whether
+a package could run here is reported as a reason, never discovered by trying.
+
+Installation takes a `tar.gz` or, with `--developer`, an unpacked directory.
+Everything is validated in memory, staged privately with normalized modes, then
+committed by one atomic rename into the user root. Versions live side by side;
+nothing is ever overwritten, and there is no update or network command.
+
+A package is **disabled until explicitly trusted**. Trust records the exact
+version and configuration through the lossless settings writer and states what
+it means: the provider will run unsandboxed as the operator's OS user. Because
+packages are composed while the session builds its registries, trust takes
+effect at the next start.
+
 ## Non-Functional Requirements
 
 ### Performance

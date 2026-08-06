@@ -599,3 +599,32 @@ fn action_capture_records_original_event_chord_and_resolution_separately() {
 
     cleanup(&outcome);
 }
+
+/// The CW-09 Plugins scenario must parse through the real schema-1 parser
+/// (issue #389, acceptance rows U1 and U2).
+///
+/// Parsing is asserted rather than executed here because the shipped
+/// `dev-docs/tmux-scenarios/` scenarios are driven by the tmux harness, which
+/// needs a built binary and a terminal; what this guards is that the scenario
+/// stays a valid ledger as the schema evolves.
+#[test]
+fn the_plugin_settings_scenario_is_a_valid_schema_one_ledger() {
+    let path = repo_path("dev-docs/tmux-scenarios/plugin-settings-all-states.json");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let scenario = parse_scenario_v1(text.as_bytes())
+        .unwrap_or_else(|err| panic!("plugin scenario must parse: {err:?}"));
+    assert_eq!(scenario.name, "plugin-settings-all-states");
+    assert!(
+        text.contains("Unsupported platform"),
+        "the scenario must assert the unsupported-platform state"
+    );
+    assert!(
+        text.contains("unavailable"),
+        "the scenario must assert the unavailable state"
+    );
+    assert!(
+        text.contains("\"cols\": 20"),
+        "the scenario must exercise the small-terminal state"
+    );
+}

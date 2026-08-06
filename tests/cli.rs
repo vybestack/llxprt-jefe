@@ -1,7 +1,7 @@
 //! CLI argument parsing tests moved out of the lib target to stay under the
 //! Clippy `large_stack_arrays` test-descriptor ceiling (issue #307).
 
-use jefe::cli::{CliArgs, CliError, ConfigCommand, parse_args};
+use jefe::cli::{CliArgs, CliError, ConfigCommand, PluginCommand, parse_args};
 use std::path::PathBuf;
 
 trait TestResultExt<T, E> {
@@ -204,4 +204,150 @@ fn explain_binding_usage_errors_exit_64() {
         let error = parse(&args).error_or_panic("invalid explain syntax");
         assert_eq!(error.exit_code(), 64, "args: {args:?}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// `jefe plugin ...` (issue #389 CW-09, acceptance rows C1-C8)
+// ---------------------------------------------------------------------------
+
+fn plugin(args: &[&str]) -> PluginCommand {
+    parse(args)
+        .value_or_panic("plugin command must parse")
+        .plugin
+        .unwrap_or_else(|| panic!("a plugin command must be selected"))
+}
+
+#[test]
+fn plugin_list_takes_no_operand() {
+    assert_eq!(plugin(&["plugin", "list"]), PluginCommand::List);
+}
+
+#[test]
+fn plugin_inspect_takes_an_id_and_an_optional_exact_version() {
+    assert_eq!(
+        plugin(&["plugin", "inspect", "vendor.pkg"]),
+        PluginCommand::Inspect {
+            id: "vendor.pkg".to_owned(),
+            version: None
+        }
+    );
+    assert_eq!(
+        plugin(&["plugin", "inspect", "vendor.pkg", "--version", "1.0.0"]),
+        PluginCommand::Inspect {
+            id: "vendor.pkg".to_owned(),
+            version: Some("1.0.0".to_owned())
+        }
+    );
+}
+
+#[test]
+fn plugin_install_defaults_to_disabled_and_to_an_archive() {
+    assert_eq!(
+        plugin(&["plugin", "install", "pkg.tar.gz"]),
+        PluginCommand::Install {
+            source: PathBuf::from("pkg.tar.gz"),
+            developer: false,
+            enable: false
+        }
+    );
+}
+
+#[test]
+fn plugin_install_accepts_explicit_trust_and_developer_mode() {
+    assert_eq!(
+        plugin(&["plugin", "install", "pkg.tar.gz", "--enable"]),
+        PluginCommand::Install {
+            source: PathBuf::from("pkg.tar.gz"),
+            developer: false,
+            enable: true
+        }
+    );
+    assert_eq!(
+        plugin(&["plugin", "install", "./src", "--developer", "--enable"]),
+        PluginCommand::Install {
+            source: PathBuf::from("./src"),
+            developer: true,
+            enable: true
+        }
+    );
+}
+
+#[test]
+fn plugin_enable_and_disable_take_an_id() {
+    assert_eq!(
+        plugin(&["plugin", "enable", "vendor.pkg"]),
+        PluginCommand::Enable {
+            id: "vendor.pkg".to_owned(),
+            version: None
+        }
+    );
+    assert_eq!(
+        plugin(&["plugin", "enable", "vendor.pkg", "--version", "2.0.0"]),
+        PluginCommand::Enable {
+            id: "vendor.pkg".to_owned(),
+            version: Some("2.0.0".to_owned())
+        }
+    );
+    assert_eq!(
+        plugin(&["plugin", "disable", "vendor.pkg"]),
+        PluginCommand::Disable {
+            id: "vendor.pkg".to_owned()
+        }
+    );
+}
+
+#[test]
+fn rollback_and_remove_require_an_exact_version() {
+    assert_eq!(
+        plugin(&["plugin", "rollback", "vendor.pkg", "--version", "0.9.0"]),
+        PluginCommand::Rollback {
+            id: "vendor.pkg".to_owned(),
+            version: "0.9.0".to_owned()
+        }
+    );
+    assert_eq!(
+        plugin(&["plugin", "remove", "vendor.pkg", "--version", "0.9.0"]),
+        PluginCommand::Remove {
+            id: "vendor.pkg".to_owned(),
+            version: "0.9.0".to_owned()
+        }
+    );
+
+    // Selecting or deleting one of several side-by-side versions is only
+    // meaningful with the version named, so omitting it is a usage error.
+    for command in ["rollback", "remove"] {
+        let error = parse(&["plugin", command, "vendor.pkg"])
+            .error_or_panic("a missing --version must be a usage error");
+        assert_eq!(error.exit_code(), 64);
+    }
+}
+
+#[test]
+fn every_plugin_subcommand_requires_its_operand() {
+    for command in [
+        "inspect", "enable", "disable", "rollback", "remove", "install",
+    ] {
+        let error =
+            parse(&["plugin", command]).error_or_panic("a missing operand must be a usage error");
+        assert_eq!(error.exit_code(), 64);
+    }
+    let error = parse(&["plugin"]).error_or_panic("plugin needs a subcommand");
+    assert_eq!(error.exit_code(), 64);
+}
+
+#[test]
+fn an_unknown_plugin_subcommand_is_a_usage_error() {
+    for command in ["update", "search", "publish"] {
+        let error = parse(&["plugin", command, "vendor.pkg"])
+            .error_or_panic("an unknown subcommand must be a usage error");
+        assert_eq!(error.exit_code(), 64);
+    }
+}
+
+#[test]
+fn plugin_commands_honour_an_isolated_config_directory() {
+    let parsed =
+        parse(&["plugin", "list", "--config", "/tmp/iso"]).value_or_panic("plugin list must parse");
+    assert_eq!(parsed.config_dir, Some(PathBuf::from("/tmp/iso")));
+    assert_eq!(parsed.plugin, Some(PluginCommand::List));
 }

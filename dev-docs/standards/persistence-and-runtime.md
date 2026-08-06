@@ -276,6 +276,67 @@ theme the state names.
 
 ---
 
+## Plugin Package Roots and the Install Transaction
+
+### Ordered roots and physical identity
+
+Roots are discovered low to high: the canonical executable directory's
+`../share/jefe/plugins`; the platform package-manager prefixes (macOS
+`/opt/homebrew` then `/usr/local`; Linux `/usr/local` then `/usr`); then
+`<config>/plugins/installed`. Missing roots are skipped. `PATH` and the current
+directory are never consulted.
+
+Only `<config>/plugins/installed` is writable. A package-manager root is owned
+by the package manager and is never written to.
+
+Packages are deduplicated by **physical identity** — `(device, inode)` where the
+platform provides it, canonical path otherwise — through the same path-authority
+contract the settings and state files use. The first occurrence in root order
+wins and later paths are retained as alias provenance. Lexically equal paths are
+deliberately *not* merged separately: one dedup authority cannot disagree with
+itself, two can.
+
+Two physically distinct packages claiming one `(id, version)` are `PLG-E501`.
+Precedence never resolves that collision, so neither is selected and neither
+publishes, even when their bytes match.
+
+### The archive transaction
+
+An accepted archive is one gzip member containing one POSIX ustar/pax tar whose
+single root directory is `<plugin-id>-<canonical-semver>/`. Single-member
+decoding is what makes a concatenated member or a tacked-on suffix detectable;
+multi-member decoding must never be used.
+
+Each entry's declared size is checked **before** its body is read, and the
+running expanded total is checked as it grows, so a header that lies about a
+small body cannot get a large allocation past the bound.
+
+Modes are normalized, never honoured: setuid, setgid and sticky bits are
+discarded and every file becomes `0755` or `0644` by executable bit alone.
+Archive ownership and timestamps are ignored.
+
+Installing is two phases with one irreversible step between them. Before the
+rename everything happens in a private mode-`0700` staging directory, so a
+failure removes only staging and the installed tree is untouched. The rename is
+the commit: atomic, with the destination required not to exist. If the rename
+succeeds but the final parent sync does not, the durable result is genuinely
+unknown, so that reports `PLG-E503` and the caller rescans the physical tree
+rather than assuming an outcome or overwriting to "fix" it.
+
+A developer directory install applies the identical rules by reusing the same
+reader; source symlinks are refused exactly as archive link entries are.
+
+### Trust and version selection
+
+Trust persists through the ordinary lossless sparse-edit path as
+`plugins.<id>.enabled` and `plugins.<id>.version`. Disabling writes `false`
+rather than removing the assignment, so the selected version and configuration
+remain a dormant choice. The version is written verbatim including build
+metadata, because build metadata is part of exact package identity.
+
+Both leaves are structural: a package is composed while the session builds its
+registries, so a saved change applies at the next start.
+
 ## Runtime Orchestration Standards
 
 The runtime layer (`src/runtime/`, the PTY manager) owns tmux/PTY behavior. The

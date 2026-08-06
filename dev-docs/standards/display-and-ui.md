@@ -590,6 +590,33 @@ scenario cannot seed a settings document.
 
 ---
 
+## The Plugins Section
+
+The Plugins section is a pure presenter over the immutable inventory snapshot
+bound when the screen opens. It never scans a root, installs, writes, or starts
+a provider, so a rescan finishing underneath the screen cannot make the list
+move while the operator is choosing from it.
+
+Every state is a distinct **text** status, never a colour alone:
+
+| State | Status text | Second line |
+|---|---|---|
+| Installed | `installed` | — |
+| No binary for this host | `Unsupported platform` | `no binary for <triple>` |
+| Ambiguous | `Ambiguous PLG-E501` | `N physical package paths` |
+| Unreadable | `unavailable` | the reason it cannot be read |
+
+An installed package defaults to **not** trusted — deliberately the opposite of
+an agent type — so one nobody has enabled never looks ready to run. A package
+that cannot be selected, because it is ambiguous or unreadable, never renders as
+trusted and offers no toggle: there is no single thing to trust and trusting it
+could not take effect.
+
+Granting trust states the consequence rather than implying it: the provider runs
+unsandboxed as the operator's own OS user. The recovery state for a broken
+selected package states the process count explicitly, because the point of that
+state is that nothing ran.
+
 ## Keybind Footer Convention
 
 The bottom `KeybindBar` (`src/ui/components/keybind_bar.rs`) shows
