@@ -33,6 +33,15 @@ fn bin_path(name: &str) -> PathBuf {
     path.join(name)
 }
 
+fn host_binary(name: &str) -> PathBuf {
+    let search_path = std::env::var_os("PATH")
+        .unwrap_or_else(|| panic!("PATH must be available to locate {name}"));
+    std::env::split_paths(&search_path)
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("{name} must be available on the host PATH"))
+}
+
 fn load_scenario(relative: &str) -> String {
     let path = repo_path(relative);
     let text = std::fs::read_to_string(&path)
@@ -95,9 +104,15 @@ fn run_issue687_scenario(name: &str) -> RunOutcome {
     let json = load_scenario(&format!("dev-docs/tmux-scenarios/issue687/{name}"));
     let scenario = parse_scenario_v1(json.as_bytes())
         .unwrap_or_else(|err| panic!("{name} should parse: {err}"));
+    let mut installs = vec![("jefe".to_string(), bin_path("jefe"))];
+    if matches!(name, "session-continuity.json" | "config-isolation.json") {
+        for binary in ["tmux", "cp", "chmod", "sleep"] {
+            installs.push((binary.to_string(), host_binary(binary)));
+        }
+    }
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
-        installs: vec![("jefe".to_string(), bin_path("jefe"))],
+        installs,
     };
     run(&scenario, &config)
 }

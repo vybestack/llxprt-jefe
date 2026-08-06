@@ -328,11 +328,9 @@ fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
         r"C:\work\stable\.jefe\state.json",
     ))
     .unwrap_or_else(|error| panic!("production identity should resolve: {error}"));
-    let production_first = MultiplexerPlan::for_installation(&identity)
-        .unwrap_or_else(|error| panic!("first production plan should resolve: {error}"));
-    let production_second = MultiplexerPlan::for_installation(&identity)
-        .unwrap_or_else(|error| panic!("second production plan should resolve: {error}"));
-    assert_eq!(production_first.isolation(), production_second.isolation());
+    let production_first = MultiplexerPlan::isolation_for_installation(&identity);
+    let production_second = MultiplexerPlan::isolation_for_installation(&identity);
+    assert_eq!(production_first, production_second);
 
     let first = MultiplexerPlan::current_for_test()
         .unwrap_or_else(|error| panic!("first test plan should resolve: {error}"));

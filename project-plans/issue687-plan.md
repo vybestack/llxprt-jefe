@@ -217,6 +217,15 @@ Every changed file must map to N1–N10 or be recorded here before edit.
   into `harness_v1_fixtures`. This Windows host cannot execute Unix PTYs, so
   Linux/macOS CI is the execution authority.
 - Required local candidate-head command: `cargo xtask ci`.
+- First PR CI exposed three in-scope proof defects: the hermetic Unix scenarios
+  depended on uninstalled host tools, invalid socket configuration reached the
+  TUI as a warning instead of stopping startup, and a Windows isolation test
+  unnecessarily required an installed `psmux.exe`. The scenarios now parse with
+  shell builtins and install only the external tools they execute, startup
+  validates Unix isolation before runtime composition, and the Windows test uses
+  pure isolation rendering. The matching OCR comments were triaged: wording was
+  fixed; capability status, lossy process diagnostics, and successful-only socket
+  caching were rejected as out of scope or contrary to the acceptance contract.
 - Required PR evidence: exact-head Linux and native Windows CI, coverage,
   conflict-free ancestry, every finding triaged, and no unresolved correctness
   finding deferred from N1–N10.

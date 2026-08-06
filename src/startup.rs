@@ -66,6 +66,13 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         &paths.state.path,
         crate::runtime::installation::initialize(&paths.state.path).map(|_| ()),
     )?;
+    #[cfg(unix)]
+    socket_outcome(
+        &paths.state.path,
+        crate::runtime::installation::current()
+            .map_err(|_| crate::runtime::MultiplexerError::IdentityUnavailable)
+            .and_then(crate::runtime::MultiplexerPlan::isolation_for_installation),
+    )?;
     report_namespace_drift(&paths.state.path);
     apply_state_import(&paths.state)?;
     let (keymap, settings_document, settings_expected_hash) =
@@ -265,6 +272,29 @@ fn identity_outcome(
     }
 }
 
+#[cfg(unix)]
+fn socket_outcome(
+    path: &Path,
+    result: Result<crate::runtime::MultiplexerIsolation, crate::runtime::MultiplexerError>,
+) -> Result<(), PathError> {
+    result.map(|_| ()).map_err(|error| {
+        let mut diagnostic = Diagnostic::new(
+            CfgCode::E001,
+            Severity::Error,
+            DiagnosticPath::new(path.to_string_lossy()),
+            None,
+            "use an absolute, writable Unix socket path within the platform length limit",
+        );
+        error
+            .to_string()
+            .clone_into(&mut diagnostic.redacted_detail);
+        PathError {
+            diagnostic: Box::new(diagnostic),
+            exit_code: 2,
+        }
+    })
+}
+
 /// Record the namespace this installation is running under, and report it if
 /// it moved.
 ///
@@ -364,6 +394,28 @@ mod tests {
         );
 
         assert!(outcome.is_ok(), "a conflict must not stop startup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_invalid_socket_override_stops_startup() {
+        let error = socket_outcome(
+            Path::new("/work/one/state.json"),
+            Err(crate::runtime::MultiplexerError::SocketPathUnavailable {
+                variable: Some("JEFE_SOCKET_PATH"),
+                reason: "must be absolute".to_owned(),
+            }),
+        )
+        .error_or_panic("an invalid socket override should stop startup");
+
+        assert_eq!(error.exit_code, 2);
+        assert!(
+            error
+                .diagnostic
+                .redacted_detail
+                .contains("JEFE_SOCKET_PATH")
+        );
+        assert!(error.diagnostic.redacted_detail.contains("absolute"));
     }
 
     /// Startup must leave a record of the namespace it ran under, because a

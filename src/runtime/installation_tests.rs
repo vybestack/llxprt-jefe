@@ -15,9 +15,9 @@ fn state_path() -> &'static Path {
     Path::new(r"C:\Users\dev\AppData\Local\jefe\state.json")
 }
 
-/// Reading the active identity before startup initializes it must fail without
-/// mutating the write-once cell. A second read proves the accessor did not
-/// quietly install an ambient fallback on the first attempt.
+/// Reading the active identity before it has been initialized by startup must
+/// fail without mutating the write-once cell. A second read proves the accessor
+/// did not quietly install an ambient fallback on the first attempt.
 #[test]
 fn current_requires_authoritative_startup_initialization() {
     let active = OnceLock::new();
