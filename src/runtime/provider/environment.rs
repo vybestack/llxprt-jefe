@@ -230,6 +230,7 @@ impl fmt::Debug for ResolvedSecrets {
 /// misbehaving provider echoes never reaches an operator surface. Longer
 /// values are replaced first so a secret that is a prefix of another is not
 /// half-scrubbed.
+#[derive(Clone)]
 pub struct Redactor {
     values: Vec<String>,
 }

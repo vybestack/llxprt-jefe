@@ -169,8 +169,8 @@ pub(super) fn redact_supervisor_failure(
 }
 
 /// Redact every resolved secret value out of a cleanup failure. A shutdown-ack
-/// protocol fault may carry provider-supplied text; drain/reap failures carry
-/// no secret strings.
+/// protocol fault may carry provider-supplied text; an `Io` evidence string may
+/// carry an OS error; drain/reap failures carry no secret strings.
 pub(super) fn redact_cleanup_failure(
     failure: CleanupFailure,
     redactor: &Redactor,
@@ -182,6 +182,7 @@ pub(super) fn redact_cleanup_failure(
         CleanupFailure::ShutdownAck(error) => {
             CleanupFailure::ShutdownAck(redact_provider_error(error, redactor))
         }
+        CleanupFailure::Io(message) => CleanupFailure::Io(redactor.redact(&message).into_owned()),
         other => other,
     }
 }

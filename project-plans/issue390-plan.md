@@ -245,6 +245,7 @@ Evidence ledger:
 - [x] Slice A RED / GREEN / quick gate — missing protocol module produced the intended compile RED; 45 focused framing/protocol tests pass; full-workspace strict Clippy and source-size gate pass; every provider production file is below 750 lines
 - [x] Slice B reducer GREEN / strict Clippy / source-size / architecture — 65 focused reducer+projection tests pass (24 acceptance CW10-06–10, 41 remediation RED-first across two batches); full-workspace strict Clippy, source-size, and architecture gates pass; `src/messages.rs` held at the 750-line warn boundary and `src/state/types.rs` trimmed below 998; every provider production file is below 750 lines; placeholder TUI scenarios deleted and deferred to Slice D RED-first with deterministic provider fixtures
 - [x] Slice C supervisor fixtures GREEN / quick gate — 108 focused provider unit tests (framing, protocol, encode, environment, outbound queue 64/65 boundary, line reader, supervisor) plus 22 fixture-driven integration tests (CW10-02 happy/progress-256/provider-error/never-ready/crash/generation-drift; CW10-09 first-terminal; CW10-11 hang-shutdown staged reap, descendant-hang, strict shutdown-ack lifecycle; CW10-14 secret redaction across every provider-owned surface, environment isolation, caller-secret rejection) and the CW10-12 recovery zero-spawn executable-trap test all pass; full-workspace strict Clippy (`-D warnings`), `clippy-allows`, source-size, and architecture gates pass; locked all-feature workspace build succeeds; every new provider production file is below 750 lines (`supervisor.rs` largest at 725, `drains.rs` 197); the full lib suite (4270 tests) is green with no regressions
+- [x] Slice C2 persistent lifecycle GREEN / strict Clippy / source-size / architecture — 20 pure persistent-helper unit tests (8 fail-fast health-classification, 2 signal-delivery-evidence) plus 22 fixture-driven integration tests (incl. shutdown-frame write-failure) pass (CW10-03 ordered reverse-input→plugin-ID startup, all-ready atomic publication, duplicate-plugin-id rejection; CW10-04 spawn/hello-ack-timeout/ready-timeout/protocol-fault/crash-after-ack/undeclared-capability failures with rollback reap, second-candidate rollback of the first, no auto-restart after a ready exit; CW10-11 explicit host-shutdown reap-all, bounded `Drop` reap-all with PID-liveness check, wrong/missing/eof-before-ack/data-after-ack cleanup failures while still reaping, lingering-descendant `DrainTimeout` cleanup evidence with `process_reaped=false`); the C1 one-shot supervisor integration tests (22) and the CW10-12 recovery zero-spawn test remain green with no regression; full-workspace strict Clippy (`-D warnings`), `clippy-allows`, source-size, and architecture gates pass; locked all-feature workspace build succeeds; the full lib suite (4290 passed) is green; every new provider production file is below 750 lines (`supervisor.rs` 749, `persistent.rs` 748, `candidate.rs` 551)
 - [ ] Slice D end-to-end TUI GREEN / docs complete
 - [ ] Local Rust review and OCR triaged within counters
 - [ ] Exact-head `make ci-check`
@@ -450,11 +451,196 @@ dependency, no `unsafe`, no production `unwrap`/`expect`/`panic`/`#[allow]`, no
 unbounded wait, no secret-bearing fallback; every provider production file is
 below 750 lines. Slice C2 is not implemented.
 
-### Slice C2 deferred (persistent lifecycle)
+### Slice C2 delivered (persistent candidate lifecycle)
 
-CW10-03 (ordered persistent candidate startup) and CW10-04 (atomic all-or-
-nothing publication with rollback reap) are the remaining supervisor-side work.
-C1 already exposes the supervisor adapter and the staged-reap plumbing the
-persistent orchestration will reuse; the startup-composition edge wiring and the
-multi-candidate publication gate are deliberately out of C1 scope per the issue
-contract.
+CW10-03 (ordered persistent candidate startup) and CW10-04 (atomic
+all-or-nothing publication with rollback reap) are implemented. One-shot and
+persistent state machines remain distinct: persistent processes never reuse
+`run_one_shot` and are solely owned by `PersistentSupervisor` (a
+runtime/provider type), never `AppState`. No process handle leaves the
+supervisor; only typed readiness/health/publication values do.
+
+- **Persistent supervisor (`src/runtime/provider/persistent.rs`, 527 lines).**
+  Defines the atomic candidate/publication boundary: `run_persistent_startup`
+  returns `PersistentStartupResult::Started { supervisor, publication }` (a
+  `PersistentSupervisor` owning every ready process plus a separate, data-only
+  `PersistentPublication` snapshot) or `PersistentStartupFailure { failure,
+  rollback }` (typed failure/rollback evidence and no handles/publication).
+  Candidates are sorted by canonical `PluginId` text and started in that order;
+  duplicate plugin IDs are rejected before any spawn. Each candidate performs
+  hello/hello-ack/configure/ready with the per-stage handshake bound; a `Ready`
+  capability set that is not a subset of the manifest-declared capabilities is
+  rejected (`Capability` phase, `PLG-E502`) before publication. No publication
+  data is returned until every required candidate is `Ready`.
+- **Atomic rollback/reap (CW10-04).** Any spawn/hello-ack/configure/ready/
+  protocol/capability/timeout failure reaps every previously started and the
+  failing candidate (best-effort `shutdown` frame then the existing staged
+  process-tree/drain mechanics) and returns the per-candidate reap evidence;
+  no publication is returned. No auto-restart: a ready process that exits is
+  observed as `CandidateHealth::Exited` and is never respawned.
+- **Explicit bounded shutdown (CW10-11).** `PersistentSupervisor::shutdown`
+  sends a best-effort `shutdown` frame and runs the staged reap for every
+  candidate, returning per-candidate `process_reaped` evidence; it is idempotent.
+  `Drop` performs a bounded exact-PID/group cleanup (the staged reaper; bounded
+  by the worst-case shutdown window) so a dropped supervisor cannot orphan a
+  candidate process. `Drop` invokes `reap_all` explicitly (never silenced with
+  `let _ =`); it cannot return evidence, but the bounded staged reap always runs.
+- **Per-candidate startup (`src/runtime/provider/candidate.rs`, 414 lines).**
+  Isolates spawn, drain spawn, and the closed handshake to `ready` (reusing C1
+  framing/environment/redaction/process-tree helpers without merging the
+  one-shot and persistent state machines). The owned candidate is boxed in the
+  `StartOutcome` to keep the rollback `Result` small (no clippy allow), and the
+  owned process carries only the fields the supervisor reads (the publication
+  snapshot carries `plugin_version` separately, so no dead-code suppression is
+  needed on the owned process).
+- **Fixtures/tests.** `tests/fixtures/provider_fixture.rs` gained persistent
+  modes (ready, hello-hang, ready-hang, protocol-drift, crash-after-ack,
+  undeclared-cap, ready-then-exit, plus remediation modes: secret-protocol,
+  illegal-bytes, descendant-hang, ack-wrong-kind, ack-missing, ack-eof-before,
+  ack-data-after). `persistent_tests.rs` (8 fail-fast health-classification
+  tests) and `supervisor_tests.rs` (2 signal-delivery-evidence tests, plus the
+  `Io` cleanup-code assertion) cover `classify_health` precedence
+  (illegal > try-wait error > exited-wins-over-closed > running+closed > ready),
+  `signal_cleanup_evidence` (benign ESRCH filtered, real signal error preserved),
+  and the `CleanupFailure::Io` runtime-unavailable code.
+  `tests/issue390_persistent_providers.rs` is split via `#[path]` into
+  `support`/`lifecycle`/`remediation` modules (each below 750 lines; 22
+  integration tests) and cover: two
+  candidates in reverse input order starting in plugin-ID order; all-ready
+  atomic publication; spawn failure returning no publication and reaping
+  nothing; failure at each handshake phase (hello-ack timeout, ready timeout,
+  protocol fault, crash-after-ack, undeclared capability) with reap evidence;
+  second-candidate failure rolling back the first; no auto-restart after a
+  ready process exits; explicit host shutdown reaping all; `Drop` reaping all
+  (PID liveness check); and duplicate plugin-ID rejection before any spawn; plus
+  the remediation scenarios below, including a healthy candidate whose stdin
+  closed before shutdown surfacing a `CleanupFailure::Io` write-failure while
+  still being reaped.
+- **Reuse without merging.** `staged_shutdown`, `wait_for_exit`,
+  `collect_retained_stderr`, `compose_cleanup_failure`, environment/secret
+  resolution, redaction, encode, and process-tree helpers are reused; the
+  one-shot lifecycle driver and `run_one_shot` are untouched. The one-shot
+  `staged_shutdown` signature now accepts `Option<ChildStdin>` (a persistent
+  process may have already closed/dropped its stdin) with no behavior change for
+  the one-shot caller, which still passes `Some`.
+
+### Slice C2 persistent-correctness remediation (RED-first, no commit)
+
+Five source-grounded fixes close the remaining secret-leak, cleanup-evidence,
+strict-ack, fail-fast-health, and post-exit-pipe-closure gaps before the Slice
+C2 commit, each proven RED-first:
+
+1. **Persistent startup failures are redacted like one-shot.**
+   `prepare_environment` now resolves and preserves a `Redactor` (cloned from
+   the constructed `ProcessEnv`), and it is threaded through spawn, drain-spawn,
+   handshake, and capability validation. Every `CandidateFailure`/`StartupFailure`
+   diagnostic returned to the host is run through
+   `redaction::redact_supervisor_failure` so a configure secret echoed in a
+   malformed startup protocol error (`UnknownValue { value }`) or an I/O/spawn
+   diagnostic never reaches an operator surface. A RED integration test scans
+   `Debug`/`Display` of the startup failure for a declared secret echoed as an
+   invalid capability and asserts no secret remains.
+2. **Clean tree cleanup requires leader reaped AND bounded stdout EOF AND
+   bounded stderr completion.** `reap_owned` no longer discards the
+   `final_stdout_drain`/`collect_retained_stderr` outcomes: they feed
+   `compose_cleanup_failure`, and `ReapedCandidate`/`CandidateShutdown` carry a
+   typed `cleanup_failure: Option<CleanupFailure>` analogous to the one-shot
+   result. `reaped`/`process_reaped` now report a *clean* tree cleanup
+   (`cleanup_failure.is_none()`); a lingering descendant that survives the
+   leader's reap and holds an inherited pipe makes `process_reaped=false` with a
+   `DrainTimeout`, never a clean reap. A RED persistent fixture
+   (`persistent-descendant-hang`, an escaping descendant via `process_group(0)`
+   on Unix) proves `process_reaped=false` with a `DrainTimeout`.
+3. **Strict shutdown-ack/EOF validation for healthy persistent shutdown and
+   rollback-after-Ready.** A shared closed observer
+   (`driver::await_shutdown_ack`) was extracted from the one-shot
+   `Driver::observe_shutdown_ack` (behavior-preserving) and is reused by the
+   persistent `observe_healthy_shutdown`: a healthy candidate's explicit
+   shutdown and rollback-after-Ready advance the lifecycle through the outbound
+   `shutdown` and strictly observe the `shutdown-ack`. A wrong kind, a missing
+   (timeout) ack, an EOF before the ack, or data-after-ack each produce a
+   `CleanupFailure::ShutdownAck` while still killing/reaping the tree. An
+   unhealthy candidate (failed before `ready`) remains best-effort reaped with no
+   ack expected. RED fixtures cover all four ack-fault modes.
+4. **`health()` fails fast.** `candidate_health` probes the bounded stdout
+   channel first (`try_recv`): an unexpected frame, a non-frame fault, or a
+   closed-while-alive pipe each produce a sticky `CandidateHealth::ProtocolFault`
+   (illegal stdout after Ready marks the candidate unavailable and triggers no
+   restart) before `try_wait`. A `try_wait` OS error is reported as
+   `CandidateHealth::ProbeFailed`, never `Ready`. Once observed, a `ProtocolFault`
+   is sticky (the evidence is retained on the candidate) so it does not clear when
+   the bytes are drained from the channel. Unit tests cover Ready, Exited,
+   ProbeFailed, ProtocolFault (frame/fault/closed), and precedence.
+5. **An already-exited candidate still collects bounded pipe closure.** The
+   early `if owned.exited { return reaped=true }` shortcut is removed: when
+   `health()` observed an exit, the leader is force-killed/terminated for any
+   lingering descendant, and the bounded final stdout/stderr drains still run to
+   confirm both pipes closed within the bound before a clean reap is claimed. A
+   RED test drives a ready candidate to self-exit and asserts its subsequent
+   explicit shutdown still collects the drains rather than short-circuiting.
+
+No new dependency, no `unsafe`, no production `unwrap`/`expect`/`panic`/`todo`/
+`unimplemented`, no suppression/clippy allow, no unbounded wait, no broad kill,
+no ambient env, no generic bus/queue, no handle outside the supervisor, no
+secret-bearing `Debug`. Every new provider production file is below 750 lines.
+
+### Slice C2 final cleanup remediation (RED-first, no commit)
+
+Five final cleanup items close the test-organization, health-ordering,
+shutdown-write, signal-evidence, and `Drop`-silencing gaps before the Slice C2
+commit, each proven RED-first where behavior was newly exercised:
+
+6. **Oversize integration test target split.** The 900-line
+   `tests/issue390_persistent_providers.rs` is split via the established
+   `#[path = ...]` module organization (matching `tests/doctor.rs`) into a thin
+   entry plus `support` (shared `Scene`/env/bounds/poll helpers), `lifecycle`
+   (CW10-03/04 ordered startup, atomic publication, rollback reap, no
+   auto-restart, explicit shutdown, duplicate-id), and `remediation`
+   (CW10-11/14 cleanup-evidence/redaction/strict-ack/illegal-bytes/post-exit/
+   shutdown-write) modules, each below the 750-line source-size gate. Only
+   persistent-provider tests were moved; no unrelated tests were relocated.
+
+7. **`classify_health` priority: process exit wins over a normal closed
+   channel.** The classification is refactored into an explicit flat priority
+   cascade — illegal buffered stdout > `try_wait` OS error (`ProbeFailed`) >
+   process exit (`Exited`) > running-with-closed-stdout
+   (`ProtocolFault(closed-while-alive)`) > idle (`Ready`) — so a normally-exited
+   process whose stdout channel has disconnected is `Exited`, not a
+   closed-while-alive protocol fault. A RED unit test pins
+   exited+closed=>`Exited`; the existing running+closed=>`ProtocolFault` test
+   is retained.
+
+8. **`send_shutdown_frame` returns typed I/O evidence.** The write/flush errors
+   it silently discarded (`let _ =`) now return `io::Result<()>`, and a healthy
+   candidate's failed shutdown write/flush (its stdin closed or it exited before
+   the host signalled) is incorporated as a typed `CleanupFailure::Io`
+   (`PLG-E503`, redacted) while the staged reap still escalates and reaps. An
+   unhealthy rollback candidate's signal remains best-effort (the bounded reap
+   is authoritative). A RED integration test drives a healthy candidate to
+   self-exit, leaves it marked alive (no `health()` probe so shutdown attempts
+   the write), and asserts `CleanupFailure::Io` with the process still reaped.
+
+9. **`reap_owned` preserves terminate/force-kill signal errors.** The
+   `let _ =` discards on `terminate_process_tree`/`force_kill_tree` (in both the
+   exited branch and the shared `staged_shutdown`) are replaced with captured
+   `io::Error`s. A pure `signal_cleanup_evidence` helper preserves the first
+   non-benign error as typed `CleanupFailure::Io` runtime evidence when the reap
+   and drains are otherwise clean; a benign ESRCH (the target was already
+   reaped) is filtered so a clean cleanup is never dirtied. On non-Unix the
+   equivalent "process already gone" condition is not a stable errno, so the
+   bounded reap/drains remain authoritative. The one-shot `staged_shutdown`
+   signature now returns `(ShutdownOutcome, Vec<io::Error>)`; the one-shot
+   caller destructures and ignores the signal errors (out of scope for C2).
+   RED unit tests prove ESRCH is filtered and a real signal error is preserved.
+
+10. **`Drop` no longer silences `reap_all`.** `let _ = reap_all(...)` is replaced
+    with an explicit `reap_all(...)` invocation that runs the bounded staged
+    cleanup (the return evidence cannot escape `Drop`, but the reap is never
+    silenced and each candidate is reaped within the shutdown bounds).
+
+No new dependency, no `unsafe`, no production `unwrap`/`expect`/`panic`/`todo`/
+`unimplemented`, no suppression/clippy allow, no unbounded wait, no broad kill,
+no ambient env, no generic bus/queue, no handle outside the supervisor, no
+secret-bearing `Debug`. Every new and changed provider production and test file
+is below 750 lines (`persistent.rs` 748, `supervisor.rs` 749). Slice D is not
+implemented.

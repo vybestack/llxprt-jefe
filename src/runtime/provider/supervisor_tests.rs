@@ -15,6 +15,7 @@ use super::error::{self, ProviderError};
 use super::redaction::{redact_error_payload, redact_field, redact_outcome};
 use super::supervisor::{
     CleanupFailure, OneShotOutcome, SupervisorBounds, SupervisorFailure, compose_cleanup_failure,
+    signal_cleanup_evidence,
 };
 use crate::domain::Id;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, Scalar};
@@ -117,6 +118,40 @@ fn cleanup_shutdown_ack_carries_e502_and_others_carry_e503() {
         CleanupFailure::NotReaped.code(),
         error::RUNTIME_UNAVAILABLE_CODE
     );
+    assert_eq!(
+        CleanupFailure::Io("broken pipe".to_owned()).code(),
+        error::RUNTIME_UNAVAILABLE_CODE,
+        "a cleanup I/O failure is runtime-unavailable (PLG-E503)"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn signal_cleanup_evidence_ignores_a_benign_already_reaped_result() {
+    // ESRCH (no such process): the signal target was already reaped, so the
+    // result is benign and must not dirty an otherwise-clean cleanup.
+    let already_reaped = std::io::Error::from_raw_os_error(3);
+    assert_eq!(
+        signal_cleanup_evidence(&[already_reaped]),
+        None,
+        "an already-reaped (ESRCH) signal result is benign"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn signal_cleanup_evidence_preserves_a_real_signal_error() {
+    // A non-ESRCH error (EACCES, errno 13) is a real signal-delivery failure
+    // that must be preserved rather than silently discarded when cleanup is clean.
+    let real = std::io::Error::from_raw_os_error(13);
+    let evidence = signal_cleanup_evidence(&[real]);
+    match evidence {
+        Some(message) => assert!(
+            message.contains("denied"),
+            "the real signal error is described: {message}"
+        ),
+        None => panic!("a non-ESRCH signal error must be preserved"),
+    }
 }
 
 #[test]
