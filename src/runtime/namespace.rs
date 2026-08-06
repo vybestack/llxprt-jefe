@@ -245,6 +245,73 @@ impl fmt::Display for InstallationId {
     }
 }
 
+/// Whether an installation already existed before the namespace was recorded.
+///
+/// This is what separates "nothing to lose" from "something may already be
+/// running somewhere this build cannot see", so it is modelled explicitly
+/// rather than passed as a bare boolean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallationHistory {
+    /// No prior state: this installation is being created right now.
+    New,
+    /// State already exists from an earlier run, possibly an earlier build.
+    Preexisting,
+}
+
+/// What a recorded namespace says about the namespace now in force.
+///
+/// Namespace changes are not recoverable after the fact: a session pool is
+/// only reachable through the name it was created under. The only defence is
+/// to notice the change at the moment it happens and say so, which is why this
+/// distinguishes the two unhappy cases instead of reporting "namespace
+/// mismatch" for both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NamespaceDrift {
+    /// A new installation recording its namespace for the first time.
+    FirstRun,
+    /// The recorded namespace matches the active one.
+    Stable,
+    /// State predates namespace recording, so the previous namespace -- and
+    /// any sessions still running under it -- cannot be named by this build.
+    PreviousNamespaceUnknown,
+    /// A different namespace was recorded against this installation.
+    Changed {
+        /// The namespace that was in force before, and where any sessions
+        /// started under it are still running.
+        previous: String,
+    },
+}
+
+impl NamespaceDrift {
+    /// Compare a recorded namespace against the active one.
+    #[must_use]
+    pub fn assess(
+        recorded: Option<&str>,
+        active: &InstallationId,
+        history: InstallationHistory,
+    ) -> Self {
+        match recorded {
+            Some(previous) if previous == active.as_str() => Self::Stable,
+            Some(previous) => Self::Changed {
+                previous: previous.to_owned(),
+            },
+            None => match history {
+                InstallationHistory::New => Self::FirstRun,
+                InstallationHistory::Preexisting => Self::PreviousNamespaceUnknown,
+            },
+        }
+    }
+
+    /// Whether this outcome needs an operator to do something about it.
+    ///
+    /// Both unhappy cases are actionable, but only [`Self::Changed`] can name
+    /// the server to go looking on.
+    #[must_use]
+    pub const fn is_actionable(&self) -> bool {
+        matches!(self, Self::PreviousNamespaceUnknown | Self::Changed { .. })
+    }
+}
+
 /// The active installation identity together with its provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallationIdentity {

@@ -66,6 +66,7 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         &paths.state.path,
         crate::runtime::installation::initialize(&paths.state.path).map(|_| ()),
     )?;
+    report_namespace_drift(&paths.state.path);
     apply_state_import(&paths.state)?;
     let (keymap, settings_document, settings_expected_hash) =
         validate_settings(&paths.settings.path)?;
@@ -264,6 +265,23 @@ fn identity_outcome(
     }
 }
 
+/// Record the namespace this installation is running under, and report it if
+/// it moved.
+///
+/// A namespace change cannot be undone once the old name is forgotten: the
+/// name is the only handle on the sessions running under it. So this is
+/// deliberately not fatal -- the new namespace is perfectly usable, and
+/// refusing to start would strand the operator entirely instead of merely
+/// telling them where their previous agents went (issue #547).
+fn report_namespace_drift(state_path: &Path) {
+    let identity = crate::runtime::installation::current();
+    let drift =
+        crate::runtime::namespace_record::reconcile(state_path, identity.origin(), identity.id());
+    if let Some(report) = crate::runtime::namespace_record::describe(&drift, identity.id()) {
+        tracing::warn!(%report, "multiplexer namespace changed for this installation");
+    }
+}
+
 fn path_error(path: &Path, code: CfgCode, exit_code: u8, detail: &str) -> PathError {
     let mut diagnostic = Diagnostic::new(
         code,
@@ -341,6 +359,31 @@ mod tests {
         );
 
         assert!(outcome.is_ok(), "a conflict must not stop startup");
+    }
+
+    /// Startup must leave a record of the namespace it ran under, because a
+    /// later build that computes a different one can only report the change if
+    /// this build wrote down what it used.
+    #[test]
+    fn startup_records_the_namespace_it_ran_under() {
+        let dir = unique_dir("namespace_record");
+        let persistence =
+            build_persistence(Some(&dir)).value_or_panic("startup should build persistence");
+
+        let record = persistence
+            .paths
+            .state
+            .path
+            .parent()
+            .unwrap_or_else(|| panic!("the state path should have a parent"))
+            .join("runtime-namespace.json");
+        let contents = std::fs::read_to_string(&record)
+            .value_or_panic("startup should have recorded the active namespace");
+
+        assert!(
+            contents.contains(crate::runtime::installation::current().id().as_str()),
+            "the record must name the namespace actually in force, got: {contents}"
+        );
     }
 
     fn unique_dir(label: &str) -> std::path::PathBuf {

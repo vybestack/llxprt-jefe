@@ -140,7 +140,7 @@ pub fn isolated_run() -> InstallationIdentity {
 ///
 /// An override carries no path of its own, so fall back to the resolved
 /// persistence paths for that case.
-fn active_state_path() -> PathBuf {
+pub fn active_state_path() -> PathBuf {
     current()
         .origin()
         .state_path()

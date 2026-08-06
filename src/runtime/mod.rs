@@ -71,6 +71,10 @@ mod multiplexer_contract;
 /// machine or the account running it, so both platforms key their server
 /// isolation off this one value.
 pub(crate) mod namespace;
+/// Remembering an installation's namespace so a change to it is reported
+/// rather than silently orphaning the agents running under the old one
+/// (issue #547).
+pub(crate) mod namespace_record;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
@@ -242,6 +246,10 @@ mod installation_tests;
 #[cfg(test)]
 #[path = "namespace_tests.rs"]
 mod namespace_tests;
+
+#[cfg(test)]
+#[path = "namespace_record_tests.rs"]
+mod namespace_record_tests;
 
 #[cfg(test)]
 #[path = "process_tests.rs"]

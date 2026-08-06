@@ -87,6 +87,7 @@ fn collect_multiplexer(findings: &mut Vec<DiagnosticFinding>) {
         Ok(plan) => {
             record_multiplexer_plan(&plan, findings);
             record_namespace_isolation(&plan, findings);
+            record_namespace_drift(findings);
         }
         Err(error) => {
             findings.push(DiagnosticFinding::new(
@@ -180,6 +181,38 @@ fn record_namespace_isolation(
         status,
         detail,
     ));
+}
+
+/// Report a namespace that has moved away from the one this installation last
+/// recorded, without disturbing the record.
+///
+/// Doctor exists to be run *after* something looks wrong -- typically "my
+/// agents have vanished" -- so this is the place an operator is most likely to
+/// see the explanation. It inspects rather than reconciles: a diagnostic that
+/// quietly repaired the record would erase the evidence (issue #547).
+fn record_namespace_drift(findings: &mut Vec<DiagnosticFinding>) {
+    let identity = crate::runtime::installation::current();
+    let drift = crate::runtime::namespace_record::inspect(
+        &crate::runtime::installation::active_state_path(),
+        identity.origin(),
+        identity.id(),
+    );
+    if let Some(finding) = drift_finding(&drift, identity.id()) {
+        findings.push(finding);
+    }
+}
+
+/// Turn a drift assessment into a finding, or nothing if there is no news.
+fn drift_finding(
+    drift: &crate::runtime::namespace::NamespaceDrift,
+    active: &crate::runtime::namespace::InstallationId,
+) -> Option<DiagnosticFinding> {
+    if !drift.is_actionable() {
+        return None;
+    }
+    crate::runtime::namespace_record::describe(drift, active).map(|detail| {
+        DiagnosticFinding::new(FindingKind::Namespace, DiagnosticStatus::Warn, detail)
+    })
 }
 
 /// Probe transient ConPTY readiness on Windows; informational elsewhere.
@@ -441,6 +474,41 @@ mod tests {
         );
         // The two CJK characters contribute 2 units, not 6 bytes.
         assert_eq!(utf16_units, utf8_bytes - 4);
+    }
+
+    /// A namespace that moved must be reported, and must name the namespace it
+    /// moved away from: that name is the only route back to agents still
+    /// running under it.
+    #[test]
+    fn drift_is_reported_with_the_namespace_that_was_left_behind() {
+        use crate::runtime::namespace::{InstallationId, NamespaceDrift};
+
+        let active = InstallationId::for_state_path(std::path::Path::new("/home/dev/state.json"));
+        let finding = drift_finding(
+            &NamespaceDrift::Changed {
+                previous: "jefe-76134a0ba22f56e9".to_owned(),
+            },
+            &active,
+        )
+        .unwrap_or_else(|| panic!("a namespace change must produce a finding"));
+
+        assert_eq!(finding.status(), DiagnosticStatus::Warn);
+        assert!(
+            finding.detail().contains("jefe-76134a0ba22f56e9"),
+            "the abandoned namespace must be named, got: {}",
+            finding.detail()
+        );
+    }
+
+    /// A steady installation must not manufacture a warning.
+    #[test]
+    fn a_stable_namespace_produces_no_finding() {
+        use crate::runtime::namespace::{InstallationId, NamespaceDrift};
+
+        let active = InstallationId::for_state_path(std::path::Path::new("/home/dev/state.json"));
+
+        assert!(drift_finding(&NamespaceDrift::Stable, &active).is_none());
+        assert!(drift_finding(&NamespaceDrift::FirstRun, &active).is_none());
     }
 
     #[test]
