@@ -2,22 +2,19 @@
 
 use super::namespace::{InstallationId, InstallationIdentity, NamespaceDrift, NamespaceOrigin};
 use super::namespace_record::{describe, reconcile};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use tempfile::TempDir;
 
-/// Distinguishes concurrent callers without depending on `ThreadId`'s `Debug`
-/// output, whose format is explicitly unstable and has changed between releases.
-static NEXT_TEMP_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-fn temp_state_dir(tag: &str) -> PathBuf {
-    let unique = NEXT_TEMP_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "jefe-namespace-record-{tag}-{}-{unique}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir)
-        .unwrap_or_else(|error| panic!("temp state dir must be creatable: {error}"));
-    dir
+/// A state directory that deletes itself when the test ends.
+///
+/// The guard matters more than the naming: these directories are created once
+/// per test on every run, so without cleanup a developer's temp folder grows
+/// without bound.
+fn temp_state_dir(tag: &str) -> TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("jefe-namespace-record-{tag}-"))
+        .tempdir()
+        .unwrap_or_else(|error| panic!("temp state dir must be creatable: {error}"))
 }
 
 fn derived(state_path: &Path) -> InstallationIdentity {
@@ -27,7 +24,8 @@ fn derived(state_path: &Path) -> InstallationIdentity {
 /// A fresh installation records its namespace and says nothing alarming.
 #[test]
 fn a_first_launch_records_the_namespace_without_raising_an_alarm() {
-    let dir = temp_state_dir("first");
+    let guard = temp_state_dir("first");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     let identity = derived(&state_path);
 
@@ -47,7 +45,8 @@ fn a_first_launch_records_the_namespace_without_raising_an_alarm() {
 /// The recorded namespace is what makes the second launch quiet.
 #[test]
 fn a_second_launch_of_the_same_installation_is_stable() {
-    let dir = temp_state_dir("stable");
+    let guard = temp_state_dir("stable");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     let identity = derived(&state_path);
 
@@ -62,7 +61,8 @@ fn a_second_launch_of_the_same_installation_is_stable() {
 /// installation, and its sessions are somewhere this build cannot name.
 #[test]
 fn existing_state_without_a_record_is_reported_as_a_lost_previous_namespace() {
-    let dir = temp_state_dir("upgraded");
+    let guard = temp_state_dir("upgraded");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     std::fs::write(&state_path, "{}")
         .unwrap_or_else(|error| panic!("state file must be writable: {error}"));
@@ -83,7 +83,8 @@ fn existing_state_without_a_record_is_reported_as_a_lost_previous_namespace() {
 /// that name is the only way back to the sessions still running on it.
 #[test]
 fn a_changed_namespace_is_reported_with_the_namespace_left_behind() {
-    let dir = temp_state_dir("changed");
+    let guard = temp_state_dir("changed");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     std::fs::write(&state_path, "{}")
         .unwrap_or_else(|error| panic!("state file must be writable: {error}"));
@@ -113,7 +114,8 @@ fn a_changed_namespace_is_reported_with_the_namespace_left_behind() {
 /// Having reported a change once, the new namespace becomes the baseline.
 #[test]
 fn a_reported_change_is_not_reported_again_on_the_next_launch() {
-    let dir = temp_state_dir("rerecord");
+    let guard = temp_state_dir("rerecord");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     std::fs::write(&state_path, "{}")
         .unwrap_or_else(|error| panic!("state file must be writable: {error}"));
@@ -139,7 +141,8 @@ fn a_reported_change_is_not_reported_again_on_the_next_launch() {
 /// operator's next ordinary launch look like drift.
 #[test]
 fn an_override_is_never_recorded_against_the_installation() {
-    let dir = temp_state_dir("override");
+    let guard = temp_state_dir("override");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     std::fs::write(&state_path, "{}")
         .unwrap_or_else(|error| panic!("state file must be writable: {error}"));
@@ -159,7 +162,8 @@ fn an_override_is_never_recorded_against_the_installation() {
 /// "unknown previous namespace" case rather than a crash or a silent pass.
 #[test]
 fn a_corrupt_record_degrades_to_an_unknown_previous_namespace() {
-    let dir = temp_state_dir("corrupt");
+    let guard = temp_state_dir("corrupt");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     std::fs::write(&state_path, "{}")
         .unwrap_or_else(|error| panic!("state file must be writable: {error}"));
@@ -176,8 +180,10 @@ fn a_corrupt_record_degrades_to_an_unknown_previous_namespace() {
 /// its own, which is what makes two worktrees independent rather than rivals.
 #[test]
 fn each_installation_records_its_own_namespace() {
-    let first_dir = temp_state_dir("scoped-a");
-    let second_dir = temp_state_dir("scoped-b");
+    let first_guard = temp_state_dir("scoped-a");
+    let second_guard = temp_state_dir("scoped-b");
+    let first_dir = first_guard.path();
+    let second_dir = second_guard.path();
     let first_state = first_dir.join("state.json");
     let second_state = second_dir.join("state.json");
     let first = derived(&first_state);
@@ -202,7 +208,8 @@ fn each_installation_records_its_own_namespace() {
 /// is handed, not on ambient process state.
 #[test]
 fn reconciliation_compares_against_the_identity_it_is_given() {
-    let dir = temp_state_dir("explicit");
+    let guard = temp_state_dir("explicit");
+    let dir = guard.path();
     let state_path = dir.join("state.json");
     std::fs::write(&state_path, "{}")
         .unwrap_or_else(|error| panic!("state file must be writable: {error}"));
