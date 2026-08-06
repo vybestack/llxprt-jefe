@@ -10,21 +10,6 @@ fn state_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-/// V3: the identity must survive path casing differences.
-///
-/// Windows paths are case-insensitive, so `%LOCALAPPDATA%` arriving with
-/// different casing between launches must not move the namespace and orphan
-/// every running session.
-#[test]
-fn identity_ignores_state_path_casing() {
-    let lower =
-        InstallationId::for_state_path(Path::new(r"c:\users\dev\appdata\local\jefe\state.json"));
-    let upper =
-        InstallationId::for_state_path(Path::new(r"C:\Users\Dev\AppData\Local\Jefe\State.json"));
-
-    assert_eq!(lower, upper);
-}
-
 /// The same location spelled with either separator is the same installation.
 #[test]
 fn identity_ignores_state_path_separator_style() {

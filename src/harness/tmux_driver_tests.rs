@@ -133,7 +133,7 @@ fn new_session_command_shell_escapes_argv_parts() {
     let args = new_session_args(&request);
     let socket = harness_socket_name();
     let expected = format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
+        "unset TMUX TMUX_PANE TMUX_TMPDIR JEFE_NAMESPACE; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
     );
     assert_eq!(args.last().map(String::as_str), Some(expected.as_str()));
 }
