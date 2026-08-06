@@ -380,7 +380,10 @@ impl TmuxDriver {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        for variable in TMUX_ENV_VARS_TO_SCRUB {
+        for variable in TMUX_ENV_VARS_TO_SCRUB
+            .iter()
+            .chain(super::HARNESS_ENV_VARS_TO_SCRUB)
+        {
             command.env_remove(variable);
         }
         if let Some(directory) = cwd {

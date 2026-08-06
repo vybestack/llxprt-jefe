@@ -1,5 +1,20 @@
 use super::*;
 
+/// The harness must not let `JEFE_NAMESPACE` reach the jefe under test (#547).
+///
+/// Every psmux invocation the harness makes -- including the `new-session` that
+/// starts the server whose environment the pane inherits -- goes through
+/// `run_owned`, so scrubbing there is what keeps a scenario run inside the
+/// namespace its `--config` directory selects rather than the operator's live
+/// one.
+#[test]
+fn the_harness_refuses_to_inherit_a_namespace_override() {
+    assert!(
+        crate::harness::HARNESS_ENV_VARS_TO_SCRUB.contains(&"JEFE_NAMESPACE"),
+        "the namespace override must be scrubbed before psmux spawns jefe"
+    );
+}
+
 #[test]
 fn windows_launch_plan_uses_platform_shell_without_a_unix_wrapper() {
     let request = TmuxStartRequest::command(
