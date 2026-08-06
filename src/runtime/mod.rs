@@ -96,6 +96,8 @@ pub mod package_runtime;
 mod pane_capture;
 mod preflight;
 mod process;
+/// Pure, closed JSONL action-provider wire protocol (issue #390 CW-10).
+pub mod provider;
 /// Pure server-health classification contract (issue #493 Slice 1).
 mod server_health;
 mod server_health_io;
