@@ -682,3 +682,113 @@ fn assert_mode_user_only(path: &Path) {
 
 #[cfg(not(unix))]
 fn assert_mode_user_only(_path: &Path) {}
+
+// ── CW09: plugin trust and exact version selection ─────────────────────────
+
+fn plugin_id(value: &str) -> Id {
+    Id::parse(value).unwrap_or_else(|error| panic!("plugin id fixture: {error}"))
+}
+
+fn semver(value: &str) -> crate::domain::CanonicalSemver {
+    crate::domain::CanonicalSemver::parse(value)
+        .unwrap_or_else(|error| panic!("version fixture: {error}"))
+}
+
+#[test]
+fn trusting_a_package_writes_only_its_own_assignment() {
+    let source = br"settings_schema = 2
+
+[appearance]
+theme = 'green-screen'
+
+[extensions.future]
+unknown = 1
+";
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginEnabled {
+            plugin: plugin_id("vendor.git-merger"),
+            enabled: true,
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        rendered.contains(r#"[plugins."vendor.git-merger"]"#),
+        "the owner table must be quoted so the namespace stays one owner: {rendered}"
+    );
+    assert!(rendered.contains("enabled = true"), "{rendered}");
+    assert!(
+        rendered.contains("[extensions.future]") && rendered.contains("unknown = 1"),
+        "dormant unknown syntax must be preserved byte for byte: {rendered}"
+    );
+    assert!(
+        rendered.contains("theme = 'green-screen'"),
+        "unrelated values keep their original spelling: {rendered}"
+    );
+}
+
+#[test]
+fn selecting_an_exact_version_writes_the_version_bytes_verbatim() {
+    let source = b"settings_schema = 2\n";
+    // Build metadata is part of exact identity, so it must survive the write.
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginVersion {
+            plugin: plugin_id("vendor.pkg"),
+            version: semver("1.0.0-rc.1+build.5"),
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        rendered.contains(r#"version = "1.0.0-rc.1+build.5""#),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn disabling_preserves_the_selection_as_a_dormant_choice() {
+    let source = br#"settings_schema = 2
+
+[plugins."vendor.pkg"]
+enabled = true
+version = "1.0.0"
+"#;
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginEnabled {
+            plugin: plugin_id("vendor.pkg"),
+            enabled: false,
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(rendered.contains("enabled = false"), "{rendered}");
+    assert!(
+        rendered.contains(r#"version = "1.0.0""#),
+        "withdrawing trust must keep the selected version recorded: {rendered}"
+    );
+}
+
+#[test]
+fn both_plugin_leaves_apply_only_after_a_restart() {
+    for path in [
+        SyntaxPath::PluginEnabled(plugin_id("vendor.pkg")),
+        SyntaxPath::PluginVersion(plugin_id("vendor.pkg")),
+    ] {
+        assert!(
+            path.structural(),
+            "a package is composed while the session builds its registries"
+        );
+    }
+}
+
+#[test]
+fn the_plugin_leaves_render_their_exact_dotted_paths() {
+    assert_eq!(
+        SyntaxPath::PluginEnabled(plugin_id("vendor.pkg")).segments(),
+        vec!["plugins", "vendor.pkg", "enabled"]
+    );
+    assert_eq!(
+        SyntaxPath::PluginVersion(plugin_id("vendor.pkg")).segments(),
+        vec!["plugins", "vendor.pkg", "version"]
+    );
+}

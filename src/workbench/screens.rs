@@ -588,6 +588,8 @@ pub const SETTINGS_AGENT_TYPES_PANEL: &str = "settings-agent-types";
 pub const SETTINGS_SCREENS_PANEL: &str = "settings-screens";
 /// Identity of the Settings Keys panel.
 pub const SETTINGS_KEYS_PANEL: &str = "settings-keys";
+/// Identity of the Settings Plugins panel.
+pub const SETTINGS_PLUGINS_PANEL: &str = "settings-plugins";
 /// Identity of the Settings Diagnostics panel.
 pub const SETTINGS_DIAGNOSTICS_PANEL: &str = "settings-diagnostics";
 
@@ -746,6 +748,7 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
             settings_section_panel(SETTINGS_AGENT_TYPES_PANEL)?,
             settings_section_panel(SETTINGS_SCREENS_PANEL)?,
             settings_section_panel(SETTINGS_KEYS_PANEL)?,
+            settings_section_panel(SETTINGS_PLUGINS_PANEL)?,
             settings_section_panel(SETTINGS_DIAGNOSTICS_PANEL)?,
         ],
         initial_focus: PanelId::parse(SETTINGS_SECTIONS_PANEL)?,
@@ -756,6 +759,7 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
             SETTINGS_AGENT_TYPES_PANEL,
             SETTINGS_SCREENS_PANEL,
             SETTINGS_KEYS_PANEL,
+            SETTINGS_PLUGINS_PANEL,
             SETTINGS_DIAGNOSTICS_PANEL,
         ])?,
         relationships: Vec::new(),
@@ -770,7 +774,8 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
                     settings_section_child(SETTINGS_AGENT_TYPES_PANEL, 2)?,
                     settings_section_child(SETTINGS_SCREENS_PANEL, 3)?,
                     settings_section_child(SETTINGS_KEYS_PANEL, 4)?,
-                    settings_section_child(SETTINGS_DIAGNOSTICS_PANEL, 5)?,
+                    settings_section_child(SETTINGS_PLUGINS_PANEL, 5)?,
+                    settings_section_child(SETTINGS_DIAGNOSTICS_PANEL, 6)?,
                 ]),
                 weight(1),
                 FLEX_MIN_COLUMNS,

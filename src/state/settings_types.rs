@@ -423,6 +423,14 @@ pub struct SettingsState {
     /// and a probe completing underneath it must not make the list move while
     /// the user is choosing from it.
     pub agent_types: Vec<crate::agent_status_view::AgentAvailabilityObservation>,
+    /// The plugin inventory snapshot the Plugins rows project from.
+    ///
+    /// Bound once when the screen opens and never changed while it is open, for
+    /// the same reason the agent-type snapshot is: an editor reads what the
+    /// session found. It never scans a root itself, so a rescan finishing
+    /// underneath the screen cannot make the list move while the operator is
+    /// choosing from it.
+    pub plugins: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
     /// The action registry snapshot the Keys rows project from.
     pub actions: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
     /// The binding a chord capture is waiting for, while one is waiting.

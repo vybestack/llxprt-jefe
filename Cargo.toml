@@ -66,6 +66,20 @@ comrak = { version = "0.53", default-features = false }
 # pollute the composer.
 tempfile = "3.0"
 jsonschema = { version = "0.33", default-features = false }
+# Plugin package archives (issue #389 CW-09). Approved in
+# dev-docs/decisions/plugin-package-dependencies.md.
+#
+# flate2's backend is pinned to the pure-Rust miniz_oxide `rust_backend`: the
+# crate documents that its default may one day switch to zlib-rs, which uses
+# `unsafe`, and jefe forbids unsafe. Only the single-member `GzDecoder` is used,
+# never `MultiGzDecoder`, so a concatenated gzip member is a rejectable error
+# rather than silently-appended data.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+# tar's default `xattr` feature is off: the install transaction ignores archive
+# ownership, timestamps, and extended attributes and writes explicit modes, so
+# reading xattrs would be dead weight on the trusted path. Only header iteration
+# through `Archive::entries` is used; `unpack`/`unpack_in` are never called.
+tar = { version = "0.4.46", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 winsafe = { version = "0.0.27", features = ["kernel"] }

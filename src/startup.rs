@@ -32,6 +32,12 @@ pub struct StartupPersistence {
     pub settings_expected_hash: ExpectedHash,
     keymap_diagnostic: Option<KeymapDiagnostic>,
     pub manager: FilePersistenceManager,
+    /// The plugin package inventory found in the ordered roots (issue #389).
+    ///
+    /// Scanned exactly once here, at the boundary that already owns path
+    /// resolution. Nothing downstream rescans, so what the Settings section
+    /// shows and what the session composed are the same moment.
+    pub plugin_inventory: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
 }
 
 impl StartupPersistence {
@@ -57,6 +63,7 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     let (keymap, settings_document, settings_expected_hash) =
         validate_settings(&paths.settings.path)?;
     validate_state(&paths.state.path)?;
+    let plugin_inventory = scan_plugin_inventory(&paths);
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
         state_path: paths.state.path.clone(),
@@ -69,7 +76,29 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         settings_expected_hash,
         keymap_diagnostic: keymap.diagnostic,
         manager,
+        plugin_inventory,
     })
+}
+
+/// Scan the ordered package roots into the pure snapshot the UI projects.
+///
+/// A scan never fails the session: a root that cannot be read simply
+/// contributes nothing, exactly as a missing root does, because an unreadable
+/// package directory is not a reason to refuse to start.
+fn scan_plugin_inventory(
+    paths: &ResolvedPaths,
+) -> Vec<crate::state::plugins_editor::PluginSnapshotRow> {
+    use crate::persistence::plugin_inventory::{scan, snapshot};
+    use crate::persistence::plugin_roots::{PluginRootRequest, candidate_roots};
+
+    let roots = candidate_roots(&PluginRootRequest {
+        executable_dir: std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+        platform: crate::persistence::paths::Platform::current(),
+        config_plugins_dir: paths.plugins.clone(),
+    });
+    snapshot(&scan(&roots), &crate::domain::plugin::HostTriple::current())
 }
 
 fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {

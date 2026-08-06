@@ -235,6 +235,29 @@ The CI workflow runs these jobs on every pull request to `main`:
 
 ---
 
+## Plugin Package Testing
+
+Package work carries four kinds of evidence beyond ordinary unit tests.
+
+- **Adversarial archives.** Every forbidden entry type, path shape, duplicate,
+  case-fold collision and bound has its own fixture, each asserting the archive
+  is refused *and* that the installed tree is unchanged. Bounds are pinned at
+  the limit and the limit plus one, and a header that lies about its body size
+  is a distinct case from a body that is genuinely too large.
+- **Physical aliases.** Alias collapse and ambiguity are exercised against real
+  symlinked and separately-created trees, not simulated identities, because the
+  rule under test is `(device, inode)` behaviour.
+- **Zero provider starts.** The static phase must start no process. This is
+  enforced structurally — the command runner and the projection never reference
+  `std::process` — and stated in operator-visible output.
+- **Atomic phases.** The install transaction is tested at each phase boundary:
+  rejected before staging, failed after staging, committed, and committed with
+  an unconfirmed final sync. The last must report `PLG-E503` and must not claim
+  the tree is unchanged.
+
+A test that asserts a dependency's internal failure layer over-specifies it.
+Assert that no package is produced, and say why the layer is not pinned.
+
 ## Lint-Guardrail Policy
 
 Never loosen lint or complexity rules, and never add suppression directives.

@@ -411,6 +411,31 @@ discipline already exists in:
 
 ---
 
+## Plugin package ownership
+
+Plugin packages are discovered, validated, and composed in a **provider-free
+static phase**. Nothing in that phase starts a provider process; a manifest is
+data, and every rule in it is checked by pure domain code.
+
+| Layer | Owns | Must not do |
+|---|---|---|
+| `domain/plugin/` | closed manifest schema, `PluginId`, `PackageCoordinate`, declaration validation, `PLG-Ennn` codes | touch the filesystem, resolve a root |
+| `persistence/plugin_roots` | the ordered low-to-high root list and each root's writability | read a manifest |
+| `persistence/plugin_inventory` | the physical scan, alias collapse, ambiguity, and the snapshot the UI projects | interpret declarations itself |
+| `persistence/plugin_archive` | archive and developer-directory validation | write to the installed tree |
+| `persistence/plugin_install` | staging, mode normalization, atomic commit | validate schema rules |
+| `plugin_command` | the provider-free `jefe plugin` verbs | start a process |
+| `state/plugins_editor` | the pure Plugins projection | scan, install, or write |
+
+The inventory is scanned **once** per session, at the boundary that already owns
+path resolution, and travels as plain snapshot rows. Neither the state layer nor
+the UI rescans, so what the Settings section shows and what the session composed
+are one moment rather than two that can disagree.
+
+A package's identity is its directory names. A manifest that declares a
+different identity is rejected rather than believed, because the directory is
+what the roots enumerate and what settings key off.
+
 ## Dependency Direction DAG
 
 Dependency direction should be acyclic and is enforced by convention and review.
