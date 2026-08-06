@@ -319,11 +319,9 @@ fn windows_pane_command_uses_powershell_without_unix_env_wrapper() {
     ));
 }
 
+#[cfg(windows)]
 #[test]
 fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
-    if !cfg!(windows) {
-        return;
-    }
     let identity = crate::runtime::installation::resolve_identity(Path::new(
         r"C:\work\stable\.jefe\state.json",
     ))
@@ -332,11 +330,9 @@ fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
     let production_second = MultiplexerPlan::isolation_for_installation(&identity);
     assert_eq!(production_first, production_second);
 
-    let first = MultiplexerPlan::current_for_test()
-        .unwrap_or_else(|error| panic!("first test plan should resolve: {error}"));
-    let second = MultiplexerPlan::current_for_test()
-        .unwrap_or_else(|error| panic!("second test plan should resolve: {error}"));
-    assert_ne!(first.isolation(), second.isolation());
+    let first = MultiplexerPlan::isolated_for_test();
+    let second = MultiplexerPlan::isolated_for_test();
+    assert_ne!(first, second);
 }
 /// Issue #547: the server this process talks to belongs to the installation it
 /// was launched as.

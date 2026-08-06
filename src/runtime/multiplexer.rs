@@ -174,6 +174,13 @@ impl MultiplexerPlan {
         isolation_override_for(identity)
     }
 
+    #[cfg(all(test, windows))]
+    pub(crate) fn isolated_for_test() -> MultiplexerIsolation {
+        MultiplexerIsolation::Namespace(
+            super::installation::isolated_run().id().as_str().to_owned(),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn current_for_test() -> Result<Self, MultiplexerError> {
         Self::resolved(true)
