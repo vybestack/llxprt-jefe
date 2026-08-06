@@ -61,7 +61,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Jefe",
+      "literal": "Repositories",
       "timeout_ms": 15000
     },
     {

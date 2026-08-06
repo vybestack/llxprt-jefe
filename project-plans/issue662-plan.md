@@ -239,6 +239,7 @@ Acceptance rows to proof:
 | A2 | same test plus `a_panicking_run_still_records_why_it_ended`; `run_app` now returns `RenderFailed` / `UserQuit` | pass |
 | A3 | 8 persistence tests in `tests/issue662_behavior.rs` (round-trip, foreign files, unparseable, missing dir) | pass |
 | A4 | `a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended`; `src/app_init_tests.rs` x4; TUI scenario `issue662-unclean-prior-run.json` | pass locally; scenario runs on CI (harness is unix-only) |
+| A4 (scenario) | First CI run failed the scenario at its opening wait: the warning renders on the top line and displaces the `LLxprt Jefe` banner it was waiting for. The captured frame proved the feature worked, so the wait was moved to the `Repositories` pane title. The scenario cannot be run on Windows, so CI is its only proving ground. | fixed, re-verified on CI |
 | A5 | `a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb`; owner-alive classification tests | pass |
 | A6 | child-process tests assert the tail survives process death; panic hook calls `logging::flush()` | pass |
 | A7 | breadcrumb carried in the marker and repeated in the unclean report; attach/detach record breadcrumbs | pass |
