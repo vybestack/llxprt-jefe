@@ -143,11 +143,16 @@ fn the_raw_hash_primitive_is_not_reachable_outside_the_derivation() {
              renamed, update this contract deliberately."
         )
     });
+    // Any `pub` prefix counts, including restricted forms. `pub(crate)` still
+    // reaches every module in the crate, which is the whole surface this
+    // contract exists to deny; matching only bare `pub ` would let the
+    // restricted spellings through unnoticed.
     assert!(
-        !derivation[definition].trim_start().starts_with("pub "),
-        "`{PRIMITIVE}` is public. It accepts arbitrary material, so exposing it lets a caller key \
-         the namespace on anything at all -- which is exactly how hostname and account material \
-         got in. Keep it private and route callers through the path-based constructors."
+        !derivation[definition].trim_start().starts_with("pub"),
+        "`{PRIMITIVE}` is visible outside the derivation. It accepts arbitrary material, so \
+         exposing it -- under any visibility, `pub(crate)` included -- lets a caller key the \
+         namespace on anything at all, which is exactly how hostname and account material got in. \
+         Keep it private and route callers through the path-based constructors."
     );
 
     let mut offenders = Vec::new();

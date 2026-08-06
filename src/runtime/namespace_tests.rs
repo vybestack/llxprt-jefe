@@ -334,3 +334,70 @@ fn an_unknown_previous_namespace_is_distinguishable_from_a_changed_one() {
         .is_actionable()
     );
 }
+
+/// The same directory spelled with redundant `.` and `..` components is the
+/// same installation. Callers that reach the derivation without going through
+/// `persistence::paths::resolve` — notably the environment fallback — would
+/// otherwise hash two spellings of one location to two namespaces, which is the
+/// exact way sessions get stranded that this identity exists to prevent.
+#[test]
+fn redundant_path_components_do_not_change_the_installation() {
+    let plain = InstallationId::for_state_path(Path::new("/home/dev/state/jefe/state.json"));
+    let dotted = InstallationId::for_state_path(Path::new("/home/dev/state/./jefe/state.json"));
+    let backtracked =
+        InstallationId::for_state_path(Path::new("/home/dev/cache/../state/jefe/state.json"));
+
+    assert_eq!(
+        plain, dotted,
+        "a `.` component is spelling, not a different installation"
+    );
+    assert_eq!(
+        plain, backtracked,
+        "a `..` component that resolves to the same directory is the same installation"
+    );
+}
+
+/// A leading `..` has nothing to pop, so it must survive rather than being
+/// silently discarded — dropping it would fold genuinely different relative
+/// locations onto one namespace.
+#[test]
+fn a_leading_parent_component_is_not_swallowed() {
+    let parent = InstallationId::for_state_path(Path::new("../state/jefe/state.json"));
+    let here = InstallationId::for_state_path(Path::new("state/jefe/state.json"));
+
+    assert_ne!(
+        parent, here,
+        "`../state` and `state` are different locations and must stay distinct"
+    );
+}
+
+/// Case folding is a Windows filesystem property, not a universal one. On a
+/// case-sensitive filesystem two paths differing only in case are two different
+/// installations, and folding them together would put both of them on one
+/// multiplexer server — the cross-installation collision this issue removed.
+#[cfg(unix)]
+#[test]
+fn case_distinct_paths_are_distinct_installations_on_case_sensitive_systems() {
+    let lower = InstallationId::for_state_path(Path::new("/home/dev/jefe/state.json"));
+    let upper = InstallationId::for_state_path(Path::new("/home/dev/Jefe/state.json"));
+
+    assert_ne!(
+        lower, upper,
+        "case-sensitive filesystems must not share one namespace across two directories"
+    );
+}
+
+/// On Windows the same directory is routinely spelled with different casing —
+/// `%LOCALAPPDATA%` alone varies between processes — so casing there really is
+/// spelling and must not move the namespace.
+#[cfg(windows)]
+#[test]
+fn case_differences_do_not_change_the_installation_on_windows() {
+    let lower = InstallationId::for_state_path(Path::new(r"c:\users\dev\jefe\state.json"));
+    let upper = InstallationId::for_state_path(Path::new(r"C:\Users\Dev\Jefe\state.json"));
+
+    assert_eq!(
+        lower, upper,
+        "casing drift on a case-insensitive filesystem must not restart the namespace"
+    );
+}

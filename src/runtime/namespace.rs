@@ -49,22 +49,66 @@ const MAX_OVERRIDE_LENGTH: usize = 64;
 /// Windows it emits `\\?\` verbatim prefixes that would not match the same
 /// location spelled normally.
 ///
-/// Separator style, trailing separators and ASCII casing are spelling rather
-/// than identity. Folding them is what keeps a machine or account rename from
-/// moving the namespace out from under running sessions.
+/// Separator style, trailing separators and redundant `.`/`..` components are
+/// spelling rather than identity. Folding them is what keeps a machine or
+/// account rename from moving the namespace out from under running sessions.
+///
+/// The `.`/`..` fold is applied here rather than left to the caller because not
+/// every caller arrives through `persistence::paths::resolve`; the environment
+/// fallback does not, and one un-normalized spelling would be enough to strand
+/// a live session behind a namespace nobody can name.
+///
+/// Casing is deliberately folded only on Windows. There it is spelling —
+/// `%LOCALAPPDATA%` alone varies in case between processes. On a case-sensitive
+/// filesystem two paths differing only in case are two different directories,
+/// and folding them would put two independent installations on one multiplexer
+/// server: the same cross-installation collision, just from the other side.
 fn identity_material(state_path: &Path) -> String {
     let unified: String = state_path
         .to_string_lossy()
         .chars()
         .map(|character| if character == '\\' { '/' } else { character })
         .collect();
-    let trimmed = unified.trim_end_matches('/');
-    let normalized = if trimmed.is_empty() {
-        &unified
+    let normalized = fold_redundant_components(&unified);
+    if cfg!(windows) {
+        normalized.to_ascii_lowercase()
     } else {
-        trimmed
-    };
-    normalized.to_ascii_lowercase()
+        normalized
+    }
+}
+
+/// Resolve `.` and `..` lexically, without consulting the filesystem.
+///
+/// Lexical resolution cannot follow symlinks, so an aliased spelling still
+/// names a distinct installation; that is an accepted limit of refusing to
+/// canonicalize a path that may not exist yet.
+fn fold_redundant_components(unified: &str) -> String {
+    let rooted = unified.starts_with('/');
+    let mut kept: Vec<&str> = Vec::new();
+    for component in unified.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => match kept.last() {
+                // A `..` only cancels a component that can actually be popped.
+                // Leading `..` in a relative path, and anything above a drive
+                // or root, must survive or distinct locations would collapse.
+                Some(last) if *last != ".." && !last.ends_with(':') => {
+                    kept.pop();
+                }
+                _ => kept.push(".."),
+            },
+            other => kept.push(other),
+        }
+    }
+    let joined = kept.join("/");
+    if rooted {
+        format!("/{joined}")
+    } else if joined.is_empty() {
+        // Every component folded away: the path named the current directory.
+        ".".to_owned()
+    } else {
+        joined
+    }
 }
 
 /// Hash identity material into a short, wire-safe token.
