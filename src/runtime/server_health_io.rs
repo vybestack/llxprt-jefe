@@ -3,6 +3,8 @@
 use std::cell::RefCell;
 use std::process::Stdio;
 
+use crate::domain::{ProcessIdentity, ServerProcessIdentity};
+
 use super::liveness::run_tmux_with_timeout;
 use super::server_health::{
     ServerIdentity, ServerLivenessEvidence, ServerLivenessObservation, classify_server_health,
@@ -49,15 +51,31 @@ pub(super) fn classify_observation(
             // The parser only knows the PID the multiplexer printed; the
             // creation discriminator has to come from the operating system.
             let current = match capture_process_identity(parsed.process.pid()) {
-                Ok(process) => ServerIdentity::new(
-                    crate::domain::ServerProcessIdentity::from_identity(process),
-                    parsed.multiplexer,
-                ),
+                Ok(process) => resolve_observed_identity(parsed, process),
                 Err(_) => return ServerLivenessObservation::Unavailable,
             };
             classify_resolved_identity(prior, &current)
         }
         _ => super::classify_server_liveness(prior, evidence),
+    }
+}
+
+/// Merge the probe's parsed answer with the operating system's view of the
+/// process that answered.
+///
+/// Each side owns half the evidence: only the multiplexer can report the `-L`
+/// namespace token, and only the operating system can report the answering
+/// process's creation discriminator (the parser substitutes a placeholder).
+/// Keeping one half and discarding the other is what left the token-decisive
+/// comparison unreachable (issue #668).
+pub(super) fn resolve_observed_identity(
+    parsed: ServerIdentity,
+    process: ProcessIdentity,
+) -> ServerIdentity {
+    let process = ServerProcessIdentity::from_identity(process);
+    match parsed.instance {
+        Some(instance) => ServerIdentity::with_instance(process, parsed.multiplexer, instance),
+        None => ServerIdentity::new(process, parsed.multiplexer),
     }
 }
 

@@ -6,9 +6,14 @@
 //! classification of every observation the probe can produce, starting with
 //! the `Replaced` branch and the conflicting-identity guard that now bounds it.
 
-use super::server_health::{ServerIdentity, ServerLivenessEvidence, ServerLivenessObservation};
-use super::server_health_io::{classify_observation, classify_resolved_identity};
-use crate::domain::ServerProcessIdentity;
+use super::server_health::{
+    ServerIdentity, ServerInstanceToken, ServerLivenessEvidence, ServerLivenessObservation,
+    parse_server_identity_output,
+};
+use super::server_health_io::{
+    classify_observation, classify_resolved_identity, resolve_observed_identity,
+};
+use crate::domain::{ProcessIdentity, ServerProcessIdentity};
 use crate::runtime::MultiplexerVersion;
 
 fn identity(pid: u32, started_at: u64) -> ServerIdentity {
@@ -241,4 +246,204 @@ fn identity_free_observations_are_not_exit_empty_targets() {
         super::server_health_io::exit_empty_target(&ServerLivenessObservation::Healthy(None)),
         None
     );
+}
+
+// --- Namespace-token classification (issue #668) -------------------------
+//
+// psmux runs one server *per session*, so a namespace can hold several live
+// servers and `display-message` answers with whichever one replied. The
+// `#{server_instance}` token identifies the namespace itself, and until #668
+// the I/O path parsed it and then dropped it, leaving every verdict to the
+// weaker pid comparison. These tests drive the production composition —
+// parse the probe answer, merge the operating system's view of the answering
+// process, classify — so the token is proven to survive that merge and to
+// decide the verdict once it does.
+
+/// One namespace's token, and a second, different namespace's token.
+const NAMESPACE_A: &str = "883b25f5379f199a";
+const NAMESPACE_B: &str = "f3cb9da032325298";
+
+/// The multiplexer version every probe answer below reports.
+const VERSION: &str = "3.3.7";
+
+/// Creation discriminators from the issue #664 production observation: 133
+/// seconds apart, `OLDER` belonging to the process that answered second.
+const OLDER: u64 = 134_304_226_880_092_839;
+const NEWER: u64 = 134_304_228_211_297_590;
+
+/// Render a probe answer the way the multiplexer does. An empty `token`
+/// reproduces a multiplexer predating psmux#509.
+fn answer(token: &str, pid: u32) -> String {
+    format!("{token}|{pid}|{VERSION}")
+}
+
+/// Build an identity exactly as the production path does: the multiplexer's
+/// parsed answer merged with the operating system's view of the process that
+/// answered. Each side owns half the evidence, so both halves must survive.
+fn observed(token: &str, pid: u32, started_at: u64) -> ServerIdentity {
+    let stdout = answer(token, pid);
+    let Some(parsed) = parse_server_identity_output(&stdout) else {
+        panic!("a server identity probe answer must parse, got {stdout:?}")
+    };
+    let process = ProcessIdentity::new(parsed.process.pid(), started_at);
+    resolve_observed_identity(parsed, process)
+}
+
+/// Resolving an answer against the operating system keeps the namespace token
+/// the multiplexer reported and adopts the creation discriminator only the
+/// operating system can supply.
+#[test]
+fn resolving_an_answer_keeps_the_namespace_token_and_takes_the_real_start() {
+    let resolved = observed(NAMESPACE_A, 656, NEWER);
+
+    assert_eq!(
+        resolved.instance.as_ref().map(ServerInstanceToken::as_str),
+        Some(NAMESPACE_A)
+    );
+    assert_eq!(resolved.process, ServerProcessIdentity::new(656, NEWER));
+    assert_eq!(resolved.multiplexer, MultiplexerVersion::new(3, 3, 7));
+}
+
+/// A multiplexer predating psmux#509 renders the token as empty text. That
+/// blank field stays absent rather than becoming a token, so such a server is
+/// still classified on process identity alone.
+#[test]
+fn resolving_a_tokenless_answer_yields_no_namespace_token() {
+    let resolved = observed("", 656, NEWER);
+
+    assert_eq!(resolved.instance, None);
+    assert_eq!(resolved.process, ServerProcessIdentity::new(656, NEWER));
+}
+
+/// The same namespace answering from a different per-session server is not a
+/// replacement: adding a session to a live namespace changes which pid
+/// replies but nothing about the namespace (issue #540).
+#[test]
+fn the_same_namespace_token_at_a_different_pid_is_healthy() {
+    let prior = observed(NAMESPACE_A, 9008, OLDER);
+    let current = observed(NAMESPACE_A, 3832, NEWER);
+
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &current),
+        ServerLivenessObservation::Healthy(Some(current))
+    );
+}
+
+/// The issue #664 production shape, now carrying a token: the server that
+/// answered is 133 seconds *older* than the pinned one. Within one namespace
+/// that is an ordinary sibling server, so the token settles it as healthy and
+/// the monotonicity guard is never reached — the guard does not mask the
+/// token rule.
+#[test]
+fn the_same_namespace_token_at_an_older_sibling_server_is_healthy() {
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+    let current = observed(NAMESPACE_A, 19948, OLDER);
+
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &current),
+        ServerLivenessObservation::Healthy(Some(current))
+    );
+}
+
+/// A different namespace token means the namespace itself changed. When the
+/// answering process is strictly newer the restart is orderable, so it is a
+/// genuine replacement even though the operating system reused the pid.
+#[test]
+fn a_different_namespace_token_at_a_reused_pid_is_replaced() {
+    let prior = observed(NAMESPACE_A, 656, OLDER);
+    let current = observed(NAMESPACE_B, 656, NEWER);
+
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &current),
+        ServerLivenessObservation::Replaced(current)
+    );
+}
+
+/// One process cannot belong to two namespaces. A different token on an
+/// identical process is contradictory rather than a restart, and the #664
+/// guard refuses it because nothing was created after anything else.
+#[test]
+fn a_different_namespace_token_on_an_identical_process_is_conflicting() {
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+    let current = observed(NAMESPACE_B, 656, NEWER);
+
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &current),
+        ServerLivenessObservation::ConflictingIdentity(current)
+    );
+}
+
+/// A token on the pinned side only is not decisive in either direction: with
+/// nothing to compare it against, the verdict falls back to process identity.
+#[test]
+fn a_token_on_the_prior_only_falls_back_to_the_process_identity() {
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+
+    let same_process = observed("", 656, NEWER);
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &same_process),
+        ServerLivenessObservation::Healthy(Some(same_process))
+    );
+
+    let newer_process = observed("", 19948, NEWER + 1);
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &newer_process),
+        ServerLivenessObservation::Replaced(newer_process)
+    );
+}
+
+/// The mirror case: a token appearing on the fresh answer only cannot be
+/// matched against the pinned identity, so process identity decides again.
+#[test]
+fn a_token_on_the_current_only_falls_back_to_the_process_identity() {
+    let prior = observed("", 656, NEWER);
+
+    let same_process = observed(NAMESPACE_A, 656, NEWER);
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &same_process),
+        ServerLivenessObservation::Healthy(Some(same_process))
+    );
+
+    let newer_process = observed(NAMESPACE_A, 19948, NEWER + 1);
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &newer_process),
+        ServerLivenessObservation::Replaced(newer_process)
+    );
+}
+
+/// The issue #664 guard survives the token path going live: a genuinely
+/// different namespace whose server predates the pinned one is still refused,
+/// so the token rule does not promote a non-monotonic answer to `Replaced`.
+#[test]
+fn a_non_monotonic_namespace_change_is_still_refused() {
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+    let current = observed(NAMESPACE_B, 19948, OLDER);
+
+    assert_eq!(
+        classify_resolved_identity(Some(&prior), &current),
+        ServerLivenessObservation::ConflictingIdentity(current)
+    );
+}
+
+/// End to end on the platform where the defect was observed: a probe answer
+/// carrying a namespace token reaches the pinned identity with that token
+/// intact, alongside the operating system's creation discriminator.
+#[cfg(windows)]
+#[test]
+fn a_probed_namespace_token_reaches_the_pinned_identity() {
+    let pid = std::process::id();
+    let stdout = answer(NAMESPACE_B, pid);
+    let evidence = ServerLivenessEvidence::command_succeeded(&stdout, "");
+
+    match classify_observation(None, &evidence) {
+        ServerLivenessObservation::Healthy(Some(observed)) => {
+            assert_eq!(
+                observed.instance.as_ref().map(ServerInstanceToken::as_str),
+                Some(NAMESPACE_B)
+            );
+            assert_eq!(observed.process.pid(), pid);
+            assert!(observed.process.started_at().is_some());
+        }
+        other => panic!("expected a resolved healthy identity, got {other:?}"),
+    }
 }
