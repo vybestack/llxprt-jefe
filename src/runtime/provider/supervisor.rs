@@ -15,6 +15,7 @@
 //!
 //! [`Child`]: std::process::Child
 
+use std::io;
 use std::process::{ChildStdin, Command, ExitStatus};
 use std::time::{Duration, Instant};
 
@@ -192,6 +193,10 @@ pub enum CleanupFailure {
     DrainTimeout,
     /// The process tree could not be observed reaped within the bound.
     NotReaped,
+    /// A best-effort cleanup I/O step failed: a `shutdown` write/flush (the
+    /// provider closed its stdin or exited) or a terminate/force-kill command.
+    /// The reap still escalates and reaps; this is the runtime evidence.
+    Io(String),
 }
 
 impl CleanupFailure {
@@ -202,7 +207,7 @@ impl CleanupFailure {
     pub fn code(&self) -> &'static str {
         match self {
             Self::ShutdownAck(_) => error::PROTOCOL_FAILURE_CODE,
-            Self::DrainTimeout | Self::NotReaped => error::RUNTIME_UNAVAILABLE_CODE,
+            Self::DrainTimeout | Self::NotReaped | Self::Io(_) => error::RUNTIME_UNAVAILABLE_CODE,
         }
     }
 }
@@ -397,7 +402,8 @@ fn supervise(
     // is detached (its handle dropped) rather than joined: the lifecycle is
     // complete and the bounded reaper closed the pipe, so joining would be an
     // unbounded wait for no additional information.
-    let shutdown_outcome = staged_shutdown(&mut process, stdin, bounds, pid);
+    let (shutdown_outcome, _signal_errors) =
+        staged_shutdown(&mut process, Some(stdin), bounds, pid);
     let process_reaped = matches!(shutdown_outcome, ShutdownOutcome::Exited(_));
     let exit_code = match shutdown_outcome {
         ShutdownOutcome::Exited(code) => code,
@@ -639,9 +645,25 @@ pub(super) fn compose_cleanup_failure(
     None
 }
 
+/// ESRCH (no such process): signal target already reaped (benign on Unix).
+const EXITED_PROCESS_ERRNO: i32 = 3;
+/// Preserve the first non-benign signal-delivery error (ESRCH is benign) so a
+/// real failure (e.g. permission) is not discarded when cleanup is clean.
+pub(super) fn signal_cleanup_evidence(errors: &[io::Error]) -> Option<String> {
+    // On non-Unix "process already gone" is not a stable errno, so signal errors
+    // are not classified; the bounded reap/drains remain authoritative.
+    if !cfg!(unix) {
+        return None;
+    }
+    errors.iter().find_map(|error| {
+        let benign = error.raw_os_error() == Some(EXITED_PROCESS_ERRNO);
+        (!benign).then(|| error.to_string())
+    })
+}
+
 /// The outcome of the staged shutdown.
 #[derive(Debug, Clone, Copy)]
-enum ShutdownOutcome {
+pub(super) enum ShutdownOutcome {
     /// The process tree exited; its exit code, if any.
     Exited(Option<i32>),
     /// The process tree could not be observed reaped within the bound.
@@ -650,51 +672,50 @@ enum ShutdownOutcome {
 
 /// Perform the escalating staged shutdown and reap (CW10-11).
 ///
-/// Stage A waits the shutdown-ack bound for the process to exit on its own.
-/// Stage B closes stdin, terminates the group, and waits the stdin-close bound.
-/// Stage C force-kills the tree and reaps, bounded by the final-drain bound. If
-/// the tree still cannot be observed reaped after the force-kill, [`NotReaped`]
-/// is returned — never a reaped flag without an observed exit.
-///
-/// Stage C issues kill signals without an unbounded `wait`: the bounded poll
-/// below is the sole reap authority. Signal-delivery errors are returned (not
-/// silently discarded); a descendant that survives the leader's reap surfaces
-/// as a stdout/stderr drain timeout in [`compose_cleanup_failure`].
+/// Stage A waits the shutdown-ack bound for a self-exit. Stage B closes stdin,
+/// terminates the group, and waits the stdin-close bound. Stage C force-kills the
+/// tree and reaps within the final-drain bound; if it cannot be observed reaped,
+/// [`NotReaped`] is returned — never a reaped flag without an observed exit.
+/// Kill signals are issued without an unbounded `wait`: the bounded poll is the
+/// sole reap authority. Signal-delivery errors are collected (not discarded); a
+/// benign already-reaped (ESRCH) result is filtered by [`signal_cleanup_evidence`].
 ///
 /// [`NotReaped`]: ShutdownOutcome::NotReaped
-fn staged_shutdown(
+pub(super) fn staged_shutdown(
     process: &mut ProviderProcess,
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     bounds: &SupervisorBounds,
     pid: u32,
-) -> ShutdownOutcome {
+) -> (ShutdownOutcome, Vec<io::Error>) {
+    let mut signals: Vec<io::Error> = Vec::new();
     if let Some(status) = wait_for_exit(process, bounds.shutdown_ack) {
-        return ShutdownOutcome::Exited(status.code());
+        return (ShutdownOutcome::Exited(status.code()), signals);
     }
     drop(stdin);
-    // Stage B: graceful group termination. The group may already have exited
-    // (ESRCH), so a command failure here is expected and best-effort; Stage C
-    // force-kills regardless. The helper returns a typed `io::Result` rather
-    // than discarding the spawn/status error at the source.
-    let _ = process_tree::terminate_process_tree(pid);
-    if let Some(status) = wait_for_exit(process, bounds.stdin_close) {
-        return ShutdownOutcome::Exited(status.code());
+    // Stage B: graceful group termination (the group may already be gone, so a
+    // failure is best-effort; Stage C force-kills regardless). Error collected,
+    // not discarded.
+    if let Err(error) = process_tree::terminate_process_tree(pid) {
+        signals.push(error);
     }
-    // Stage C: force-kill signals are issued without an unbounded `wait`; the
-    // bounded poll below is the sole reap authority. If neither the group
-    // signal nor the in-process `kill` could be issued and the bounded poll
-    // also sees no exit, the reap surfaces as `NotReaped` — never a false
-    // reaped. The signal `io::Result` is a typed value the caller explicitly
-    // treats as best-effort here; the reap failure itself is the evidence.
-    let _ = process.force_kill_tree();
-    match wait_for_exit(process, bounds.final_drain) {
+    if let Some(status) = wait_for_exit(process, bounds.stdin_close) {
+        return (ShutdownOutcome::Exited(status.code()), signals);
+    }
+    // Stage C: force-kill without an unbounded `wait`; the bounded poll is the
+    // sole reap authority. If no exit is observed the reap surfaces as
+    // `NotReaped`; signal errors are collected, not discarded.
+    if let Err(error) = process.force_kill_tree() {
+        signals.push(error);
+    }
+    let outcome = match wait_for_exit(process, bounds.final_drain) {
         Some(status) => ShutdownOutcome::Exited(status.code()),
         None => ShutdownOutcome::NotReaped,
-    }
+    };
+    (outcome, signals)
 }
 
 /// Poll for process exit up to `bound`, returning the status if it exits.
-fn wait_for_exit(process: &mut ProviderProcess, bound: Duration) -> Option<ExitStatus> {
+pub(super) fn wait_for_exit(process: &mut ProviderProcess, bound: Duration) -> Option<ExitStatus> {
     let deadline = Instant::now() + bound;
     loop {
         if let Ok(Some(status)) = process.try_wait() {
@@ -713,7 +734,10 @@ fn wait_for_exit(process: &mut ProviderProcess, bound: Duration) -> Option<ExitS
 /// an unbounded wait, and this bounded `recv_timeout` is the completion signal.
 /// Returns the retained bytes, whether the retention cap was hit, and whether
 /// the drain did not close within the bound.
-fn collect_retained_stderr(stderr: StderrDrain, bound: Duration) -> (String, bool, bool) {
+pub(super) fn collect_retained_stderr(
+    stderr: StderrDrain,
+    bound: Duration,
+) -> (String, bool, bool) {
     match stderr.receiver.recv_timeout(bound) {
         Ok(StderrOutcome::Retained { bytes, truncated }) => (
             String::from_utf8_lossy(&bytes).into_owned(),

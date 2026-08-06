@@ -201,39 +201,24 @@ impl Driver<'_> {
         }
     }
 
-    /// Strictly observe the `shutdown-ack`.
+    /// Strictly observe the `shutdown-ack` through the shared observer.
     ///
     /// The full lifecycle requires shutdown/ack/EOF/reap, but the EOF that must
     /// follow a valid ack is observed by the supervisor's bounded final stdout
-    /// drain after process exit/kill — not here. This method validates only the
-    /// ack itself: a wrong kind, a malformed line, a wrong generation or order,
-    /// a missing (timeout) ack, an EOF before the ack, or a read fault each
-    /// produce a [`CleanupFailure`]. After a valid ack it returns `None` and
-    /// defers the EOF/data-after-ack observation to the final drain, so a
-    /// timeout waiting for EOF is never treated as success. The first terminal
-    /// result remains authoritative; this never replaces the outcome.
+    /// drain after process exit/kill — not here. The shared observer validates
+    /// only the ack itself; this method additionally records the transcript
+    /// entry for a valid ack. After a valid ack it returns `None` and defers the
+    /// EOF/data-after-ack observation to the final drain, so a timeout waiting
+    /// for EOF is never treated as success. The first terminal result remains
+    /// authoritative; this never replaces the outcome.
     fn observe_shutdown_ack(&mut self) -> Option<CleanupFailure> {
-        match self.read_inbound(self.bounds.shutdown_ack, SupervisorFailure::ShutdownTimeout) {
-            Inbound::Message(parsed) => {
-                if parsed.kind() != MessageKind::ShutdownAck {
-                    return Some(CleanupFailure::ShutdownAck(unexpected_kind(
-                        MessageKind::ShutdownAck,
-                        parsed.kind(),
-                    )));
-                }
-                if let Err(error) = self.observe_inbound(&parsed) {
-                    return Some(CleanupFailure::ShutdownAck(error));
-                }
-                // A valid shutdown-ack was observed. The bounded final stdout
-                // drain owns the EOF observation and rejects any data-after-ack;
-                // this method must not treat a later EOF timeout as success.
-                None
-            }
-            Inbound::Protocol(error) => Some(CleanupFailure::ShutdownAck(error)),
-            Inbound::Timeout(_) => Some(CleanupFailure::ShutdownAck(ack_missing())),
-            Inbound::ReadError => Some(CleanupFailure::ShutdownAck(ack_read_fault())),
-            Inbound::Eof => Some(CleanupFailure::ShutdownAck(ack_eof())),
+        let probe = probe_ack(self.stdout, self.bounds.shutdown_ack);
+        let (failure, ack) = validate_shutdown_ack(probe, self.lifecycle);
+        if let Some(parsed) = ack {
+            self.transcript
+                .push(TranscriptEntry::Received(parsed.kind()));
         }
+        failure
     }
 
     /// Observe one inbound message in the lifecycle and progress validators and
@@ -323,7 +308,85 @@ fn unexpected_after_invoke() -> error::ProviderError {
     }
 }
 
-fn unexpected_kind(expected: MessageKind, observed: MessageKind) -> error::ProviderError {
+/// One classified inbound read while awaiting `shutdown-ack`.
+///
+/// Shared by the one-shot lifecycle driver and the persistent supervisor's
+/// healthy shutdown/rollback path.
+pub(super) enum AckProbe {
+    /// A parsed frame arrived.
+    Message(dto::ParsedMessage),
+    /// A non-frame protocol fault (oversize, parse error, or malformed line).
+    Protocol(error::ProviderError),
+    /// No event arrived within the bound.
+    Timeout,
+    /// The stdout read failed.
+    ReadError,
+    /// stdout reached EOF before the ack.
+    Eof,
+}
+
+/// Read and classify one bounded inbound event while awaiting `shutdown-ack`.
+pub(super) fn probe_ack(stdout: &StdoutDrain, bound: Duration) -> AckProbe {
+    match stdout.receiver.recv_timeout(bound) {
+        Ok(StdoutEvent::Frame(frame)) => match parse_message(&frame, Direction::ProviderToHost) {
+            Ok(parsed) => AckProbe::Message(parsed),
+            Err(error) => AckProbe::Protocol(error),
+        },
+        Ok(StdoutEvent::Oversize(error)) => AckProbe::Protocol(error),
+        Ok(StdoutEvent::ReadError) => AckProbe::ReadError,
+        Err(RecvTimeoutError::Timeout) => AckProbe::Timeout,
+        Err(RecvTimeoutError::Disconnected) => AckProbe::Eof,
+    }
+}
+
+/// Validate one `shutdown-ack` probe against the lifecycle, returning a cleanup
+/// failure if it is wrong/missing/malformed/out-of-order. On a valid ack the
+/// parsed message is returned so the caller can record any transcript entry;
+/// the EOF/data-after-ack observation is deferred to the bounded final drain.
+pub(super) fn validate_shutdown_ack(
+    probe: AckProbe,
+    lifecycle: &mut LifecycleOrder,
+) -> (Option<CleanupFailure>, Option<dto::ParsedMessage>) {
+    match probe {
+        AckProbe::Message(parsed) => {
+            if parsed.kind() != MessageKind::ShutdownAck {
+                return (
+                    Some(CleanupFailure::ShutdownAck(unexpected_kind(
+                        MessageKind::ShutdownAck,
+                        parsed.kind(),
+                    ))),
+                    None,
+                );
+            }
+            match lifecycle.observe(parsed.kind(), parsed.generation) {
+                Ok(()) => (None, Some(parsed)),
+                Err(error) => (Some(CleanupFailure::ShutdownAck(error)), None),
+            }
+        }
+        AckProbe::Protocol(error) => (Some(CleanupFailure::ShutdownAck(error)), None),
+        AckProbe::Timeout => (Some(CleanupFailure::ShutdownAck(ack_missing())), None),
+        AckProbe::ReadError => (Some(CleanupFailure::ShutdownAck(ack_read_fault())), None),
+        AckProbe::Eof => (Some(CleanupFailure::ShutdownAck(ack_eof())), None),
+    }
+}
+
+/// Strictly await one `shutdown-ack` for a healthy candidate, returning a
+/// cleanup failure if it is wrong/missing/malformed/out-of-order or preceded by
+/// EOF. After a valid ack returns `None`; the bounded final stdout drain owns the
+/// EOF/data-after-ack observation, so a later EOF timeout is never treated as
+/// success. The caller must have advanced the lifecycle to `AwaitShutdownAck`.
+pub(super) fn await_shutdown_ack(
+    stdout: &StdoutDrain,
+    lifecycle: &mut LifecycleOrder,
+    bound: Duration,
+) -> Option<CleanupFailure> {
+    validate_shutdown_ack(probe_ack(stdout, bound), lifecycle).0
+}
+
+pub(super) fn unexpected_kind(
+    expected: MessageKind,
+    observed: MessageKind,
+) -> error::ProviderError {
     error::ProviderError::OutOfOrder {
         phase: expected.as_str().to_owned(),
         kind: observed.as_str().to_owned(),

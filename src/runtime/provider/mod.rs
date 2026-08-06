@@ -11,6 +11,7 @@ pub mod environment;
 pub mod error;
 pub mod framing;
 pub mod outbound;
+pub mod persistent;
 pub mod protocol;
 pub mod supervisor;
 
@@ -33,6 +34,10 @@ mod driver;
 mod line_reader;
 mod process_tree;
 mod redaction;
+
+// Private helper owned by the persistent supervisor (Slice C2): per-candidate
+// startup and the closed handshake to `ready`.
+mod candidate;
 
 pub use error::{
     FramingFault, PROGRESS_SEQUENCE_MAX, PROTOCOL_FAILURE_CODE, ProgressFault, ProviderError,
@@ -59,3 +64,7 @@ mod environment_tests;
 #[cfg(test)]
 #[path = "supervisor_tests.rs"]
 mod supervisor_tests;
+
+#[cfg(test)]
+#[path = "persistent_tests.rs"]
+mod persistent_tests;
