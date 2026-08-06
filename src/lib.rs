@@ -60,6 +60,8 @@ mod pr_diff_content_tests;
 /// Pure selected-agent Preview projection.
 pub mod preview_view;
 pub mod recovery;
+/// Run-boundary diagnostics: run-start/run-end records and unclean-run detection.
+pub mod run_diagnostics;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod screen_layout;

@@ -10,11 +10,17 @@ mod reclaim_io;
 mod shell_reconcile;
 #[path = "app_init_signature_reconcile.rs"]
 mod signature_reconcile;
+#[path = "app_init_warnings.rs"]
+mod warnings;
 
 #[cfg(test)]
 use self::signature_reconcile::BindingEvidence;
 use self::signature_reconcile::{
     SessionEvidence, StartupClassification, binding_evidence, classify_startup,
+};
+use self::warnings::{
+    append_warning, apply_startup_warning, report_unclean_prior_runs, resolve_durable_read,
+    surface_durable_read_hold, surface_startup_holds,
 };
 use iocraft::hooks::State as HookState;
 use tracing::warn;
@@ -40,27 +46,6 @@ fn launch_signature_for_agent(
     repository: &jefe::domain::Repository,
 ) -> AgentLaunchRequest {
     AgentLaunchRequest::for_agent(agent, repository)
-}
-
-fn append_warning(state: &mut AppState, warning: String) {
-    state.warning_message = Some(match state.warning_message.take() {
-        Some(existing) => format!("{existing} {warning}"),
-        None => warning,
-    });
-}
-/// Record a held durable read and put the reason where the operator will see
-/// it.
-///
-/// Holding writes without saying so leaves a jefe that looks healthy while
-/// persisting nothing, so the hold and its visible explanation are set
-/// together rather than by separate callers who might do only one of the two
-/// (issue #541).
-fn surface_durable_read_hold(state: &mut AppState, held: Option<String>) {
-    let Some(reason) = held else {
-        return;
-    };
-    append_warning(state, reason.clone());
-    state.durable_read_held = Some(reason);
 }
 
 /// Select the agents still awaiting a verdict.
@@ -143,34 +128,6 @@ pub fn reattempt_held_agents(app_state: &mut HookState<AppState>, ctx: &SharedCo
     }
     let mut state = app_state.write();
     apply_restored_state(&mut state, revived_running, newly_dead, None);
-}
-
-/// Report agents whose state startup could not determine.
-///
-/// A held agent keeps its persisted `Running` status and its binding, which is
-/// the correct refusal to guess. But the liveness cycle builds its targets
-/// from the runtime's session map, and a held agent was never registered
-/// there, so nothing probes it again. Left silent that is a Running agent the
-/// operator cannot attach to and is given no reason for, so the hold has to be
-/// stated even though it is the safe outcome (issue #541).
-fn surface_startup_holds(state: &mut AppState, held: &[(AgentId, String)]) {
-    let Some((_, first_reason)) = held.first() else {
-        return;
-    };
-    append_warning(
-        state,
-        format!(
-            "{} agent(s) could not be checked at startup and were left untouched: {first_reason}. \
-             Their state is unknown, not confirmed.",
-            held.len()
-        ),
-    );
-}
-
-fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
-    if let Some(warning) = warning {
-        append_warning(state, warning);
-    }
 }
 
 /// Compose the startup diagnostic from what qualification found.
@@ -536,26 +493,14 @@ pub fn init_app_state(
         Settings::default_with_version()
     });
 
-    // A read that fails is not a read that found nothing. Defaulting here is
-    // what let #445 turn an unreadable document into an empty one, because the
-    // empty result was then projected straight back over the file.
-    let (persisted, durable_read_held) = match ctx_guard.persistence.load_durable_state() {
-        Ok(value) => (value, None),
-        Err(error) => {
-            warn!(error = %error, "could not read durable state; holding writes");
-            (
-                jefe::state::durable_projection::RestoredState::default(),
-                Some(format!(
-                    "Durable state could not be read ({error}). Agents shown may be incomplete and saving is paused so the existing file is not overwritten."
-                )),
-            )
-        }
-    };
+    let (persisted, durable_read_held) =
+        resolve_durable_read(ctx_guard.persistence.load_durable_state());
 
     let mut state = app_state.write();
     surface_durable_read_hold(&mut state, durable_read_held);
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
+    report_unclean_prior_runs(&mut state, &mut ctx_guard);
     state.plugin_inventory = plugin_inventory;
     state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();

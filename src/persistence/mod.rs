@@ -81,6 +81,7 @@ pub use plugin_inventory::{
     InstalledPackage, PluginInventory, UnavailablePackage, UnavailableReason, scan,
 };
 pub use plugin_roots::{PluginRoot, PluginRootKind, PluginRootRequest, candidate_roots};
+pub mod run_marker;
 pub mod settings_document;
 pub mod settings_edit;
 mod settings_layout;

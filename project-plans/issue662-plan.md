@@ -1,0 +1,328 @@
+# Issue 662: jefe can die leaving zero diagnostic record anywhere, making termination undiagnosable
+
+Issue: https://github.com/vybestack/llxprt-jefe/issues/662
+
+## Summary
+
+Jefe terminated twice and left no attributable record. The log stops mid-stream,
+the panic hook never fired, the event log is empty, and cargo never observed the
+child exiting. The defect delivered here is not the termination itself: it is
+that a termination cannot be *attributed*. This issue makes the boundaries of a
+jefe run observable so that the next occurrence is diagnosable from artifacts
+that already exist on disk.
+
+The delivered behavior is:
+
+- an explicit run-start record and a typed run-end record in the log;
+- a durable "run in progress" marker carrying the run's process identity, its
+  last-seen heartbeat, and a breadcrumb of the in-flight operation;
+- detection at the next start that a prior run ended with no recorded reason,
+  reported in the log **and** surfaced in the UI;
+- an explicit log flush on the exit paths jefe controls.
+
+## Evidence from the issue
+
+| Source | Result reported |
+|---|---|
+| `jefe.log` (28 MB) | No panic marker, no shutdown/exit record; log stops mid-stream. |
+| Windows Application event log | No jefe entry, no WER report, no crash dump. |
+| stderr / scrollback | Nothing; cargo emitted no `process didn't exit successfully` line. |
+| Panic hook (`src/main.rs:256`) | Installed, never fired. |
+| Health probe cadence | ~2.2 s lines stop in the same instant as the UI thread, then 6m10s of silence. |
+
+Two facts constrain the design. First, the run died without executing any jefe
+code, so the *only* mechanism that can attribute it is state written **before**
+the death and interpreted **after** it — hence the marker. Second, nothing in the
+current code writes a run boundary at all, so today even a clean exit is
+indistinguishable from a kill.
+
+## Current-state findings that shape the work
+
+- `src/logging.rs` opens the log file with `OpenOptions::append` and hands the
+  `File` to `tracing_subscriber::fmt().with_writer(..)`. Writes are unbuffered,
+  but **no handle is retained and there is no flush entry point**, so "flush on
+  exit" cannot currently be asserted by any test.
+- After `init_diagnostics()` (`src/main.rs:325`) there is **no** `std::process::exit`
+  call. Every controlled exit path returns through `run_tui` -> `main`, or unwinds
+  through a panic. So the controlled exit surface is small and coverable.
+- `jefe::runtime::process_liveness` / `capture_process_identity` already classify a
+  recorded `ProcessIdentity` as `Alive` / `Dead` / `ReusedPid`, including PID reuse
+  via `started_at`. Unclean-shutdown detection reuses this rather than inventing a
+  liveness rule, which is what keeps a *concurrent* jefe from being misreported as
+  a crashed one.
+- `src/app_init.rs::append_warning` is the established route for putting a startup
+  condition where the operator sees it (`state.warning_message`, rendered by the
+  status bar).
+- `src/harness/signal_cleanup.rs` (issue #375) is the structural precedent for
+  platform termination handling: registration guard, detached handler thread,
+  cleanup, then honoring the termination intent. Windows is a no-op there.
+
+## Acceptance matrix
+
+| ID | Actor / path | Input and target | Observable success | Failure behavior / side effects | Persistence and compatibility | Proof |
+|---|---|---|---|---|---|---|
+| A1 | `run_tui` after `init_diagnostics` | any start with `JEFE_LOG_FILE` set | one `run start` record in the log naming pid, `started_at` discriminator, jefe version, and wall-clock start time | log unavailable: start proceeds silently, no panic, no stderr noise | log only; no schema | integration test asserts the record in a child process's log |
+| A2 | `run_tui` returning from `run_app` | clean quit, render-loop failure, or main-thread panic unwind | one `run end` record with a typed reason (`user-quit`, `render-failed`, `panic`, `unknown`) | marker removal failure is logged at warn and never aborts exit | log only | integration test asserts reason text per outcome |
+| A3 | `run_diagnostics::begin_run` | resolved config dir | a marker file exists under `<config-dir>/runs/` containing the run's `ProcessIdentity`, version, start time, last-seen time | unwritable dir: begin_run returns no prior runs, logs at warn, start continues | new ephemeral file; absent-dir tolerated; unknown JSON fields ignored | integration test reads the marker back |
+| A4 | next `begin_run` | a marker whose owner is `Dead` or `ReusedPid` | log record and UI warning naming the prior pid, its last-seen timestamp, and its breadcrumb; the consumed marker is deleted | unparseable marker is deleted and not reported | forward-compatible: unknown fields ignored | integration test + `init_app_state` test + TUI scenario |
+| A5 | next `begin_run` | a marker whose owner is `Alive` | that marker is left untouched and **not** reported | indeterminate probe result: not reported, marker retained | concurrent instances share the dir safely (one marker per pid) | integration test seeding the test process's own identity |
+| A6 | exit and panic paths | `JEFE_LOG_FILE` set | the last record written before `std::process::exit` and before a panic-hook return is present in the file | flush error ignored; never panics from the flush path | none | child-process test asserting the tail survives `process::exit` |
+| A7 | attach/detach scheduler | an in-flight attach or detach | the marker's breadcrumb names the operation, and an unclean report repeats it | no breadcrumb recorded yet: report omits it rather than inventing one | breadcrumb is optional in the marker | integration test + `app_shell_attach` unit test |
+
+## Non-goals
+
+- Fixing the underlying cause of the termination (tracked separately).
+- Crash-dump capture or any telemetry that leaves the machine.
+- Log rotation, log size management, or changing the existing log format.
+- A general-purpose event/audit subsystem. The marker records exactly the fields
+  named above and nothing else.
+- Schema version bumps and quality-gate changes.
+- Any dependency beyond the one the user explicitly approved for A8 (`ctrlc`,
+  `cfg(windows)`, `termination` feature) — see the A8 section below.
+
+## A8, `SetConsoleCtrlHandler` — approved and delivered
+
+**Decision: the user approved the dependency; A8 is delivered in `4b9a51a8`.**
+
+Issue item 4 asks for a console control handler so `CTRL_CLOSE_EVENT`,
+`CTRL_LOGOFF_EVENT`, and `CTRL_SHUTDOWN_EVENT` are recorded. It could not be
+implemented under current project rules without a decision:
+
+- `Cargo.toml` sets `unsafe_code = "forbid"` at package level, so jefe cannot
+  register the FFI callback itself.
+- The Windows dependencies already vendored expose no such API: `winsafe 0.0.27`
+  contains no `SetConsoleCtrlHandler` (verified by grep), and `win32console 0.1.5`
+  is code-page/output only. `windows-sys` appears only transitively.
+- Therefore A8 requires **adding a dependency** (e.g. `ctrlc` with its
+  `termination` feature, which covers CTRL_C/BREAK/CLOSE/LOGOFF/SHUTDOWN). A safe
+  wrapper crate is the established policy here — the `win32console` entry in
+  `Cargo.toml` states it exists so "all unsafe Win32 calls stay inside this crate
+  so jefe source remains `unsafe`-free" — but a dependency change requires
+  explicit approval under the delivery workflow.
+
+Caveat to disclose with the decision: on Windows the handler routine runs on an
+OS-injected thread with a hard time budget, and `ctrlc` signals an event and
+returns immediately while the user closure runs elsewhere. The record is
+therefore best-effort. It also would not have captured the deaths in this issue,
+whose evidence shows *no* exit window was granted.
+
+As delivered, `ctrlc 3.5.2` is a `cfg(windows)` dependency with the
+`termination` feature. `run_diagnostics::install_host_termination_handler` is
+registered from `main.rs` immediately after `begin_run`, so a teardown arriving
+during startup keeps the host's default handling rather than reporting the end
+of a run that never began. The handler calls `record_host_termination`, which
+ends the run with the new `RunEndReason::HostTerminated` (`"host-terminated"`),
+flushes the log, and retires the marker so an explained death is not also
+reported as unexplained.
+
+The handler deliberately does **not** exit the process. The events that reach
+it are already fatal — the OS kills the process once the handler returns — and
+exiting would steal `Ctrl-C` from the attached agent terminal in the one case
+where it is not fatal (issue #200). In the TUI this is largely theoretical
+because raw mode clears `ENABLE_PROCESSED_INPUT` and Windows then delivers
+`Ctrl-C` as a key event rather than a control event, but not exiting means the
+handler cannot regress that routing even if the terminal layer changes.
+
+## Slices
+
+### Slice 1 — pure run-record domain (delivered, `33d779cc`)
+
+- Rows: A2 (reason type), A3 (marker shape), A4/A5 (classification rule), A7 (breadcrumb field).
+- Allowed paths: `src/domain/run_record.rs`, `src/domain/mod.rs`, `tests/issue662_behavior.rs`.
+- RED: classification tests for owner-alive / owner-gone / indeterminate, and for
+  a marker with and without a breadcrumb.
+- GREEN: `RunEndReason`, `RunMarker`, `PriorRunProbe`, `PriorRunDisposition`,
+  `UncleanRun`, and a pure `classify_prior_run`. No I/O, no runtime dependency —
+  the `ProcessLiveness` -> `PriorRunProbe` mapping happens at the caller.
+- Stop condition: if the classification needs process probing inside `domain/`.
+
+### Slice 2 — marker persistence (delivered, `229863b1`)
+
+- Rows: A3, A4, A5.
+- Allowed paths: `src/persistence/run_marker.rs`, `src/persistence/mod.rs`, `tests/issue662_behavior.rs`.
+- RED: write/read round-trip; scan skips foreign files; unparseable marker is deleted; missing dir is tolerated.
+- GREEN: `run_marker_dir`, `write_marker` (temp file + atomic replace), `read_markers`, `remove_marker`. One file per pid so concurrent instances never clobber each other.
+- Stop condition: if this needs the revision/hash-gated `persistence::writer::write` contract.
+
+### Slice 3 — log flush and run boundary records (delivered, `ac064b79`)
+
+- Rows: A1, A2, A6.
+- Allowed paths: `src/logging.rs`, `src/run_diagnostics.rs`, `src/lib.rs`, `tests/issue662_behavior.rs`.
+- RED: a child-process test asserting `run start` and `run end` records reach the
+  log file and survive `std::process::exit`.
+- GREEN: retain an `Arc<File>` in `logging` and add `logging::flush()`; add
+  `run_diagnostics::begin_run` / `RunGuard::finish` / `heartbeat` / `record_breadcrumb`;
+  flush from the panic hook and from run end.
+- Stop condition: if flushing requires changing the subscriber's writer type or the log format.
+
+### Slice 4 — wiring into the binary (delivered, `ee7d08bc`)
+
+- Rows: A1, A2, A6, A7.
+- Allowed paths: `src/main.rs`, `src/app_shell.rs`, `src/app_shell_attach.rs`, `src/panic_capture.rs`.
+- RED: `app_shell_attach` unit test asserting a breadcrumb is recorded for an in-flight attach.
+- GREEN: begin the run in `run_tui`; finish it with `user-quit` / `render-failed`;
+  heartbeat from a dedicated `use_future`; breadcrumb at the attach/detach
+  scheduler; flush from the panic hook.
+- Stop condition: if the heartbeat needs a new worker/thread subsystem rather than an existing loop.
+
+### Slice 5 — UI surfacing of an unclean prior run (delivered, `ee7d08bc`)
+
+- Rows: A4, A5.
+- Allowed paths: `src/main.rs` (context field), `src/app_init.rs`, `src/app_init_tests.rs`, `dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json`, `tests/harness_v1_fixtures.rs`.
+- RED: TUI scenario seeding a dead-owner marker and asserting the warning appears; `init_app_state` test asserting `warning_message` names the pid and last-seen time.
+- GREEN: carry the detected unclean runs on `AppContext` and surface them through the existing `append_warning` route.
+- Stop condition: if surfacing requires a new screen, message variant, or state field beyond `warning_message`.
+
+### Slice 6 — A8, console control handler (delivered, `4b9a51a8`)
+
+- Rows: A8.
+- Allowed paths: `Cargo.toml`, `Cargo.lock`, `src/domain/run_record.rs`, `src/run_diagnostics.rs`, `src/main.rs`, `tests/issue662_behavior.rs`.
+- RED: `a_run_the_host_tears_down_records_why_before_it_dies` failed to compile because `record_host_termination` did not exist.
+- GREEN: `RunEndReason::HostTerminated`, `record_host_termination`, `install_host_termination_handler`, registered from `main.rs` after `begin_run`.
+- Teeth proven by mutation: ending with `RunEndReason::Unknown` instead makes the test fail on the recorded reason.
+
+## Scope ledger
+
+| Discovery | Disposition |
+|---|---|
+| `logging` retains no file handle, so no flush is possible | In scope (A6) — required by the accepted behavior. |
+| `run_app` swallows render-loop errors, losing the exit reason | In scope (A2) — the typed reason needs it. |
+| `ErrorSource::Startup` has display mappings but no producer | Defer — surfacing via `warning_message` satisfies A4; adding the first `Startup` error producer is adjacent scope. |
+| `app_shell_liveness` early-returns when there are no local targets, so it is not a dependable heartbeat | In scope (A3) — heartbeat gets its own small `use_future` instead of changing liveness. |
+| Windows console control handler needs a new dependency | Resolved — user approved `ctrlc` (`cfg(windows)`, `termination` feature); A8 delivered in `4b9a51a8`. |
+
+## Review counters
+
+- Local OCR runs: 0 / 2 completed. Two attempts were made and both **failed**
+  (coverage state `failed`): `ocr review --from origin/main --to HEAD --format json
+  --audience agent --concurrency 2 --timeout 30` exited 1 with empty stdout and
+  stderr and no diagnostics. `ocr llm test` succeeds and `ocr review --preview`
+  succeeds (19 files, +1497/-12, 18 reviewed, the plan excluded as
+  `unsupported_ext`), so the range and scope resolution are fine and the failure is
+  in the review phase. Per `dev-docs/code-review-process.md` no OCR configuration
+  was edited and no provider was switched. Neither attempt produced a review, so
+  neither consumed an allowance.
+- Post-PR OCR runs: 0 / 2
+- Local review pass: delegated to the `rustcoder` subagent in read-only reviewer
+  mode after the OCR failures (the `rustreviewer` subagent is currently unusable -
+  its backend rejects the tool schema). Coverage: complete. Dispositions below.
+
+### Local review dispositions
+
+| Finding | Class | Disposition |
+|---|---|---|
+| Heartbeat in flight at shutdown can resurrect a retired marker | Blocker-Fix | Fixed in `5c48969d`, RED test first. |
+| `write_marker` uses a fixed per-pid scratch name, so overlapping writes delete each other's temp file | In-scope-Fix -> Reject | Rejected after verification. Every marker write goes through `refresh`, which the blocker fix now serializes under the run lock, and separate processes already get separate scratch names from the pid. A unique scratch name was implemented, then reverted because no test could make it fail; shipping it would have been untested production code. |
+| Make run-diagnostics state instance-owned rather than process-global | Defer | Follow-up; the process-global is what lets the panic hook reach the run. |
+| Add a real-OS-kill marker-survival test | Defer | Follow-up; current coverage simulates the kill with `mem::forget` + `exit(0)`. |
+| Windows ACL on `open_user_only`; `now_unix()` zero sentinel; mutex-poison reachability | Reject | Pre-existing conventions or deliberate choices, all outside this issue. |
+
+## Verification evidence
+
+Commits on `issue662`:
+
+| Commit | Slices | Behavior landed |
+|---|---|---|
+| `33d779cc` | 1 | pure run-record domain types and `classify_prior_run` |
+| `229863b1` | 2 | per-run marker persistence beside the durable state file |
+| `5c48969d` | review | a heartbeat in flight at shutdown can no longer resurrect a retired marker |
+| `73816bf3` | review | A6/A7 coverage gap closed: the run-end record is proven to carry the breadcrumb |
+| `ac064b79` | 3 | `logging::flush()` and `run_diagnostics` begin/heartbeat/breadcrumb/finish |
+| `ee7d08bc` | 4, 5 | binary wiring, typed end reason, breadcrumbs, UI surfacing, TUI scenario |
+| `4b9a51a8` | 6 | A8: a host teardown (console close, logoff, shutdown) records `host-terminated` and retires the marker |
+
+Acceptance rows to proof:
+
+| Row | Proof | Result |
+|---|---|---|
+| A1 | `tests/issue662_behavior.rs::a_run_that_ends_for_a_reason_records_both_boundaries_and_retires_its_marker` (child process, real log file) | pass |
+| A2 | same test plus `a_panicking_run_still_records_why_it_ended`; `run_app` now returns `RenderFailed` / `UserQuit` | pass |
+| A3 | 8 persistence tests in `tests/issue662_behavior.rs` (round-trip, foreign files, unparseable, missing dir) | pass |
+| A4 | `a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended`; `src/app_init_tests.rs` x4; TUI scenario `issue662-unclean-prior-run.json` | pass locally; scenario runs on CI (harness is unix-only) |
+| A4 (scenario) | First CI run failed the scenario at its opening wait: the warning renders on the top line and displaces the `LLxprt Jefe` banner it was waiting for. The captured frame proved the feature worked, so the wait was moved to the `Repositories` pane title. The scenario cannot be run on Windows, so CI is its only proving ground. | fixed, re-verified on CI |
+| A5 | `a_run_killed_without_a_reason_leaves_its_marker_and_its_last_breadcrumb`; owner-alive classification tests | pass |
+| A6 | child-process tests assert the tail survives process death; panic hook calls `logging::flush()` | pass |
+| A7 | breadcrumb carried in the marker and repeated in the unclean report; attach/detach record breadcrumbs | pass |
+| A8 | `a_run_the_host_tears_down_records_why_before_it_dies` (child records a breadcrumb, calls `record_host_termination`, then dies without unwinding; parent asserts the flushed `run-end` line carries `host-terminated` and the breadcrumb, and that the marker is retired) | pass; attribution is best effort by construction, see the A8 section |
+
+Local gates on `ee7d08bc`:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | exit 0 |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | exit 0 |
+| `cargo test --all-features --locked --lib --bins` | 3734 + 870 + 12 passed, 0 failed |
+| `cargo test --all-features --locked --tests` | all targets ok, 0 failed |
+| `cargo xtask check architecture` | exit 0 |
+| `cargo xtask check source-size` | exit 0 (warnings only, no file at or over the 1000-line limit) |
+
+Note: `harness::tmux_driver::tests::real_psmux_runs_a_stable_native_process_when_available`
+failed once under full-suite parallelism and passed in isolation both with and
+without these changes; it is environment-dependent and untouched by this work.
+
+Exact-head `cargo xtask ci` on the A8 tree (`30488c47`, which adds only this
+document on top of the code at `4b9a51a8`; no gate compiles markdown):
+
+| Stage | Result |
+|---|---|
+| check-clippy-allows, check-source-size, check-architecture, check-multiplexer-surface | exit 0 (99 pre-existing file-length warnings, all non-blocking) |
+| lint, complexity | exit 0 |
+| coverage | 71.04% lines, 72.48% functions, against a 30% floor |
+| build | exit 0 |
+| test | 3734 lib + 870 bins + all integration targets pass |
+
+Three psmux tests failed only under full-suite parallelism, every one of them on
+the same `command timed out after 5s` path, and all passed on re-run in
+isolation: the `real_psmux` driver test above, plus
+`psmux_supports_jefe_runtime_and_harness_command_surface` and
+`psmux_four_recording_agents_remain_independent_and_scoped`
+(`cargo test --test psmux_smoke -- --test-threads=1` gives 13 passed, 0 failed).
+Nothing in this branch touches the multiplexer.
+
+## Final CI evidence
+
+CI run `31065295505` succeeded at `d27aaa8b`, the head of the branch. Only
+`Optional TUI smoke (tmux)` and `Main flake baseline record` did not run, both
+skipped by design on a branch run.
+
+Two commits sit between the gate table above and that head, and both exist
+because `main` moved underneath this branch rather than because the delivered
+behaviour changed.
+
+The first is the merge at `708a7889`. Three files conflicted and all three were
+both branches adding at the same place rather than disagreeing: a module
+declaration in `persistence`, a state assignment in `init_app_state`, and a test
+at the end of the harness fixtures. Both sides were kept everywhere.
+
+The second, `d27aaa8b`, is the more interesting one, because it records a failure
+mode that a green local run cannot show you. The merge gave `init_app_state` one
+new line from each side, which pushed it past the sixty-line function gate.
+Extracting `resolve_durable_read` fixed that, but left `app_init.rs` at 1014
+lines, over the thousand-line hard cap that only CI measures. Both were answered
+by extraction rather than by suppression: the startup-warning cluster moved to
+`app_init_warnings.rs`, on the grounds that every function in it answers one
+question, which is how a startup problem reaches the operator instead of only the
+log. `app_init.rs` came out at 859 lines, back under the advisory threshold
+rather than merely under the hard one, and no behaviour changed.
+
+Worth recording for the next person: twice on this branch CI caught a defect that
+local verification structurally could not. The file-length cap above is one. The
+other was the harness scenario, which cannot run on Windows at all and which was
+waiting on a title bar that this branch's own warning displaces.
+
+## Deferred findings and follow-ups
+
+- First producer for `ErrorSource::Startup`.
+- Make run-diagnostics run state instance-owned rather than a process-global
+  `Mutex<Option<ActiveRun>>` (local review D1).
+- Prove marker survival against a real OS kill rather than `mem::forget` plus
+  `exit(0)` (local review D2).
+- Surface run-marker I/O failures to the operator instead of discarding them
+  (issue #678).
+- Stop the host-termination handler blocking on the run lock in its shutdown
+  window (issue #679).
+- Refuse to follow symlinks on the marker read path (issue #680).
+- Give the `issue662_behavior` temp directories a cleanup path where one is
+  possible (issue #681).
+- Stop fsyncing the marker's parent directory on every heartbeat (issue #682).
+

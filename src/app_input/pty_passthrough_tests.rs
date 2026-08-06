@@ -50,6 +50,7 @@ fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
             Ok(jefe::services::persist_worker::PersistResult::Authoritative)
         })),
         capture_handle: CaptureHandle::new(),
+        unclean_prior_runs: Vec::new(),
     }));
     (ctx, runtime_dir)
 }

@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "name": "issue662-unclean-prior-run",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/runs",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [],\n  \"agents\": [],\n  \"selected_repository_index\": null,\n  \"selected_agent_index\": null\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/runs/run-4000000001.json",
+        "content": {
+          "utf8": "{\n  \"identity\": { \"pid\": 4000000001, \"started_at\": 1 },\n  \"version\": \"0.0.31\",\n  \"started_unix\": 1700000000,\n  \"last_seen_unix\": 1700000100\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Previous jefe run (pid 4000000001)",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Previous jefe run (pid 4000000001)",
+        "ended without a recorded reason"
+      ],
+      "absent": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}
