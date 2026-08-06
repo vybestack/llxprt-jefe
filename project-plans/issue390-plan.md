@@ -244,7 +244,7 @@ Evidence ledger:
 
 - [x] Slice A RED / GREEN / quick gate — missing protocol module produced the intended compile RED; 45 focused framing/protocol tests pass; full-workspace strict Clippy and source-size gate pass; every provider production file is below 750 lines
 - [x] Slice B reducer GREEN / strict Clippy / source-size / architecture — 65 focused reducer+projection tests pass (24 acceptance CW10-06–10, 41 remediation RED-first across two batches); full-workspace strict Clippy, source-size, and architecture gates pass; `src/messages.rs` held at the 750-line warn boundary and `src/state/types.rs` trimmed below 998; every provider production file is below 750 lines; placeholder TUI scenarios deleted and deferred to Slice D RED-first with deterministic provider fixtures
-- [ ] Slice C supervisor fixtures GREEN / quick gate
+- [x] Slice C supervisor fixtures GREEN / quick gate — 108 focused provider unit tests (framing, protocol, encode, environment, outbound queue 64/65 boundary, line reader, supervisor) plus 22 fixture-driven integration tests (CW10-02 happy/progress-256/provider-error/never-ready/crash/generation-drift; CW10-09 first-terminal; CW10-11 hang-shutdown staged reap, descendant-hang, strict shutdown-ack lifecycle; CW10-14 secret redaction across every provider-owned surface, environment isolation, caller-secret rejection) and the CW10-12 recovery zero-spawn executable-trap test all pass; full-workspace strict Clippy (`-D warnings`), `clippy-allows`, source-size, and architecture gates pass; locked all-feature workspace build succeeds; every new provider production file is below 750 lines (`supervisor.rs` largest at 725, `drains.rs` 197); the full lib suite (4270 tests) is green with no regressions
 - [ ] Slice D end-to-end TUI GREEN / docs complete
 - [ ] Local Rust review and OCR triaged within counters
 - [ ] Exact-head `make ci-check`
@@ -350,3 +350,111 @@ view, cancel, retry, and source-size gaps before the Slice B commit:
     warn boundary (no new warning) and the `provider_requests` field doc in
     `src/state/types.rs` is condensed so verbose field docs no longer push it
     to 998. No unrelated behavior was refactored.
+
+### Slice C1 delivery (this commit)
+
+Issue #390 Slice C1 lands the one-shot provider process supervisor, the closed
+host-to-provider JSONL encoder, the isolated environment constructor with
+secret resolution and redaction, the bounded 64-envelope outbound queue, and the
+cross-platform Rust fixture binary. One-shot semantics are isolated; persistent
+startup/publication (CW10-03/04) remains Slice C2 work.
+
+- **Supervisor (`src/runtime/provider/supervisor.rs`).** Sole owner of the
+  provider `Child`, its process group, its pipes, two continuous drain threads,
+  the outbound queue, and the staged reaper. Drives the fresh one-shot lifecycle
+  (spawn → hello/hello-ack → configure/ready → invoke-action → 0..256 progress
+  → exactly one outcome/error → shutdown/shutdown-ack → EOF/reap) and returns
+  only typed domain values (`OneShotResult`/`OneShotOutcome`/`LifecycleTranscript`);
+  no `Child` or handle reaches `AppState`. `SupervisorBounds::PRODUCTION` holds
+  the exact bounds (5 s handshake stage, 60 s invocation, 2 s shutdown-ack,
+  2 s stdin-close, 2 s final-drain) and tests inject small values.
+- **Staged shutdown/reap (CW10-11).** Closes new requests, waits 2 s for
+  graceful exit; closes stdin and terminates the process group (Unix SIGTERM on
+  the group / Windows `taskkill /T`), waits 2 s; force-kills and reaps the tree,
+  waits 2 s. Stage C issues kill signals **without** an unbounded `child.wait()`
+  (removed): `process_tree::terminate_process_tree` and `kill_process_tree`
+  return typed `io::Result`s, and the bounded poll in `staged_shutdown` is the
+  sole reap authority. EOF is recorded in the transcript **only** when the
+  bounded final stdout drain observes an actual channel disconnection; a
+  descendant that survives the leader's reap (holding an inherited pipe) surfaces
+  as `CleanupFailure::DrainTimeout`, and clean cleanup requires both stdout EOF
+  and a closed stderr drain — descendants are never assumed reaped merely because
+  the leader reaped. stderr is drained continuously and retained ≤ 262 144 bytes.
+- **Leak-proof schema redaction (CW10-14).** `redact_field` returns
+  `Option<Field>`: a confirmation-schema field whose redacted scalars cannot
+  re-validate (for example two enum choices that both redact to the same
+  `[REDACTED]` placeholder) is **omitted** (`None`), never rebuilt as the
+  original secret-bearing declaration.
+- **Encoder (`encode.rs`), environment (`environment.rs`), queue
+  (`outbound.rs`), line reader (`line_reader.rs`), process tree
+  (`process_tree.rs`), drains (`drains.rs`).** No new dependency, no `unsafe`,
+  no `serde_json::Value`, no production `unwrap`/`expect`/`panic`/`#[allow]`.
+- **CW10-14 environment.** Base env begins empty (`env_clear`); the process
+  receives only the provider directory + fixed platform system-bins PATH, a
+  contained HOME/TMPDIR, the locale, manifest-declared nonsecret names, and
+  explicitly bound secret environment bindings. Configure secret sources resolve
+  only declared host-env references and land only in the owning `Configure`
+  payload; `ProcessEnv` does not derive `Debug`; resolved secret values are
+  redacted from retained stderr and from outcome/error strings and never appear
+  in any diagnostic.
+- **CW10-12.** Recovery/doctor remain provider-free; an executable-trap
+  integration test places a canary provider on PATH and proves `jefe config
+  validate` and `jefe doctor` never spawn it.
+- **Fixture.** `tests/fixtures/provider_fixture.rs` (a feature-gated `[[bin]]
+  jefe-provider-fixture` behind the `provider-fixtures` feature, never in the
+  shipping/no-feature build) speaks the closed JSONL protocol in eleven scenario
+  modes driven by the real supervisor. The `provider-fixtures` feature is the
+  dev-dependency self-feature that integration tests opt into.
+
+### Slice C1 final correctness remediation (RED-first, no commit)
+
+Four source-grounded fixes close the remaining leak, EOF, reaping, and shutdown
+correctness gaps before the Slice C1 commit, each proven RED-first:
+
+1. **Leak-proof schema redaction (`redaction.rs`).** `redact_field` previously
+   rebuilt a field from a redacted draft and fell back to the *original
+   unredacted* `Field` on `Field::parse` failure (`Field::parse(draft).unwrap_or(field)`),
+   which leaks a secret when two distinct enum choices redact to the same
+   `[REDACTED]` placeholder and fail duplicate-choice revalidation. It now
+   returns `Option<Field>`: a field whose redacted scalars cannot revalidate is
+   **omitted** (`None`), and the caller `filter_map`s it out of the
+   continuation schema. A RED test proves two distinct secret choices that both
+   redact to the placeholder cause the field to be omitted and that **no
+   original secret remains anywhere** in the rebuilt schema.
+2. **Observed-only EOF and bounded final stdout drain (`supervisor.rs`,
+   `drains.rs`, `driver.rs`).** The transcript recorded `TranscriptEntry::Eof`
+   unconditionally in the normal-cleanup and drain-spawn-failure paths; it now
+   records EOF only when the bounded final stdout drain (`final_stdout_drain`,
+   moved to `drains.rs`) observes an actual channel disconnection. After process
+   exit/kill the drain detects disconnection (clean EOF), rejects a remaining
+   frame (data-after-ack → `CleanupFailure::ShutdownAck`), reports a non-frame
+   fault (`CleanupFailure::ShutdownAck`), and returns
+   `CleanupFailure::DrainTimeout` when EOF is not observed within the bound.
+   RED tests cover valid EOF, lingering inherited stdout (timeout), and data
+   buffered after ack.
+3. **`observe_shutdown_ack` defers EOF to the final drain (`driver.rs`).** A
+   valid ack no longer reads a follow-up event whose `Timeout` was treated as
+   success; after a valid ack the method returns `None` and the bounded final
+   stdout drain alone decides whether EOF was actually observed.
+4. **Nonblocking Stage C reaping (`process_tree.rs`, `supervisor.rs`).**
+   `kill_process_tree`/`force_kill_tree` no longer call `child.wait()`
+   (unbounded); they issue kill signals and return typed `io::Result`s, and
+   `staged_shutdown`'s bounded poll is the sole reap authority.
+   `terminate_process_tree` likewise returns `io::Result`. A clean cleanup
+   requires stdout EOF **and** a closed stderr drain (`compose_cleanup_failure`),
+   so descendants are never assumed reaped merely because the leader reaped.
+
+Files: `redaction.rs`, `supervisor.rs`, `supervisor_tests.rs`, `drains.rs`,
+`driver.rs`, `process_tree.rs`, `Cargo.toml` (already feature-gated). No new
+dependency, no `unsafe`, no production `unwrap`/`expect`/`panic`/`#[allow]`, no
+unbounded wait, no secret-bearing fallback; every provider production file is
+below 750 lines. Slice C2 is not implemented.
+
+### Slice C2 deferred (persistent lifecycle)
+
+CW10-03 (ordered persistent candidate startup) and CW10-04 (atomic all-or-
+nothing publication with rollback reap) are the remaining supervisor-side work.
+C1 already exposes the supervisor adapter and the staged-reap plumbing the
+persistent orchestration will reuse; the startup-composition edge wiring and the
+multi-candidate publication gate are deliberately out of C1 scope per the issue
+contract.

@@ -19,6 +19,13 @@ use crate::domain::bounded_json::BoundedJsonError;
 /// The single stable operator-visible code for every provider-protocol failure.
 pub const PROTOCOL_FAILURE_CODE: &str = "PLG-E502";
 
+/// The operator-visible code for a provider-runtime-unavailable condition.
+///
+/// Spawn, I/O, timeout, crash, or environment failures carry this code. It is
+/// distinct from [`PROTOCOL_FAILURE_CODE`] so an operator can tell a
+/// closed-protocol contract violation from a runtime condition.
+pub const RUNTIME_UNAVAILABLE_CODE: &str = "PLG-E503";
+
 /// The inclusive upper bound on a progress sequence value.
 pub const PROGRESS_SEQUENCE_MAX: u16 = 256;
 

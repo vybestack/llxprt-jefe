@@ -107,13 +107,18 @@ psmux-smoke = []
 # Exposes typed schema-1 fixture helpers to integration tests. Production code
 # never writes schema 1, so these helpers are not part of the shipping API.
 schema1-fixtures = []
+# Builds the cross-platform provider fixture binary used by the issue #390
+# integration tests. Production code never links it; the feature exists so the
+# `jefe-provider-fixture` [[bin]] follows the established required-features
+# convention and stays out of the shipping build.
+provider-fixtures = []
 
 # Integration tests in tests/ link the library as an external crate, so they
 # cannot see #[cfg(test)] items. Depending on ourselves with the fixture
 # feature enables it for test targets only, keeping it out of the shipping
 # build without forcing every test invocation to pass --features.
 [dev-dependencies]
-jefe = { path = ".", features = ["schema1-fixtures"] }
+jefe = { path = ".", features = ["schema1-fixtures", "provider-fixtures"] }
 
 [[bin]]
 name = "jefe-psmux-smoke-fixture"
@@ -142,6 +147,11 @@ required-features = ["psmux-smoke"]
 [[bin]]
 name = "jefe-harness-probe"
 path = "src/bin/jefe-harness-probe.rs"
+
+[[bin]]
+name = "jefe-provider-fixture"
+path = "tests/fixtures/provider_fixture.rs"
+required-features = ["provider-fixtures"]
 
 [[bin]]
 name = "tmux_scenario"
