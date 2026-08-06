@@ -259,6 +259,25 @@ Note: `harness::tmux_driver::tests::real_psmux_runs_a_stable_native_process_when
 failed once under full-suite parallelism and passed in isolation both with and
 without these changes; it is environment-dependent and untouched by this work.
 
+Exact-head `cargo xtask ci` on the A8 tree (`48777008`, which adds only this
+document on top of the code at `47288b64`; no gate compiles markdown):
+
+| Stage | Result |
+|---|---|
+| check-clippy-allows, check-source-size, check-architecture, check-multiplexer-surface | exit 0 (99 pre-existing file-length warnings, all non-blocking) |
+| lint, complexity | exit 0 |
+| coverage | 71.04% lines, 72.48% functions, against a 30% floor |
+| build | exit 0 |
+| test | 3734 lib + 870 bins + all integration targets pass |
+
+Three psmux tests failed only under full-suite parallelism, every one of them on
+the same `command timed out after 5s` path, and all passed on re-run in
+isolation: the `real_psmux` driver test above, plus
+`psmux_supports_jefe_runtime_and_harness_command_surface` and
+`psmux_four_recording_agents_remain_independent_and_scoped`
+(`cargo test --test psmux_smoke -- --test-threads=1` gives 13 passed, 0 failed).
+Nothing in this branch touches the multiplexer.
+
 ## Deferred findings and follow-ups
 
 - First producer for `ErrorSource::Startup`.
