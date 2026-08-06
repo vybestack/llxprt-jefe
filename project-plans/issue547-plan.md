@@ -153,6 +153,14 @@ without writing, so it cannot erase the evidence it exists to report.
 | S5 | Doctor provenance: namespace, origin, originating state path, psmux commit | V6, V12 | `2f204690` |
 | S6 | Namespace record + loud drift reporting | V2 | `1815d3d1` |
 | S7 | Harness stops inheriting `JEFE_NAMESPACE` | isolation | `05d34942` |
+| S8 | Fix two expectations only Linux could disprove | CI | `8a01c425` |
+| S9 | Review response: remove the places messages could drift from the code | review | `5a2d6c6b` |
+| S10 | Namespace record tests clean up after themselves | review | `a4dea5f4` |
+
+Delivered as PR #686. Two failures in S8 were invisible from a Windows host:
+cross-target clippy type-checks `cfg(unix)` code but never runs it, and
+`tmux_driver_tests.rs` does not compile on Windows at all. Anything touching a
+`cfg(unix)` path has to reach CI before it can be called verified.
 
 ## 6. Non-goals
 
