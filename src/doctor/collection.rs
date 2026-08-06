@@ -130,13 +130,20 @@ fn record_multiplexer_plan(
     }
 }
 
-/// Record private-isolation (socket / namespace) evidence from a plan.
-fn record_namespace_isolation(
-    plan: &crate::runtime::MultiplexerPlan,
-    findings: &mut Vec<DiagnosticFinding>,
-) {
+/// Describe how the multiplexer is isolated and where that identity came from.
+///
+/// The rendered socket path or namespace name alone cannot tell an operator
+/// why their agents are or are not visible: two installations differ only by
+/// an opaque hash. Reporting the provenance alongside it turns "unknown
+/// namespace" into "this namespace, derived from this state directory", which
+/// is the question anyone running `jefe doctor` after a rename is actually
+/// asking.
+fn isolation_evidence(
+    isolation: &crate::runtime::MultiplexerIsolation,
+    identity: &crate::runtime::namespace::InstallationIdentity,
+) -> String {
     use crate::runtime::MultiplexerIsolation;
-    let detail = match plan.isolation() {
+    let rendered = match isolation {
         MultiplexerIsolation::Socket(path) => {
             format!("private socket isolation at {}", path.display())
         }
@@ -144,6 +151,23 @@ fn record_namespace_isolation(
             format!("private namespace isolation: {ns}")
         }
     };
+    let provenance = match identity.origin().state_path() {
+        Some(state_path) => format!("derived from state directory {}", state_path.display()),
+        None => {
+            "set deliberately by JEFE_NAMESPACE, not from this installation's state directory; \
+             unset JEFE_NAMESPACE to return to the default namespace for this installation"
+                .to_owned()
+        }
+    };
+    format!("{rendered}; {provenance}")
+}
+
+/// Record private-isolation (socket / namespace) evidence from a plan.
+fn record_namespace_isolation(
+    plan: &crate::runtime::MultiplexerPlan,
+    findings: &mut Vec<DiagnosticFinding>,
+) {
+    let detail = isolation_evidence(plan.isolation(), crate::runtime::installation::current());
     let status = if plan.supports(crate::runtime::MultiplexerCapability::NamespaceIsolation)
         || plan.supports(crate::runtime::MultiplexerCapability::SocketIsolation)
     {
@@ -417,5 +441,54 @@ mod tests {
         );
         // The two CJK characters contribute 2 units, not 6 bytes.
         assert_eq!(utf16_units, utf8_bytes - 4);
+    }
+
+    #[test]
+    fn isolation_evidence_names_the_state_path_the_namespace_came_from() {
+        // An operator diagnosing "why is this agent not in my session list"
+        // needs to know which installation the namespace was derived from.
+        // Reporting the opaque hash alone cannot answer that question, so the
+        // originating state path has to travel with it.
+        let state_path = std::path::Path::new("/home/someone/.local/state/jefe");
+        let identity = crate::runtime::namespace::InstallationIdentity::for_state_path(state_path);
+        let detail = isolation_evidence(
+            &crate::runtime::MultiplexerIsolation::Namespace(identity.id().as_str().to_owned()),
+            &identity,
+        );
+
+        assert!(
+            detail.contains(identity.id().as_str()),
+            "the active namespace must be visible, got: {detail}"
+        );
+        assert!(
+            detail.contains("state"),
+            "the originating state path must be visible, got: {detail}"
+        );
+        assert!(
+            detail.contains("derived"),
+            "a derived namespace must say so, got: {detail}"
+        );
+    }
+
+    #[test]
+    fn isolation_evidence_calls_out_a_deliberate_override() {
+        // An overridden namespace is the one case where the operator has
+        // deliberately stepped outside the per-installation default, so the
+        // report must not present it as if it followed from the state path.
+        let identity = crate::runtime::namespace::InstallationIdentity::from_override("ab-testing")
+            .unwrap_or_else(|error| panic!("a plain override should be accepted: {error}"));
+        let detail = isolation_evidence(
+            &crate::runtime::MultiplexerIsolation::Namespace("ab-testing".to_owned()),
+            &identity,
+        );
+
+        assert!(
+            detail.contains("JEFE_NAMESPACE"),
+            "the operator must be told which variable is steering them, got: {detail}"
+        );
+        assert!(
+            !detail.contains("derived from state directory"),
+            "an override must not be attributed to a state directory, got: {detail}"
+        );
     }
 }
