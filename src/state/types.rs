@@ -586,6 +586,10 @@ pub struct AppState {
     /// counters stale completions are validated against (issue #381).
     /// Runtime-only — never persisted; no handle/closure/queue lives here.
     pub pending_effects: super::transition::EffectLedger,
+
+    /// Handle-free provider request reducer state (issue #390 CW-10, Slice B);
+    /// runtime-only, never persisted.
+    pub provider_requests: super::provider_requests::ProviderRequestState,
 }
 
 /// Embedded agent-shell overlay state (issue #222).
