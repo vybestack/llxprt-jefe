@@ -64,6 +64,7 @@ mod multiplexer_conformance;
 mod multiplexer_conformance_io;
 mod multiplexer_conformance_sweep;
 mod multiplexer_contract;
+mod multiplexer_identity;
 /// Pure derivation of an installation identity from a config/state path
 /// (issue #547).
 ///
