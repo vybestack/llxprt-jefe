@@ -263,16 +263,26 @@ fn identity_free_observations_are_not_exit_empty_targets() {
 const NAMESPACE_A: &str = "883b25f5379f199a";
 const NAMESPACE_B: &str = "f3cb9da032325298";
 
+/// The multiplexer version every probe answer below reports.
+const VERSION: &str = "3.3.7";
+
 /// Creation discriminators from the issue #664 production observation: 133
 /// seconds apart, `OLDER` belonging to the process that answered second.
 const OLDER: u64 = 134_304_226_880_092_839;
 const NEWER: u64 = 134_304_228_211_297_590;
 
+/// Render a probe answer the way the multiplexer does. An empty `token`
+/// reproduces a multiplexer predating psmux#509.
+fn answer(token: &str, pid: u32) -> String {
+    format!("{token}|{pid}|{VERSION}")
+}
+
 /// Build an identity exactly as the production path does: the multiplexer's
 /// parsed answer merged with the operating system's view of the process that
 /// answered. Each side owns half the evidence, so both halves must survive.
-fn observed(stdout: &str, started_at: u64) -> ServerIdentity {
-    let Some(parsed) = parse_server_identity_output(stdout) else {
+fn observed(token: &str, pid: u32, started_at: u64) -> ServerIdentity {
+    let stdout = answer(token, pid);
+    let Some(parsed) = parse_server_identity_output(&stdout) else {
         panic!("a server identity probe answer must parse, got {stdout:?}")
     };
     let process = ProcessIdentity::new(parsed.process.pid(), started_at);
@@ -284,7 +294,7 @@ fn observed(stdout: &str, started_at: u64) -> ServerIdentity {
 /// operating system can supply.
 #[test]
 fn resolving_an_answer_keeps_the_namespace_token_and_takes_the_real_start() {
-    let resolved = observed("883b25f5379f199a|656|3.3.7", NEWER);
+    let resolved = observed(NAMESPACE_A, 656, NEWER);
 
     assert_eq!(
         resolved.instance.as_ref().map(ServerInstanceToken::as_str),
@@ -299,7 +309,7 @@ fn resolving_an_answer_keeps_the_namespace_token_and_takes_the_real_start() {
 /// still classified on process identity alone.
 #[test]
 fn resolving_a_tokenless_answer_yields_no_namespace_token() {
-    let resolved = observed("|656|3.3.7", NEWER);
+    let resolved = observed("", 656, NEWER);
 
     assert_eq!(resolved.instance, None);
     assert_eq!(resolved.process, ServerProcessIdentity::new(656, NEWER));
@@ -310,8 +320,8 @@ fn resolving_a_tokenless_answer_yields_no_namespace_token() {
 /// replies but nothing about the namespace (issue #540).
 #[test]
 fn the_same_namespace_token_at_a_different_pid_is_healthy() {
-    let prior = observed("883b25f5379f199a|9008|3.3.7", OLDER);
-    let current = observed("883b25f5379f199a|3832|3.3.7", NEWER);
+    let prior = observed(NAMESPACE_A, 9008, OLDER);
+    let current = observed(NAMESPACE_A, 3832, NEWER);
 
     assert_eq!(
         classify_resolved_identity(Some(&prior), &current),
@@ -326,8 +336,8 @@ fn the_same_namespace_token_at_a_different_pid_is_healthy() {
 /// token rule.
 #[test]
 fn the_same_namespace_token_at_an_older_sibling_server_is_healthy() {
-    let prior = observed("883b25f5379f199a|656|3.3.7", NEWER);
-    let current = observed("883b25f5379f199a|19948|3.3.7", OLDER);
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+    let current = observed(NAMESPACE_A, 19948, OLDER);
 
     assert_eq!(
         classify_resolved_identity(Some(&prior), &current),
@@ -340,8 +350,8 @@ fn the_same_namespace_token_at_an_older_sibling_server_is_healthy() {
 /// genuine replacement even though the operating system reused the pid.
 #[test]
 fn a_different_namespace_token_at_a_reused_pid_is_replaced() {
-    let prior = observed("883b25f5379f199a|656|3.3.7", OLDER);
-    let current = observed("f3cb9da032325298|656|3.3.7", NEWER);
+    let prior = observed(NAMESPACE_A, 656, OLDER);
+    let current = observed(NAMESPACE_B, 656, NEWER);
 
     assert_eq!(
         classify_resolved_identity(Some(&prior), &current),
@@ -354,8 +364,8 @@ fn a_different_namespace_token_at_a_reused_pid_is_replaced() {
 /// guard refuses it because nothing was created after anything else.
 #[test]
 fn a_different_namespace_token_on_an_identical_process_is_conflicting() {
-    let prior = observed("883b25f5379f199a|656|3.3.7", NEWER);
-    let current = observed("f3cb9da032325298|656|3.3.7", NEWER);
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+    let current = observed(NAMESPACE_B, 656, NEWER);
 
     assert_eq!(
         classify_resolved_identity(Some(&prior), &current),
@@ -367,15 +377,15 @@ fn a_different_namespace_token_on_an_identical_process_is_conflicting() {
 /// nothing to compare it against, the verdict falls back to process identity.
 #[test]
 fn a_token_on_the_prior_only_falls_back_to_the_process_identity() {
-    let prior = observed("883b25f5379f199a|656|3.3.7", NEWER);
+    let prior = observed(NAMESPACE_A, 656, NEWER);
 
-    let same_process = observed("|656|3.3.7", NEWER);
+    let same_process = observed("", 656, NEWER);
     assert_eq!(
         classify_resolved_identity(Some(&prior), &same_process),
         ServerLivenessObservation::Healthy(Some(same_process))
     );
 
-    let newer_process = observed("|19948|3.3.7", NEWER + 1);
+    let newer_process = observed("", 19948, NEWER + 1);
     assert_eq!(
         classify_resolved_identity(Some(&prior), &newer_process),
         ServerLivenessObservation::Replaced(newer_process)
@@ -386,15 +396,15 @@ fn a_token_on_the_prior_only_falls_back_to_the_process_identity() {
 /// matched against the pinned identity, so process identity decides again.
 #[test]
 fn a_token_on_the_current_only_falls_back_to_the_process_identity() {
-    let prior = observed("|656|3.3.7", NEWER);
+    let prior = observed("", 656, NEWER);
 
-    let same_process = observed("883b25f5379f199a|656|3.3.7", NEWER);
+    let same_process = observed(NAMESPACE_A, 656, NEWER);
     assert_eq!(
         classify_resolved_identity(Some(&prior), &same_process),
         ServerLivenessObservation::Healthy(Some(same_process))
     );
 
-    let newer_process = observed("883b25f5379f199a|19948|3.3.7", NEWER + 1);
+    let newer_process = observed(NAMESPACE_A, 19948, NEWER + 1);
     assert_eq!(
         classify_resolved_identity(Some(&prior), &newer_process),
         ServerLivenessObservation::Replaced(newer_process)
@@ -406,8 +416,8 @@ fn a_token_on_the_current_only_falls_back_to_the_process_identity() {
 /// so the token rule does not promote a non-monotonic answer to `Replaced`.
 #[test]
 fn a_non_monotonic_namespace_change_is_still_refused() {
-    let prior = observed("883b25f5379f199a|656|3.3.7", NEWER);
-    let current = observed("f3cb9da032325298|19948|3.3.7", OLDER);
+    let prior = observed(NAMESPACE_A, 656, NEWER);
+    let current = observed(NAMESPACE_B, 19948, OLDER);
 
     assert_eq!(
         classify_resolved_identity(Some(&prior), &current),
@@ -422,7 +432,7 @@ fn a_non_monotonic_namespace_change_is_still_refused() {
 #[test]
 fn a_probed_namespace_token_reaches_the_pinned_identity() {
     let pid = std::process::id();
-    let stdout = format!("{NAMESPACE_B}|{pid}|3.3.7");
+    let stdout = answer(NAMESPACE_B, pid);
     let evidence = ServerLivenessEvidence::command_succeeded(&stdout, "");
 
     match classify_observation(None, &evidence) {
