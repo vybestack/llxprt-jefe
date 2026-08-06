@@ -39,7 +39,8 @@ mod errors;
 mod external_terminal;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
-mod identity;
+/// The boundary that resolves this process's installation identity (issue #547).
+pub(crate) mod installation;
 /// Narrow safe wrapper over Windows Job Object containment (issue #467 Slice 3).
 #[cfg(windows)]
 mod job_object;
@@ -63,6 +64,18 @@ mod multiplexer_conformance;
 mod multiplexer_conformance_io;
 mod multiplexer_conformance_sweep;
 mod multiplexer_contract;
+mod multiplexer_identity;
+/// Pure derivation of an installation identity from a config/state path
+/// (issue #547).
+///
+/// A jefe instance is tied to the config it was launched from, not to the
+/// machine or the account running it, so both platforms key their server
+/// isolation off this one value.
+pub(crate) mod namespace;
+/// Remembering an installation's namespace so a change to it is reported
+/// rather than silently orphaning the agents running under the old one
+/// (issue #547).
+pub(crate) mod namespace_record;
 /// Non-interactive (single-prompt, capture-stdout) agent execution (issue #214).
 mod non_interactive;
 mod orphan;
@@ -91,6 +104,13 @@ mod session;
 pub(crate) mod session_host;
 /// Embedded shell-window tmux operations (issue #222).
 mod shell_window;
+/// Unix-domain socket resolution for tmux's `-S` flag (issue #547 V7).
+///
+/// Windows isolates by server namespace (`-L`), never by socket path, so none
+/// of this — the `sun_path` length guard, the `XDG_RUNTIME_DIR` precedence —
+/// means anything there. Gating the module makes the unreachable path
+/// unnameable rather than merely unreached.
+#[cfg(unix)]
 mod socket;
 mod stub_manager;
 /// Serialization gate between viewer teardown and viewer spawn (issue #664).
@@ -147,8 +167,8 @@ pub use manager::{
     drop_viewer_in_background_pub,
 };
 pub use multiplexer::{
-    AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation,
-    MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
+    AgentPaneLaunch, LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIdentity,
+    MultiplexerIsolation, MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
 };
 pub use multiplexer_conformance::{
     ConformanceFinding, ConformanceReport, ConformanceVerdict, MultiplexerQualification,
@@ -207,6 +227,7 @@ pub use shell_window::{
     close_shell_window, hide_shell_window, observe_shell_window_sessions, open_shell_window,
     shell_window_exists,
 };
+#[cfg(unix)]
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
 
@@ -220,8 +241,16 @@ pub use pane_capture::{capture_pane_history, capture_pane_lines_result};
 mod agent_executable_tests;
 
 #[cfg(test)]
-#[path = "identity_tests.rs"]
-mod identity_tests;
+#[path = "installation_tests.rs"]
+mod installation_tests;
+
+#[cfg(test)]
+#[path = "namespace_tests.rs"]
+mod namespace_tests;
+
+#[cfg(test)]
+#[path = "namespace_record_tests.rs"]
+mod namespace_record_tests;
 
 #[cfg(test)]
 #[path = "process_tests.rs"]

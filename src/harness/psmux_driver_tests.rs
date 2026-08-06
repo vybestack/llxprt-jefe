@@ -1,5 +1,20 @@
 use super::*;
 
+/// The harness must not let `JEFE_NAMESPACE` reach the jefe under test (#547).
+///
+/// Every psmux invocation the harness makes -- including the `new-session` that
+/// starts the server whose environment the pane inherits -- goes through
+/// `run_owned`, so scrubbing there is what keeps a scenario run inside the
+/// namespace its `--config` directory selects rather than the operator's live
+/// one.
+#[test]
+fn the_harness_refuses_to_inherit_a_namespace_override() {
+    assert!(
+        crate::harness::HARNESS_ENV_VARS_TO_SCRUB.contains(&"JEFE_NAMESPACE"),
+        "the namespace override must be scrubbed before psmux spawns jefe"
+    );
+}
+
 #[test]
 fn windows_launch_plan_uses_platform_shell_without_a_unix_wrapper() {
     let request = TmuxStartRequest::command(
@@ -49,9 +64,31 @@ fn every_driver_gets_a_unique_owned_namespace() {
 
 #[test]
 fn qualified_psmux_version_is_parsed() {
-    assert_eq!(PsmuxVersion::parse("tmux 3.3.7"), Ok(MINIMUM_PSMUX_VERSION));
-    assert!(PsmuxVersion::parse("tmux 3.3.6").is_ok_and(|version| version < MINIMUM_PSMUX_VERSION));
-    assert!(PsmuxVersion::parse("psmux unknown").is_err());
+    // The harness shares the runtime's parser so the two cannot drift apart
+    // and disagree about which binary they are talking to (issue #547 V10).
+    assert_eq!(
+        MultiplexerVersion::parse("tmux 3.3.7"),
+        Ok(MINIMUM_PSMUX_VERSION)
+    );
+    assert!(
+        MultiplexerVersion::parse("tmux 3.3.6")
+            .is_ok_and(|version| version < MINIMUM_PSMUX_VERSION)
+    );
+    assert!(MultiplexerVersion::parse("psmux unknown").is_err());
+}
+
+#[test]
+fn harness_qualification_reads_the_same_build_commit_as_the_runtime() {
+    // Qualification now yields the full identity, so the harness can tell two
+    // psmux builds apart even when they report the same version.
+    assert_eq!(
+        MultiplexerIdentity::parse(
+            "tmux 3.3.7
+psmux 3.3.7 (cb098c0 2026-08-03)"
+        )
+        .map(|identity| identity.commit().map(str::to_owned)),
+        Ok(Some("cb098c0".to_owned()))
+    );
 }
 
 #[test]

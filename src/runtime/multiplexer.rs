@@ -71,66 +71,10 @@ pub enum MultiplexerCapability {
     PaneCapture,
 }
 
-/// Parsed tmux-compatible semantic version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MultiplexerVersion {
-    major: u32,
-    minor: u32,
-    patch: u32,
-}
-
-impl MultiplexerVersion {
-    /// Construct a parsed version.
-    #[must_use]
-    pub const fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self {
-            major,
-            minor,
-            patch,
-        }
-    }
-
-    /// Parse output such as `tmux 3.3.6`.
-    pub fn parse(output: &str) -> Result<Self, MultiplexerError> {
-        let token = output
-            .split_whitespace()
-            .find(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
-            .ok_or_else(|| MultiplexerError::MalformedVersion {
-                path: None,
-                output: output.to_owned(),
-            })?;
-        let mut components = token.split('.');
-        let major_raw = components.next().ok_or_else(|| malformed_version(output))?;
-        let major = parse_strict_version_part(major_raw, output)?;
-        let minor_raw = components.next();
-        let patch_raw = components.next();
-        // After consuming up to three components, no trailing component may remain.
-        if components.next().is_some() {
-            return Err(malformed_version(output));
-        }
-        // The major component is always strict. Only the final present component
-        // may carry a single alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
-        let (minor, patch) = match (minor_raw, patch_raw) {
-            (Some(minor_raw), None) => {
-                let minor = parse_final_version_part(minor_raw, output)?;
-                (minor, 0)
-            }
-            (Some(minor_raw), Some(patch_raw)) => {
-                let minor = parse_strict_version_part(minor_raw, output)?;
-                let patch = parse_final_version_part(patch_raw, output)?;
-                (minor, patch)
-            }
-            (None, _) => return Err(malformed_version(output)),
-        };
-        Ok(Self::new(major, minor, patch))
-    }
-}
-
-impl std::fmt::Display for MultiplexerVersion {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
-    }
-}
+/// What the binary reports itself to be. Parsing lives in a module of its own
+/// because it is pure; it is re-exported here so callers see one multiplexer
+/// surface rather than two.
+pub use super::multiplexer_identity::{MultiplexerIdentity, MultiplexerVersion};
 
 /// Everything a pane needs in order to launch one agent.
 ///
@@ -192,16 +136,7 @@ impl MultiplexerPlan {
     fn resolved(unique: bool) -> Result<Self, MultiplexerError> {
         let platform = LocalPlatform::current();
         let executable = resolve_executable(platform)?;
-        let isolation = match platform {
-            LocalPlatform::Unix => {
-                MultiplexerIsolation::Socket(super::socket::jefe_tmux_socket_path().to_path_buf())
-            }
-            LocalPlatform::Windows if unique => {
-                MultiplexerIsolation::Namespace(unique_test_namespace())
-            }
-            LocalPlatform::Windows => MultiplexerIsolation::Namespace(stable_jefe_namespace()),
-        };
-        Self::for_platform(platform, executable, isolation)
+        Self::for_platform(platform, executable, current_isolation(unique))
     }
 
     /// Return the resolved executable without converting it to UTF-8.
@@ -352,7 +287,7 @@ impl MultiplexerPlan {
     pub fn preflight(
         &self,
         required: &[MultiplexerCapability],
-    ) -> Result<MultiplexerVersion, MultiplexerError> {
+    ) -> Result<MultiplexerIdentity, MultiplexerError> {
         let output =
             self.command()
                 .arg("-V")
@@ -362,17 +297,17 @@ impl MultiplexerPlan {
                     reason: error.to_string(),
                     guidance: guidance(self.platform),
                 })?;
-        let version = classify_probe(output_observation(self.platform, &self.executable, output))?;
+        let identity = classify_probe(output_observation(self.platform, &self.executable, output))?;
         for capability in required {
             if !self.supports(*capability) {
                 return Err(MultiplexerError::RequiredCapabilityUnavailable {
                     path: self.executable.clone(),
-                    version,
+                    version: identity.version(),
                     capability: *capability,
                 });
             }
         }
-        Ok(version)
+        Ok(identity)
     }
 }
 
@@ -410,7 +345,7 @@ pub enum ProbeObservation {
 /// Classify dependency observations into a qualified version or typed error.
 pub fn classify_probe(
     observation: ProbeObservation,
-) -> Result<MultiplexerVersion, MultiplexerError> {
+) -> Result<MultiplexerIdentity, MultiplexerError> {
     match observation {
         ProbeObservation::Missing { platform, path } => Err(MultiplexerError::MissingExecutable {
             path,
@@ -884,51 +819,47 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
     None
 }
 
-fn unique_test_namespace() -> String {
-    super::identity::unique_current_user_namespace()
-}
-
-fn stable_jefe_namespace() -> String {
-    super::identity::stable_current_user_namespace()
-}
-
-fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
-    if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(malformed_version(source));
-    }
-    part.parse::<u32>().map_err(|_| malformed_version(source))
-}
-
-/// Parse the final present version component, permitting an optional single
-/// trailing ASCII alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+/// The identity whose server this process should be talking to.
 ///
-/// The letter carries no semantic weight beyond release identification; it is
-/// discarded so that `3.7b` resolves to `3.7.0` and `3.3.6a` to `3.3.6`.
-fn parse_final_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
-    let digits_end = part
-        .bytes()
-        .position(|byte| !byte.is_ascii_digit())
-        .unwrap_or(part.len());
-    let (digits, suffix) = part.split_at(digits_end);
-    let valid_suffix = suffix.is_empty()
-        || (suffix.len() == 1
-            && suffix
-                .bytes()
-                .next()
-                .is_some_and(|byte| byte.is_ascii_lowercase()));
-    if digits.is_empty() || !valid_suffix {
-        return Err(malformed_version(source));
-    }
-    digits.parse::<u32>().map_err(|_| malformed_version(source))
-}
-
-fn malformed_version(source: &str) -> MultiplexerError {
-    MultiplexerError::MalformedVersion {
-        path: None,
-        output: source.to_owned(),
+/// `unique` requests a single-use identity so concurrent test processes never
+/// share a server with each other or with the developer's live agents.
+fn active_installation(unique: bool) -> super::namespace::InstallationIdentity {
+    if unique {
+        super::installation::isolated_run()
+    } else {
+        super::installation::current().clone()
     }
 }
 
+/// Isolation for the machine this build runs on.
+///
+/// Both platforms key off the same [`InstallationId`](super::namespace::InstallationId);
+/// only the *rendering* differs, because tmux isolates by socket path and psmux
+/// isolates by `-L` server name. Deriving both from one value is what makes a
+/// second worktree get its own server on every platform (issue #547).
+///
+/// Split by `cfg` rather than matched on `LocalPlatform` so the Windows build
+/// never names the Unix socket resolver (issue #547 V7). A runtime match left
+/// the Unix arm compiled in and reachable by anyone who introduced a platform
+/// override; a `cfg` split makes it a compile error instead.
+#[cfg(unix)]
+fn current_isolation(unique: bool) -> MultiplexerIsolation {
+    let installation = active_installation(unique);
+    let socket = if unique {
+        // A single-use run must bypass the process-wide cache, which holds the
+        // stable installation's socket.
+        super::socket::socket_path_for(installation.id())
+    } else {
+        super::socket::jefe_tmux_socket_path(installation.id()).to_path_buf()
+    };
+    MultiplexerIsolation::Socket(socket)
+}
+
+/// Isolation for the machine this build runs on. See the `cfg(unix)` twin.
+#[cfg(windows)]
+fn current_isolation(unique: bool) -> MultiplexerIsolation {
+    MultiplexerIsolation::Namespace(active_installation(unique).id().as_str().to_owned())
+}
 fn output_observation(platform: LocalPlatform, path: &Path, output: Output) -> ProbeObservation {
     ProbeObservation::Output {
         platform,
@@ -945,7 +876,7 @@ fn classify_output(
     status_success: bool,
     stdout: String,
     stderr: String,
-) -> Result<MultiplexerVersion, MultiplexerError> {
+) -> Result<MultiplexerIdentity, MultiplexerError> {
     if !status_success {
         return Err(MultiplexerError::LaunchFailed {
             path,
@@ -953,22 +884,22 @@ fn classify_output(
             guidance: guidance(platform),
         });
     }
-    let version = MultiplexerVersion::parse(&stdout).map_err(|error| match error {
+    let identity = MultiplexerIdentity::parse(&stdout).map_err(|error| match error {
         MultiplexerError::MalformedVersion { output, .. } => MultiplexerError::MalformedVersion {
             path: Some(path.clone()),
             output,
         },
         other => other,
     })?;
-    if platform == LocalPlatform::Windows && version < MINIMUM_PSMUX_VERSION {
+    if platform == LocalPlatform::Windows && identity.version() < MINIMUM_PSMUX_VERSION {
         return Err(MultiplexerError::UnsupportedVersion {
             path,
-            detected: version,
+            detected: identity.version(),
             minimum: MINIMUM_PSMUX_VERSION,
             guidance: WINDOWS_INSTALL_GUIDANCE,
         });
     }
-    Ok(version)
+    Ok(identity)
 }
 
 const fn guidance(platform: LocalPlatform) -> &'static str {

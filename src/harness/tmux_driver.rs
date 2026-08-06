@@ -554,7 +554,10 @@ fn tmux_command() -> Command {
     // [`harness_tmux_prefix_args`] so the shell-string builders cannot drift
     // (#173).
     cmd.args(harness_tmux_prefix_args());
-    for var in TMUX_ENV_VARS_TO_SCRUB {
+    for var in TMUX_ENV_VARS_TO_SCRUB
+        .iter()
+        .chain(super::HARNESS_ENV_VARS_TO_SCRUB)
+    {
         cmd.env_remove(var);
     }
     cmd
@@ -587,9 +590,13 @@ fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
     // `-L {socket}` against the outer server's socket directory, silently
     // leaving `remain-on-exit`/`history-limit` unconfigured on the real
     // harness session (#173).
+    // `JEFE_NAMESPACE` is unset here as well as on the client (#547): the pane
+    // inherits from the tmux *server*, which outlives any single client, so a
+    // server started earlier with that variable set would otherwise hand it to
+    // the jefe under test and defeat the `--config` isolation.
     let prefix = harness_tmux_prefix_str();
     format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}",
+        "unset TMUX TMUX_PANE TMUX_TMPDIR JEFE_NAMESPACE; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}",
         request.history_limit,
         shell_join(&request.command)
     )

@@ -59,6 +59,14 @@ impl StartupPersistence {
 /// Resolve and validate persistence before runtime or provider composition.
 pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence, PathError> {
     let paths = resolve(config_dir)?;
+    // Fix the multiplexer's installation identity to the *effective* state
+    // path, so a `--config <dir>` launch gets its own server instead of
+    // reaching into the ambient one (issue #547).
+    identity_outcome(
+        &paths.state.path,
+        crate::runtime::installation::initialize(&paths.state.path).map(|_| ()),
+    )?;
+    report_namespace_drift(&paths.state.path);
     apply_state_import(&paths.state)?;
     let (keymap, settings_document, settings_expected_hash) =
         validate_settings(&paths.settings.path)?;
@@ -218,6 +226,62 @@ fn diagnostic_error(path: &Path, diagnostics: Vec<Diagnostic>, exit_code: u8) ->
     )
 }
 
+/// Decide whether a failure to fix the installation identity stops startup.
+///
+/// The two failure modes deserve opposite answers. A rejected `JEFE_NAMESPACE`
+/// is an operator asking for isolation we cannot give them; continuing would
+/// attach them to the exact namespace they asked to be separated from, so
+/// startup stops. A conflicting second initialization is refused but survivable:
+/// a server may already be running under the identity resolved first, and
+/// keeping it is what prevents orphaning those sessions (issue #547).
+fn identity_outcome(
+    path: &Path,
+    result: Result<(), crate::runtime::installation::InstallationError>,
+) -> Result<(), PathError> {
+    use crate::runtime::installation::InstallationError;
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(error @ InstallationError::AlreadyResolved { .. }) => {
+            tracing::warn!(%error, "keeping the installation identity resolved earlier");
+            Ok(())
+        }
+        Err(error @ InstallationError::Override(_)) => {
+            let mut diagnostic = Diagnostic::new(
+                CfgCode::E001,
+                Severity::Error,
+                DiagnosticPath::new(path.to_string_lossy()),
+                None,
+                error.correction(),
+            );
+            error
+                .to_string()
+                .clone_into(&mut diagnostic.redacted_detail);
+            Err(PathError {
+                diagnostic: Box::new(diagnostic),
+                exit_code: 2,
+            })
+        }
+    }
+}
+
+/// Record the namespace this installation is running under, and report it if
+/// it moved.
+///
+/// A namespace change cannot be undone once the old name is forgotten: the
+/// name is the only handle on the sessions running under it. So this is
+/// deliberately not fatal -- the new namespace is perfectly usable, and
+/// refusing to start would strand the operator entirely instead of merely
+/// telling them where their previous agents went (issue #547).
+fn report_namespace_drift(state_path: &Path) {
+    let identity = crate::runtime::installation::current();
+    let drift =
+        crate::runtime::namespace_record::reconcile(state_path, identity.origin(), identity.id());
+    if let Some(report) = crate::runtime::namespace_record::describe(&drift, identity.id()) {
+        tracing::warn!(%report, "multiplexer namespace changed for this installation");
+    }
+}
+
 fn path_error(path: &Path, code: CfgCode, exit_code: u8, detail: &str) -> PathError {
     let mut diagnostic = Diagnostic::new(
         code,
@@ -257,6 +321,74 @@ mod tests {
                 Err(error) => error,
             }
         }
+    }
+
+    /// A rejected `JEFE_NAMESPACE` stops startup instead of quietly falling
+    /// back to the namespace the operator asked to be separated from.
+    #[test]
+    fn a_rejected_namespace_override_stops_startup() {
+        use crate::runtime::installation::InstallationError;
+        use crate::runtime::namespace::NamespaceError;
+
+        let error = identity_outcome(
+            Path::new(r"C:\work\one\state.json"),
+            Err(InstallationError::Override(NamespaceError::Empty)),
+        )
+        .error_or_panic("a rejected override should stop startup");
+
+        assert_eq!(error.exit_code, 2);
+        assert!(
+            error.diagnostic.correction.contains("JEFE_NAMESPACE"),
+            "the operator must be told which variable to fix, got: {}",
+            error.diagnostic.correction
+        );
+    }
+
+    /// Re-initializing with a different identity is survivable: the first
+    /// identity keeps its already-running server rather than being orphaned.
+    #[test]
+    fn a_conflicting_second_initialization_does_not_stop_startup() {
+        use crate::runtime::installation::InstallationError;
+
+        let outcome = identity_outcome(
+            Path::new(r"C:\work\one\state.json"),
+            Err(InstallationError::AlreadyResolved {
+                active: "jefe-1111111111111111".to_owned(),
+                requested: "jefe-2222222222222222".to_owned(),
+            }),
+        );
+
+        assert!(outcome.is_ok(), "a conflict must not stop startup");
+    }
+
+    /// Startup must leave a record of the namespace it ran under, because a
+    /// later build that computes a different one can only report the change if
+    /// this build wrote down what it used.
+    #[test]
+    fn startup_records_the_namespace_it_ran_under() {
+        let dir = unique_dir("namespace_record");
+        let persistence =
+            build_persistence(Some(&dir)).value_or_panic("startup should build persistence");
+
+        let record = persistence
+            .paths
+            .state
+            .path
+            .parent()
+            .unwrap_or_else(|| panic!("the state path should have a parent"))
+            .join("runtime-namespace.json");
+        let contents = std::fs::read_to_string(&record)
+            .value_or_panic("startup should have recorded the active namespace");
+
+        let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap_or_else(|error| {
+            panic!("the record must be valid JSON: {error}; got {contents}")
+        });
+
+        assert_eq!(
+            parsed.get("namespace").and_then(serde_json::Value::as_str),
+            Some(crate::runtime::installation::current().id().as_str()),
+            "the namespace field must name the namespace actually in force, got: {contents}"
+        );
     }
 
     fn unique_dir(label: &str) -> std::path::PathBuf {

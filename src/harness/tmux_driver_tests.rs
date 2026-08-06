@@ -133,7 +133,7 @@ fn new_session_command_shell_escapes_argv_parts() {
     let args = new_session_args(&request);
     let socket = harness_socket_name();
     let expected = format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
+        "unset TMUX TMUX_PANE TMUX_TMPDIR JEFE_NAMESPACE; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
     );
     assert_eq!(args.last().map(String::as_str), Some(expected.as_str()));
 }
@@ -162,7 +162,7 @@ fn tmux_pane_wrapper_command_scrubs_tmux_env_before_inner_calls() {
 
     let wrapper = tmux_pane_wrapper_command(&request);
     let unset_pos = wrapper
-        .find("unset TMUX TMUX_PANE TMUX_TMPDIR;")
+        .find("unset TMUX TMUX_PANE TMUX_TMPDIR")
         .unwrap_or_else(|| panic!("unset prefix missing from wrapper: {wrapper}"));
     let tmux_pos = wrapper
         .find("tmux -f /dev/null -L")
@@ -176,6 +176,40 @@ fn tmux_pane_wrapper_command_scrubs_tmux_env_before_inner_calls() {
     assert!(
         wrapper.ends_with("exec '/bin/true'"),
         "exec'd command must survive verbatim after the unset/inner calls; got {wrapper}"
+    );
+}
+
+/// The harness pane must not inherit `JEFE_NAMESPACE` (#547).
+///
+/// The scenario runner isolates jefe with `--config <dir>`, and since #547 that
+/// directory is what selects the multiplexer namespace. An inherited
+/// `JEFE_NAMESPACE` outranks it, so a developer who exported that variable to
+/// debug their own session would have every harness run silently join the very
+/// server it was supposed to be isolated from -- creating and killing sessions
+/// alongside their live agents.
+#[test]
+fn tmux_pane_wrapper_command_scrubs_the_namespace_override() {
+    let request = TmuxStartRequest::command(
+        "namespace-scrub",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    let unset_pos = wrapper
+        .find("JEFE_NAMESPACE")
+        .unwrap_or_else(|| panic!("JEFE_NAMESPACE must be scrubbed: {wrapper}"));
+    let exec_pos = wrapper
+        .find("exec ")
+        .unwrap_or_else(|| panic!("wrapper must exec the command: {wrapper}"));
+
+    assert!(
+        unset_pos < exec_pos,
+        "the namespace override must be unset before jefe starts; got wrapper={wrapper}"
     );
 }
 
