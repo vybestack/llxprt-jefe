@@ -350,11 +350,20 @@ fn an_archive_without_a_manifest_is_rejected() {
 fn a_forbidden_path_shape_is_rejected() {
     // `..` and `.` components cannot even be built by a conforming tar writer,
     // so the shapes exercised here are the ones a writer will happily emit but
-    // the package contract still refuses: a backslash separator, excess depth,
-    // and an over-long path.
+    // the package contract still refuses: excess depth and an over-long path.
     let deep = format!("vendor.pkg-1.0.0/{}", vec!["d"; 17].join("/"));
     let long = format!("vendor.pkg-1.0.0/{}", "n".repeat(1_025));
-    for path in [r"vendor.pkg-1.0.0/a\b".to_owned(), deep, long] {
+    // A backslash separator is refused by `RelativePath`, which has its own
+    // test for it. It can only be *authored* into an archive where the tar
+    // writer does not treat a backslash as a separator; on Windows the writer
+    // normalizes it away, producing a legitimately contained path, so the
+    // rejectable shape cannot be built there at all.
+    let backslash: Vec<String> = if cfg!(unix) {
+        vec![r"vendor.pkg-1.0.0/a\b".to_owned()]
+    } else {
+        Vec::new()
+    };
+    for path in [deep, long].into_iter().chain(backslash) {
         let bytes = gzip(&tar_bytes(vec![
             Entry::directory("vendor.pkg-1.0.0/"),
             Entry::file("vendor.pkg-1.0.0/plugin.json", &manifest_body()),
