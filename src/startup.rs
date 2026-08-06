@@ -274,7 +274,12 @@ fn identity_outcome(
 /// refusing to start would strand the operator entirely instead of merely
 /// telling them where their previous agents went (issue #547).
 fn report_namespace_drift(state_path: &Path) {
-    let identity = crate::runtime::installation::current();
+    let Ok(identity) = crate::runtime::installation::current() else {
+        tracing::error!(
+            "startup initialized persistence without establishing the installation identity"
+        );
+        return;
+    };
     let drift =
         crate::runtime::namespace_record::reconcile(state_path, identity.origin(), identity.id());
     if let Some(report) = crate::runtime::namespace_record::describe(&drift, identity.id()) {
@@ -386,7 +391,9 @@ mod tests {
 
         assert_eq!(
             parsed.get("namespace").and_then(serde_json::Value::as_str),
-            Some(crate::runtime::installation::current().id().as_str()),
+            crate::runtime::installation::current()
+                .ok()
+                .map(|identity| identity.id().as_str()),
             "the namespace field must name the namespace actually in force, got: {contents}"
         );
     }

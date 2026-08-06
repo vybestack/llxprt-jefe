@@ -227,8 +227,6 @@ pub use shell_window::{
     close_shell_window, hide_shell_window, observe_shell_window_sessions, open_shell_window,
     shell_window_exists,
 };
-#[cfg(unix)]
-pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
 
 /// Issue #301 Phase 2: re-export history cache types and pane capture for

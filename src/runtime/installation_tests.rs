@@ -4,12 +4,27 @@
 //! would fix one answer for every other test in the binary. The decisions it
 //! makes are tested through the pure helpers it delegates to.
 
-use super::installation::{InstallationError, reconcile, resolve_with};
+use super::installation::{
+    IdentityUnavailable, InstallationError, current_from, reconcile, resolve_with,
+};
 use super::namespace::{InstallationIdentity, NamespaceError, NamespaceOrigin};
 use std::path::Path;
+use std::sync::OnceLock;
 
 fn state_path() -> &'static Path {
     Path::new(r"C:\Users\dev\AppData\Local\jefe\state.json")
+}
+
+/// Reading the active identity before startup initializes it must fail without
+/// mutating the write-once cell. A second read proves the accessor did not
+/// quietly install an ambient fallback on the first attempt.
+#[test]
+fn current_requires_authoritative_startup_initialization() {
+    let active = OnceLock::new();
+
+    assert_eq!(current_from(&active), Err(IdentityUnavailable));
+    assert_eq!(current_from(&active), Err(IdentityUnavailable));
+    assert!(active.get().is_none());
 }
 
 /// With no override, identity comes from the location jefe was launched from.
@@ -22,16 +37,41 @@ fn without_an_override_the_identity_comes_from_the_state_path() {
     assert!(!resolved.origin().is_override());
 }
 
-/// An unset-looking override must not shadow the derived identity.
-///
-/// Shells routinely export empty variables; treating `JEFE_NAMESPACE=""` as a
-/// request for a namespace literally named "" would strand every session.
+/// Repeated resolution of one effective state path must re-adopt the same
+/// installation across process restarts, rebuilds, and upgrades.
 #[test]
-fn a_blank_override_is_treated_as_unset() {
-    let resolved = resolve_with(Some("   "), state_path())
-        .unwrap_or_else(|error| panic!("a blank override should be ignored: {error}"));
+fn identity_is_stable_across_repeated_resolution_for_the_same_state_path() {
+    let first = resolve_with(None, state_path())
+        .unwrap_or_else(|error| panic!("first identity should resolve: {error}"));
+    let second = resolve_with(None, state_path())
+        .unwrap_or_else(|error| panic!("second identity should resolve: {error}"));
 
-    assert_eq!(resolved, InstallationIdentity::for_state_path(state_path()));
+    assert_eq!(first.id(), second.id());
+    assert_eq!(first, InstallationIdentity::for_state_path(state_path()));
+}
+
+/// Different effective state paths must select different multiplexer servers.
+#[test]
+fn distinct_state_paths_derive_distinct_identities() {
+    let first_path = Path::new(r"C:\work\one\.jefe\state.json");
+    let second_path = Path::new(r"C:\work\two\.jefe\state.json");
+    let first = resolve_with(None, first_path)
+        .unwrap_or_else(|error| panic!("first identity should resolve: {error}"));
+    let second = resolve_with(None, second_path)
+        .unwrap_or_else(|error| panic!("second identity should resolve: {error}"));
+
+    assert_ne!(first.id(), second.id());
+}
+
+/// A present but blank override fails closed instead of silently selecting the
+/// derived installation namespace.
+#[test]
+fn a_blank_override_is_rejected() {
+    let error = resolve_with(Some("   "), state_path())
+        .err()
+        .unwrap_or_else(|| panic!("a present blank override must be rejected"));
+
+    assert_eq!(error, InstallationError::Override(NamespaceError::Empty));
 }
 
 /// A deliberate override wins over the state path and says where it came from.

@@ -32,7 +32,7 @@ use super::types::{DiagnosticFinding, DiagnosticStatus, FindingKind};
 #[must_use]
 pub fn collect(config_dir: Option<&Path>) -> DoctorReport {
     let mut findings = Vec::new();
-    collect_multiplexer(&mut findings);
+    collect_multiplexer(config_dir, &mut findings);
     collect_conpty(&mut findings);
     collect_git(&mut findings);
     collect_gh_auth(&mut findings);
@@ -81,24 +81,79 @@ fn version_or_unknown() -> String {
     }
 }
 
-/// Probe the local multiplexer plan and its version/capability preflight.
-fn collect_multiplexer(findings: &mut Vec<DiagnosticFinding>) {
-    match crate::runtime::MultiplexerPlan::current() {
-        Ok(plan) => {
-            record_multiplexer_plan(&plan, findings);
-            record_namespace_isolation(&plan, findings);
-            record_namespace_drift(findings);
-        }
+/// Probe the requested config's multiplexer plan and version/capability preflight.
+fn collect_multiplexer(config_dir: Option<&Path>, findings: &mut Vec<DiagnosticFinding>) {
+    let paths = match crate::persistence::paths::resolve(config_dir) {
+        Ok(paths) => paths,
         Err(error) => {
             findings.push(DiagnosticFinding::new(
-                FindingKind::Multiplexer,
+                FindingKind::Namespace,
+                DiagnosticStatus::Fail,
+                error.diagnostic.redacted_detail.clone(),
+            ));
+            return;
+        }
+    };
+    let identity = match crate::runtime::installation::resolve_identity(&paths.state.path) {
+        Ok(identity) => identity,
+        Err(error) => {
+            findings.push(DiagnosticFinding::new(
+                FindingKind::Namespace,
+                DiagnosticStatus::Fail,
+                format!("{error}; {}", error.correction()),
+            ));
+            return;
+        }
+    };
+    #[cfg(unix)]
+    let (isolation, isolation_override) = match installation_isolation(&identity) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            findings.push(DiagnosticFinding::new(
+                FindingKind::Namespace,
                 DiagnosticStatus::Fail,
                 error.to_string(),
             ));
+            return;
         }
+    };
+    #[cfg(windows)]
+    let (isolation, isolation_override) = installation_isolation(&identity);
+    record_namespace_isolation(&isolation, &identity, isolation_override, findings);
+    record_namespace_drift(&paths.state.path, &identity, findings);
+
+    match crate::runtime::MultiplexerPlan::for_installation(&identity) {
+        Ok(plan) => record_multiplexer_plan(&plan, findings),
+        Err(error) => findings.push(DiagnosticFinding::new(
+            FindingKind::Multiplexer,
+            DiagnosticStatus::Fail,
+            error.to_string(),
+        )),
     }
 }
 
+#[cfg(unix)]
+fn installation_isolation(
+    identity: &crate::runtime::namespace::InstallationIdentity,
+) -> Result<
+    (crate::runtime::MultiplexerIsolation, Option<&'static str>),
+    crate::runtime::MultiplexerError,
+> {
+    Ok((
+        crate::runtime::MultiplexerPlan::isolation_for_installation(identity)?,
+        crate::runtime::MultiplexerPlan::isolation_override_for_installation(identity)?,
+    ))
+}
+
+#[cfg(windows)]
+fn installation_isolation(
+    identity: &crate::runtime::namespace::InstallationIdentity,
+) -> (crate::runtime::MultiplexerIsolation, Option<&'static str>) {
+    (
+        crate::runtime::MultiplexerPlan::isolation_for_installation(identity),
+        crate::runtime::MultiplexerPlan::isolation_override_for_installation(identity),
+    )
+}
 /// Record multiplexer path/version/capability evidence from a resolved plan.
 fn record_multiplexer_plan(
     plan: &crate::runtime::MultiplexerPlan,
@@ -142,6 +197,7 @@ fn record_multiplexer_plan(
 fn isolation_evidence(
     isolation: &crate::runtime::MultiplexerIsolation,
     identity: &crate::runtime::namespace::InstallationIdentity,
+    isolation_override: Option<&str>,
 ) -> String {
     use crate::runtime::MultiplexerIsolation;
     let rendered = match isolation {
@@ -152,36 +208,33 @@ fn isolation_evidence(
             format!("private namespace isolation: {ns}")
         }
     };
-    let variable = crate::runtime::installation::NAMESPACE_OVERRIDE_ENV;
-    let provenance = identity.origin().state_path().map_or_else(
+    let namespace_variable = crate::runtime::installation::NAMESPACE_OVERRIDE_ENV;
+    let identity_provenance = identity.origin().state_path().map_or_else(
         || {
             format!(
-                "set deliberately by {variable}, not from this installation's state directory; \
-                 unset {variable} to return to the default namespace for this installation"
+                "set deliberately by {namespace_variable}, not from this installation's state directory; \
+                 unset {namespace_variable} to return to the default namespace for this installation"
             )
         },
         |state_path| format!("derived from state directory {}", state_path.display()),
     );
-    format!("{rendered}; {provenance}")
+    let rendering_provenance = isolation_override.map_or_else(String::new, |variable| {
+        format!("; socket rendering redirected deliberately by {variable}")
+    });
+    format!("{rendered}; {identity_provenance}{rendering_provenance}")
 }
 
 /// Record private-isolation (socket / namespace) evidence from a plan.
 fn record_namespace_isolation(
-    plan: &crate::runtime::MultiplexerPlan,
+    isolation: &crate::runtime::MultiplexerIsolation,
+    identity: &crate::runtime::namespace::InstallationIdentity,
+    isolation_override: Option<&str>,
     findings: &mut Vec<DiagnosticFinding>,
 ) {
-    let detail = isolation_evidence(plan.isolation(), crate::runtime::installation::current());
-    let status = if plan.supports(crate::runtime::MultiplexerCapability::NamespaceIsolation)
-        || plan.supports(crate::runtime::MultiplexerCapability::SocketIsolation)
-    {
-        DiagnosticStatus::Pass
-    } else {
-        DiagnosticStatus::Warn
-    };
     findings.push(DiagnosticFinding::new(
         FindingKind::Namespace,
-        status,
-        detail,
+        DiagnosticStatus::Pass,
+        isolation_evidence(isolation, identity, isolation_override),
     ));
 }
 
@@ -192,13 +245,13 @@ fn record_namespace_isolation(
 /// agents have vanished" -- so this is the place an operator is most likely to
 /// see the explanation. It inspects rather than reconciles: a diagnostic that
 /// quietly repaired the record would erase the evidence (issue #547).
-fn record_namespace_drift(findings: &mut Vec<DiagnosticFinding>) {
-    let identity = crate::runtime::installation::current();
-    let drift = crate::runtime::namespace_record::inspect(
-        &crate::runtime::installation::active_state_path(),
-        identity.origin(),
-        identity.id(),
-    );
+fn record_namespace_drift(
+    state_path: &Path,
+    identity: &crate::runtime::namespace::InstallationIdentity,
+    findings: &mut Vec<DiagnosticFinding>,
+) {
+    let drift =
+        crate::runtime::namespace_record::inspect(state_path, identity.origin(), identity.id());
     if let Some(finding) = drift_finding(&drift, identity.id()) {
         findings.push(finding);
     }
@@ -514,6 +567,52 @@ mod tests {
     }
 
     #[test]
+    fn doctor_reports_the_requested_config_without_mutating_runtime_state() {
+        let root = std::env::temp_dir().join(format!(
+            "jefe-doctor-config-scope-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let config_dir = root.join("requested-config");
+        let state_path = config_dir.join("state.json");
+        let expected = crate::runtime::namespace::InstallationIdentity::for_state_path(&state_path);
+        let record_path = config_dir.join("runtime-namespace.json");
+        let active_before = crate::runtime::installation::current()
+            .ok()
+            .map(|identity| identity.id().as_str().to_owned());
+
+        let mut findings = Vec::new();
+        collect_multiplexer(Some(&config_dir), &mut findings);
+
+        let namespace = findings
+            .iter()
+            .find(|finding| {
+                finding.kind() == FindingKind::Namespace
+                    && finding.status() == DiagnosticStatus::Pass
+            })
+            .unwrap_or_else(|| {
+                panic!("doctor must report requested config isolation: {findings:?}")
+            });
+        assert!(namespace.detail().contains(expected.id().as_str()));
+        assert!(
+            namespace
+                .detail()
+                .contains(&state_path.display().to_string())
+        );
+        assert!(
+            !record_path.exists(),
+            "doctor must not write a namespace record"
+        );
+        let active_after = crate::runtime::installation::current()
+            .ok()
+            .map(|identity| identity.id().as_str().to_owned());
+        assert_eq!(
+            active_after, active_before,
+            "doctor must not mutate global identity"
+        );
+    }
+
+    #[test]
     fn isolation_evidence_names_the_state_path_the_namespace_came_from() {
         // An operator diagnosing "why is this agent not in my session list"
         // needs to know which installation the namespace was derived from.
@@ -524,6 +623,7 @@ mod tests {
         let detail = isolation_evidence(
             &crate::runtime::MultiplexerIsolation::Namespace(identity.id().as_str().to_owned()),
             &identity,
+            None,
         );
 
         assert!(
@@ -550,6 +650,7 @@ mod tests {
         let detail = isolation_evidence(
             &crate::runtime::MultiplexerIsolation::Namespace("ab-testing".to_owned()),
             &identity,
+            None,
         );
 
         assert!(

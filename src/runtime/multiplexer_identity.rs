@@ -7,7 +7,15 @@
 //! *how to run* a multiplexer is not interleaved with the code deciding *what
 //! the multiplexer is*.
 
-use super::multiplexer::MultiplexerError;
+use super::multiplexer::{LocalPlatform, MultiplexerError, ProbeObservation};
+use std::path::{Path, PathBuf};
+use std::process::Output;
+
+const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 7);
+const WINDOWS_INSTALL_GUIDANCE: &str =
+    "install psmux 3.3.7 or newer with `winget upgrade marlocarlo.psmux`, then restart Jefe";
+const UNIX_INSTALL_GUIDANCE: &str =
+    "install upstream tmux with your operating system package manager";
 
 /// Parsed tmux-compatible semantic version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -121,6 +129,59 @@ impl std::fmt::Display for MultiplexerIdentity {
             Some(commit) => write!(formatter, "{} ({commit})", self.version),
             None => write!(formatter, "{}", self.version),
         }
+    }
+}
+
+pub(super) fn output_observation(
+    platform: LocalPlatform,
+    path: &Path,
+    output: Output,
+) -> ProbeObservation {
+    ProbeObservation::Output {
+        platform,
+        path: path.to_path_buf(),
+        status_success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+pub(super) fn classify_output(
+    platform: LocalPlatform,
+    path: PathBuf,
+    status_success: bool,
+    stdout: String,
+    stderr: String,
+) -> Result<MultiplexerIdentity, MultiplexerError> {
+    if !status_success {
+        return Err(MultiplexerError::LaunchFailed {
+            path,
+            reason: stderr,
+            guidance: guidance(platform),
+        });
+    }
+    let identity = MultiplexerIdentity::parse(&stdout).map_err(|error| match error {
+        MultiplexerError::MalformedVersion { output, .. } => MultiplexerError::MalformedVersion {
+            path: Some(path.clone()),
+            output,
+        },
+        other => other,
+    })?;
+    if platform == LocalPlatform::Windows && identity.version() < MINIMUM_PSMUX_VERSION {
+        return Err(MultiplexerError::UnsupportedVersion {
+            path,
+            detected: identity.version(),
+            minimum: MINIMUM_PSMUX_VERSION,
+            guidance: WINDOWS_INSTALL_GUIDANCE,
+        });
+    }
+    Ok(identity)
+}
+
+pub(super) const fn guidance(platform: LocalPlatform) -> &'static str {
+    match platform {
+        LocalPlatform::Unix => UNIX_INSTALL_GUIDANCE,
+        LocalPlatform::Windows => WINDOWS_INSTALL_GUIDANCE,
     }
 }
 
