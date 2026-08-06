@@ -10,11 +10,17 @@ mod reclaim_io;
 mod shell_reconcile;
 #[path = "app_init_signature_reconcile.rs"]
 mod signature_reconcile;
+#[path = "app_init_warnings.rs"]
+mod warnings;
 
 #[cfg(test)]
 use self::signature_reconcile::BindingEvidence;
 use self::signature_reconcile::{
     SessionEvidence, StartupClassification, binding_evidence, classify_startup,
+};
+use self::warnings::{
+    append_warning, apply_startup_warning, report_unclean_prior_runs, resolve_durable_read,
+    surface_durable_read_hold, surface_startup_holds,
 };
 use iocraft::hooks::State as HookState;
 use tracing::warn;
@@ -22,9 +28,7 @@ use tracing::warn;
 use jefe::domain::liveness_observation::{
     Observed, ProbeBoundary, RetryPolicy, Uncertainty, retry_observation,
 };
-use jefe::domain::{
-    Agent, AgentId, AgentLaunchRequest, AgentStatus, UncleanRun, WorkerProcessIdentity,
-};
+use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
 use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
@@ -42,27 +46,6 @@ fn launch_signature_for_agent(
     repository: &jefe::domain::Repository,
 ) -> AgentLaunchRequest {
     AgentLaunchRequest::for_agent(agent, repository)
-}
-
-fn append_warning(state: &mut AppState, warning: String) {
-    state.warning_message = Some(match state.warning_message.take() {
-        Some(existing) => format!("{existing} {warning}"),
-        None => warning,
-    });
-}
-/// Record a held durable read and put the reason where the operator will see
-/// it.
-///
-/// Holding writes without saying so leaves a jefe that looks healthy while
-/// persisting nothing, so the hold and its visible explanation are set
-/// together rather than by separate callers who might do only one of the two
-/// (issue #541).
-fn surface_durable_read_hold(state: &mut AppState, held: Option<String>) {
-    let Some(reason) = held else {
-        return;
-    };
-    append_warning(state, reason.clone());
-    state.durable_read_held = Some(reason);
 }
 
 /// Select the agents still awaiting a verdict.
@@ -145,55 +128,6 @@ pub fn reattempt_held_agents(app_state: &mut HookState<AppState>, ctx: &SharedCo
     }
     let mut state = app_state.write();
     apply_restored_state(&mut state, revived_running, newly_dead, None);
-}
-
-/// Report agents whose state startup could not determine.
-///
-/// A held agent keeps its persisted `Running` status and its binding, which is
-/// the correct refusal to guess. But the liveness cycle builds its targets
-/// from the runtime's session map, and a held agent was never registered
-/// there, so nothing probes it again. Left silent that is a Running agent the
-/// operator cannot attach to and is given no reason for, so the hold has to be
-/// stated even though it is the safe outcome (issue #541).
-fn surface_startup_holds(state: &mut AppState, held: &[(AgentId, String)]) {
-    let Some((_, first_reason)) = held.first() else {
-        return;
-    };
-    append_warning(
-        state,
-        format!(
-            "{} agent(s) could not be checked at startup and were left untouched: {first_reason}. \
-             Their state is unknown, not confirmed.",
-            held.len()
-        ),
-    );
-}
-
-fn apply_startup_warning(state: &mut AppState, warning: Option<String>) {
-    if let Some(warning) = warning {
-        append_warning(state, warning);
-    }
-}
-/// Name every prior run that ended without recording a reason.
-///
-/// The log already carries the finding, but a log nobody opens is how the
-/// original incident became undiagnosable; the operator is told in the
-/// interface instead (issue #662). Reports accumulate rather than replace, so a
-/// vanished run cannot silently displace another startup warning.
-fn surface_unclean_prior_runs(state: &mut AppState, runs: &[UncleanRun], now_unix: u64) {
-    for run in runs {
-        append_warning(state, run.notice(now_unix));
-    }
-}
-
-/// Read the wall clock at the boundary and hand the detected runs to the pure
-/// reporter, keeping the clock out of the tested reporting behavior.
-///
-/// The runs are taken, not borrowed: the next start is the only moment a
-/// vanished run can be attributed, so it is reported exactly once.
-fn report_unclean_prior_runs(state: &mut AppState, ctx: &mut crate::AppContext) {
-    let runs = std::mem::take(&mut ctx.unclean_prior_runs);
-    surface_unclean_prior_runs(state, &runs, jefe::run_diagnostics::now_unix());
 }
 
 /// Compose the startup diagnostic from what qualification found.
@@ -539,35 +473,6 @@ fn scan_plugin_inventory(
         config_plugins_dir: jefe::persistence::paths::plugins_dir_for(&settings_path),
     });
     snapshot(&scan(&roots), &jefe::domain::plugin::HostTriple::current())
-}
-
-/// Decide what a durable-state read means for startup.
-///
-/// A read that fails is not a read that found nothing. Defaulting here is what
-/// let #445 turn an unreadable document into an empty one, because the empty
-/// result was then projected straight back over the file. The returned message,
-/// when present, both tells the operator what happened and marks writes as held.
-fn resolve_durable_read(
-    read: Result<
-        jefe::state::durable_projection::RestoredState,
-        jefe::persistence::PersistenceError,
-    >,
-) -> (
-    jefe::state::durable_projection::RestoredState,
-    Option<String>,
-) {
-    match read {
-        Ok(value) => (value, None),
-        Err(error) => {
-            warn!(error = %error, "could not read durable state; holding writes");
-            (
-                jefe::state::durable_projection::RestoredState::default(),
-                Some(format!(
-                    "Durable state could not be read ({error}). Agents shown may be incomplete and saving is paused so the existing file is not overwritten."
-                )),
-            )
-        }
-    }
 }
 
 pub fn init_app_state(

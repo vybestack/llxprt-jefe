@@ -4,8 +4,9 @@
 //! policy; the module is included via `#[path]` exactly as the runtime
 //! manager's tests are.
 
+use super::warnings::surface_unclean_prior_runs;
 use super::*;
-use jefe::domain::{Repository, RepositoryId, TypedValue};
+use jefe::domain::{Repository, RepositoryId, TypedValue, UncleanRun};
 use jefe::runtime::RuntimeSession;
 use std::time::Duration;
 
