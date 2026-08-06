@@ -901,9 +901,12 @@ fn a_prior_run_that_vanished_is_named_where_the_operator_will_see_it() {
     let Some(warning) = state.warning_message.as_deref() else {
         panic!("a run that vanished must be reported in the UI, not only in the log");
     };
-    assert!(warning.contains("4242"), "must name the pid: {warning}");
     assert!(
-        warning.contains("1000"),
+        warning.contains("(pid 4242)"),
+        "must name the pid: {warning}"
+    );
+    assert!(
+        warning.contains("(unix 1000)"),
         "must name the last-seen timestamp: {warning}"
     );
     assert!(
@@ -940,8 +943,14 @@ fn every_run_that_vanished_is_reported_not_only_the_first() {
     let Some(warning) = state.warning_message.as_deref() else {
         panic!("both runs that vanished must be reported");
     };
-    assert!(warning.contains("4242"), "first pid missing: {warning}");
-    assert!(warning.contains("9001"), "second pid missing: {warning}");
+    assert!(
+        warning.contains("(pid 4242)"),
+        "first pid missing: {warning}"
+    );
+    assert!(
+        warning.contains("(pid 9001)"),
+        "second pid missing: {warning}"
+    );
 }
 
 #[test]
@@ -958,5 +967,8 @@ fn a_vanished_run_report_is_added_to_an_existing_warning_rather_than_replacing_i
         warning.contains("Settings were reset."),
         "existing warning was lost: {warning}"
     );
-    assert!(warning.contains("4242"), "new report missing: {warning}");
+    assert!(
+        warning.contains("(pid 4242)"),
+        "new report missing: {warning}"
+    );
 }
