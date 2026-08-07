@@ -85,11 +85,53 @@ pub(super) fn spawn(
 ///
 /// Returns the underlying spawn/exec error if the terminate signal could not
 /// be issued. A non-zero command exit (the group already exited) is not an
+/// A process group this supervisor is willing to signal.
+///
+/// The group is named by a number that goes straight into `kill -TERM -<n>`,
+/// and two values there are catastrophic: `-0` means the **caller's own**
+/// process group, and `-1` means init's. Verified on Linux (procps-ng 4.0.2):
+/// `kill -TERM -0` terminated the calling shell, which exited 143 — exactly
+/// what a CI runner reports when it is killed mid-job.
+///
+/// Constructing the group is therefore the place the value is checked, so no
+/// caller can pass a bare integer and hope it names a child (issue #390).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ProcessGroup(u32);
+
+impl ProcessGroup {
+    /// The group a spawned child leads, or `None` if the pid cannot name one.
+    ///
+    /// Providers are spawned with `process_group(0)`, so a live child's pid is
+    /// its own group id.
+    pub(super) const fn of_child(pid: u32) -> Option<Self> {
+        if pid > 1 { Some(Self(pid)) } else { None }
+    }
+
+    /// The group id.
+    pub(super) const fn id(self) -> u32 {
+        self.0
+    }
+}
+
+/// The error returned when a pid cannot safely name a process group.
+fn refused_group(pid: u32) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "refusing to signal process group {pid}: it does not name a provider child \
+             (0 is our own group, 1 is init)"
+        ),
+    )
+}
+
 /// error here.
 pub(super) fn terminate_process_tree(pid: u32) -> io::Result<()> {
+    let Some(group_id) = ProcessGroup::of_child(pid) else {
+        return Err(refused_group(pid));
+    };
     #[cfg(unix)]
     {
-        let group = format!("-{pid}");
+        let group = format!("-{}", group_id.id());
         Command::new("kill")
             .args(["-TERM", group.as_str()])
             .stdout(Stdio::null())
@@ -98,7 +140,7 @@ pub(super) fn terminate_process_tree(pid: u32) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let pid_text = pid.to_string();
+        let pid_text = group_id.id().to_string();
         Command::new("taskkill")
             .args(["/PID", pid_text.as_str(), "/T"])
             .stdout(Stdio::null())
@@ -107,7 +149,7 @@ pub(super) fn terminate_process_tree(pid: u32) -> io::Result<()> {
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = pid;
+        let _ = group_id;
     }
     Ok(())
 }
@@ -138,9 +180,12 @@ pub(super) fn kill_process_tree(child: &mut Child) -> io::Result<()> {
 ///
 /// A non-zero exit means the group has already gone, which is not an error.
 fn kill_process_group(pid: u32) -> io::Result<()> {
+    let Some(group_id) = ProcessGroup::of_child(pid) else {
+        return Err(refused_group(pid));
+    };
     #[cfg(unix)]
     {
-        let group = format!("-{pid}");
+        let group = format!("-{}", group_id.id());
         Command::new("kill")
             .args(["-KILL", group.as_str()])
             .stdout(Stdio::null())
@@ -149,7 +194,7 @@ fn kill_process_group(pid: u32) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let pid_text = pid.to_string();
+        let pid_text = group_id.id().to_string();
         Command::new("taskkill")
             .args(["/PID", pid_text.as_str(), "/T", "/F"])
             .stdout(Stdio::null())
@@ -158,7 +203,7 @@ fn kill_process_group(pid: u32) -> io::Result<()> {
     }
     #[cfg(not(any(unix, windows)))]
     {
-        let _ = pid;
+        let _ = group_id;
     }
     Ok(())
 }
@@ -185,5 +230,46 @@ fn configure_process_tree(command: &mut Command) {
     #[cfg(not(windows))]
     {
         let _ = command;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `kill -TERM -0` targets the **caller's own** process group. Verified on
+    /// Linux (procps-ng 4.0.2) inside a container: it terminated the calling
+    /// shell, which exited 143 — the same signature a CI runner reports when it
+    /// is killed mid-job. A pid of 1 is init's group. Neither may ever reach the
+    /// signal, so they are refused where the group is named rather than trusted
+    /// to be a real child (issue #390).
+    #[test]
+    fn a_process_group_is_never_built_from_a_pid_that_would_signal_ourselves() {
+        assert!(
+            ProcessGroup::of_child(0).is_none(),
+            "pid 0 names the caller's own process group"
+        );
+        assert!(
+            ProcessGroup::of_child(1).is_none(),
+            "pid 1 names init's process group"
+        );
+    }
+
+    #[test]
+    fn a_real_child_pid_yields_its_own_group() {
+        let group = ProcessGroup::of_child(4242);
+        assert_eq!(group.map(ProcessGroup::id), Some(4242));
+    }
+
+    /// Signalling a refused group must be a typed error the caller can report,
+    /// not a silent no-op that looks like a successful reap.
+    #[test]
+    fn signalling_a_refused_group_is_an_error() {
+        for pid in [0, 1] {
+            assert!(
+                terminate_process_tree(pid).is_err(),
+                "terminate must refuse pid {pid}"
+            );
+        }
     }
 }

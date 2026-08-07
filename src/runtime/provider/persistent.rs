@@ -35,7 +35,7 @@ use super::encode::encode_shutdown;
 use super::environment::{HostEnv, ProviderEnvironment, Redactor};
 use super::error;
 use super::identifiers::RequestId;
-use super::process_tree::{self, ProviderProcess};
+use super::process_tree::ProviderProcess;
 use super::protocol::{LifecycleOrder, MessageKind};
 use super::redaction;
 use super::supervisor::{
@@ -586,6 +586,15 @@ pub(super) fn probe_stdout(receiver: &mpsc::Receiver<StdoutEvent>) -> StdoutProb
     }
 }
 
+/// Whether a candidate's process group may still be signalled by its pid.
+///
+/// Only while the leader is unreaped. Once it has been waited on, the pid is
+/// the kernel's to reuse and `-pid` names someone else's process group
+/// (issue #390).
+pub(super) const fn may_signal_group(leader_already_reaped: bool) -> bool {
+    !leader_already_reaped
+}
+
 /// Classify one candidate's health from its stdout probe and `try_wait` result.
 ///
 /// Explicit priority cascade so a normally-exited process whose stdout channel
@@ -661,22 +670,24 @@ pub(super) fn reap_owned(mut owned: OwnedCandidate, bounds: &SupervisorBounds) -
 
     // Escalate/reap the leader. Both branches collect terminate/force-kill
     // errors (a benign ESRCH is filtered by `signal_cleanup_evidence`).
-    let (leader_reaped, signal_errors): (bool, Vec<io::Error>) = if owned.exited {
-        // The leader is known reaped; force-kill the group so any descendant
-        // holding inherited pipes is terminated and its closure observed.
-        owned.stdin.take();
-        let mut errors = Vec::new();
-        if let Err(error) = process_tree::terminate_process_tree(owned.pid) {
-            errors.push(error);
-        }
-        if let Err(error) = owned.process.force_kill_tree() {
-            errors.push(error);
-        }
-        (true, errors)
-    } else {
+    let (leader_reaped, signal_errors): (bool, Vec<io::Error>) = if may_signal_group(owned.exited) {
         let (outcome, errors) =
             staged_shutdown(&mut owned.process, owned.stdin.take(), bounds, owned.pid);
         (matches!(outcome, ShutdownOutcome::Exited(_)), errors)
+    } else {
+        // The leader was already reaped, so its pid is free for the kernel to
+        // reuse and no longer names our process group. Signalling `-pid` here
+        // would target whatever tree now owns that number — on a busy CI runner
+        // that was the job itself, which died with a shutdown signal and exit
+        // 143 rather than any test failure.
+        //
+        // Descendants are still cleaned up: closing stdin drops the pipes they
+        // inherited, and the bounded final drains below observe whether they
+        // actually closed. A descendant that outlives its parent surfaces as a
+        // `DrainTimeout`, which is the honest report — better than a signal
+        // aimed at a pid we no longer own.
+        owned.stdin.take();
+        (true, Vec::new())
     };
 
     let stdout_final = final_stdout_drain(&owned.stdout_drain.receiver, bounds.final_drain);
