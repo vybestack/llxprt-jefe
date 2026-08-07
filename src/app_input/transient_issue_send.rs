@@ -343,18 +343,29 @@ fn launch_transient_issue_agent(
         spawn_and_attach_fresh_for_issue(app_state, ctx, &agent_id, &work_dir, &launch_sig);
     let launched_ok = launched.is_ok();
     let identities = super::process_on_success(ctx, &agent_id, launched_ok);
-    if launched_ok {
-        let mut state = app_state.write();
-        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, identities);
-        let persisted = durable_save_request(&mut state);
-        drop(state);
-        schedule_durable_save(ctx, persisted);
-    } else {
-        // Surface the failure, then remove the transient agent and clean up
-        // its temp directory via fail_transient_agent.
-        let error_msg = format!("Failed to launch transient {} agent", launch_sig.type_id);
-        apply_send_to_agent_failed(app_state, ctx, error_msg);
-        fail_transient_agent(app_state, ctx, &agent_id);
+    match launched {
+        Ok(()) => {
+            let mut state = app_state.write();
+            persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, identities);
+            let persisted = durable_save_request(&mut state);
+            drop(state);
+            schedule_durable_save(ctx, persisted);
+        }
+        Err(error) => {
+            // Issue #435: this path used to substitute a generic "Failed to
+            // launch transient <type> agent" string and drop the RuntimeError,
+            // leaving the Errors screen with a message that named no cause.
+            // Carry the real diagnostic through so the entry is actionable.
+            apply_send_to_agent_failed(
+                app_state,
+                ctx,
+                format!(
+                    "Failed to launch transient {} agent: {error}",
+                    launch_sig.type_id
+                ),
+            );
+            fail_transient_agent(app_state, ctx, &agent_id);
+        }
     }
     apply_assignment_action(
         app_state,

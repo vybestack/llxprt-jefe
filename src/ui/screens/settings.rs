@@ -68,7 +68,7 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
                 warning_message: props.state.as_ref().and_then(|s| s.warning_message.clone()),
-                last_error: props.state.as_ref().and_then(AppState::last_error_title),
+                error_count: props.state.as_ref().map_or(0, |s| s.errors_state.count()),
                 colors: colors.clone(),
                 selection: props.state.as_ref().and_then(|s| s.selection),
             )
