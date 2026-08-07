@@ -144,6 +144,7 @@ fn base_env(provider_dir: PathBuf) -> ProviderEnvironment {
 
 #[test]
 fn cw10_02_happy_one_shot_lifecycle_has_exact_transcript_and_is_reaped() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("happy", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -197,6 +198,7 @@ fn cw10_02_happy_one_shot_lifecycle_has_exact_transcript_and_is_reaped() {
 
 #[test]
 fn cw10_02_progress_emits_up_to_256() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("progress-256", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -217,6 +219,7 @@ fn cw10_02_progress_emits_up_to_256() {
 
 #[test]
 fn cw10_02_provider_error_is_a_typed_terminal() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("error", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -231,6 +234,7 @@ fn cw10_02_provider_error_is_a_typed_terminal() {
 
 #[test]
 fn cw10_02_never_ready_fails_handshake_and_is_reaped() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("never-ready", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -247,6 +251,7 @@ fn cw10_02_never_ready_fails_handshake_and_is_reaped() {
 
 #[test]
 fn cw10_02_crash_after_ready_is_reaped_as_a_crash() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("crash-after-ready", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -263,6 +268,7 @@ fn cw10_02_crash_after_ready_is_reaped_as_a_crash() {
 
 #[test]
 fn cw10_02_generation_drift_is_a_protocol_failure() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("generation-drift", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -279,6 +285,7 @@ fn cw10_02_generation_drift_is_a_protocol_failure() {
 
 #[test]
 fn cw10_11_hang_after_shutdown_is_reaped_by_staged_escalation() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("hang-shutdown", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -296,6 +303,7 @@ fn cw10_11_hang_after_shutdown_is_reaped_by_staged_escalation() {
 
 #[test]
 fn cw10_09_duplicate_terminal_keeps_the_first_result() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("duplicate-terminal", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -311,6 +319,7 @@ fn cw10_09_duplicate_terminal_keeps_the_first_result() {
 
 #[test]
 fn cw10_14_a_secret_echoed_to_stderr_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let mut env = base_env(scene.provider_dir.clone());
     // A Configure secret sourced from the host; the fixture echoes it to stderr.
@@ -336,6 +345,7 @@ fn cw10_14_a_secret_echoed_to_stderr_is_redacted() {
 
 #[test]
 fn cw10_14_environment_is_isolated_and_configure_secret_stays_in_configure() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let record_dir = scene.home.path().join("observations");
     let mut env = base_env(scene.provider_dir.clone());
@@ -429,6 +439,7 @@ fn run_secret_scenario(scene: &Scene, mode: &str) -> OneShotResult {
 
 #[test]
 fn cw10_14_a_secret_echoed_in_a_navigate_activation_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-navigate");
     assert!(
@@ -442,6 +453,7 @@ fn cw10_14_a_secret_echoed_in_a_navigate_activation_is_redacted() {
 
 #[test]
 fn cw10_14_a_secret_echoed_in_a_refresh_resource_ref_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-refresh");
     assert!(matches!(result.outcome, OneShotOutcome::Completed(_)));
@@ -451,6 +463,7 @@ fn cw10_14_a_secret_echoed_in_a_refresh_resource_ref_is_redacted() {
 
 #[test]
 fn cw10_14_a_secret_echoed_in_a_replace_panel_snapshot_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-panel");
     assert!(matches!(result.outcome, OneShotOutcome::Completed(_)));
@@ -460,6 +473,7 @@ fn cw10_14_a_secret_echoed_in_a_replace_panel_snapshot_is_redacted() {
 
 #[test]
 fn cw10_14_a_secret_echoed_in_a_migrated_config_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-migrated");
     assert!(matches!(result.outcome, OneShotOutcome::Completed(_)));
@@ -469,6 +483,7 @@ fn cw10_14_a_secret_echoed_in_a_migrated_config_is_redacted() {
 
 #[test]
 fn cw10_14_a_secret_echoed_in_a_confirmation_surface_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-confirm");
     assert!(matches!(result.outcome, OneShotOutcome::Completed(_)));
@@ -478,6 +493,7 @@ fn cw10_14_a_secret_echoed_in_a_confirmation_surface_is_redacted() {
 
 #[test]
 fn cw10_14_a_secret_echoed_in_an_error_payload_is_redacted() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-error");
     match &result.outcome {
@@ -495,6 +511,7 @@ fn cw10_14_a_secret_echoed_in_an_error_payload_is_redacted() {
 
 #[test]
 fn cw10_14_a_caller_supplied_configure_secret_is_rejected_before_spawn() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let env = base_env(scene.provider_dir.clone());
     let mut request = scene.request("happy", env);
@@ -528,6 +545,7 @@ fn cw10_14_a_caller_supplied_configure_secret_is_rejected_before_spawn() {
 
 #[test]
 fn cw10_11_a_descendant_holding_pipes_is_reaped_within_the_bound() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("descendant-hang", base_env(scene.provider_dir.clone()));
     let bounds = fast_bounds();
@@ -570,6 +588,7 @@ fn cw10_11_a_descendant_holding_pipes_is_reaped_within_the_bound() {
 
 #[test]
 fn cw10_11_an_ack_with_the_wrong_kind_is_a_visible_cleanup_failure() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("ack-wrong-kind", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -587,6 +606,7 @@ fn cw10_11_an_ack_with_the_wrong_kind_is_a_visible_cleanup_failure() {
 
 #[test]
 fn cw10_11_a_missing_ack_is_a_visible_cleanup_failure() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("ack-missing", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -601,6 +621,7 @@ fn cw10_11_a_missing_ack_is_a_visible_cleanup_failure() {
 
 #[test]
 fn cw10_11_eof_before_ack_is_a_visible_cleanup_failure() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("ack-eof-before", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));
@@ -615,6 +636,7 @@ fn cw10_11_eof_before_ack_is_a_visible_cleanup_failure() {
 
 #[test]
 fn cw10_11_data_after_ack_is_a_visible_cleanup_failure() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let request = scene.request("ack-data-after", base_env(scene.provider_dir.clone()));
     let result = run_one_shot(&request, &fast_bounds(), &FixedEnv::from_pairs(&[]));

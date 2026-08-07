@@ -135,6 +135,7 @@ fn fast_bounds() -> SupervisorBounds {
 /// and the request-id is unique per call (monotonic counter, not generation).
 #[test]
 fn coordinator_builds_one_shot_with_unique_request_ids() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
     let coordinator = ProviderCoordinator::empty();
@@ -161,6 +162,7 @@ fn coordinator_builds_one_shot_with_unique_request_ids() {
 /// build_execution_result → typed ProviderMessages.
 #[test]
 fn happy_path_produces_progress_and_navigate_outcome() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
     let coordinator = ProviderCoordinator::empty();
@@ -212,6 +214,7 @@ fn happy_path_produces_progress_and_navigate_outcome() {
 /// An error-mode fixture produces a ProviderMessage::Error terminal.
 #[test]
 fn error_mode_produces_error_terminal() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("error");
     let coordinator = ProviderCoordinator::empty();
@@ -241,6 +244,7 @@ fn error_mode_produces_error_terminal() {
 /// A never-ready fixture produces a GenerationFailed (supervisor failure).
 #[test]
 fn never_ready_produces_generation_failed() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("never-ready");
     let coordinator = ProviderCoordinator::empty();
@@ -270,6 +274,7 @@ fn never_ready_produces_generation_failed() {
 /// The ProviderCatalog stores and retrieves descriptors by ActionId.
 #[test]
 fn catalog_stores_and_retrieves_descriptors() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
     let action_id = descriptor.action_id.clone();
@@ -290,6 +295,7 @@ fn catalog_stores_and_retrieves_descriptors() {
 /// The coordinator's catalog is accessible and returns the registered actions.
 #[test]
 fn coordinator_catalog_is_accessible() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
     let action_id = descriptor.action_id.clone();
@@ -315,6 +321,7 @@ fn coordinator_catalog_is_accessible() {
 /// Secrets never appear in the execution result messages or retained stderr.
 #[test]
 fn secrets_never_appear_in_execution_messages() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let secret_value = "SUPER-secret-canary-390";
 
@@ -354,6 +361,7 @@ fn secrets_never_appear_in_execution_messages() {
 /// (pre-parsed, no runtime parsing needed).
 #[test]
 fn invocation_payload_uses_descriptor_action_id() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
     let invocation = Scene::invocation(1);
@@ -376,6 +384,7 @@ fn invocation_payload_uses_descriptor_action_id() {
 /// which would give every invocation of that package the same invocation id.
 #[test]
 fn an_invocation_id_that_cannot_be_built_is_reported() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let mut descriptor = scene.descriptor("happy");
     // Exactly the 128-byte `Id` limit, so appending ".1" overflows it.
@@ -394,6 +403,7 @@ fn an_invocation_id_that_cannot_be_built_is_reported() {
 /// sequence number with an empty payload is not progress the operator can read.
 #[test]
 fn delivered_progress_carries_the_message_and_counts_the_provider_sent() {
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
     let invocation = Scene::invocation(1);
