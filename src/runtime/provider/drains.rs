@@ -125,29 +125,53 @@ impl StderrDrain {
     }
 }
 
+/// The bounded stderr retention policy, separated from the read loop.
+///
+/// Kept as a value rather than inline flags so the "was anything actually
+/// dropped" question can be asked directly. Conflating "the buffer is full"
+/// with "bytes were lost" reports a complete capture as truncated, which sends
+/// an operator looking for output that was never missing (CW10-14).
+pub(super) struct StderrRetention {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+impl StderrRetention {
+    pub(super) const fn new() -> Self {
+        Self {
+            bytes: Vec::new(),
+            truncated: false,
+        }
+    }
+
+    /// Retain what still fits, and record truncation only when something was
+    /// discarded.
+    pub(super) fn push(&mut self, chunk: &[u8]) {
+        let room = STDERR_RETENTION_MAX.saturating_sub(self.bytes.len());
+        let take = room.min(chunk.len());
+        self.bytes.extend_from_slice(&chunk[..take]);
+        if take < chunk.len() {
+            self.truncated = true;
+        }
+    }
+
+    /// The retained bytes and whether any byte was dropped.
+    pub(super) fn finish(self) -> (Vec<u8>, bool) {
+        (self.bytes, self.truncated)
+    }
+}
+
 fn drive_stderr(mut stream: ChildStderr, sender: &mpsc::Sender<StderrOutcome>) {
-    let mut retained: Vec<u8> = Vec::new();
-    let mut truncated = false;
+    let mut retention = StderrRetention::new();
     let mut chunk = [0u8; READ_CHUNK];
     loop {
         match stream.read(&mut chunk) {
             Ok(0) | Err(_) => break,
-            Ok(read) => {
-                let room = STDERR_RETENTION_MAX.saturating_sub(retained.len());
-                if room > 0 {
-                    let take = room.min(read);
-                    retained.extend_from_slice(&chunk[..take]);
-                }
-                if retained.len() >= STDERR_RETENTION_MAX {
-                    truncated = true;
-                }
-            }
+            Ok(read) => retention.push(&chunk[..read]),
         }
     }
-    let _ = sender.send(StderrOutcome::Retained {
-        bytes: retained,
-        truncated,
-    });
+    let (bytes, truncated) = retention.finish();
+    let _ = sender.send(StderrOutcome::Retained { bytes, truncated });
 }
 
 /// The outcome of the bounded final stdout drain performed after process

@@ -273,3 +273,49 @@ fn help_quotes_the_snapshot_reason_for_an_unsupported_package() {
         "Help must quote the snapshot reason verbatim: {help:?}"
     );
 }
+
+/// A provider is spawned with `current_dir(working_dir)`, and `Command::spawn`
+/// fails outright if that directory does not exist. Containment directories
+/// must therefore exist by the time composition hands them to a supervisor.
+#[test]
+fn containment_directories_exist_before_any_provider_is_spawned() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let config = temp.path().join("config");
+    fs::create_dir_all(&config).unwrap_or_else(|e| panic!("config dir: {e}"));
+    stage(
+        &config,
+        "vendor.deploy",
+        HostTriple::current().as_str(),
+        true,
+    );
+
+    let startup = match jefe::startup::build_persistence(Some(&config)) {
+        Ok(value) => value,
+        Err(error) => panic!("startup must resolve: {error:?}"),
+    };
+    let containment = containment(temp.path());
+    let published = publish_providers(&ProviderPublicationRequest {
+        packages: &startup.plugin_packages,
+        settings: &startup.settings,
+        base_snapshot: &startup.keymap_snapshot,
+        containment: containment.clone(),
+    });
+
+    let action = action("vendor.deploy.ship");
+    let Some(descriptor) = published.coordinator.catalog().get(&action) else {
+        panic!("the action must be published");
+    };
+    for (label, dir) in [
+        ("working_dir", &descriptor.working_dir),
+        ("home", &descriptor.home),
+        ("tmpdir", &descriptor.tmpdir),
+    ] {
+        assert!(
+            dir.is_dir(),
+            "{label} {} must exist before spawn, or Command::spawn fails",
+            dir.display()
+        );
+    }
+}

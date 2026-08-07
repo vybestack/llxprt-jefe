@@ -358,9 +358,36 @@ fn invocation_payload_uses_descriptor_action_id() {
     let descriptor = scene.descriptor("happy");
     let invocation = Scene::invocation(1);
 
-    let payload = build_invocation_payload(&descriptor, &invocation);
+    let Ok(payload) = build_invocation_payload(&descriptor, &invocation) else {
+        panic!("an ordinary plugin id and generation must compose an invocation id");
+    };
     assert_eq!(payload.action_id, descriptor.action_id);
     assert_eq!(payload.context.screen_id, invocation.context_screen);
+    assert_eq!(payload.arguments, invocation.arguments);
+    assert_eq!(payload.context.screen_instance, invocation.context_instance);
+    assert!(
+        payload.continuation.is_none(),
+        "a first invocation carries no continuation"
+    );
+}
+
+/// A plugin id long enough that appending a generation overflows the `Id`
+/// bound must be reported, not silently collapsed onto the bare plugin id —
+/// which would give every invocation of that package the same invocation id.
+#[test]
+fn an_invocation_id_that_cannot_be_built_is_reported() {
+    let scene = Scene::new();
+    let mut descriptor = scene.descriptor("happy");
+    // Exactly the 128-byte `Id` limit, so appending ".1" overflows it.
+    let long = format!("vendor.{}", "a".repeat(121));
+    descriptor.plugin_id = Id::parse(&long).unwrap_or_else(|e| panic!("long id: {e:?}"));
+
+    let result = build_invocation_payload(&descriptor, &Scene::invocation(1));
+
+    assert!(
+        result.is_err(),
+        "an oversized invocation id must be an error, not a duplicate id"
+    );
 }
 /// CW10-07: the reducer's progress model is defined by message, completed and
 /// total, so the worker must deliver what the provider actually sent. A

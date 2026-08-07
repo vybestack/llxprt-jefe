@@ -75,6 +75,29 @@ impl ProviderEffectHandle {
         }
     }
 
+    /// Return already-drained work to the front of the queue.
+    ///
+    /// The worker drains a batch and then needs the context lock to resolve
+    /// each descriptor. When that lock is momentarily held by the input path
+    /// the work has not failed — it simply has not run yet — so it goes back
+    /// rather than being reported as a closed provider stream. It is restored
+    /// ahead of anything scheduled since, because it was dispatched first
+    /// (issue #390).
+    pub fn defer_all(&self, items: Vec<ProviderWorkItem>) {
+        if items.is_empty() {
+            return;
+        }
+        if let Ok(mut pending) = self.inner.pending.lock() {
+            for item in items.into_iter().rev() {
+                pending.push_front(item);
+            }
+            self.inner.dirty.store(true, Ordering::SeqCst);
+            self.inner
+                .schedule_generation
+                .fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
     /// Drain all pending work items. Called by the background worker.
     #[must_use]
     pub fn drain(&self) -> Vec<ProviderWorkItem> {
@@ -255,3 +278,7 @@ mod tests {
         assert!(more.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "provider_effect_worker_defer_tests.rs"]
+mod defer_tests;

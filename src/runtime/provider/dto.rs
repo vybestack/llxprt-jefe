@@ -6,6 +6,7 @@
 //! object admits; the readers in [`super::payload_reader`] enforce those sets.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use crate::domain::action_registry::ActionId;
 use crate::domain::plugin::field::Field;
@@ -32,7 +33,9 @@ pub struct HelloAckPayload {
 }
 
 /// A `configure` payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// [`Debug`] is hand-written rather than derived; see the impl below.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ConfigurePayload {
     /// Selected configuration version.
     pub config_version: u64,
@@ -42,6 +45,38 @@ pub struct ConfigurePayload {
     pub secrets: BTreeMap<EnvName, String>,
     /// Declared non-secret environment bindings.
     pub environment: BTreeMap<EnvName, String>,
+}
+
+/// [`Debug`] is written by hand so a resolved secret cannot reach a log.
+///
+/// The redactor scrubs provider-*authored* surfaces, but it never sees the
+/// payload the host builds. This type is embedded in `ProviderMessage` and in
+/// `PersistentCandidate`, so a single `{:?}` on either — in a log line, a
+/// diagnostic, or a panic message — would print every secret in cleartext.
+/// Binding names are kept because they are declarations, not values, and they
+/// are what an operator needs in order to debug a missing secret (CW10-14).
+impl fmt::Debug for ConfigurePayload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ConfigurePayload")
+            .field("config_version", &self.config_version)
+            .field("config", &self.config)
+            .field("secrets", &RedactedSecrets(&self.secrets))
+            .field("environment", &self.environment)
+            .finish()
+    }
+}
+
+/// Renders secret bindings without their values.
+struct RedactedSecrets<'a>(&'a BTreeMap<EnvName, String>);
+
+impl fmt::Debug for RedactedSecrets<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_map()
+            .entries(self.0.keys().map(|binding| (binding, "<redacted>")))
+            .finish()
+    }
 }
 
 /// A `ready` payload.

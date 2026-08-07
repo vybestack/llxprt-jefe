@@ -531,11 +531,15 @@ fn cw10_11_a_descendant_holding_pipes_is_reaped_within_the_bound() {
     let scene = Scene::new();
     let request = scene.request("descendant-hang", base_env(scene.provider_dir.clone()));
     let bounds = fast_bounds();
+    // Two `final_drain` terms, not one: with a descendant holding the inherited
+    // pipes, both the final stdout drain and the retained-stderr collection run
+    // to their own bound in sequence.
     let worst_case = bounds.handshake
         + bounds.handshake
         + bounds.invocation
         + bounds.shutdown_ack
         + bounds.stdin_close
+        + bounds.final_drain
         + bounds.final_drain;
     let start = Instant::now();
     let result = run_one_shot(&request, &bounds, &FixedEnv::from_pairs(&[]));
