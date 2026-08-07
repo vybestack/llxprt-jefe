@@ -14,11 +14,10 @@
 //! User isolation survives the change structurally: distinct accounts resolve
 //! distinct state paths, so they derive distinct identities.
 //!
-//! The directory resolution mirrors the persistence layer's precedence pattern:
-//! 1. `JEFE_SOCKET_PATH` env var (absolute socket file path) — highest precedence
-//! 2. `JEFE_SOCKET_DIR` env var (directory; socket file = `<dir>/<id>.sock`)
-//! 3. default: `dirs::runtime_dir()` if available (Linux XDG_RUNTIME_DIR),
-//!    else `dirs::data_local_dir()`, else `std::env::temp_dir()`.
+//! Explicit socket rendering is fail-closed: `JEFE_SOCKET_PATH` and
+//! `JEFE_SOCKET_DIR` must be non-empty, absolute, and fit the Unix socket limit.
+//! Without an override, the default is `dirs::runtime_dir()` when available
+//! (Linux XDG_RUNTIME_DIR), then `dirs::data_local_dir()`, then `temp_dir()`.
 //!
 //! `dirs::runtime_dir()` returns `None` on macOS/Windows, so the fallback chain
 //! always produces a usable path.
@@ -32,31 +31,119 @@ fn socket_filename(installation: &InstallationId) -> String {
     format!("{installation}.sock")
 }
 
-/// Ensure the containing directory for `socket_file` exists, creating it (and
-/// parents) as needed. On failure, fall back to `temp_dir()` so the caller
-/// always gets a writable path rather than panicking.
-fn ensure_dir_or_fallback(socket_file: PathBuf, installation: &InstallationId) -> PathBuf {
-    let Some(parent) = socket_file.parent() else {
-        return socket_file;
-    };
+const SOCKET_PATH_ENV: &str = "JEFE_SOCKET_PATH";
+const SOCKET_DIR_ENV: &str = "JEFE_SOCKET_DIR";
 
-    if std::fs::create_dir_all(parent).is_ok() {
-        return socket_file;
+/// A validated socket rendering and the deliberate override that selected it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedSocketPath {
+    path: PathBuf,
+    override_variable: Option<&'static str>,
+}
+
+impl ResolvedSocketPath {
+    #[must_use]
+    pub const fn override_variable(&self) -> Option<&'static str> {
+        self.override_variable
     }
 
-    // Fall back to temp_dir + socket filename on creation failure. temp_dir is
-    // world-writable, which weakens isolation versus a user-owned runtime/data
-    // dir, but it is still an installation-private socket (never the shared
-    // default tmux socket). Warn so the silent fallback is diagnosable.
-    tracing::warn!(
-        requested_dir = %parent.display(),
-        "could not create jefe tmux socket directory; falling back to temp dir",
-    );
-    let fallback_name = socket_file.file_name().map_or_else(
-        || std::ffi::OsString::from(socket_filename(installation)),
-        std::ffi::OsStr::to_owned,
-    );
-    std::env::temp_dir().join(fallback_name)
+    #[must_use]
+    pub fn into_path(self) -> PathBuf {
+        self.path
+    }
+}
+
+/// Why a deliberate socket rendering override was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketPathError {
+    Empty {
+        variable: &'static str,
+    },
+    NonUnicode {
+        variable: &'static str,
+    },
+    Relative {
+        variable: &'static str,
+        value: PathBuf,
+    },
+    TooLong {
+        variable: &'static str,
+        value: PathBuf,
+    },
+    DirectoryUnavailable {
+        variable: Option<&'static str>,
+        directory: PathBuf,
+        reason: String,
+    },
+}
+
+impl SocketPathError {
+    #[must_use]
+    pub const fn variable(&self) -> Option<&'static str> {
+        match self {
+            Self::Empty { variable }
+            | Self::NonUnicode { variable }
+            | Self::Relative { variable, .. }
+            | Self::TooLong { variable, .. } => Some(variable),
+            Self::DirectoryUnavailable { variable, .. } => *variable,
+        }
+    }
+}
+
+impl std::fmt::Display for SocketPathError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty { variable } => {
+                write!(
+                    formatter,
+                    "{variable} is empty; unset it or provide an absolute path"
+                )
+            }
+            Self::NonUnicode { variable } => {
+                write!(formatter, "{variable} is not valid Unicode")
+            }
+            Self::Relative { variable, value } => write!(
+                formatter,
+                "{variable} must be absolute, got {}",
+                value.display()
+            ),
+            Self::TooLong { variable, value } => write!(
+                formatter,
+                "{variable} produces a Unix socket path at or above the 100-byte safety limit: {}",
+                value.display()
+            ),
+            Self::DirectoryUnavailable {
+                directory, reason, ..
+            } => write!(
+                formatter,
+                "cannot create Unix socket directory {}: {reason}",
+                directory.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SocketPathError {}
+
+/// Prepare the selected socket directory without changing the selected path.
+fn prepare_socket_path(resolution: ResolvedSocketPath) -> Result<PathBuf, SocketPathError> {
+    let Some(parent) = resolution.path.parent() else {
+        return Ok(resolution.path);
+    };
+
+    std::fs::create_dir_all(parent).map_err(|error| SocketPathError::DirectoryUnavailable {
+        variable: resolution.override_variable,
+        directory: parent.to_path_buf(),
+        reason: error.to_string(),
+    })?;
+    if let Some(variable) = resolution.override_variable {
+        tracing::warn!(
+            variable,
+            socket_path = %resolution.path.display(),
+            "deliberate Unix socket override is in effect"
+        );
+    }
+    Ok(resolution.path)
 }
 
 /// Whether a candidate Unix-domain-socket path fits safely under the kernel's
@@ -95,116 +182,115 @@ fn default_socket_dir(filename: &str) -> PathBuf {
 
 /// Resolve the jefe-private tmux socket path from explicit env values.
 ///
-/// This is the pure core of [`resolve_socket_path`], factored out so the
-/// precedence logic is unit-testable without mutating process env vars (which
-/// is `unsafe` under edition 2024 and forbidden by the `unsafe_code = "forbid"`
-/// lint).
-///
-/// Precedence:
-/// 1. `socket_path_env` (`JEFE_SOCKET_PATH`) — absolute socket file path
-/// 2. `socket_dir_env` (`JEFE_SOCKET_DIR`) — directory; socket file = `<dir>/<id>.sock`
-/// 3. platform default (`dirs::runtime_dir()` → `dirs::data_local_dir()` → tempdir)
-#[must_use]
+/// This is the pure validation core. A present override is either accepted
+/// exactly or rejected: it can never silently select a different server.
 fn resolve_from_env(
     socket_path_env: Option<&str>,
     socket_dir_env: Option<&str>,
     filename: &str,
-) -> PathBuf {
-    // 1. JEFE_SOCKET_PATH — absolute socket file path. A relative path
-    //    resolves against tmux's CWD (not jefe's), causing subtle bugs, so
-    //    only honor it when absolute. This is the most explicit user intent,
-    //    so an over-length path is warned about but still honored (falling
-    //    through to a different socket would be more surprising).
-    if let Some(path) = socket_path_env.map(str::trim).filter(|s| !s.is_empty()) {
-        let path_buf = PathBuf::from(path);
-        if path_buf.is_absolute() {
-            if !socket_path_len_ok(&path_buf) {
-                tracing::warn!(
-                    requested_path = %path_buf.display(),
-                    "JEFE_SOCKET_PATH exceeds the Unix domain socket path length limit; tmux may fail to bind it"
-                );
-            }
-            return path_buf;
+) -> Result<ResolvedSocketPath, SocketPathError> {
+    if let Some(raw) = socket_path_env {
+        let value = raw.trim();
+        if value.is_empty() {
+            return Err(SocketPathError::Empty {
+                variable: SOCKET_PATH_ENV,
+            });
         }
-        tracing::warn!(
-            requested_path = %path_buf.display(),
-            "JEFE_SOCKET_PATH is not absolute; ignoring and falling through to JEFE_SOCKET_DIR / default"
-        );
+        let path = PathBuf::from(value);
+        validate_override(SOCKET_PATH_ENV, &path)?;
+        return Ok(ResolvedSocketPath {
+            path,
+            override_variable: Some(SOCKET_PATH_ENV),
+        });
     }
 
-    // 2. JEFE_SOCKET_DIR — directory; socket file = `<dir>/<id>.sock`.
-    //    A relative directory resolves against tmux's CWD (not jefe's),
-    //    causing the same bug class as a relative JEFE_SOCKET_PATH, so only
-    //    honor it when absolute. Apply the same length guard as the
-    //    default-dir branch: an over-long custom directory would reproduce
-    //    the cryptic tmux socket failure, so warn and fall through to the
-    //    platform default instead.
-    if let Some(dir) = socket_dir_env.map(str::trim).filter(|s| !s.is_empty()) {
-        let dir_buf = PathBuf::from(dir);
-        if dir_buf.is_absolute() {
-            let candidate = dir_buf.join(filename);
-            if socket_path_len_ok(&candidate) {
-                return candidate;
-            }
-            tracing::warn!(
-                candidate = %candidate.display(),
-                "JEFE_SOCKET_DIR-derived path too long for a Unix domain socket; falling through to default"
-            );
-        } else {
-            tracing::warn!(
-                requested_dir = %dir_buf.display(),
-                "JEFE_SOCKET_DIR is not absolute; ignoring and falling through to default"
-            );
+    if let Some(raw) = socket_dir_env {
+        let value = raw.trim();
+        if value.is_empty() {
+            return Err(SocketPathError::Empty {
+                variable: SOCKET_DIR_ENV,
+            });
         }
+        let directory = PathBuf::from(value);
+        if !directory.is_absolute() {
+            return Err(SocketPathError::Relative {
+                variable: SOCKET_DIR_ENV,
+                value: directory,
+            });
+        }
+        let path = directory.join(filename);
+        validate_override(SOCKET_DIR_ENV, &path)?;
+        return Ok(ResolvedSocketPath {
+            path,
+            override_variable: Some(SOCKET_DIR_ENV),
+        });
     }
 
-    // 3. Platform default.
-    default_socket_dir(filename).join(filename)
+    Ok(ResolvedSocketPath {
+        path: default_socket_dir(filename).join(filename),
+        override_variable: None,
+    })
+}
+
+fn validate_override(
+    variable: &'static str,
+    path: &std::path::Path,
+) -> Result<(), SocketPathError> {
+    if !path.is_absolute() {
+        return Err(SocketPathError::Relative {
+            variable,
+            value: path.to_path_buf(),
+        });
+    }
+    if !socket_path_len_ok(path) {
+        return Err(SocketPathError::TooLong {
+            variable,
+            value: path.to_path_buf(),
+        });
+    }
+    Ok(())
 }
 
 /// Resolve the jefe-private tmux socket path, honoring env precedence.
-///
-/// This is the pure resolver (no side effects beyond optional `create_dir_all`
-/// in the public [`jefe_tmux_socket_path`]). Useful for deterministic tests.
-#[must_use]
-pub fn resolve_socket_path(installation: &InstallationId) -> PathBuf {
+pub fn resolve_socket_path(
+    installation: &InstallationId,
+) -> Result<ResolvedSocketPath, SocketPathError> {
+    let socket_path = read_override(SOCKET_PATH_ENV)?;
+    let socket_dir = read_override(SOCKET_DIR_ENV)?;
     resolve_from_env(
-        std::env::var("JEFE_SOCKET_PATH").ok().as_deref(),
-        std::env::var("JEFE_SOCKET_DIR").ok().as_deref(),
+        socket_path.as_deref(),
+        socket_dir.as_deref(),
         &socket_filename(installation),
     )
 }
 
+fn read_override(variable: &'static str) -> Result<Option<String>, SocketPathError> {
+    std::env::var_os(variable)
+        .map(|value| {
+            value
+                .into_string()
+                .map_err(|_| SocketPathError::NonUnicode { variable })
+        })
+        .transpose()
+}
+
 /// Resolve the socket path for an arbitrary installation, creating its
 /// directory.
-///
-/// Unlike [`jefe_tmux_socket_path`] this is not cached, so it is the right
-/// entry point for a single-use isolated run, which by definition must not
-/// reuse the process-wide answer.
-#[must_use]
-pub fn socket_path_for(installation: &InstallationId) -> PathBuf {
-    ensure_dir_or_fallback(resolve_socket_path(installation), installation)
+pub fn socket_path_for(installation: &InstallationId) -> Result<PathBuf, SocketPathError> {
+    prepare_socket_path(resolve_socket_path(installation)?)
 }
 
 /// Resolve and cache the jefe-private tmux socket path.
-///
-/// Honors, in order:
-/// - `JEFE_SOCKET_PATH` (absolute socket file path)
-/// - `JEFE_SOCKET_DIR` (directory; socket file = `<id>.sock`)
-/// - default (`dirs::runtime_dir()` → `dirs::data_local_dir()` → tempdir)
-///
-/// Ensures the containing directory exists (creating it on first use). If
-/// directory creation fails, falls back to `temp_dir()` rather than panicking.
-///
-/// The result is cached in a `OnceLock` because it is read on every tmux
-/// invocation and `create_dir_all` on each one would be wasteful. Caching is
-/// safe because the active installation identity is itself resolved once per
-/// process; see `installation::current`.
-#[must_use]
-pub fn jefe_tmux_socket_path(installation: &InstallationId) -> &'static std::path::Path {
+pub fn jefe_tmux_socket_path(
+    installation: &InstallationId,
+) -> Result<&'static std::path::Path, SocketPathError> {
     static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
-    SOCKET_PATH
-        .get_or_init(|| ensure_dir_or_fallback(resolve_socket_path(installation), installation))
+    if let Some(path) = SOCKET_PATH.get() {
+        return Ok(path.as_path());
+    }
+
+    let prepared = socket_path_for(installation)?;
+    Ok(SOCKET_PATH.get_or_init(|| prepared).as_path())
 }
 
 #[cfg(all(test, unix))]
@@ -216,154 +302,170 @@ mod tests {
         InstallationId::for_state_path(Path::new("/home/dev/.local/share/jefe/state.json"))
     }
 
-    /// Assert a socket filename names an installation rather than a user.
-    fn assert_installation_socket_filename(filename: &str) {
-        assert_eq!(filename, socket_filename(&installation()));
-        assert!(filename.starts_with("jefe-"));
-        assert_eq!(
-            Path::new(filename)
-                .extension()
-                .and_then(std::ffi::OsStr::to_str),
-            Some("sock")
-        );
+    fn resolved(socket_path: Option<&str>, socket_dir: Option<&str>) -> ResolvedSocketPath {
+        resolve_from_env(socket_path, socket_dir, &socket_filename(&installation()))
+            .unwrap_or_else(|error| panic!("socket path should resolve: {error}"))
+    }
+
+    fn rejected(socket_path: Option<&str>, socket_dir: Option<&str>) -> SocketPathError {
+        resolve_from_env(socket_path, socket_dir, &socket_filename(&installation()))
+            .err()
+            .unwrap_or_else(|| panic!("socket override should be rejected"))
     }
 
     #[test]
-    fn resolve_honors_socket_path_highest_precedence() {
-        // JEFE_SOCKET_PATH wins even when JEFE_SOCKET_DIR is also set.
-        let path = resolve_from_env(
+    fn socket_path_override_has_highest_precedence_and_visible_provenance() {
+        let resolution = resolved(
             Some("/tmp/explicit-jefe.sock"),
             Some("/tmp/should-be-ignored"),
-            &socket_filename(&installation()),
         );
-        assert_eq!(path, PathBuf::from("/tmp/explicit-jefe.sock"));
+
+        assert_eq!(resolution.path, PathBuf::from("/tmp/explicit-jefe.sock"));
+        assert_eq!(resolution.override_variable(), Some(SOCKET_PATH_ENV));
     }
 
     #[test]
-    fn resolve_ignores_relative_socket_path() {
-        // A relative JEFE_SOCKET_PATH must be ignored (it would resolve
-        // against tmux's CWD), falling through to JEFE_SOCKET_DIR.
-        let path = resolve_from_env(
-            Some("relative/jefe.sock"),
-            Some("/tmp/jefe-sockets"),
-            &socket_filename(&installation()),
+    fn relative_socket_path_fails_closed_instead_of_falling_through() {
+        let error = rejected(Some("relative/jefe.sock"), Some("/tmp/jefe-sockets"));
+
+        assert!(matches!(
+            error,
+            SocketPathError::Relative {
+                variable: SOCKET_PATH_ENV,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn socket_directory_override_appends_the_installation_filename() {
+        let resolution = resolved(None, Some("/tmp/jefe-sockets"));
+
+        assert_eq!(
+            resolution.path,
+            PathBuf::from("/tmp/jefe-sockets").join(socket_filename(&installation()))
         );
-        assert!(path.starts_with("/tmp/jefe-sockets"));
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_else(|| panic!("socket must have a filename: {path:?}"));
-        assert_installation_socket_filename(filename);
+        assert_eq!(resolution.override_variable(), Some(SOCKET_DIR_ENV));
     }
 
     #[test]
-    fn resolve_honors_socket_dir_with_filename_when_path_absent() {
-        let path = resolve_from_env(
-            None,
-            Some("/tmp/jefe-sockets"),
-            &socket_filename(&installation()),
+    fn empty_socket_path_override_fails_closed() {
+        let error = rejected(Some("   "), None);
+
+        assert_eq!(
+            error,
+            SocketPathError::Empty {
+                variable: SOCKET_PATH_ENV
+            }
         );
-        assert!(path.starts_with("/tmp/jefe-sockets"));
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_else(|| panic!("socket must have a filename: {path:?}"));
-        assert_installation_socket_filename(filename);
     }
 
     #[test]
-    fn resolve_ignores_blank_env_values() {
-        // Empty/whitespace values are treated as unset.
-        let path = resolve_from_env(Some("   "), Some(""), &socket_filename(&installation()));
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_else(|| panic!("default must have a filename: {path:?}"));
-        assert_installation_socket_filename(filename);
+    fn empty_socket_directory_override_fails_closed() {
+        let error = rejected(None, Some(""));
+
+        assert_eq!(
+            error,
+            SocketPathError::Empty {
+                variable: SOCKET_DIR_ENV
+            }
+        );
     }
 
     #[test]
-    fn resolve_falls_back_to_platform_default_when_no_env() {
-        let path = resolve_from_env(None, None, &socket_filename(&installation()));
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_else(|| panic!("default must have a filename: {path:?}"));
-        assert_installation_socket_filename(filename);
-    }
-
-    #[test]
-    fn resolve_falls_through_when_socket_dir_too_long() {
-        // A JEFE_SOCKET_DIR that yields a socket path >= 100 bytes must fall
-        // through to the platform default rather than reproducing the cryptic
-        // tmux socket-bind failure.
+    fn overlong_socket_directory_override_fails_closed() {
         let long_dir = "/tmp/".to_owned() + &"a".repeat(95);
-        let path = resolve_from_env(None, Some(&long_dir), &socket_filename(&installation()));
+        let error = rejected(None, Some(&long_dir));
 
-        // The result must NOT live under the over-long custom directory.
-        assert!(
-            !path.starts_with(&long_dir),
-            "over-long JEFE_SOCKET_DIR should fall through, got {path:?}"
-        );
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_else(|| panic!("fallback must have a filename: {path:?}"));
-        assert_installation_socket_filename(filename);
+        assert!(matches!(
+            error,
+            SocketPathError::TooLong {
+                variable: SOCKET_DIR_ENV,
+                ..
+            }
+        ));
     }
 
     #[test]
-    fn resolve_ignores_relative_socket_dir() {
-        // A relative JEFE_SOCKET_DIR must be ignored (it would resolve
-        // against tmux's CWD, same bug class as a relative JEFE_SOCKET_PATH),
-        // falling through to the platform default.
-        let path = resolve_from_env(
-            None,
-            Some("relative/sockets"),
-            &socket_filename(&installation()),
-        );
-        assert!(
-            !path.starts_with("relative/sockets"),
-            "relative JEFE_SOCKET_DIR should fall through, got {path:?}"
-        );
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_else(|| panic!("fallback must have a filename: {path:?}"));
-        assert_installation_socket_filename(filename);
+    fn relative_socket_directory_override_fails_closed() {
+        let error = rejected(None, Some("relative/sockets"));
+
+        assert!(matches!(
+            error,
+            SocketPathError::Relative {
+                variable: SOCKET_DIR_ENV,
+                ..
+            }
+        ));
     }
 
     #[test]
-    fn resolve_honors_overlong_explicit_socket_path() {
-        // JEFE_SOCKET_PATH is the most explicit user intent: an over-long path
-        // is still honored (falling through to a different socket would be more
-        // surprising). The warning is emitted but the value is returned as-is.
+    fn overlong_socket_path_override_fails_closed() {
         let overlong = "/tmp/".to_owned() + &"z".repeat(100) + ".sock";
-        let path = resolve_from_env(Some(&overlong), None, &socket_filename(&installation()));
-        assert_eq!(path, PathBuf::from(&overlong));
+        let error = rejected(Some(&overlong), None);
+
+        assert!(matches!(
+            error,
+            SocketPathError::TooLong {
+                variable: SOCKET_PATH_ENV,
+                ..
+            }
+        ));
     }
 
     #[test]
-    fn socket_path_len_ok_respects_threshold() {
-        assert!(socket_path_len_ok(Path::new("/tmp/short.sock")));
-        // Exactly 100 bytes is NOT ok (guard is strictly < 100).
-        let at_limit: String = "a".repeat(100);
-        assert!(!socket_path_len_ok(Path::new(&at_limit)));
-        let just_under: String = "a".repeat(99);
-        assert!(socket_path_len_ok(Path::new(&just_under)));
+    fn no_override_keeps_installation_identity_in_the_default_filename() {
+        let resolution = resolved(None, None);
+        let filename = resolution
+            .path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_else(|| panic!("default socket needs a filename: {resolution:?}"));
+
+        assert_eq!(filename, socket_filename(&installation()));
+        assert_eq!(resolution.override_variable(), None);
     }
 
-    /// Issue #547: two worktrees must not share one Unix socket.
-    ///
-    /// This is the Unix half of the collision the issue reports on Windows.
     #[test]
     fn distinct_installations_get_distinct_sockets() {
         let first = InstallationId::for_state_path(Path::new("/work/tree-one/.jefe/state.json"));
         let second = InstallationId::for_state_path(Path::new("/work/tree-two/.jefe/state.json"));
 
-        let first_path = resolve_from_env(None, Some("/tmp/jefe"), &socket_filename(&first));
-        let second_path = resolve_from_env(None, Some("/tmp/jefe"), &socket_filename(&second));
+        let first_path = resolve_from_env(None, Some("/tmp/jefe"), &socket_filename(&first))
+            .unwrap_or_else(|error| panic!("first socket should resolve: {error}"));
+        let second_path = resolve_from_env(None, Some("/tmp/jefe"), &socket_filename(&second))
+            .unwrap_or_else(|error| panic!("second socket should resolve: {error}"));
 
-        assert_ne!(first_path, second_path);
+        assert_ne!(first_path.path, second_path.path);
+    }
+
+    #[test]
+    fn directory_creation_failure_keeps_the_selected_path_and_reports_the_boundary_error() {
+        let root = std::env::temp_dir().join(format!(
+            "jefe-socket-directory-failure-{}",
+            std::process::id()
+        ));
+        std::fs::write(&root, b"not a directory")
+            .unwrap_or_else(|error| panic!("test fixture should be writable: {error}"));
+        let socket = root.join("jefe.sock");
+        let resolution = ResolvedSocketPath {
+            path: socket,
+            override_variable: Some(SOCKET_PATH_ENV),
+        };
+
+        let error = prepare_socket_path(resolution)
+            .err()
+            .unwrap_or_else(|| panic!("a file cannot be used as a socket directory"));
+        assert!(matches!(
+            error,
+            SocketPathError::DirectoryUnavailable {
+                variable: Some(SOCKET_PATH_ENV),
+                directory,
+                ..
+            } if directory == root
+        ));
+
+        std::fs::remove_file(&root)
+            .unwrap_or_else(|error| panic!("test fixture should be removable: {error}"));
     }
 }

@@ -33,8 +33,17 @@ fn bin_path(name: &str) -> PathBuf {
     path.join(name)
 }
 
-fn load_fixture(name: &str) -> String {
-    let path = repo_path(&format!("dev-docs/tmux-scenarios/v1/{name}"));
+fn host_binary(name: &str) -> PathBuf {
+    let search_path = std::env::var_os("PATH")
+        .unwrap_or_else(|| panic!("PATH must be available to locate {name}"));
+    std::env::split_paths(&search_path)
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("{name} must be available on the host PATH"))
+}
+
+fn load_scenario(relative: &str) -> String {
+    let path = repo_path(relative);
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
     if cfg!(target_os = "macos") {
@@ -42,6 +51,10 @@ fn load_fixture(name: &str) -> String {
     } else {
         text.replace("\"platform\": \"macos\"", "\"platform\": \"linux\"")
     }
+}
+
+fn load_fixture(name: &str) -> String {
+    load_scenario(&format!("dev-docs/tmux-scenarios/v1/{name}"))
 }
 
 fn fixture_lock() -> MutexGuard<'static, ()> {
@@ -78,6 +91,24 @@ fn run_fixture(name: &str) -> RunOutcome {
             "tmux".to_string(),
             repo_path("scripts/issue520-tmux-shim.sh"),
         ));
+    }
+    let config = RunnerConfig {
+        shim_binary: bin_path("jefe-capture-shim"),
+        installs,
+    };
+    run(&scenario, &config)
+}
+
+fn run_issue687_scenario(name: &str) -> RunOutcome {
+    let _fixture_guard = fixture_lock();
+    let json = load_scenario(&format!("dev-docs/tmux-scenarios/issue687/{name}"));
+    let scenario = parse_scenario_v1(json.as_bytes())
+        .unwrap_or_else(|err| panic!("{name} should parse: {err}"));
+    let mut installs = vec![("jefe".to_string(), bin_path("jefe"))];
+    if matches!(name, "session-continuity.json" | "config-isolation.json") {
+        for binary in ["tmux", "cp", "chmod", "sleep"] {
+            installs.push((binary.to_string(), host_binary(binary)));
+        }
     }
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
@@ -142,6 +173,28 @@ fn assert_exit_code(name: &str, outcome: &RunOutcome, expected: u32) {
 fn schema_all_ops_fixture_passes() {
     let outcome = run_fixture("harness-schema-all-ops.json");
     assert_passed("harness-schema-all-ops", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn issue687_invalid_socket_override_fails_closed() {
+    let outcome = run_issue687_scenario("socket-override-fail-closed.json");
+    assert_passed("issue687-socket-override-fail-closed", &outcome);
+    assert_exit_code("issue687-socket-override-fail-closed", &outcome, 2);
+    cleanup(&outcome);
+}
+
+#[test]
+fn issue687_same_config_reuses_the_session_after_binary_relaunch() {
+    let outcome = run_issue687_scenario("session-continuity.json");
+    assert_passed("issue687-session-continuity", &outcome);
+    cleanup(&outcome);
+}
+
+#[test]
+fn issue687_different_configs_cannot_see_each_others_sessions() {
+    let outcome = run_issue687_scenario("config-isolation.json");
+    assert_passed("issue687-config-isolation", &outcome);
     cleanup(&outcome);
 }
 

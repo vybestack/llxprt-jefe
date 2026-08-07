@@ -10,6 +10,7 @@
 //! That is this file, and nothing weaker substitutes for it.
 
 use jefe::runtime::{MultiplexerPlan, MultiplexerQualification, qualify_multiplexer_for_startup};
+use std::sync::OnceLock;
 
 /// Whether this environment promises a usable psmux.
 ///
@@ -18,6 +19,15 @@ use jefe::runtime::{MultiplexerPlan, MultiplexerQualification, qualify_multiplex
 /// quietly does nothing is how a broken runner survives a green build.
 fn psmux_is_required() -> bool {
     std::env::var("JEFE_REQUIRE_PSMUX").is_ok_and(|value| value == "1")
+}
+fn initialized_plan() -> MultiplexerPlan {
+    static INITIALIZED: OnceLock<()> = OnceLock::new();
+    INITIALIZED.get_or_init(|| {
+        jefe::startup::build_persistence(None)
+            .unwrap_or_else(|error| panic!("startup identity should initialize: {error:?}"));
+    });
+    MultiplexerPlan::current()
+        .unwrap_or_else(|error| panic!("initialized multiplexer plan should resolve: {error}"))
 }
 
 #[test]
@@ -30,12 +40,7 @@ fn the_multiplexer_jefe_will_use_qualifies() {
         return;
     }
 
-    let plan = match MultiplexerPlan::current() {
-        Ok(plan) => plan,
-        Err(error) => {
-            panic!("JEFE_REQUIRE_PSMUX is set but no multiplexer could be resolved: {error}");
-        }
-    };
+    let plan = initialized_plan();
 
     match qualify_multiplexer_for_startup(&plan) {
         MultiplexerQualification::Qualified { .. } => {}
@@ -58,9 +63,7 @@ fn qualifying_twice_gives_the_same_answer() {
     if !psmux_is_required() {
         return;
     }
-    let Ok(plan) = MultiplexerPlan::current() else {
-        return;
-    };
+    let plan = initialized_plan();
 
     let first = qualify_multiplexer_for_startup(&plan);
     let second = qualify_multiplexer_for_startup(&plan);

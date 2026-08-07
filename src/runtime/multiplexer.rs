@@ -6,18 +6,13 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 use crate::agent_candidate_path::AgentWrapperKind;
 
 use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
 use super::launch_gates::LaunchGate;
 use super::multiplexer_contract::{PaneCommandBudget, pane_command_budget};
-const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 7);
-const WINDOWS_INSTALL_GUIDANCE: &str =
-    "install psmux 3.3.7 or newer with `winget upgrade marlocarlo.psmux`, then restart Jefe";
-const UNIX_INSTALL_GUIDANCE: &str =
-    "install upstream tmux with your operating system package manager";
 
 /// Inherited psmux session-routing variables that must be scrubbed from any
 /// native Windows local command so Jefe never appears nested inside a parent
@@ -75,6 +70,7 @@ pub enum MultiplexerCapability {
 /// because it is pure; it is re-exported here so callers see one multiplexer
 /// surface rather than two.
 pub use super::multiplexer_identity::{MultiplexerIdentity, MultiplexerVersion};
+use super::multiplexer_identity::{classify_output, guidance, output_observation};
 
 /// Everything a pane needs in order to launch one agent.
 ///
@@ -128,15 +124,73 @@ impl MultiplexerPlan {
         Self::resolved(false)
     }
 
+    /// Resolve a plan for an explicitly supplied installation identity.
+    ///
+    /// This is the read-only path used by doctor; it never reads or initializes
+    /// the process-global installation cell.
+    pub(crate) fn for_installation(
+        identity: &super::namespace::InstallationIdentity,
+    ) -> Result<Self, MultiplexerError> {
+        let platform = LocalPlatform::current();
+        #[cfg(unix)]
+        let isolation = Self::isolation_for_installation(identity)?;
+        #[cfg(windows)]
+        let isolation = Self::isolation_for_installation(identity);
+        let executable = resolve_executable(platform)?;
+        Self::for_platform(platform, executable, isolation)
+    }
+
+    /// Render isolation for an explicit installation without resolving or
+    /// launching the multiplexer executable.
+    #[cfg(unix)]
+    pub(crate) fn isolation_for_installation(
+        identity: &super::namespace::InstallationIdentity,
+    ) -> Result<MultiplexerIsolation, MultiplexerError> {
+        isolation_for(identity)
+    }
+
+    /// Render platform isolation for an explicit installation. See the Unix twin.
+    #[cfg(windows)]
+    pub(crate) fn isolation_for_installation(
+        identity: &super::namespace::InstallationIdentity,
+    ) -> MultiplexerIsolation {
+        isolation_for(identity)
+    }
+
+    /// Name the deliberate socket-rendering override, when Unix isolation is
+    /// being redirected independently of the installation identity.
+    #[cfg(unix)]
+    pub(crate) fn isolation_override_for_installation(
+        identity: &super::namespace::InstallationIdentity,
+    ) -> Result<Option<&'static str>, MultiplexerError> {
+        isolation_override_for(identity)
+    }
+
+    /// Windows does not consume Unix socket-rendering overrides.
+    #[cfg(windows)]
+    pub(crate) fn isolation_override_for_installation(
+        identity: &super::namespace::InstallationIdentity,
+    ) -> Option<&'static str> {
+        isolation_override_for(identity)
+    }
+
+    #[cfg(all(test, windows))]
+    pub(crate) fn isolated_for_test() -> MultiplexerIsolation {
+        MultiplexerIsolation::Namespace(
+            super::installation::isolated_run().id().as_str().to_owned(),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn current_for_test() -> Result<Self, MultiplexerError> {
         Self::resolved(true)
     }
 
     fn resolved(unique: bool) -> Result<Self, MultiplexerError> {
+        let isolation = current_isolation(unique)?;
         let platform = LocalPlatform::current();
         let executable = resolve_executable(platform)?;
-        Self::for_platform(platform, executable, current_isolation(unique))
+        Self::for_platform(platform, executable, isolation)
     }
 
     /// Return the resolved executable without converting it to UTF-8.
@@ -383,6 +437,8 @@ pub fn classify_probe(
 /// Typed failures from local multiplexer resolution and dependency preflight.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MultiplexerError {
+    /// Startup has not established the config-scoped installation identity.
+    IdentityUnavailable,
     /// No supported executable was found.
     MissingExecutable {
         path: PathBuf,
@@ -416,6 +472,11 @@ pub enum MultiplexerError {
     },
     /// The selected isolation handle does not match the platform policy.
     InvalidIsolation { platform: LocalPlatform },
+    /// The selected Unix socket path could not be validated or prepared.
+    SocketPathUnavailable {
+        variable: Option<&'static str>,
+        reason: String,
+    },
     /// A psmux namespace contains unsupported characters or length.
     InvalidNamespace { namespace: String },
     /// A Windows shell command argument cannot be represented as Unicode.
@@ -442,6 +503,9 @@ pub enum MultiplexerError {
 impl std::fmt::Display for MultiplexerError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::IdentityUnavailable => formatter.write_str(
+                "multiplexer identity is unavailable before startup resolves the effective config",
+            ),
             Self::MissingExecutable { .. }
             | Self::RejectedExecutable { .. }
             | Self::LaunchFailed { .. }
@@ -453,6 +517,10 @@ impl std::fmt::Display for MultiplexerError {
             Self::InvalidIsolation { platform } => {
                 write!(formatter, "invalid multiplexer isolation for {platform:?}")
             }
+            Self::SocketPathUnavailable { variable, reason } => match variable {
+                Some(variable) => write!(formatter, "{variable} is unusable: {reason}"),
+                None => write!(formatter, "Unix socket path is unusable: {reason}"),
+            },
             Self::InvalidNamespace { namespace } => {
                 write!(formatter, "invalid private psmux namespace {namespace:?}")
             }
@@ -526,7 +594,9 @@ fn format_executable_error(
         ),
         // Listed rather than caught by `_` so adding a variant fails to compile
         // here instead of silently degrading to the text below (issue #544).
-        MultiplexerError::InvalidIsolation { .. }
+        MultiplexerError::IdentityUnavailable
+        | MultiplexerError::InvalidIsolation { .. }
+        | MultiplexerError::SocketPathUnavailable { .. }
         | MultiplexerError::InvalidNamespace { .. }
         | MultiplexerError::NonUnicodeArgument { .. }
         | MultiplexerError::InvalidEnvironmentVariable { .. }
@@ -567,13 +637,15 @@ fn format_agent_launch_error(
             "Windows agent launch plan preparation failed: {source}"
         ),
         // Listed rather than caught by `_` for the same reason as above.
-        MultiplexerError::MissingExecutable { .. }
+        MultiplexerError::IdentityUnavailable
+        | MultiplexerError::MissingExecutable { .. }
         | MultiplexerError::RejectedExecutable { .. }
         | MultiplexerError::LaunchFailed { .. }
         | MultiplexerError::MalformedVersion { .. }
         | MultiplexerError::UnsupportedVersion { .. }
         | MultiplexerError::RequiredCapabilityUnavailable { .. }
         | MultiplexerError::InvalidIsolation { .. }
+        | MultiplexerError::SocketPathUnavailable { .. }
         | MultiplexerError::InvalidNamespace { .. }
         | MultiplexerError::NonUnicodeArgument { .. }
         | MultiplexerError::InvalidEnvironmentVariable { .. }
@@ -823,12 +895,59 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
 ///
 /// `unique` requests a single-use identity so concurrent test processes never
 /// share a server with each other or with the developer's live agents.
-fn active_installation(unique: bool) -> super::namespace::InstallationIdentity {
+fn active_installation(
+    unique: bool,
+) -> Result<super::namespace::InstallationIdentity, MultiplexerError> {
     if unique {
-        super::installation::isolated_run()
-    } else {
-        super::installation::current().clone()
+        return Ok(super::installation::isolated_run());
     }
+    require_active_installation(super::installation::current())
+}
+
+pub(super) fn require_active_installation(
+    current: Result<
+        &super::namespace::InstallationIdentity,
+        super::installation::IdentityUnavailable,
+    >,
+) -> Result<super::namespace::InstallationIdentity, MultiplexerError> {
+    current
+        .cloned()
+        .map_err(|_| MultiplexerError::IdentityUnavailable)
+}
+
+/// Render platform isolation for an explicit installation without consulting
+/// the process-global active identity.
+#[cfg(unix)]
+fn isolation_for(
+    identity: &super::namespace::InstallationIdentity,
+) -> Result<MultiplexerIsolation, MultiplexerError> {
+    Ok(MultiplexerIsolation::Socket(
+        super::socket::resolve_socket_path(identity.id())
+            .map_err(socket_override_error)?
+            .into_path(),
+    ))
+}
+
+/// Render platform isolation for an explicit installation. See the Unix twin.
+#[cfg(windows)]
+fn isolation_for(identity: &super::namespace::InstallationIdentity) -> MultiplexerIsolation {
+    MultiplexerIsolation::Namespace(identity.id().as_str().to_owned())
+}
+
+#[cfg(unix)]
+fn isolation_override_for(
+    identity: &super::namespace::InstallationIdentity,
+) -> Result<Option<&'static str>, MultiplexerError> {
+    super::socket::resolve_socket_path(identity.id())
+        .map(|resolution| resolution.override_variable())
+        .map_err(socket_override_error)
+}
+
+#[cfg(windows)]
+fn isolation_override_for(
+    _identity: &super::namespace::InstallationIdentity,
+) -> Option<&'static str> {
+    None
 }
 
 /// Isolation for the machine this build runs on.
@@ -843,68 +962,31 @@ fn active_installation(unique: bool) -> super::namespace::InstallationIdentity {
 /// the Unix arm compiled in and reachable by anyone who introduced a platform
 /// override; a `cfg` split makes it a compile error instead.
 #[cfg(unix)]
-fn current_isolation(unique: bool) -> MultiplexerIsolation {
-    let installation = active_installation(unique);
+fn current_isolation(unique: bool) -> Result<MultiplexerIsolation, MultiplexerError> {
+    let installation = active_installation(unique)?;
     let socket = if unique {
         // A single-use run must bypass the process-wide cache, which holds the
         // stable installation's socket.
         super::socket::socket_path_for(installation.id())
     } else {
-        super::socket::jefe_tmux_socket_path(installation.id()).to_path_buf()
-    };
-    MultiplexerIsolation::Socket(socket)
+        super::socket::jefe_tmux_socket_path(installation.id()).map(std::path::Path::to_path_buf)
+    }
+    .map_err(socket_override_error)?;
+    Ok(MultiplexerIsolation::Socket(socket))
+}
+
+#[cfg(unix)]
+fn socket_override_error(error: super::socket::SocketPathError) -> MultiplexerError {
+    MultiplexerError::SocketPathUnavailable {
+        variable: error.variable(),
+        reason: error.to_string(),
+    }
 }
 
 /// Isolation for the machine this build runs on. See the `cfg(unix)` twin.
 #[cfg(windows)]
-fn current_isolation(unique: bool) -> MultiplexerIsolation {
-    MultiplexerIsolation::Namespace(active_installation(unique).id().as_str().to_owned())
-}
-fn output_observation(platform: LocalPlatform, path: &Path, output: Output) -> ProbeObservation {
-    ProbeObservation::Output {
-        platform,
-        path: path.to_path_buf(),
-        status_success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
-}
-
-fn classify_output(
-    platform: LocalPlatform,
-    path: PathBuf,
-    status_success: bool,
-    stdout: String,
-    stderr: String,
-) -> Result<MultiplexerIdentity, MultiplexerError> {
-    if !status_success {
-        return Err(MultiplexerError::LaunchFailed {
-            path,
-            reason: stderr,
-            guidance: guidance(platform),
-        });
-    }
-    let identity = MultiplexerIdentity::parse(&stdout).map_err(|error| match error {
-        MultiplexerError::MalformedVersion { output, .. } => MultiplexerError::MalformedVersion {
-            path: Some(path.clone()),
-            output,
-        },
-        other => other,
-    })?;
-    if platform == LocalPlatform::Windows && identity.version() < MINIMUM_PSMUX_VERSION {
-        return Err(MultiplexerError::UnsupportedVersion {
-            path,
-            detected: identity.version(),
-            minimum: MINIMUM_PSMUX_VERSION,
-            guidance: WINDOWS_INSTALL_GUIDANCE,
-        });
-    }
-    Ok(identity)
-}
-
-const fn guidance(platform: LocalPlatform) -> &'static str {
-    match platform {
-        LocalPlatform::Unix => UNIX_INSTALL_GUIDANCE,
-        LocalPlatform::Windows => WINDOWS_INSTALL_GUIDANCE,
-    }
+fn current_isolation(unique: bool) -> Result<MultiplexerIsolation, MultiplexerError> {
+    Ok(MultiplexerIsolation::Namespace(
+        active_installation(unique)?.id().as_str().to_owned(),
+    ))
 }

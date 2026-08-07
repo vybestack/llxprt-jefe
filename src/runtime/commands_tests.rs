@@ -631,7 +631,7 @@ fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
 #[test]
 
 fn local_multiplexer_plan_uses_namespace_isolation() {
-    let plan = MultiplexerPlan::current()
+    let plan = MultiplexerPlan::current_for_test()
         .unwrap_or_else(|error| panic!("local multiplexer plan should resolve: {error}"));
     assert!(plan.base_args().iter().any(|arg| arg == "-L"));
     assert!(!plan.base_args().iter().any(|arg| arg == "/dev/null"));
@@ -642,10 +642,14 @@ fn local_multiplexer_plan_uses_namespace_isolation() {
 #[test]
 
 fn local_multiplexer_plan_uses_socket_isolation() {
-    let plan = MultiplexerPlan::current()
+    let plan = MultiplexerPlan::current_for_test()
         .unwrap_or_else(|error| panic!("local multiplexer plan should resolve: {error}"));
-    let socket =
-        crate::runtime::jefe_tmux_socket_path(crate::runtime::installation::current().id());
+    let socket = match plan.isolation() {
+        crate::runtime::MultiplexerIsolation::Socket(path) => path,
+        crate::runtime::MultiplexerIsolation::Namespace(namespace) => {
+            panic!("Unix plan unexpectedly used namespace isolation: {namespace}")
+        }
+    };
     assert_eq!(
         plan.base_args(),
         [

@@ -35,14 +35,10 @@ fn the_unix_socket_module_is_gated_out_of_the_windows_build() {
          the Windows binary where none of it is meaningful. Gate the declaration."
     );
 
-    let re_export =
-        locate(&source, "pub use socket::jefe_tmux_socket_path;").unwrap_or_else(|| {
-            panic!("src/runtime/mod.rs no longer re-exports `jefe_tmux_socket_path`")
-        });
     assert!(
-        is_unix_gated(&source, re_export),
-        "src/runtime/mod.rs re-exports `jefe_tmux_socket_path` without a `#[cfg(unix)]` gate. \
-         An ungated re-export of a gated module does not compile on Windows; gate both together."
+        locate(&source, "pub use socket::jefe_tmux_socket_path;").is_none(),
+        "the Unix socket helper must remain private to runtime multiplexing; re-exporting it would \
+         let callers bypass typed installation identity and socket validation"
     );
 }
 

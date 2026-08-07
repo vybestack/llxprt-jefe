@@ -16,9 +16,7 @@
 //!
 //! The result is stored in a write-once cell. [`initialize`] is the explicit
 //! startup call that records it from the *effective* paths (including
-//! `--config`); [`current`] falls back to the environment-derived paths so that
-//! tests and library consumers that never call `initialize` still get a
-//! deterministic answer rather than a panic.
+//! `--config`); [`current`] only reads that authoritative answer.
 
 use super::namespace::{InstallationIdentity, NamespaceError};
 use std::path::{Path, PathBuf};
@@ -31,6 +29,20 @@ use std::sync::OnceLock;
 pub const NAMESPACE_OVERRIDE_ENV: &str = "JEFE_NAMESPACE";
 
 static ACTIVE: OnceLock<InstallationIdentity> = OnceLock::new();
+
+/// The startup boundary has not established the process installation yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdentityUnavailable;
+
+impl std::fmt::Display for IdentityUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "installation identity is unavailable before startup resolves the effective config",
+        )
+    }
+}
+
+impl std::error::Error for IdentityUnavailable {}
 
 /// Why an installation identity could not be established.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,20 +110,10 @@ impl std::error::Error for InstallationError {}
 /// value that cannot name a server, and [`InstallationError::AlreadyResolved`]
 /// when the identity was already fixed to something else.
 pub fn initialize(state_path: &Path) -> Result<&'static InstallationIdentity, InstallationError> {
-    let requested = resolve(state_path)?;
+    let requested = resolve_identity(state_path)?;
+    let active = ACTIVE.get_or_init(|| requested.clone());
+    reconcile(active, &requested)?;
 
-    if let Err(rejected) = ACTIVE.set(requested) {
-        let Some(active) = ACTIVE.get() else {
-            // Unreachable: `set` only fails once the cell is populated.
-            return Err(InstallationError::AlreadyResolved {
-                active: String::new(),
-                requested: rejected.id().as_str().to_owned(),
-            });
-        };
-        return reconcile(active, &rejected).map(|()| active);
-    }
-
-    let active = current();
     if active.origin().is_override() {
         // Deliberate isolation: say so at warn level, because the operator has
         // opted out of the installation's real session pool and anything they
@@ -129,67 +131,56 @@ pub fn initialize(state_path: &Path) -> Result<&'static InstallationIdentity, In
 
 /// The installation this process belongs to.
 ///
-/// If [`initialize`] has not run, this resolves from the environment-derived
-/// persistence paths. That keeps unit tests and embedded uses deterministic
-/// without making every caller thread a path through.
-#[must_use]
-pub fn current() -> &'static InstallationIdentity {
-    ACTIVE.get_or_init(|| {
-        let state_path = default_state_path();
-        resolve(&state_path).unwrap_or_else(|error| {
-            // Reached only when nobody called `initialize` (which reports the
-            // same problem as a startup error). Falling back is still better
-            // than panicking in a library path, but it must be loud.
-            tracing::error!(
-                %error,
-                "falling back to the state-path-derived namespace; \
-                 sessions started under the intended override will not be visible"
-            );
-            InstallationIdentity::for_state_path(&state_path)
-        })
-    })
+/// This accessor never initializes the cell or consults ambient paths. Startup
+/// must call [`initialize`] with the effective resolved state path first.
+///
+/// # Errors
+///
+/// Returns [`IdentityUnavailable`] when startup has not initialized the
+/// installation yet.
+pub fn current() -> Result<&'static InstallationIdentity, IdentityUnavailable> {
+    current_from(&ACTIVE)
+}
+
+pub(super) fn current_from(
+    active: &OnceLock<InstallationIdentity>,
+) -> Result<&InstallationIdentity, IdentityUnavailable> {
+    active.get().ok_or(IdentityUnavailable)
 }
 
 /// A fresh, single-use identity that cannot collide with a real installation.
 ///
 /// Used by test seams that need their own multiplexer server. It extends the
-/// active installation's identity so stray servers are still traceable back to
-/// the tree that spawned them.
+/// default installation path so stray servers are still traceable back to the
+/// tree that spawned them without initializing the active process identity.
 #[must_use]
 pub fn isolated_run() -> InstallationIdentity {
-    InstallationIdentity::isolated_run(&active_state_path())
-}
-
-/// The state path behind the active identity.
-///
-/// An override carries no path of its own, so fall back to the resolved
-/// persistence paths for that case.
-pub fn active_state_path() -> PathBuf {
-    current()
-        .origin()
-        .state_path()
-        .map_or_else(default_state_path, Path::to_path_buf)
+    InstallationIdentity::isolated_run(&default_state_path())
 }
 
 fn default_state_path() -> PathBuf {
     crate::persistence::resolve_paths().state_path
 }
 
-fn resolve(state_path: &Path) -> Result<InstallationIdentity, InstallationError> {
+/// Resolve an installation identity without mutating the active process cell.
+///
+/// Doctor uses this with its requested config's effective state path so a
+/// read-only diagnostic cannot silently switch the running process identity.
+pub fn resolve_identity(state_path: &Path) -> Result<InstallationIdentity, InstallationError> {
     resolve_with(
         std::env::var(NAMESPACE_OVERRIDE_ENV).ok().as_deref(),
         state_path,
     )
 }
 
-/// The pure core of [`resolve`], split out so the precedence is testable
+/// The pure core of [`resolve_identity`], split out so the precedence is testable
 /// without mutating process environment variables (`set_var` is `unsafe` under
 /// edition 2024 and forbidden here).
 pub(super) fn resolve_with(
     namespace_override: Option<&str>,
     state_path: &Path,
 ) -> Result<InstallationIdentity, InstallationError> {
-    match namespace_override.filter(|raw| !raw.trim().is_empty()) {
+    match namespace_override {
         Some(raw) => InstallationIdentity::from_override(raw).map_err(InstallationError::Override),
         None => Ok(InstallationIdentity::for_state_path(state_path)),
     }

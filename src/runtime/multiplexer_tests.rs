@@ -8,8 +8,15 @@ use super::agent_launcher::INTERNAL_LAUNCH_ARGUMENT;
 use super::multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIdentity,
     MultiplexerIsolation, MultiplexerPlan, MultiplexerVersion, ProbeObservation, classify_probe,
-    executable_candidates, validate_namespace,
+    executable_candidates, require_active_installation, validate_namespace,
 };
+
+#[test]
+fn preinitialization_is_unavailable_without_a_multiplexer_fallback() {
+    let result = require_active_installation(Err(super::installation::IdentityUnavailable));
+
+    assert!(matches!(result, Err(MultiplexerError::IdentityUnavailable)));
+}
 
 #[test]
 fn platform_policy_builds_unix_socket_and_windows_namespace_arguments() {
@@ -312,25 +319,20 @@ fn windows_pane_command_uses_powershell_without_unix_env_wrapper() {
     ));
 }
 
+#[cfg(windows)]
 #[test]
 fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
-    if !cfg!(windows) {
-        return;
-    }
-    let production_first = match MultiplexerPlan::current() {
-        Ok(plan) => plan,
-        Err(_) if std::env::var("JEFE_REQUIRE_PSMUX").as_deref() != Ok("1") => return,
-        Err(error) => panic!("required production plan should resolve: {error}"),
-    };
-    let production_second = MultiplexerPlan::current()
-        .unwrap_or_else(|error| panic!("second production plan should resolve: {error}"));
-    assert_eq!(production_first.isolation(), production_second.isolation());
+    let identity = crate::runtime::installation::resolve_identity(Path::new(
+        r"C:\work\stable\.jefe\state.json",
+    ))
+    .unwrap_or_else(|error| panic!("production identity should resolve: {error}"));
+    let production_first = MultiplexerPlan::isolation_for_installation(&identity);
+    let production_second = MultiplexerPlan::isolation_for_installation(&identity);
+    assert_eq!(production_first, production_second);
 
-    let first = MultiplexerPlan::current_for_test()
-        .unwrap_or_else(|error| panic!("first test plan should resolve: {error}"));
-    let second = MultiplexerPlan::current_for_test()
-        .unwrap_or_else(|error| panic!("second test plan should resolve: {error}"));
-    assert_ne!(first.isolation(), second.isolation());
+    let first = MultiplexerPlan::isolated_for_test();
+    let second = MultiplexerPlan::isolated_for_test();
+    assert_ne!(first, second);
 }
 /// Issue #547: the server this process talks to belongs to the installation it
 /// was launched as.
@@ -340,13 +342,17 @@ fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
 /// be *the same identity*, so a second worktree cannot land on the first one's
 /// server on either platform.
 #[test]
-fn the_current_plan_is_isolated_by_the_active_installation() {
+fn a_plan_rendered_for_an_explicit_identity_is_isolated_by_that_identity() {
     // An explicit socket path deliberately overrides the derived name, so the
     // assertion below would not hold and is not what this test is about.
     if std::env::var("JEFE_SOCKET_PATH").is_ok() {
         return;
     }
-    let plan = match MultiplexerPlan::current() {
+    let identity = crate::runtime::installation::resolve_identity(Path::new(
+        "/work/rendered/.jefe/state.json",
+    ))
+    .unwrap_or_else(|error| panic!("installation identity should resolve: {error}"));
+    let plan = match MultiplexerPlan::for_installation(&identity) {
         Ok(plan) => plan,
         Err(_) if std::env::var("JEFE_REQUIRE_PSMUX").as_deref() != Ok("1") => return,
         Err(error) => panic!("required production plan should resolve: {error}"),
@@ -363,8 +369,8 @@ fn the_current_plan_is_isolated_by_the_active_installation() {
 
     assert_eq!(
         rendered,
-        crate::runtime::installation::current().id().as_str(),
-        "the multiplexer must be isolated by the active installation identity"
+        identity.id().as_str(),
+        "the multiplexer must be isolated by the explicit installation identity"
     );
 }
 
