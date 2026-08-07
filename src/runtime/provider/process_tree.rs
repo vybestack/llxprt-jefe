@@ -119,14 +119,28 @@ pub(super) fn terminate_process_tree(pid: u32) -> io::Result<()> {
 ///
 /// # Errors
 ///
-/// Returns the underlying spawn/exec error if the group signal command could
-/// not be issued. The in-process `child.kill()` is attempted regardless and its
-/// error is returned only if the group signal already failed. A non-zero
+/// Returns the group-signal error if it could not be issued, otherwise the
+/// in-process kill's error. `child.kill()` is attempted unconditionally, even
+/// when the group signal fails, because the leader must not be left running
+/// merely because the external `kill` binary was unavailable. A non-zero
 /// command exit (the group already exited) is not an error here.
 pub(super) fn kill_process_tree(child: &mut Child) -> io::Result<()> {
+    // The group signal's error is captured rather than propagated: `?` here
+    // would skip the in-process kill below, so a missing or unrunnable `kill`
+    // binary would leave the provider leader alive. Killing the leader is the
+    // one thing this function must always attempt.
+    let group_result = kill_process_group(child.id());
+    let leader_result = child.kill();
+    group_result.and(leader_result)
+}
+
+/// Force-signal the child's whole process group, targeting its descendants.
+///
+/// A non-zero exit means the group has already gone, which is not an error.
+fn kill_process_group(pid: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let group = format!("-{}", child.id());
+        let group = format!("-{pid}");
         Command::new("kill")
             .args(["-KILL", group.as_str()])
             .stdout(Stdio::null())
@@ -135,14 +149,17 @@ pub(super) fn kill_process_tree(child: &mut Child) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let pid_text = child.id().to_string();
+        let pid_text = pid.to_string();
         Command::new("taskkill")
             .args(["/PID", pid_text.as_str(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
     }
-    child.kill()?;
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+    }
     Ok(())
 }
 

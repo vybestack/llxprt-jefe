@@ -55,6 +55,7 @@ pub struct ProviderPublication {
 /// start the host over a package the operator can simply disable.
 #[must_use]
 pub fn publish_providers(request: &ProviderPublicationRequest<'_>) -> ProviderPublication {
+    ensure_containment(&request.containment);
     let trusted = |id: &str| package_trusted(request.settings, id);
     let mut composition = compose(&CompositionRequest {
         packages: request.packages,
@@ -69,6 +70,33 @@ pub fn publish_providers(request: &ProviderPublicationRequest<'_>) -> ProviderPu
         snapshot,
         coordinator,
         startup_warning,
+    }
+}
+
+/// Create the contained directories a provider will be spawned into.
+///
+/// `Command::spawn` sets the child's working directory and fails outright if it
+/// does not exist, so composing a descriptor that names a directory nobody
+/// created would make every invocation fail at spawn with an I/O error that
+/// says nothing about the real cause. They are created once, here, because this
+/// is the only place that decides a provider may run at all.
+///
+/// A creation failure is logged rather than fatal: the spawn will fail and
+/// report itself as a provider that could not start, which is the honest
+/// outcome and is already a state the operator can see.
+fn ensure_containment(containment: &Containment) {
+    for directory in [
+        &containment.working_dir,
+        &containment.home,
+        &containment.tmpdir,
+    ] {
+        if let Err(error) = std::fs::create_dir_all(directory) {
+            tracing::warn!(
+                directory = %directory.display(),
+                %error,
+                "provider containment directory could not be created"
+            );
+        }
     }
 }
 

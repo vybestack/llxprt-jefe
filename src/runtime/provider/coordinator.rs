@@ -119,13 +119,12 @@ impl ProviderCatalog {
 ///
 /// The `ActionId` is taken from the descriptor (pre-parsed at startup), so no
 /// runtime parsing or fallback is needed.
-#[must_use]
 pub fn build_invocation_payload(
     descriptor: &ProviderActionDescriptor,
     invocation: &crate::domain::effects::ProviderInvocation,
-) -> InvokeActionPayload {
-    let invocation_id = build_invocation_id(&descriptor.plugin_id, invocation.key.generation);
-    InvokeActionPayload {
+) -> Result<InvokeActionPayload, InvocationIdError> {
+    let invocation_id = build_invocation_id(&descriptor.plugin_id, invocation.key.generation)?;
+    Ok(InvokeActionPayload {
         invocation_id,
         action_id: descriptor.action_id.clone(),
         arguments: invocation.arguments.clone(),
@@ -134,24 +133,81 @@ pub fn build_invocation_payload(
             screen_instance: invocation.context_instance.clone(),
             resource_refs: invocation.context_refs.clone(),
         },
-        continuation: invocation.continuation.clone().map(|c| {
+        continuation: invocation.continuation.clone().map(|continuation| {
             crate::runtime::provider::dto::Continuation {
-                confirmation_id: c.confirmation_id,
-                approved: c.approved,
-                values: c.values,
+                confirmation_id: continuation.confirmation_id,
+                approved: continuation.approved,
+                values: continuation.values,
             }
         }),
-    }
+    })
 }
 
 /// Build a typed invocation id from the plugin id and generation.
 ///
-/// The format `{plugin_id}.{generation}` is valid because plugin ids are valid
-/// `Id` values and the generation is a `u64` rendered as decimal digits. The
-/// dot separator between them satisfies the `Id` grammar.
-fn build_invocation_id(plugin_id: &Id, generation: u64) -> Id {
+/// The dot separator satisfies the `Id` grammar, but `Id` also has a byte
+/// limit, and a long plugin id plus a generation can exceed it. Falling back to
+/// the bare plugin id would hand every invocation of that package the *same*
+/// invocation id, silently destroying the correlation the id exists to carry —
+/// so an id that cannot be built is an error the caller must see.
+///
+/// # Errors
+///
+/// Returns [`InvocationIdError`] when the composed id exceeds the `Id` bound.
+fn build_invocation_id(plugin_id: &Id, generation: u64) -> Result<Id, InvocationIdError> {
     let raw = format!("{plugin_id}.{generation}");
-    Id::parse(&raw).unwrap_or_else(|_| plugin_id.clone())
+    Id::parse(&raw).map_err(|_| InvocationIdError { raw })
+}
+
+/// A `{plugin_id}.{generation}` pair that does not fit the `Id` grammar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvocationIdError {
+    /// The composed value that was refused.
+    pub raw: String,
+}
+
+impl std::fmt::Display for InvocationIdError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "invocation id {:?} is not a valid Id", self.raw)
+    }
+}
+
+impl std::error::Error for InvocationIdError {}
+
+/// Why one invocation could not be turned into a supervisor request.
+///
+/// Both variants are host-side defects, not package defects: the caller must
+/// report the request as unavailable rather than spawn a provider that would
+/// be sent an id it cannot be correlated by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestBuildError {
+    /// The monotonic request-id counter exceeded the 20-digit bound.
+    RequestId(crate::runtime::provider::identifiers::RequestIdError),
+    /// The `{plugin_id}.{generation}` invocation id exceeded the `Id` bound.
+    InvocationId(InvocationIdError),
+}
+
+impl std::fmt::Display for RequestBuildError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RequestId(error) => write!(formatter, "invalid request id: {error:?}"),
+            Self::InvocationId(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for RequestBuildError {}
+
+impl From<crate::runtime::provider::identifiers::RequestIdError> for RequestBuildError {
+    fn from(error: crate::runtime::provider::identifiers::RequestIdError) -> Self {
+        Self::RequestId(error)
+    }
+}
+
+impl From<InvocationIdError> for RequestBuildError {
+    fn from(error: InvocationIdError) -> Self {
+        Self::InvocationId(error)
+    }
 }
 
 /// Build a `OneShotRequest` from a descriptor and invocation.
@@ -162,17 +218,14 @@ fn build_invocation_id(plugin_id: &Id, generation: u64) -> Id {
 ///
 /// # Errors
 ///
-/// Returns [`RequestIdError`](crate::runtime::provider::identifiers::RequestIdError)
-/// when the counter exceeds 20 digits. In practice this never happens because
-/// the counter is a `u64` that starts at zero and increments by one.
+/// Returns [`RequestBuildError`] when the request id or the invocation id
+/// cannot be built. Neither is expected in practice; both are reported rather
+/// than papered over because a duplicate id destroys correlation silently.
 pub fn build_one_shot_request(
     descriptor: &ProviderActionDescriptor,
     invocation: &crate::domain::effects::ProviderInvocation,
     request_counter: u64,
-) -> Result<
-    crate::runtime::provider::supervisor::OneShotRequest,
-    crate::runtime::provider::identifiers::RequestIdError,
-> {
+) -> Result<crate::runtime::provider::supervisor::OneShotRequest, RequestBuildError> {
     let request_id = RequestId::new_host(request_counter)?;
     Ok(crate::runtime::provider::supervisor::OneShotRequest {
         binary: descriptor.binary.clone(),
@@ -188,7 +241,7 @@ pub fn build_one_shot_request(
         generation: invocation.key.generation,
         request_id,
         configure: descriptor.configure.clone(),
-        invocation: build_invocation_payload(descriptor, invocation),
+        invocation: build_invocation_payload(descriptor, invocation)?,
     })
 }
 
@@ -278,16 +331,13 @@ impl ProviderCoordinator {
     ///
     /// # Errors
     ///
-    /// Returns [`RequestIdError`](crate::runtime::provider::identifiers::RequestIdError)
-    /// if the counter overflows the request-id digit bound (practically never).
+    /// Returns [`RequestBuildError`] if the request id or invocation id cannot
+    /// be built (practically never).
     pub fn build_one_shot(
         &self,
         descriptor: &ProviderActionDescriptor,
         invocation: &crate::domain::effects::ProviderInvocation,
-    ) -> Result<
-        crate::runtime::provider::supervisor::OneShotRequest,
-        crate::runtime::provider::identifiers::RequestIdError,
-    > {
+    ) -> Result<crate::runtime::provider::supervisor::OneShotRequest, RequestBuildError> {
         let counter = self.next_request_counter();
         build_one_shot_request(descriptor, invocation, counter)
     }

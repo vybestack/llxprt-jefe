@@ -4,8 +4,9 @@
 
 use super::error::{PROGRESS_SEQUENCE_MAX, ProgressFault, ProviderError};
 use super::protocol::{
-    Capability, Direction, LifecycleOrder, LifecyclePhase, MessageKind, Outcome, ProgressTracker,
-    ProviderMessage, RequestOrigin, Severity, ShutdownReason, parse_message,
+    Capability, ConfigurePayload, Direction, EnvName, LifecycleOrder, LifecyclePhase, MessageKind,
+    Outcome, ProgressTracker, ProviderMessage, RequestOrigin, Severity, ShutdownReason, TypedMap,
+    parse_message,
 };
 
 /// Build one LF-terminated envelope line from its scalar parts.
@@ -343,12 +344,19 @@ fn an_unknown_message_type_is_rejected() {
 #[test]
 fn an_unsupported_protocol_version_is_rejected() {
     let bytes = b"{\"protocol\":2,\"type\":\"hello\",\"request_id\":\"h-000001\",\"generation\":1,\"payload\":{\"host_api\":\"jefe\",\"plugin_id\":\"vybestack.git-merger\",\"plugin_version\":\"1.0.0\"}}\n";
+
+    let error = rejected(bytes, Direction::HostToProvider);
+
+    // Pinned to the envelope field, not merely "some error": every
+    // `ProviderError` reports `PLG-E502`, so asserting on the code alone would
+    // also pass if the parser accepted version 2 and then failed later for an
+    // unrelated reason — exactly the regression this test exists to catch.
     assert!(
-        rejected(bytes, Direction::HostToProvider)
-            .code()
-            .chars()
-            .next()
-            .is_some()
+        matches!(
+            &error,
+            ProviderError::InvalidValue { path, .. } if path == "envelope.protocol"
+        ),
+        "an unsupported protocol version must be refused at the envelope: {error:?}"
     );
 }
 
@@ -712,4 +720,36 @@ fn expected_outcome(kind: &str) -> Outcome {
         },
         other => panic!("no outcome fixture for {other:?}"),
     }
+}
+
+/// A resolved secret must not be reachable through `Debug` (CW10-14).
+///
+/// The redactor scrubs provider-authored surfaces, but it never sees the
+/// payload the host itself builds. `ConfigurePayload` is embedded in
+/// `ProviderMessage` and `PersistentCandidate`, both of which derive `Debug`,
+/// so one `{:?}` in a log or a panic message would print every secret.
+#[test]
+fn configure_payload_debug_never_prints_a_secret() {
+    let Ok(binding) = EnvName::parse("VENDOR_TOKEN") else {
+        panic!("env name fixture must parse");
+    };
+    let mut secrets = std::collections::BTreeMap::new();
+    secrets.insert(binding, "SUPER-secret-canary".to_owned());
+    let payload = ConfigurePayload {
+        config_version: 1,
+        config: TypedMap::new(),
+        secrets,
+        environment: std::collections::BTreeMap::new(),
+    };
+
+    let rendered = format!("{payload:?}");
+
+    assert!(
+        !rendered.contains("SUPER-secret-canary"),
+        "Debug leaked a secret value: {rendered}"
+    );
+    assert!(
+        rendered.contains("config_version"),
+        "Debug must still be useful: {rendered}"
+    );
 }

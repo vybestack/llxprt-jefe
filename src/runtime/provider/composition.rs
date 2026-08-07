@@ -185,10 +185,7 @@ fn compose_package(
         ProviderSelection::Ready(relative) => resolve_binary(package.directory(), relative),
     };
 
-    let Some(descriptors) = package_descriptors(package, request, &binary, mode) else {
-        return;
-    };
-    publish_available_actions(composition, manifest, descriptors, mode);
+    publish_available_actions(composition, package, request, &binary, mode);
 
     if mode == ProviderMode::Persistent {
         match persistent_candidate(package, request, &binary) {
@@ -217,24 +214,38 @@ fn resolve_binary(directory: &Path, relative: &crate::domain::plugin::RelativePa
     path
 }
 
-/// Build one runtime descriptor per declared action.
+/// Publish every declared action of a package that can run.
 ///
-/// Returns `None` when the package identity cannot be expressed as the typed
-/// values the runtime needs, which means nothing about it can be published.
-fn package_descriptors(
+/// The registry action and its runtime descriptor are built together, action by
+/// action, so the two lists cannot drift apart. An action whose declaration
+/// cannot be expressed as a registry action is skipped on its own; it must not
+/// take the rest of the package with it, because one malformed id is not a
+/// reason to hide nine working actions.
+fn publish_available_actions(
+    composition: &mut ProviderComposition,
     package: &InstalledPackage,
     request: &CompositionRequest<'_>,
     binary: &Path,
     mode: ProviderMode,
-) -> Option<Vec<(ActionId, ProviderActionDescriptor)>> {
+) {
     let manifest = package.manifest();
     let plugin_id = manifest.id().owner_id().clone();
     let environment = provider_environment(binary);
     let configure = configure_payload(manifest);
-    let mut descriptors = Vec::new();
     for declared in manifest.actions() {
-        let action_id = ActionId::parse(declared.id().as_str()).ok()?;
-        descriptors.push((
+        let Some(action) = registry_action(declared) else {
+            continue;
+        };
+        let action_id = action.id.clone();
+        composition.availability.push(ActionAvailability::new(
+            action_id.clone(),
+            Availability::Available,
+        ));
+        composition.actions.push(action);
+        if mode == ProviderMode::Persistent {
+            composition.persistent_action_ids.push(action_id.clone());
+        }
+        composition.catalog.insert(
             action_id.clone(),
             ProviderActionDescriptor {
                 plugin_id: plugin_id.clone(),
@@ -253,9 +264,8 @@ fn package_descriptors(
                 policy: action_policy(declared),
                 timeout_seconds: declared.timeout_seconds(),
             },
-        ));
+        );
     }
-    Some(descriptors)
 }
 
 /// Build the bounded provider environment for one selected binary.
@@ -356,29 +366,6 @@ fn publish_unavailable_actions(
             },
         ));
         composition.actions.push(action);
-    }
-}
-
-/// Publish every declared action of a package that can run.
-fn publish_available_actions(
-    composition: &mut ProviderComposition,
-    manifest: &Manifest,
-    descriptors: Vec<(ActionId, ProviderActionDescriptor)>,
-    mode: ProviderMode,
-) {
-    for (declared, (action_id, descriptor)) in manifest.actions().iter().zip(descriptors) {
-        let Some(action) = registry_action(declared) else {
-            continue;
-        };
-        composition.availability.push(ActionAvailability::new(
-            action_id.clone(),
-            Availability::Available,
-        ));
-        composition.actions.push(action);
-        if mode == ProviderMode::Persistent {
-            composition.persistent_action_ids.push(action_id.clone());
-        }
-        composition.catalog.insert(action_id, descriptor);
     }
 }
 

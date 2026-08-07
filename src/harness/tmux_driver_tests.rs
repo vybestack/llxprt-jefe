@@ -695,3 +695,56 @@ fn tmux_pane_wrapper_command_without_environment_is_unchanged() {
         "an env-free request must exec directly; got wrapper={wrapper}"
     );
 }
+
+/// An environment *name* reaches the pane command as a shell word, so it must
+/// be validated rather than interpolated raw (issue #390).
+///
+/// Only the value was escaped, so a name carrying `$(...)` would have been
+/// executed by the shell that starts the contained app. Scenario data is not a
+/// trust boundary the harness should be relying on.
+#[test]
+fn start_request_rejects_an_environment_name_that_is_not_an_identifier() {
+    for hostile in [
+        "x $(touch /tmp/pwned)",
+        "PATH;rm -rf /",
+        "with space",
+        "`id`",
+        "",
+        "1LEADING_DIGIT",
+    ] {
+        let request = TmuxStartRequest::command(
+            "hostile-env",
+            vec!["/bin/true".to_string()],
+            temp_path(),
+            80,
+            24,
+            1000,
+        )
+        .value_or_panic("request should be valid")
+        .with_env(vec![(hostile.to_string(), "value".to_string())]);
+
+        assert!(
+            request.validate_env().is_err(),
+            "env name {hostile:?} must be refused, not interpolated into a shell command"
+        );
+    }
+}
+
+#[test]
+fn start_request_accepts_ordinary_environment_names() {
+    let request = TmuxStartRequest::command(
+        "ok-env",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env(vec![
+        ("JEFE_SOCKET_PATH".to_string(), "/tmp/ws/s".to_string()),
+        ("_UNDERSCORE0".to_string(), "v".to_string()),
+    ]);
+
+    assert!(request.validate_env().is_ok());
+}

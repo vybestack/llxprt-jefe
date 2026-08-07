@@ -108,6 +108,7 @@ impl TmuxStartRequest {
             env: Vec::new(),
         };
         request.validate()?;
+        request.validate_env()?;
         Ok(request)
     }
 
@@ -155,6 +156,34 @@ impl TmuxStartRequest {
     pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
         self.env = env;
         self
+    }
+
+    /// Reject an environment name that is not a plain identifier.
+    ///
+    /// The name reaches the pane command as a bare shell word (`NAME=value`),
+    /// so a name carrying `$(...)`, a semicolon, or whitespace would be
+    /// executed by the shell that starts the contained app. Values are quoted,
+    /// but a name cannot be quoted and still be an assignment, so it is
+    /// validated instead. Scenario data is not a trust boundary (issue #390).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError::InvalidRequest`] naming the offending entry.
+    pub fn validate_env(&self) -> Result<(), TmuxDriverError> {
+        for (name, _) in &self.env {
+            let mut characters = name.chars();
+            let valid_start = characters
+                .next()
+                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_');
+            let valid_rest =
+                characters.all(|character| character.is_ascii_alphanumeric() || character == '_');
+            if !valid_start || !valid_rest {
+                return Err(invalid_request(&format!(
+                    "environment name {name:?} must be an identifier ([A-Za-z_][A-Za-z0-9_]*)"
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), TmuxDriverError> {
@@ -320,6 +349,7 @@ impl TmuxDriver {
         request: &TmuxStartRequest,
     ) -> Result<TmuxSession, TmuxDriverError> {
         request.validate()?;
+        request.validate_env()?;
         Self::kill_session_if_exists(&request.session_name)?;
         run_tmux_owned(&new_session_args(request), Some(&request.working_dir))?;
         Ok(TmuxSession {

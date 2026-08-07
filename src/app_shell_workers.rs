@@ -573,9 +573,25 @@ pub async fn run_provider_worker(
         if work_batch.is_empty() {
             continue;
         }
+        let mut deferred = Vec::new();
         for item in work_batch {
-            let result = execute_provider_item(ctx_arc, item).await;
-            deliver_provider_messages(&mut app_state, result);
+            // Once one item defers, the rest of the batch follows it back to
+            // the queue so dispatch order is preserved.
+            if !deferred.is_empty() {
+                deferred.push(item);
+                continue;
+            }
+            match execute_provider_item(ctx_arc, item).await {
+                ProviderWork::Executed(result) => {
+                    deliver_provider_messages(&mut app_state, *result);
+                }
+                ProviderWork::Deferred(item) => deferred.push(*item),
+            }
+        }
+        if !deferred.is_empty()
+            && let Ok(ctx_guard) = ctx_arc.try_lock()
+        {
+            ctx_guard.provider_effect_handle.clone().defer_all(deferred);
         }
     }
 }
@@ -592,7 +608,9 @@ fn failed_execution_result(
             key: item.invocation.key.clone(),
             reason,
         }],
-        process_reaped: true,
+        // Every caller of this helper failed before a process existed, so
+        // there is nothing to have reaped.
+        process_reaped: false,
         terminal: true,
     }
 }
@@ -603,33 +621,53 @@ fn failed_execution_result(
 /// `OneShotRequest`, runs the full supervisor lifecycle via `smol::unblock`,
 /// and translates the result into typed [`ProviderMessage`] variants with the
 /// effect correlation for completion delivery.
+enum ProviderWork {
+    /// The item ran and produced a typed result.
+    Executed(Box<jefe::services::provider_effect_worker::ProviderExecutionResult>),
+    /// The context lock was momentarily unavailable. The item has not failed
+    /// and must be retried rather than reported as a closed stream.
+    Deferred(Box<jefe::services::provider_effect_worker::ProviderWorkItem>),
+}
+
 async fn execute_provider_item(
     ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
     item: jefe::services::provider_effect_worker::ProviderWorkItem,
-) -> jefe::services::provider_effect_worker::ProviderExecutionResult {
+) -> ProviderWork {
     use jefe::runtime::provider::environment::ProcessHostEnv;
     use jefe::runtime::provider::supervisor::SupervisorBounds;
     use jefe::state::provider_requests::UnavailableReason;
 
     let request = {
         let Ok(ctx_guard) = ctx_arc.try_lock() else {
-            return failed_execution_result(&item, UnavailableReason::Eof);
+            return ProviderWork::Deferred(Box::new(item));
         };
         let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
-            return failed_execution_result(&item, UnavailableReason::Eof);
+            return ProviderWork::Executed(Box::new(failed_execution_result(
+                &item,
+                UnavailableReason::Eof,
+            )));
         };
         let Ok(action_id) =
             jefe::domain::action_registry::ActionId::parse(item.invocation.key.action_id.as_str())
         else {
-            return failed_execution_result(&item, UnavailableReason::Protocol);
+            return ProviderWork::Executed(Box::new(failed_execution_result(
+                &item,
+                UnavailableReason::Protocol,
+            )));
         };
         let Some(descriptor) = coordinator.catalog().get(&action_id).cloned() else {
-            return failed_execution_result(&item, UnavailableReason::Protocol);
+            return ProviderWork::Executed(Box::new(failed_execution_result(
+                &item,
+                UnavailableReason::Protocol,
+            )));
         };
         match coordinator.build_one_shot(&descriptor, &item.invocation) {
             Ok(built) => built,
             Err(_overflow) => {
-                return failed_execution_result(&item, UnavailableReason::Protocol);
+                return ProviderWork::Executed(Box::new(failed_execution_result(
+                    &item,
+                    UnavailableReason::Protocol,
+                )));
             }
         }
     };
@@ -643,7 +681,9 @@ async fn execute_provider_item(
         )
     })
     .await;
-    jefe::services::provider_effect_worker::build_execution_result(correlation, &result, &key)
+    ProviderWork::Executed(Box::new(
+        jefe::services::provider_effect_worker::build_execution_result(correlation, &result, &key),
+    ))
 }
 
 /// Deliver typed provider messages and effect completion through the reducer.

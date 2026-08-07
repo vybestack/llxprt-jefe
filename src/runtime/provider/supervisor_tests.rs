@@ -374,3 +374,37 @@ fn compose_cleanup_failure_reports_a_missing_ack_above_drain_signals() {
         "a missing ack outranks clean drain signals, got {failure:?}"
     );
 }
+
+/// Stderr exactly at the retention cap is fully retained, so reporting it as
+/// truncated would be a lie the operator acts on (CW10-14).
+///
+/// The flag exists to say "bytes were dropped". Setting it when the buffer
+/// merely reached its limit makes a complete capture look incomplete.
+#[test]
+fn stderr_is_only_reported_truncated_when_bytes_were_actually_dropped() {
+    use super::drains::{STDERR_RETENTION_MAX, StderrRetention};
+
+    let mut exactly_full = StderrRetention::new();
+    exactly_full.push(&vec![b'x'; STDERR_RETENTION_MAX]);
+    let (bytes, truncated) = exactly_full.finish();
+    assert_eq!(bytes.len(), STDERR_RETENTION_MAX);
+    assert!(
+        !truncated,
+        "a capture that dropped nothing must not report truncation"
+    );
+
+    let mut one_over = StderrRetention::new();
+    one_over.push(&vec![b'x'; STDERR_RETENTION_MAX + 1]);
+    let (bytes, truncated) = one_over.finish();
+    assert_eq!(bytes.len(), STDERR_RETENTION_MAX);
+    assert!(truncated, "one dropped byte must report truncation");
+
+    // Chunked arrival must behave the same as one large read.
+    let mut chunked = StderrRetention::new();
+    for _ in 0..=STDERR_RETENTION_MAX {
+        chunked.push(b"x");
+    }
+    let (bytes, truncated) = chunked.finish();
+    assert_eq!(bytes.len(), STDERR_RETENTION_MAX);
+    assert!(truncated);
+}
