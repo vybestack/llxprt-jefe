@@ -13,9 +13,10 @@ use super::dto;
 use super::environment::{REDACTION_PLACEHOLDER, Redactor};
 use super::error::{self, ProviderError};
 use super::redaction::{redact_error_payload, redact_field, redact_outcome};
+#[cfg(unix)]
+use super::supervisor::signal_cleanup_evidence;
 use super::supervisor::{
     CleanupFailure, OneShotOutcome, SupervisorBounds, SupervisorFailure, compose_cleanup_failure,
-    signal_cleanup_evidence,
 };
 use crate::domain::Id;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, Scalar};

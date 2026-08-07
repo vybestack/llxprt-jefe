@@ -178,10 +178,13 @@ fn exited_status() -> ExitStatus {
 /// Build a real exited-0 `ExitStatus` for the classify_health unit tests.
 #[cfg(not(unix))]
 fn exited_status() -> ExitStatus {
-    std::process::Command::new("cmd")
+    match std::process::Command::new("cmd")
         .args(["/C", "exit", "0"])
         .status()
-        .expect("spawn helper for exit status")
+    {
+        Ok(status) => status,
+        Err(error) => panic!("helper process for exit status must run: {error}"),
+    }
 }
 
 #[test]
