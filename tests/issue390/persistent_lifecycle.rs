@@ -16,13 +16,13 @@ use jefe::runtime::provider::persistent::{
 use jefe::runtime::provider::protocol::Capability;
 use jefe::runtime::provider::supervisor::SupervisorFailure;
 
-use super::support::{
+use super::persistent_support::{
     EmptyEnv, Scene, assert_all_reaped, fast_bounds, process_is_gone, startup_sequence,
 };
 
 #[test]
 fn cw10_03_two_candidates_in_reverse_input_order_start_in_plugin_id_order() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     // Provided in reverse of canonical text order.
     let startup = PersistentStartup {
@@ -61,7 +61,7 @@ fn cw10_03_two_candidates_in_reverse_input_order_start_in_plugin_id_order() {
 
 #[test]
 fn cw10_03_every_required_candidate_ready_before_one_atomic_publication() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![
@@ -101,7 +101,7 @@ fn cw10_03_every_required_candidate_ready_before_one_atomic_publication() {
 
 #[test]
 fn cw10_04_a_spawn_failure_returns_no_publication_and_reaps_nothing() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.unspawnable_candidate("vendor.alpha")],
@@ -131,7 +131,7 @@ fn cw10_04_a_spawn_failure_returns_no_publication_and_reaps_nothing() {
 
 #[test]
 fn cw10_04_a_hello_ack_timeout_fails_and_is_reaped() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
@@ -159,7 +159,7 @@ fn cw10_04_a_hello_ack_timeout_fails_and_is_reaped() {
 
 #[test]
 fn cw10_04_a_ready_timeout_fails_and_is_reaped() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
@@ -187,7 +187,7 @@ fn cw10_04_a_ready_timeout_fails_and_is_reaped() {
 
 #[test]
 fn cw10_04_a_protocol_fault_at_hello_ack_fails_and_is_reaped() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
@@ -215,7 +215,7 @@ fn cw10_04_a_protocol_fault_at_hello_ack_fails_and_is_reaped() {
 
 #[test]
 fn cw10_04_a_crash_after_ack_fails_at_configure_or_ready_and_is_reaped() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
@@ -242,7 +242,7 @@ fn cw10_04_a_crash_after_ack_fails_at_configure_or_ready_and_is_reaped() {
 
 #[test]
 fn cw10_04_an_undeclared_capability_is_rejected_before_publication() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     // The host declares only actions; the fixture reports actions + panels.
     let startup = PersistentStartup {
@@ -271,7 +271,7 @@ fn cw10_04_an_undeclared_capability_is_rejected_before_publication() {
 
 #[test]
 fn cw10_04_a_second_candidate_failure_rolls_back_the_first() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     // alpha starts and reaches ready; zeta hangs at hello-ack and fails.
     let startup = PersistentStartup {
@@ -306,7 +306,7 @@ fn cw10_04_a_second_candidate_failure_rolls_back_the_first() {
 
 #[test]
 fn cw10_04_there_is_no_auto_restart_after_a_ready_process_exits() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
@@ -341,7 +341,7 @@ fn cw10_04_there_is_no_auto_restart_after_a_ready_process_exits() {
 
 #[test]
 fn cw10_11_an_explicit_host_shutdown_reaps_every_candidate() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![
@@ -371,7 +371,7 @@ fn cw10_11_an_explicit_host_shutdown_reaps_every_candidate() {
 
 #[test]
 fn cw10_11_dropping_a_supervisor_without_shutdown_reaps_every_candidate() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![
@@ -425,7 +425,7 @@ fn cw10_11_dropping_a_supervisor_without_shutdown_reaps_every_candidate() {
 
 #[test]
 fn cw10_03_duplicate_candidate_plugin_ids_are_rejected_before_any_spawn() {
-    let _budget = super::support::process_budget();
+    let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![

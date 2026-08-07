@@ -11,15 +11,15 @@ use jefe::runtime::provider::persistent::{
 use jefe::runtime::provider::protocol::Capability;
 use jefe::runtime::provider::supervisor::{CleanupFailure, SupervisorFailure};
 
-use super::support::{
+use super::persistent_support::{
     EmptyEnv, FixedEnv, SECRET, assert_all_reaped, candidate_pid, expect_supervisor, fast_bounds,
     process_is_gone, wait_until,
 };
 
 #[test]
 fn cw10_14_a_persistent_startup_failure_redacts_a_secret_echoed_in_the_protocol_error() {
-    let _budget = super::support::process_budget();
-    let scene = super::support::Scene::new();
+    let _budget = super::persistent_support::process_budget();
+    let scene = super::persistent_support::Scene::new();
     // The fixture echoes the resolved Configure secret as an invalid `ready`
     // capability, so the host's parse fault carries the secret verbatim. The
     // supervisor must redact it from every operator-visible diagnostic surface.
@@ -62,8 +62,8 @@ fn cw10_14_a_persistent_startup_failure_redacts_a_secret_echoed_in_the_protocol_
 #[test]
 #[cfg(unix)]
 fn cw10_11_a_descendant_holding_pipes_surfaces_a_drain_timeout_not_a_clean_reap() {
-    let _budget = super::support::process_budget();
-    let scene = super::support::Scene::new();
+    let _budget = super::persistent_support::process_budget();
+    let scene = super::persistent_support::Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
             "vendor.alpha",
@@ -115,8 +115,8 @@ fn cw10_11_data_after_ack_produces_a_cleanup_failure_while_still_reaping() {
 /// ack (or sends data after the ack) produces a typed shutdown-ack cleanup
 /// failure while still being killed and reaped.
 fn strict_ack_failure_produces_a_cleanup_failure_while_still_reaping(mode: &str) {
-    let _budget = super::support::process_budget();
-    let scene = super::support::Scene::new();
+    let _budget = super::persistent_support::process_budget();
+    let scene = super::persistent_support::Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate("vendor.alpha", mode, vec![Capability::Actions])],
     };
@@ -141,8 +141,8 @@ fn strict_ack_failure_produces_a_cleanup_failure_while_still_reaping(mode: &str)
 
 #[test]
 fn cw10_04_a_ready_candidate_emitting_illegal_bytes_is_a_health_protocol_fault() {
-    let _budget = super::support::process_budget();
-    let scene = super::support::Scene::new();
+    let _budget = super::persistent_support::process_budget();
+    let scene = super::persistent_support::Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
             "vendor.alpha",
@@ -173,8 +173,8 @@ fn cw10_04_a_ready_candidate_emitting_illegal_bytes_is_a_health_protocol_fault()
 
 #[test]
 fn cw10_11_an_already_exited_candidate_still_collects_pipe_closure_on_shutdown() {
-    let _budget = super::support::process_budget();
-    let scene = super::support::Scene::new();
+    let _budget = super::persistent_support::process_budget();
+    let scene = super::persistent_support::Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
             "vendor.alpha",
@@ -216,8 +216,8 @@ fn cw10_11_an_already_exited_candidate_still_collects_pipe_closure_on_shutdown()
 /// write rather than short-cutting an already-exited reap.
 #[test]
 fn cw10_11_a_shutdown_frame_write_failure_surfaces_a_typed_cleanup_failure_while_still_reaping() {
-    let _budget = super::support::process_budget();
-    let scene = super::support::Scene::new();
+    let _budget = super::persistent_support::process_budget();
+    let scene = super::persistent_support::Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
             "vendor.alpha",
