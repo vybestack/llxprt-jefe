@@ -196,6 +196,27 @@ impl AmbiguousPackage {
     }
 }
 
+/// Whether the operator currently trusts one installed package.
+///
+/// Unlike an agent type, the default is **not** trusted: an installed package
+/// that nobody has enabled must never render as ready to run, and must never be
+/// composed into the action registry or started. Both the Settings projection
+/// and startup provider composition ask this one question so a package cannot
+/// look disabled in the UI while running underneath it.
+#[must_use]
+pub fn package_trusted(
+    settings: &crate::persistence::settings_document::PublishedSettings,
+    id: &str,
+) -> bool {
+    crate::domain::Id::parse(id).is_ok_and(|owner| {
+        settings
+            .plugins
+            .get(&owner)
+            .and_then(|owner| owner.enabled)
+            .unwrap_or(false)
+    })
+}
+
 /// The immutable result of one physical inventory scan.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PluginInventory {

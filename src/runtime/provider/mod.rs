@@ -6,11 +6,14 @@
 //! and lifecycle validators. Nothing here spawns a process, holds application
 //! state, emits an effect, or persists anything.
 
+pub mod composition;
+pub mod coordinator;
 pub mod encode;
 pub mod environment;
 pub mod error;
 pub mod framing;
 pub mod outbound;
+pub mod outcome;
 pub mod persistent;
 pub mod protocol;
 pub mod supervisor;
@@ -39,15 +42,26 @@ mod redaction;
 // startup and the closed handshake to `ready`.
 mod candidate;
 
+pub use composition::{CompositionRequest, Containment, ProviderComposition, compose};
+pub use coordinator::{ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator};
 pub use error::{
     FramingFault, PROGRESS_SEQUENCE_MAX, PROTOCOL_FAILURE_CODE, ProgressFault, ProviderError,
     RUNTIME_UNAVAILABLE_CODE,
 };
 pub use outbound::{MAX_QUEUED_ENVELOPES, OutboundError, OutboundQueue};
-pub use supervisor::{
-    CleanupFailure, LifecycleTranscript, OneShotOutcome, OneShotRequest, OneShotResult,
-    SupervisorBounds, SupervisorFailure, TranscriptEntry, run_one_shot,
+pub use outcome::{
+    CleanupFailure, LifecycleTranscript, OneShotOutcome, OneShotResult, SupervisorFailure,
+    TranscriptEntry,
 };
+pub use persistent::{
+    CandidateHealth, CandidateHealthSnapshot, PersistentPublication, PersistentStartupFailure,
+    PersistentStartupResult, PersistentSupervisor, ReadyCandidate, ReapedCandidate, StartupFailure,
+};
+pub use supervisor::{OneShotRequest, SupervisorBounds, run_one_shot};
+
+#[cfg(test)]
+#[path = "composition_tests.rs"]
+mod composition_tests;
 
 #[cfg(test)]
 #[path = "framing_tests.rs"]

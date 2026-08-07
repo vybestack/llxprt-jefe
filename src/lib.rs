@@ -76,6 +76,9 @@ pub mod services;
 /// Native-host OpenSSH planning and typed failure classification.
 pub mod ssh;
 pub mod startup;
+/// Startup publication of trusted package providers (issue #390 CW-10).
+#[path = "startup_providers.rs"]
+pub mod startup_providers;
 #[path = "startup_screens.rs"]
 pub mod startup_screens;
 pub mod state;

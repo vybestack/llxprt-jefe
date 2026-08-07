@@ -212,6 +212,14 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
             crate::app_shell_workers::run_capture_worker(ctx).await;
         }
     });
+    // Issue #390 CW-10 Slice D: background provider effect worker. The loop
+    // body lives in [`crate::app_shell_workers::run_provider_worker`].
+    hooks.use_future({
+        let ctx = ctx.clone();
+        async move {
+            crate::app_shell_workers::run_provider_worker(ctx, app_state).await;
+        }
+    });
 
     // Issue #662: refresh the run marker while the interface is alive. A run
     // that is killed without warning leaves behind the last moment it was
@@ -362,6 +370,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         // Issue #301: drain any pending capture request so the capture
         // worker does not leave a request mid-flight on exit.
         crate::app_shell_workers::shutdown_flush_capture(ctx.as_ref());
+        // Issue #390 CW-10 Slice D: shut down the provider coordinator so
+        // every persistent provider candidate is reaped before host exit.
+        crate::app_shell_workers::shutdown_provider_coordinator(ctx.as_ref());
 
         hooks.use_context_mut::<SystemContext>().exit();
 

@@ -428,3 +428,73 @@ remain readable and are probed by PID until a successful runtime refresh adds a
 platform creation token. Legacy identities with a missing creation token also
 remain compatible: a matching live PID is accepted, and fully tokenized future
 observations resume PID-reuse protection.
+
+## Action-provider processes (issue #390 CW-10)
+
+A provider process is owned by `runtime/provider/`, never by application state.
+No `Child`, pipe, drain thread, timer, or outbound queue is reachable from
+`AppState`; the reducer sees only typed values.
+
+### Where a provider may start
+
+Exactly one place: `startup_providers::publish_providers`, called from the TUI
+startup path. `startup::build_persistence` scans packages but starts nothing, so
+`jefe config` and the recovery commands remain provider-free even when a
+selected package declares a provider that would hang.
+
+A one-shot provider starts **zero** processes at startup and performs a fresh
+full lifecycle for each invocation, including the second invocation of a
+confirmed continuation. A persistent provider starts only during candidate
+startup, in plugin-id order, and is never restarted automatically.
+
+### Publication is all-or-nothing
+
+Every required persistent candidate must reach `ready` before one atomic
+publication. Any spawn, handshake, timeout, protocol, or capability failure
+reaps every started candidate — including the failing one — and publishes
+nothing. Those actions then appear with a single shared unavailable reason and
+are absent from the runnable catalog, so an operator can see the action exists
+and why it will not run, and cannot invoke it.
+
+### Bounds
+
+| Bound | Value |
+|---|---|
+| Line framing | one UTF-8 JSON object plus `LF`, at most 1,048,576 bytes |
+| Request id | `h-` or `p-` plus 6–20 ASCII digits |
+| Generation | one fixed positive value per process |
+| Handshake | `hello`, `hello-ack`, `configure`, `ready`; 5 s per stage |
+| Invocation timeout | 60 s default; manifest range 1–600 s |
+| Active requests | at most 16 |
+| Queued outbound envelopes | at most 64 |
+| Progress | begins at 1, increments by exactly 1, at most 256; totals monotonic |
+| Retained stderr | at most 262,144 bytes |
+| Shutdown | 2 s graceful, 2 s stdin close/group terminate, 2 s kill/reap/final drain |
+
+Every protocol violation reports `PLG-E502`. A runtime-unavailable condition
+(spawn, environment, I/O, timeout, crash) reports `PLG-E503`, so an operator can
+tell a broken contract from a broken process.
+
+**First terminal wins.** Bytes after a terminal result are a protocol failure and
+are reported as one, but they cannot replace the result already recorded.
+
+### Environment and secrets
+
+A provider inherits nothing. Its environment is built from an empty base: the
+provider directory plus system binaries on `PATH`, a contained `HOME`, `TMPDIR`
+and working directory beside the state file, and a fixed `C` locale.
+
+A secret reference is exactly the name of a host environment variable. The
+supervisor is the **sole** resolver: it resolves only manifest-declared names,
+and rejects any secret a caller supplies. A resolved value may appear only in
+the owning `configure` payload or in an explicitly declared secret environment
+binding. It never appears in state, logs, diagnostics, captures, retained
+stderr, or progress text — provider-authored strings are redacted against the
+resolved secrets before they leave the supervisor.
+
+### Cleanup
+
+A clean shutdown requires the leader to be reaped **and** both pipes to close.
+A descendant that survives holding an inherited pipe surfaces as a drain
+timeout rather than being assumed reaped. Cleanup failures are reported
+separately and never replace the request's terminal result.

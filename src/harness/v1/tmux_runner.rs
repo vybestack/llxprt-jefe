@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::contract::{FileContent, ScenarioV1, Step, WaitSource};
+use super::contract::{EnvVar, FileContent, ScenarioV1, Step, WaitSource};
 use super::error::HarnessError;
 use super::keys;
 use crate::harness::tmux_driver::{TmuxDriver, TmuxPaneSize, TmuxSessionGuard, TmuxStartRequest};
@@ -68,7 +68,8 @@ pub fn run_tmux_v1(
         ),
     )
     .map_err(|err| HarnessError::process(format!("build start request: {err}")))?
-    .with_keep_session(request.keep_session);
+    .with_keep_session(request.keep_session)
+    .with_env(contained_app_env(scenario, &request.working_dir)?);
     let session = driver
         .start_session(&start)
         .map_err(|err| HarnessError::process(format!("start session: {err}")))?;
@@ -213,6 +214,68 @@ fn assert_frame(
 
 /// Materialize the declared workspace fixtures under the run's working
 /// directory. `${workspace}` resolves to that directory.
+/// Deterministic values the PTY backend imposes that this backend must not.
+///
+/// This backend runs against a real multiplexer and a real jefe: stripping
+/// `PATH` would stop it finding `tmux` at all. They are dropped unless the
+/// scenario asks for them by name.
+const PTY_ONLY_DEFAULTS: [&str; 8] = [
+    "HOME",
+    "PATH",
+    "TMPDIR",
+    "JEFE_CONFIG_DIR",
+    "JEFE_STATE_DIR",
+    "JEFE_PLUGIN_DIR",
+    "LANG",
+    "TERM",
+];
+
+/// The environment the contained jefe is launched with (issue #390).
+///
+/// The scenario's own `workspace.env` and launch `env` are applied, with
+/// `${workspace}` interpolated, so a scenario can actually configure the app it
+/// is testing. This backend previously discarded the launch step outright.
+///
+/// `JEFE_SOCKET_PATH` is forced into the workspace unless the scenario names
+/// its own. Jefe's tmux socket is derived from the *uid*, not from `--config`,
+/// so without this a scenario joins whatever jefe server the operator already
+/// has running: it sees their live agent sessions, reports them as unmatched,
+/// and is one code path away from acting on them. Isolation here is not a
+/// convenience, it is the difference between a test and an accident.
+fn contained_app_env(
+    scenario: &ScenarioV1,
+    working_dir: &Path,
+) -> Result<Vec<(String, String)>, HarnessError> {
+    let root = working_dir.to_string_lossy().into_owned();
+    let launch_env = scenario
+        .steps
+        .iter()
+        .find_map(|step| match step {
+            Step::Launch { env, .. } => Some(env.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let mut env = super::env::build(&root, &scenario.workspace.env, &launch_env)?;
+    for name in PTY_ONLY_DEFAULTS {
+        if !declares(scenario, &launch_env, name) {
+            env.remove(name);
+        }
+    }
+    env.entry("JEFE_SOCKET_PATH".to_string())
+        .or_insert_with(|| format!("{root}/jefe-harness.sock"));
+    Ok(env.into_iter().collect())
+}
+
+/// Whether the scenario itself asked for `name`, at either scope.
+fn declares(scenario: &ScenarioV1, launch_env: &[EnvVar], name: &str) -> bool {
+    scenario
+        .workspace
+        .env
+        .iter()
+        .chain(launch_env)
+        .any(|entry| entry.name == name)
+}
+
 fn materialize_workspace(scenario: &ScenarioV1, root: &Path) -> Result<(), HarnessError> {
     for dir in &scenario.workspace.dirs {
         std::fs::create_dir_all(root.join(dir.path.as_str())).map_err(|err| {

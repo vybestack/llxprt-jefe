@@ -142,21 +142,26 @@ pub fn dispatchable_handlers() -> Vec<&'static str> {
 /// so one representative is sufficient.
 macro_rules! handler_surface {
     ($($variant:ident $(($representative:expr))?),* $(,)?) => {
-        /// Every closed `HandlerKey`.
+        /// Every compiled `HandlerKey` with a fixed chord binding.
         ///
-        /// One representative value per variant.
+        /// One representative value per variant. Runtime-composed handlers
+        /// (e.g. `ProviderAction`) are excluded: they have no compiled chord
+        /// binding and are not part of the generated golden inventory, so they
+        /// must not appear in the dispatchable-handler surface.
         pub const ALL_HANDLERS: &[HandlerKey] = &[
             $(HandlerKey::$variant $(($representative))?),*
         ];
 
         /// The stable name of one handler.
         ///
-        /// Exhaustive: a new variant fails to compile until it is declared
-        /// in `handler_surface!`.
+        /// Exhaustive over every `HandlerKey` variant: a new compiled variant
+        /// fails to compile until it is declared in `handler_surface!`.
+        /// Runtime-only variants are named in the trailing match arm.
         #[must_use]
         pub const fn handler_name(handler: HandlerKey) -> &'static str {
             match handler {
-                $(HandlerKey::$variant { .. } => stringify!($variant)),*
+                $(HandlerKey::$variant { .. } => stringify!($variant),)*
+                HandlerKey::ProviderAction => "ProviderAction",
             }
         }
     };

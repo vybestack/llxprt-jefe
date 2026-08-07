@@ -11,16 +11,23 @@
 
 use iocraft::prelude::*;
 
-use crate::action_projection::project_help_lines;
+use crate::action_projection::{project_help_lines, project_provider_help_lines};
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::selection::TextSelection;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::ScrollableText;
 
 /// Project the complete, ordered keyboard reference from one immutable snapshot.
+///
+/// Package-contributed actions are appended last (issue #390 CW-10): they did
+/// not exist when this binary was built, so they are not in the compiled
+/// display table, and an operator who cannot find a package action anywhere in
+/// Help has no way to learn it exists or why it will not run.
 #[must_use]
 pub fn help_content_lines(snapshot: &ActionRegistrySnapshot) -> Vec<String> {
-    project_help_lines(snapshot)
+    let mut lines = project_help_lines(snapshot);
+    lines.extend(project_provider_help_lines(snapshot));
+    lines
 }
 
 /// Props for the help modal.
@@ -72,6 +79,48 @@ pub fn help_viewport_rows(available_rows: u16) -> usize {
     } else {
         available
     }
+}
+
+/// The largest scroll offset that still shows the final line of `content`.
+///
+/// Two things made the tail of Help unreachable, and both are corrected here so
+/// the input site and the renderer cannot disagree (issue #390):
+///
+/// 1. The clamp derived its viewport from the raw terminal size while the modal
+///    rendered from the app's render size, which is smaller by the window
+///    chrome.
+/// 2. More importantly, the offset is in **content-line** units but the
+///    viewport shows **wrapped display rows**. Help lines wrap at
+///    `HELP_MAX_LINE_WIDTH`, so `lines - viewport` systematically stops short
+///    by however many lines happened to wrap — silently, because the modal
+///    still looks scrolled to the end.
+///
+/// The answer is the first content line whose wrapped rows still fill the
+/// viewport, computed against the same width the modal renders with.
+#[must_use]
+pub fn help_max_scroll(content: &[String], terminal_rows: u16) -> usize {
+    let render_rows = crate::layout::effective_render_size_for_windowed(0, terminal_rows, true).1;
+    let viewport = help_viewport_rows(render_rows);
+    let rows = crate::domain::document_wrap::wrap_document(
+        &content.join(
+            "
+",
+        ),
+        HELP_MAX_LINE_WIDTH,
+    );
+    let total = rows.len();
+    if total <= viewport {
+        return 0;
+    }
+    // The window starts at the first display row of the scrolled-to content
+    // line, so it must start at or *after* the row `viewport` from the bottom —
+    // an earlier start ends earlier and hides the tail. Scrolling is per
+    // content line, so take the first line whose own first row qualifies.
+    let target_row = total - viewport;
+    rows.iter()
+        .skip(target_row)
+        .find(|row| row.line_char_start == 0)
+        .map_or_else(|| content.len().saturating_sub(1), |row| row.line)
 }
 
 /// Help modal showing all keyboard shortcuts (scrollable).
@@ -246,3 +295,7 @@ mod tests {
         assert_eq!(help_viewport_rows(0), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "help_scroll_tests.rs"]
+mod scroll_tests;

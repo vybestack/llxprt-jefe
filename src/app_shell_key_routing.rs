@@ -163,8 +163,8 @@ fn route_pty_owned(
     resolved: ResolvedRegistryKey,
 ) -> bool {
     match resolved.resolution {
-        Resolution::Dispatch { handler, .. } => {
-            execute_dispatch(handles, key_event, resolved.chord, handler)
+        Resolution::Dispatch { action, handler } => {
+            execute_dispatch(handles, key_event, resolved.chord, action, handler)
         }
         Resolution::Unavailable { reason, .. } => {
             record_unavailable(&mut handles.app_state.write(), reason);
@@ -184,13 +184,13 @@ fn route_app_owned(
     resolved: ResolvedRegistryKey,
 ) -> bool {
     match resolved.resolution {
-        Resolution::Dispatch { handler, .. } => {
+        Resolution::Dispatch { action, handler } => {
             if resolved.scope == DispatchScope::PreModeOnly
                 && !pre_mode_owned(handler, &handles.app_state.read(), input_mode)
             {
                 return false;
             }
-            execute_dispatch(handles, key_event, resolved.chord, handler)
+            execute_dispatch(handles, key_event, resolved.chord, action, handler)
         }
         Resolution::Unavailable { reason, .. } => {
             record_unavailable(&mut handles.app_state.write(), reason);
@@ -237,8 +237,12 @@ fn execute_dispatch(
     routes: &mut RouteHandles<'_>,
     key_event: &KeyEvent,
     chord: Chord,
+    action: jefe::domain::action_registry::ActionId,
     handler: HandlerKey,
 ) -> bool {
+    if matches!(handler, HandlerKey::ProviderAction) {
+        return execute_provider_action(routes, action);
+    }
     let execution = action_execution_for(
         handler,
         chord,
@@ -252,6 +256,35 @@ fn execute_dispatch(
         &routes.ctx.cloned(),
         routes.suppress_next_enter,
         key_event,
+    )
+}
+
+fn execute_provider_action(
+    routes: &mut RouteHandles<'_>,
+    action: jefe::domain::action_registry::ActionId,
+) -> bool {
+    let (screen, instance) = {
+        let state = routes.app_state.read();
+        let names = (
+            state.screen().as_str().to_owned(),
+            state.nav.current().id.to_string(),
+        );
+        drop(state);
+        names
+    };
+    let (Ok(context_screen), Ok(context_instance)) = (
+        jefe::domain::Id::parse(&screen),
+        jefe::domain::Id::parse(&instance),
+    ) else {
+        return false;
+    };
+    crate::app_input::invoke_provider_action(
+        routes.app_state,
+        &routes.ctx.cloned(),
+        &action,
+        &context_screen,
+        &context_instance,
+        &jefe::domain::TypedMap::new(),
     )
 }
 
@@ -275,8 +308,8 @@ pub fn execute_mouse_resolution(
         suppress_next_enter,
     };
     match input.resolution {
-        Resolution::Dispatch { handler, .. } => {
-            execute_dispatch(&mut routes, input.key_event, input.chord, handler)
+        Resolution::Dispatch { action, handler } => {
+            execute_dispatch(&mut routes, input.key_event, input.chord, action, handler)
         }
         Resolution::Unavailable { reason, .. } => {
             record_unavailable(&mut routes.app_state.write(), reason);

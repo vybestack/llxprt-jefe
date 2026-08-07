@@ -541,6 +541,165 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// Poll interval for the provider effect worker drain loop.
+const PROVIDER_POLL_MS: u64 = 50;
+
+/// Run the background provider effect worker drain loop
+/// (issue #390 CW-10, Slice D).
+///
+/// Polls [`ProviderEffectHandle`] every [`PROVIDER_POLL_MS`] and offloads each
+/// provider one-shot invocation to `smol::unblock`. Results are translated to
+/// typed [`ProviderMessage`] variants and routed back through the reducer via
+/// `commit_pure_site`, with stale-generation protection handled in the reducer.
+pub async fn run_provider_worker(
+    ctx: Option<Arc<std::sync::Mutex<AppContext>>>,
+    mut app_state: crate::app_input::AppStateHandle,
+) {
+    let Some(ctx_arc) = ctx.as_ref() else {
+        return;
+    };
+    loop {
+        smol::Timer::after(Duration::from_millis(PROVIDER_POLL_MS)).await;
+        let work_batch = {
+            let Ok(ctx_guard) = ctx_arc.try_lock() else {
+                continue;
+            };
+            if !ctx_guard.provider_effect_handle.is_dirty() {
+                continue;
+            }
+            let handle = ctx_guard.provider_effect_handle.clone();
+            handle.drain()
+        };
+        if work_batch.is_empty() {
+            continue;
+        }
+        for item in work_batch {
+            let result = execute_provider_item(ctx_arc, item).await;
+            deliver_provider_messages(&mut app_state, result);
+        }
+    }
+}
+
+/// Build a failed execution result for one work item.
+fn failed_execution_result(
+    item: &jefe::services::provider_effect_worker::ProviderWorkItem,
+    reason: jefe::state::provider_requests::UnavailableReason,
+) -> jefe::services::provider_effect_worker::ProviderExecutionResult {
+    jefe::services::provider_effect_worker::ProviderExecutionResult {
+        correlation: item.correlation.clone(),
+        key: item.invocation.key.clone(),
+        messages: vec![jefe::messages::ProviderMessage::GenerationFailed {
+            key: item.invocation.key.clone(),
+            reason,
+        }],
+        process_reaped: true,
+        terminal: true,
+    }
+}
+
+/// Execute one provider work item off the UI thread and produce typed messages.
+///
+/// Looks up the descriptor from the coordinator catalog, builds a
+/// `OneShotRequest`, runs the full supervisor lifecycle via `smol::unblock`,
+/// and translates the result into typed [`ProviderMessage`] variants with the
+/// effect correlation for completion delivery.
+async fn execute_provider_item(
+    ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
+    item: jefe::services::provider_effect_worker::ProviderWorkItem,
+) -> jefe::services::provider_effect_worker::ProviderExecutionResult {
+    use jefe::runtime::provider::environment::ProcessHostEnv;
+    use jefe::runtime::provider::supervisor::SupervisorBounds;
+    use jefe::state::provider_requests::UnavailableReason;
+
+    let request = {
+        let Ok(ctx_guard) = ctx_arc.try_lock() else {
+            return failed_execution_result(&item, UnavailableReason::Eof);
+        };
+        let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
+            return failed_execution_result(&item, UnavailableReason::Eof);
+        };
+        let Ok(action_id) =
+            jefe::domain::action_registry::ActionId::parse(item.invocation.key.action_id.as_str())
+        else {
+            return failed_execution_result(&item, UnavailableReason::Protocol);
+        };
+        let Some(descriptor) = coordinator.catalog().get(&action_id).cloned() else {
+            return failed_execution_result(&item, UnavailableReason::Protocol);
+        };
+        match coordinator.build_one_shot(&descriptor, &item.invocation) {
+            Ok(built) => built,
+            Err(_overflow) => {
+                return failed_execution_result(&item, UnavailableReason::Protocol);
+            }
+        }
+    };
+    let key = item.invocation.key.clone();
+    let correlation = item.correlation.clone();
+    let result = smol::unblock(move || {
+        jefe::runtime::provider::supervisor::run_one_shot(
+            &request,
+            &SupervisorBounds::PRODUCTION,
+            &ProcessHostEnv,
+        )
+    })
+    .await;
+    jefe::services::provider_effect_worker::build_execution_result(correlation, &result, &key)
+}
+
+/// Deliver typed provider messages and effect completion through the reducer.
+///
+/// Each message is committed via `commit_pure_site` so the reducer applies it
+/// under the correct correlation. Stale-generation protection lives in the
+/// reducer: a result for a superseded generation is ignored there, not here.
+fn deliver_provider_messages(
+    app_state: &mut crate::app_input::AppStateHandle,
+    result: jefe::services::provider_effect_worker::ProviderExecutionResult,
+) {
+    let correlation = result.correlation.clone();
+    for message in result.messages {
+        let mut state = app_state.write();
+        jefe::state::transition::commit_pure_site(
+            &mut state,
+            jefe::messages::AppMessage::Provider(Box::new(message)),
+        );
+    }
+    // Deliver the effect completion so correlation tracking closes cleanly.
+    // The provider effect family has no response payload — the typed messages
+    // already carry the outcome — but the effect ledger must still be closed.
+    let mut state = app_state.write();
+    let completion = jefe::domain::effects::EffectCompletion {
+        correlation,
+        result: Ok(jefe::domain::effects::EffectResponse::Provider(
+            jefe::domain::effects::ProviderResponse::Invoked {
+                key: result.key.clone(),
+            },
+        )),
+    };
+    jefe::state::transition::commit_pure_site(
+        &mut state,
+        jefe::messages::AppMessage::EffectCompletion(Box::new(completion)),
+    );
+}
+
+/// Synchronously shut down the provider coordinator before host exit.
+///
+/// Called from the shutdown path so every persistent provider candidate is
+/// reaped and no process tree leaks. Best-effort: if the mutex is poisoned,
+/// the coordinator is leaked (consistent with the persist/capture shutdown
+/// convention).
+pub fn shutdown_provider_coordinator(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) {
+    let Some(ctx_arc) = ctx else {
+        return;
+    };
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+        warn!("shutdown_provider_coordinator: ctx mutex poisoned; skipping provider shutdown");
+        return;
+    };
+    if let Some(coordinator) = ctx_guard.provider_coordinator.as_mut() {
+        coordinator.shutdown();
+    }
+}
+
 /// Synchronously flush the persist worker's pending snapshot.
 ///
 /// Called from the shutdown path so the final state is durable before exit.

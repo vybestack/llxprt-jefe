@@ -13,7 +13,7 @@ pub use auth::{AUTH_MODAL_TITLE, AuthModal, AuthModalProps};
 pub use confirm::{ConfirmModal, ConfirmModalProps};
 pub use help::{
     HELP_CHROME_ROWS, HELP_MODAL_WIDTH, HELP_TITLE, HelpModal, HelpModalProps, help_content_lines,
-    help_viewport_rows,
+    help_max_scroll, help_viewport_rows,
 };
 
 pub(crate) use confirm::confirm_button_row;
