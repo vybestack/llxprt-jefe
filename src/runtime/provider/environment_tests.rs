@@ -2,7 +2,7 @@
 //! (issue #390 CW-10, CW10-14).
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::environment::{
     EnvironmentError, ProviderEnvironment, Redactor, build_process_env, resolve_configure_secrets,
@@ -67,20 +67,14 @@ fn path_leads_with_provider_directory_then_system_bins() {
         &FixedEnv(&[]),
     )
     .unwrap_or_else(|error| panic!("build: {error:?}"));
-    let path = built
-        .get("PATH")
-        .unwrap_or_else(|| panic!("PATH present"))
-        .to_str()
-        .unwrap_or_else(|| panic!("utf8"));
-    let mut parts = path.split(':');
-    assert_eq!(parts.next(), Some("/opt/pkg/bin"));
-    let tail: Vec<&str> = parts.collect();
-    let expected: Vec<String> = system_bin_paths()
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-    let expected_refs: Vec<&str> = expected.iter().map(String::as_str).collect();
-    assert_eq!(tail, expected_refs);
+    let path = built.get("PATH").unwrap_or_else(|| panic!("PATH present"));
+    // Split with the platform's own rule rather than a hard-coded ':': the
+    // separator is ';' on Windows, so a literal split silently made this test
+    // assert nothing there.
+    let entries: Vec<PathBuf> = std::env::split_paths(path).collect();
+    let mut expected = vec![PathBuf::from("/opt/pkg/bin")];
+    expected.extend(system_bin_paths());
+    assert_eq!(entries, expected);
 }
 
 #[test]
