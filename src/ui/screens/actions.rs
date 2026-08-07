@@ -137,7 +137,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
-                last_error: state.and_then(AppState::last_error_title),
+                error_count: state.map_or(0, |s| s.errors_state.count()),
                 colors: colors.clone(),
                 selection: selection,
             )

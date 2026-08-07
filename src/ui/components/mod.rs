@@ -174,7 +174,7 @@ pub use selectable_list::{
     SpanColor, SpanRole, selectable_list_element,
 };
 pub use sidebar::{Sidebar, SidebarProps, sidebar_list_props};
-pub use status_bar::{StatusBar, StatusBarProps};
+pub use status_bar::{StatusBar, StatusBarProps, status_bar_stats};
 pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};
 pub use terminal_viewport::{TerminalViewportProjection, build_terminal_viewport};
 /// @plan PLAN-20260624-PR-MODE.P14

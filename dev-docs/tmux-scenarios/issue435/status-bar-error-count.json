@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "name": "status-bar-error-count",
+  "platform": "macos",
+  "terminal": {
+    "cols": 100,
+    "rows": 24
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "repos |",
+        "running"
+      ],
+      "absent": [
+        "ERR:"
+      ]
+    },
+    {
+      "op": "assert-frame",
+      "contains": [],
+      "absent": [
+        "errors"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "e",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Errors",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "No errors recorded"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "repos |"
+      ],
+      "absent": [
+        "ERR:"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

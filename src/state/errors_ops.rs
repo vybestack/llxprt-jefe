@@ -197,6 +197,23 @@ pub fn capture_worker_panic(state: &mut AppState, detail: &str) {
     );
 }
 
+/// Record a startup session-reclaim report in the errors ring (issue #435).
+///
+/// Reclaim reports enumerate every unmatched session, so they routinely run to
+/// hundreds of characters and used to be crammed into the single-line status-bar
+/// warning slot, where they were unreadable and buried every other warning. They
+/// are recorded silently: the operator gets a count as their cue and the full,
+/// copyable list on the Errors screen, without the report stealing a selection
+/// they were already working with.
+pub fn capture_reclaim_report(state: &mut AppState, report: &str) {
+    state.errors_state.push_silent(
+        "Session reclaim report".to_string(),
+        report.to_string(),
+        crate::domain::ErrorSource::Other,
+        now_timestamp(),
+    );
+}
+
 /// Capture runtime errors into the errors ring buffer (issue #292).
 ///
 /// Called from `finalize_message` after every reducer step. Inspects all known

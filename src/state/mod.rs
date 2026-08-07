@@ -165,7 +165,7 @@ mod types;
 mod util;
 mod workbench_filter;
 mod workbench_reducers;
-pub use errors_ops::{capture_runtime_errors, capture_worker_panic};
+pub use errors_ops::{capture_reclaim_report, capture_runtime_errors, capture_worker_panic};
 pub use errors_types::{ErrorsFocus, ErrorsState};
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;

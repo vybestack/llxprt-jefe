@@ -909,8 +909,11 @@ fn apply_restored_state(
 
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
-    if let Some(warning) = runtime_warning {
-        append_warning(state, warning);
+    if let Some(report) = runtime_warning {
+        // Issue #435: reclaim reports list every unmatched session and cannot
+        // fit the single-line warning slot, so they go to Errors where the full
+        // list is readable and copyable.
+        jefe::state::capture_reclaim_report(state, &report);
     }
 }
 

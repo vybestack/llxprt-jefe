@@ -25,14 +25,41 @@ pub struct StatusBarProps {
     pub kennel_mode: bool,
     /// Optional warning text shown in the center status area.
     pub warning_message: Option<String>,
-    /// Last error title (issue #292). Shown in the center area with precedence
-    /// below warnings (ssh agent socket) so legacy warnings still surface.
-    pub last_error: Option<String>,
+    /// Number of outstanding entries on the Errors screen (issue #435).
+    /// Rendered as a bare count, never as error text: the bar is a clue that
+    /// something failed, and the Errors screen holds the copyable detail.
+    pub error_count: usize,
     /// Theme colors.
     pub colors: ThemeColors,
     /// Active text selection, if any. When it targets this pane the whole
     /// single-line bar is painted in inverse-video.
     pub selection: Option<TextSelection>,
+}
+
+/// Build the center segment of the status bar.
+///
+/// Issue #435: this used to render `ERR: <first 50 chars>…`, which was too short
+/// to diagnose anything, hid the running summary while displayed, and gave the
+/// operator nowhere to go. It now reports only how many errors are outstanding,
+/// leaving the full text to the Errors screen. Transient warnings keep their
+/// slot — they are short and self-contained — but no longer suppress the clue.
+#[must_use]
+pub fn status_bar_stats(
+    warning_message: Option<&str>,
+    repo_count: usize,
+    running_count: usize,
+    agent_count: usize,
+    error_count: usize,
+) -> String {
+    let base = match warning_message {
+        Some(warning) => format!("WARN: {warning}"),
+        None => format!("{repo_count} repos | {running_count}/{agent_count} running"),
+    };
+    if error_count == 0 {
+        return base;
+    }
+    let noun = if error_count == 1 { "error" } else { "errors" };
+    format!("{base} | {error_count} {noun}")
 }
 
 /// Status bar showing app title and statistics.
@@ -54,25 +81,13 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     } else {
         ""
     };
-    let stats = if let Some(warning) = &props.warning_message {
-        format!("WARN: {warning}")
-    } else if let Some(error) = &props.last_error {
-        // Truncate to keep the single-line bar readable (issue #292).
-        // Use char-based truncation to avoid splitting multi-byte UTF-8.
-        let max_chars = 50;
-        let display = if error.chars().count() > max_chars {
-            let truncated: String = error.chars().take(max_chars).collect();
-            format!("{truncated}…")
-        } else {
-            error.clone()
-        };
-        format!("ERR: {display}")
-    } else {
-        format!(
-            "{} repos | {}/{} running",
-            props.repo_count, props.running_count, props.agent_count
-        )
-    };
+    let stats = status_bar_stats(
+        props.warning_message.as_deref(),
+        props.repo_count,
+        props.running_count,
+        props.agent_count,
+        props.error_count,
+    );
 
     element! {
         Box(
