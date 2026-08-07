@@ -232,3 +232,48 @@ pub fn process_is_gone(pid: u32) -> bool {
 pub fn process_is_gone(_pid: u32) -> bool {
     true
 }
+
+/// How many of these tests may own live provider process trees at once.
+///
+/// Each test here spawns a real fixture process, and several deliberately hold
+/// hanging descendants. Cargo runs the whole file in parallel, so without a
+/// bound roughly twenty instrumented process trees exist simultaneously. Under
+/// `llvm-cov` that was enough to exhaust the CI runner, which was terminated
+/// mid-run (exit 143) rather than reporting a test failure. Two at a time keeps
+/// the concurrency that makes ordering bugs visible without asking the machine
+/// for more than it has.
+const MAX_CONCURRENT_PROCESS_TREES: usize = 2;
+
+/// A permit to own live provider processes for the duration of one test.
+///
+/// Held for the whole test body, including the reap assertions, because the
+/// processes are only certainly gone once those have run.
+pub struct ProcessBudget {
+    _permit: std::sync::MutexGuard<'static, ()>,
+}
+
+/// Wait for a slot before starting provider processes.
+///
+/// Poisoning is recovered rather than propagated: a panicking test leaves the
+/// slot marked poisoned, and refusing every later test because an earlier one
+/// failed would turn one failure into a whole-file failure.
+#[must_use]
+pub fn process_budget() -> ProcessBudget {
+    use std::sync::{Mutex, OnceLock};
+
+    static SLOTS: OnceLock<Vec<Mutex<()>>> = OnceLock::new();
+    let slots = SLOTS.get_or_init(|| {
+        (0..MAX_CONCURRENT_PROCESS_TREES)
+            .map(|_| Mutex::new(()))
+            .collect()
+    });
+    loop {
+        for slot in slots {
+            if let Ok(permit) = slot.try_lock() {
+                return ProcessBudget { _permit: permit };
+            }
+        }
+        // Every slot is busy; yield rather than spin hot.
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
