@@ -181,6 +181,30 @@ impl RequestId {
         })
     }
 
+    /// Construct a host-originated request id from a monotonic counter.
+    ///
+    /// The counter is zero-padded to at least 6 digits (the minimum) and must
+    /// not exceed 20 digits (the maximum). This is the safe constructor for
+    /// production code: the coordinator/worker owns the counter, guaranteeing
+    /// uniqueness per in-flight request without string parsing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RequestIdError`] when the counter exceeds 20 digits.
+    pub fn new_host(counter: u64) -> Result<Self, RequestIdError> {
+        let digits = format!("{counter}");
+        if digits.len() > REQUEST_ID_MAX_DIGITS {
+            return Err(RequestIdError {
+                raw: format!("h-{digits}"),
+            });
+        }
+        let padded = format!("{digits:0>REQUEST_ID_MIN_DIGITS$}");
+        Ok(Self {
+            origin: RequestOrigin::Host,
+            digits: padded,
+        })
+    }
+
     fn error(raw: &str) -> RequestIdError {
         RequestIdError {
             raw: raw.to_owned(),

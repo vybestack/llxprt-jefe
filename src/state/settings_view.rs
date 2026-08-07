@@ -459,18 +459,7 @@ fn published(state: &SettingsState) -> PublishedSettings {
 
 fn plugin_rows(state: &SettingsState) -> Vec<SettingsRow> {
     let published = published(state);
-    // A package is trusted only when the draft says so. Unlike an agent type,
-    // the default is *not* trusted: an installed package that nobody has
-    // enabled must never render as ready to run.
-    let trusted = |id: &str| {
-        crate::domain::Id::parse(id).is_ok_and(|owner| {
-            published
-                .plugins
-                .get(&owner)
-                .and_then(|owner| owner.enabled)
-                .unwrap_or(false)
-        })
-    };
+    let trusted = |id: &str| crate::persistence::plugin_inventory::package_trusted(&published, id);
     crate::state::plugins_editor::project_plugins(&state.plugins, &trusted)
         .into_iter()
         .map(|row| SettingsRow {

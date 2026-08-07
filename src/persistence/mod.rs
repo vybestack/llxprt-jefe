@@ -27,6 +27,9 @@ mod paths_tests;
 #[cfg(test)]
 #[path = "keymap_edit_tests.rs"]
 mod keymap_edit_tests;
+#[cfg(test)]
+#[path = "keymap_provider_tests.rs"]
+mod keymap_provider_tests;
 
 #[cfg(test)]
 #[path = "settings_document_tests.rs"]

@@ -231,6 +231,7 @@ impl Driver<'_> {
                     .observe(progress.sequence, progress.completed, progress.total)?;
                 self.transcript
                     .push(TranscriptEntry::Progress(progress.sequence));
+                self.transcript.push_progress(progress.clone());
             }
             _ => self
                 .transcript

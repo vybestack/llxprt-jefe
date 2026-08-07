@@ -436,6 +436,43 @@ A package's identity is its directory names. A manifest that declares a
 different identity is rejected rather than believed, because the directory is
 what the roots enumerate and what settings key off.
 
+## Action-provider ownership
+
+A package's actions are executed by a **provider process**. The static phase
+above still starts nothing; every process belongs to exactly one owner, and that
+owner is never the state layer.
+
+| Layer | Owns | Must not do |
+|---|---|---|
+| `runtime/provider/{framing,protocol,dto,...}` | the closed JSONL wire: framing bounds, envelope/payload DTOs, lifecycle order, progress monotonicity | perform I/O, spawn, or hold state |
+| `runtime/provider/composition` | the pure decision of which trusted package contributes which action, its runtime descriptor, and its startup candidate | start a process or read settings |
+| `runtime/provider/supervisor` | one one-shot lifecycle: spawn, pipes, drains, timeouts, staged shutdown, reap | outlive its invocation or expose a handle |
+| `runtime/provider/persistent` | resident candidates and their atomic all-or-nothing publication | auto-restart a candidate |
+| `runtime/provider/coordinator` | the published catalog, the request-id counter, and the persistent supervisor for the session | live in `AppState` |
+| `startup_providers` | the single place a provider process may start | run from `build_persistence` |
+| `state/provider_requests` | handle-free request, progress, terminal and confirmation state | own a process, pipe, timer, or thread |
+| `services/provider_effect_worker` | translating one supervisor result into typed reducer messages | execute on the input or render thread |
+
+Two rules carry most of the weight:
+
+**Provider processes start in exactly one place.** `startup_providers` runs from
+the TUI startup path only. `build_persistence` scans packages but never starts
+one, which is what keeps `jefe config` and recovery provider-free even when a
+selected package declares a provider that would hang.
+
+**A provider effect runs only after the transition commits and the state guard
+is released.** Dispatch stages a closed `ProviderEffect`; the background worker
+executes it off the UI thread and routes typed messages back through the
+reducer. A result for a superseded generation is ignored by the reducer, not
+filtered by the worker.
+
+Provider actions join the **same** `ActionRegistrySnapshot` as compiled actions,
+under the closed `HandlerKey::ProviderAction`. There is no second registry, so
+the reason an action cannot run is one string with one owner: a refused keybind,
+the Help package section, and any provider surface quote the same bytes. A
+package that fails to publish leaves its actions visible and unavailable rather
+than partially runnable.
+
 ## Dependency Direction DAG
 
 Dependency direction should be acyclic and is enforced by convention and review.

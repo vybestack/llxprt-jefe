@@ -202,12 +202,38 @@ pub fn compose_published(
     settings: &PublishedSettings,
     source: &str,
 ) -> Result<ComposedKeymap, KeymapDiagnostic> {
+    compose_published_with_providers(settings, source, Vec::new(), Vec::new())
+}
+
+/// Compose one snapshot from the compiled inventory plus the provider actions
+/// startup composition published (issue #390 CW-10).
+///
+/// Provider actions join the *same* immutable snapshot as compiled actions
+/// rather than living in a parallel registry, so an unavailable reason shown in
+/// the Actions palette, refused at a keybind, or rendered on the provider
+/// surface is one string with one owner. A provider action that collides with a
+/// compiled action id fails composition outright: a package must never shadow a
+/// host action.
+///
+/// Provider actions carry no compiled chord binding. They resolve through the
+/// Actions palette until an operator binds one, which is why only actions and
+/// availability are contributed here.
+pub fn compose_published_with_providers(
+    settings: &PublishedSettings,
+    source: &str,
+    provider_actions: Vec<Action>,
+    provider_availability: Vec<ActionAvailability>,
+) -> Result<ComposedKeymap, KeymapDiagnostic> {
     let inventory =
         compiled_inventory().map_err(|error| KeymapDiagnostic::new(error.to_string()))?;
     let overrides = parse_overrides(settings, source)?;
-    let availability = availability(&inventory.actions)?;
+    let mut entries = availability_entries(&inventory.actions);
+    entries.extend(provider_availability);
+    let mut actions = inventory.actions;
+    actions.extend(provider_actions);
+    let availability = availability_generation(entries)?;
     let snapshot = RegistryCandidate::new(
-        inventory.actions,
+        actions,
         inventory.bindings,
         overrides,
         inventory.context_stacks,
@@ -401,13 +427,18 @@ fn parse_chords(values: &[String]) -> Result<Vec<Chord>, KeymapDiagnostic> {
         .collect()
 }
 
-fn availability(actions: &[Action]) -> Result<AvailabilityGeneration, KeymapDiagnostic> {
-    let owner =
-        Id::parse("core.keymap").map_err(|error| KeymapDiagnostic::new(error.to_string()))?;
-    let entries = actions
+fn availability_entries(actions: &[Action]) -> Vec<ActionAvailability> {
+    actions
         .iter()
         .map(|action| ActionAvailability::new(action.id.clone(), Availability::Available))
-        .collect();
+        .collect()
+}
+
+fn availability_generation(
+    entries: Vec<ActionAvailability>,
+) -> Result<AvailabilityGeneration, KeymapDiagnostic> {
+    let owner =
+        Id::parse("core.keymap").map_err(|error| KeymapDiagnostic::new(error.to_string()))?;
     Ok(AvailabilityGeneration::new(
         Correlation {
             correlation_id: CorrelationId::new(0),

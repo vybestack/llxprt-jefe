@@ -69,6 +69,14 @@ pub struct TmuxStartRequest {
     pub rows: u16,
     pub history_limit: u32,
     pub keep_session: bool,
+    /// Environment applied to the contained application only (issue #390).
+    ///
+    /// Applied to the `exec`'d command *after* the tmux scrub, so the inner
+    /// harness `tmux -L` calls keep resolving the harness socket. Without this
+    /// the tmux backend silently dropped a scenario's launch environment, and a
+    /// scenario that asked for its own `JEFE_SOCKET_PATH` was still started
+    /// against whatever jefe server the operator already had running.
+    pub env: Vec<(String, String)>,
 }
 
 impl TmuxStartRequest {
@@ -97,6 +105,7 @@ impl TmuxStartRequest {
             rows,
             history_limit,
             keep_session: false,
+            env: Vec::new(),
         };
         request.validate()?;
         Ok(request)
@@ -138,6 +147,13 @@ impl TmuxStartRequest {
     #[must_use]
     pub fn with_keep_session(mut self, keep_session: bool) -> Self {
         self.keep_session = keep_session;
+        self
+    }
+
+    /// Return a copy of this request that applies `env` to the contained app.
+    #[must_use]
+    pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env = env;
         self
     }
 
@@ -596,10 +612,26 @@ fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
     // the jefe under test and defeat the `--config` isolation.
     let prefix = harness_tmux_prefix_str();
     format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR JEFE_NAMESPACE; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}",
+        "unset TMUX TMUX_PANE TMUX_TMPDIR JEFE_NAMESPACE; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}{}",
         request.history_limit,
+        app_env_prefix(&request.env),
         shell_join(&request.command)
     )
+}
+
+/// Render the contained app's environment as an `env` prefix for `exec`.
+///
+/// Empty when nothing is requested, so a request that asks for no environment
+/// produces exactly the command it always did.
+fn app_env_prefix(env: &[(String, String)]) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let assignments: Vec<String> = env
+        .iter()
+        .map(|(name, value)| format!("{name}={}", shell_escape_single(value)))
+        .collect();
+    format!("env {} ", assignments.join(" "))
 }
 
 fn shell_join(parts: &[String]) -> String {
