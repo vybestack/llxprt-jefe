@@ -283,3 +283,26 @@ fn classify_health_illegal_stdout_takes_precedence_over_a_try_wait_error() {
         "illegal stdout is the protocol fault regardless of the process probe"
     );
 }
+
+/// A reaped leader's pid must never be signalled again (issue #390).
+///
+/// Once the leader is reaped its pid is free for the kernel to reuse. Signalling
+/// `-pid` after that does not target our provider: it targets whatever process
+/// group now owns that number. On a busy machine that is someone else's tree —
+/// on a CI runner it took down the job itself, which reported a shutdown signal
+/// and exit 143 rather than any test failure.
+///
+/// Descendants still have to be cleaned up, so the answer is not "skip the
+/// signal": it is that a reaped candidate has no group left to name, and the
+/// caller must have observed that before deciding.
+#[test]
+fn a_reaped_leader_is_not_signalled_by_its_recycled_pid() {
+    assert!(
+        !super::persistent::may_signal_group(true),
+        "a candidate whose leader was already reaped must not be signalled by pid"
+    );
+    assert!(
+        super::persistent::may_signal_group(false),
+        "a live candidate's group is still ours to signal"
+    );
+}
