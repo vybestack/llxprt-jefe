@@ -132,8 +132,9 @@ pub(super) fn terminate_process_tree(pid: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
         let group = format!("-{}", group_id.id());
+        let args = unix_group_signal_args("-TERM", group.as_str());
         Command::new("kill")
-            .args(["-TERM", group.as_str()])
+            .args(args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
@@ -186,8 +187,9 @@ fn kill_process_group(pid: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
         let group = format!("-{}", group_id.id());
+        let args = unix_group_signal_args("-KILL", group.as_str());
         Command::new("kill")
-            .args(["-KILL", group.as_str()])
+            .args(args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
@@ -206,6 +208,11 @@ fn kill_process_group(pid: u32) -> io::Result<()> {
         let _ = group_id;
     }
     Ok(())
+}
+
+#[cfg(unix)]
+const fn unix_group_signal_args<'a>(signal: &'a str, group: &'a str) -> [&'a str; 3] {
+    [signal, "--", group]
 }
 
 #[cfg(unix)]
@@ -271,5 +278,19 @@ mod tests {
                 "terminate must refuse pid {pid}"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_group_signal_uses_an_option_delimiter_before_the_negative_pid() {
+        assert_eq!(
+            unix_group_signal_args("-TERM", "-4242"),
+            ["-TERM", "--", "-4242"],
+            "a negative process-group id must not be parsed as a kill option or signal"
+        );
+        assert_eq!(
+            unix_group_signal_args("-KILL", "-4242"),
+            ["-KILL", "--", "-4242"]
+        );
     }
 }

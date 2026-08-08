@@ -237,11 +237,9 @@ pub fn process_is_gone(_pid: u32) -> bool {
 ///
 /// Each test here spawns a real fixture process, and several deliberately hold
 /// hanging descendants. Cargo runs the whole file in parallel, so without a
-/// bound roughly twenty instrumented process trees exist simultaneously. Under
-/// `llvm-cov` that was enough to exhaust the CI runner, which was terminated
-/// mid-run (exit 143) rather than reporting a test failure. Two at a time keeps
-/// the concurrency that makes ordering bugs visible without asking the machine
-/// for more than it has.
+/// bound roughly twenty instrumented process trees exist simultaneously. Two at
+/// a time bounds coverage resource use while preserving enough concurrency to
+/// expose ordering bugs.
 const MAX_CONCURRENT_PROCESS_TREES: usize = 2;
 
 /// A permit to own live provider processes for the duration of one test.
