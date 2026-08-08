@@ -5,7 +5,9 @@
 //! root-owned immutable registry snapshot.
 
 use crate::domain::Id;
-use crate::domain::action_registry::{ActionAvailability, Availability, AvailabilityGeneration};
+use crate::domain::action_registry::{
+    ActionAvailability, Availability, AvailabilityGeneration, HandlerKey,
+};
 use crate::domain::effects::{
     Correlation, Effect, EffectFamily, ProviderEffect, RetryPolicy, SemanticKey,
 };
@@ -89,15 +91,38 @@ fn availability_entries(
     actions
         .iter()
         .map(|action| {
-            let availability = unavailable_reason(state, action.id.as_str()).map_or(
-                Availability::Available,
-                |reason| Availability::Unavailable {
-                    reason: reason.to_owned(),
-                },
-            );
-            ActionAvailability::new(action.id.clone(), availability)
+            ActionAvailability::new(action.id.clone(), action_availability(state, action))
         })
         .collect()
+}
+
+/// Decide one action's availability for this refresh.
+///
+/// [`unavailable_reason`] is a table of *compiled* actions: it is exhaustive
+/// about the host's own surfaces and silent about everything else. A package
+/// action is not in it, so running it through would answer "available" for an
+/// action the host knows nothing about — including one whose provider has no
+/// binary for this platform, which startup composition had already marked
+/// unavailable. Offering the operator an action that cannot possibly run is
+/// worse than not offering it, so a package action keeps the availability the
+/// authority that *does* know about it published (issue #390 CW-10).
+fn action_availability(
+    state: &AppState,
+    action: &crate::domain::action_registry::Action,
+) -> Availability {
+    if matches!(action.handler, HandlerKey::ProviderAction) {
+        return state
+            .action_registry_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.availability_of(&action.id))
+            .cloned()
+            .unwrap_or(Availability::Available);
+    }
+    unavailable_reason(state, action.id.as_str()).map_or(Availability::Available, |reason| {
+        Availability::Unavailable {
+            reason: reason.to_owned(),
+        }
+    })
 }
 
 fn unavailable_reason(state: &AppState, action: &str) -> Option<&'static str> {
@@ -390,3 +415,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "action_availability_provider_tests.rs"]
+mod provider_tests;

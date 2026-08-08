@@ -628,3 +628,123 @@ fn harness_session_runs_on_dedicated_socket() {
         "harness session leaked onto the default/shared tmux server (#171); listing:\n{listing}"
     );
 }
+
+/// A scenario that declares launch environment must have it applied to the
+/// contained app (issue #390).
+///
+/// The tmux backend used to drop the launch step entirely, so a scenario could
+/// declare `JEFE_SOCKET_PATH` and still be launched against the operator's live
+/// jefe tmux server. The env is exported inside the pane, after the tmux scrub,
+/// so the inner harness `tmux -L` calls are unaffected.
+#[test]
+fn tmux_pane_wrapper_command_exports_requested_environment() {
+    let request = TmuxStartRequest::command(
+        "env-apply",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env(vec![(
+        "JEFE_SOCKET_PATH".to_string(),
+        "/tmp/ws/jefe.sock".to_string(),
+    )]);
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+
+    let env_pos = wrapper
+        .find("JEFE_SOCKET_PATH='/tmp/ws/jefe.sock'")
+        .unwrap_or_else(|| panic!("requested env missing from wrapper: {wrapper}"));
+    let exec_pos = wrapper
+        .find("exec ")
+        .unwrap_or_else(|| panic!("exec missing from wrapper: {wrapper}"));
+    let scrub_pos = wrapper
+        .find("unset TMUX TMUX_PANE TMUX_TMPDIR")
+        .unwrap_or_else(|| panic!("unset prefix missing from wrapper: {wrapper}"));
+
+    assert!(
+        scrub_pos < env_pos,
+        "the tmux scrub must precede the app env; got wrapper={wrapper}"
+    );
+    assert!(
+        env_pos > exec_pos,
+        "app env must be applied to the exec'd app, not to the inner tmux calls; got wrapper={wrapper}"
+    );
+}
+
+/// No requested environment must leave the wrapper exactly as it was, so the
+/// change cannot perturb every existing scenario.
+#[test]
+fn tmux_pane_wrapper_command_without_environment_is_unchanged() {
+    let request = TmuxStartRequest::command(
+        "env-none",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+
+    assert!(
+        wrapper.ends_with("exec '/bin/true'"),
+        "an env-free request must exec directly; got wrapper={wrapper}"
+    );
+}
+
+/// An environment *name* reaches the pane command as a shell word, so it must
+/// be validated rather than interpolated raw (issue #390).
+///
+/// Only the value was escaped, so a name carrying `$(...)` would have been
+/// executed by the shell that starts the contained app. Scenario data is not a
+/// trust boundary the harness should be relying on.
+#[test]
+fn start_request_rejects_an_environment_name_that_is_not_an_identifier() {
+    for hostile in [
+        "x $(touch /tmp/pwned)",
+        "PATH;rm -rf /",
+        "with space",
+        "`id`",
+        "",
+        "1LEADING_DIGIT",
+    ] {
+        let request = TmuxStartRequest::command(
+            "hostile-env",
+            vec!["/bin/true".to_string()],
+            temp_path(),
+            80,
+            24,
+            1000,
+        )
+        .value_or_panic("request should be valid")
+        .with_env(vec![(hostile.to_string(), "value".to_string())]);
+
+        assert!(
+            request.validate_env().is_err(),
+            "env name {hostile:?} must be refused, not interpolated into a shell command"
+        );
+    }
+}
+
+#[test]
+fn start_request_accepts_ordinary_environment_names() {
+    let request = TmuxStartRequest::command(
+        "ok-env",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env(vec![
+        ("JEFE_SOCKET_PATH".to_string(), "/tmp/ws/s".to_string()),
+        ("_UNDERSCORE0".to_string(), "v".to_string()),
+    ]);
+
+    assert!(request.validate_env().is_ok());
+}

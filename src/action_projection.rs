@@ -282,6 +282,59 @@ pub fn project_help_lines(snapshot: &ActionRegistrySnapshot) -> Vec<String> {
     lines
 }
 
+/// The Help heading under which package-contributed actions are listed.
+const PACKAGE_SECTION: &str = "Packages:";
+
+/// Project the package-contributed actions a trusted package published
+/// (issue #390 CW-10, row CW10-13).
+///
+/// Compiled actions are described by a compiled display table; a package action
+/// is not in that table because it did not exist when this binary was built.
+/// Its rows therefore come from the snapshot itself — the same authority a
+/// keybind resolves against — so the reason an action cannot run is one string
+/// with one owner rather than two that can drift.
+///
+/// An empty result is correct and deliberate: with no packages there is no
+/// section, rather than a heading over nothing.
+#[must_use]
+pub fn project_provider_help_lines(snapshot: &ActionRegistrySnapshot) -> Vec<String> {
+    let mut rows: Vec<(&str, String)> = snapshot
+        .provider_actions()
+        .map(|action| {
+            let chords = format_action_chords(
+                snapshot,
+                std::slice::from_ref(&action.id.as_str()),
+                ChordSurface::Help,
+            );
+            let prefix = if chords.is_empty() {
+                "Unbound".to_owned()
+            } else {
+                chords
+            };
+            let reason = snapshot
+                .availability_of(&action.id)
+                .and_then(|availability| match availability {
+                    Availability::Available => None,
+                    Availability::Unavailable { reason } => Some(reason.clone()),
+                });
+            let suffix = reason.map_or_else(String::new, |reason| {
+                format!("  ({UNAVAILABLE_PREFIX}{reason})")
+            });
+            (
+                action.id.as_str(),
+                format!("  {prefix:<12}{}{suffix}", action.label),
+            )
+        })
+        .collect();
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    rows.sort_by(|left, right| left.0.cmp(right.0));
+    let mut lines = vec![PACKAGE_SECTION.to_owned()];
+    lines.extend(rows.into_iter().map(|(_, line)| line));
+    lines
+}
+
 fn render_help_line(
     snapshot: &ActionRegistrySnapshot,
     line: &crate::domain::default_action_inventory::display::HelpDisplayLine,
@@ -536,6 +589,10 @@ pub fn test_snapshot() -> ActionRegistrySnapshot {
 #[cfg(test)]
 #[path = "action_projection_composer_tests.rs"]
 mod composer_tests;
+
+#[cfg(test)]
+#[path = "action_projection_provider_tests.rs"]
+mod provider_tests;
 
 #[cfg(test)]
 mod tests {

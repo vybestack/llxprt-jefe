@@ -242,6 +242,7 @@ impl AppMessage {
             }
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
             AppEvent::Settings(message) => Self::Settings(message),
+            AppEvent::Provider(message) => Self::Provider(message),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
@@ -635,6 +636,7 @@ impl From<AppMessage> for AppEvent {
             AppMessage::Actions(message) => message.into(),
             AppMessage::Errors(message) => message.into(),
             AppMessage::Settings(message) => Self::Settings(message),
+            AppMessage::Provider(message) => Self::Provider(message),
             AppMessage::TerminalManager(message) => message.into(),
             AppMessage::System(message) => message.into(),
             AppMessage::EffectCompletion(completion) => Self::EffectCompletion(completion),

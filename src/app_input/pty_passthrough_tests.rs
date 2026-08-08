@@ -51,6 +51,8 @@ fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
         })),
         capture_handle: CaptureHandle::new(),
         unclean_prior_runs: Vec::new(),
+        provider_coordinator: None,
+        provider_effect_handle: jefe::services::provider_effect_worker::ProviderEffectHandle::new(),
     }));
     (ctx, runtime_dir)
 }

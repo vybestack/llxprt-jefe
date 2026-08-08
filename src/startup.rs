@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use crate::config_owners::builtin_owner_catalog;
+use crate::config_owners::owner_catalog_with_packages;
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::keymap_edit::{KeymapDiagnostic, LoadedKeymap, load_bytes};
@@ -38,6 +38,13 @@ pub struct StartupPersistence {
     /// resolution. Nothing downstream rescans, so what the Settings section
     /// shows and what the session composed are the same moment.
     pub plugin_inventory: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
+    /// The installed packages behind [`Self::plugin_inventory`], carrying the
+    /// validated manifests provider composition needs (issue #390).
+    ///
+    /// Carried rather than rescanned for the same reason the projection is:
+    /// a second scan could see a different directory than the one the operator
+    /// is looking at.
+    pub plugin_packages: Vec<crate::persistence::plugin_inventory::InstalledPackage>,
 }
 
 impl StartupPersistence {
@@ -75,10 +82,19 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     )?;
     report_namespace_drift(&paths.state.path);
     apply_state_import(&paths.state)?;
+    // Scanned before settings are published: a package's trust lives under
+    // `plugins.<id>`, and an owner the catalog has never heard of publishes as
+    // dormant. Reading trust therefore requires knowing which packages are
+    // installed first (issue #390).
+    let scanned = scan_plugin_inventory(&paths);
+    let plugin_inventory = crate::persistence::plugin_inventory::snapshot(
+        &scanned,
+        &crate::domain::plugin::HostTriple::current(),
+    );
+    let plugin_packages = scanned.packages().to_vec();
     let (keymap, settings_document, settings_expected_hash) =
-        validate_settings(&paths.settings.path)?;
+        validate_settings(&paths.settings.path, &plugin_packages)?;
     validate_state(&paths.state.path)?;
-    let plugin_inventory = scan_plugin_inventory(&paths);
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
         state_path: paths.state.path.clone(),
@@ -92,18 +108,21 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         keymap_diagnostic: keymap.diagnostic,
         manager,
         plugin_inventory,
+        plugin_packages,
     })
 }
 
-/// Scan the ordered package roots into the pure snapshot the UI projects.
+/// Scan the ordered package roots.
 ///
 /// A scan never fails the session: a root that cannot be read simply
 /// contributes nothing, exactly as a missing root does, because an unreadable
-/// package directory is not a reason to refuse to start.
+/// package directory is not a reason to refuse to start. The scan starts no
+/// process, which is what keeps `jefe config`/`jefe recovery` provider-free
+/// (issue #390 CW10-12).
 fn scan_plugin_inventory(
     paths: &ResolvedPaths,
-) -> Vec<crate::state::plugins_editor::PluginSnapshotRow> {
-    use crate::persistence::plugin_inventory::{scan, snapshot};
+) -> crate::persistence::plugin_inventory::PluginInventory {
+    use crate::persistence::plugin_inventory::scan;
     use crate::persistence::plugin_roots::{PluginRootRequest, candidate_roots};
 
     let roots = candidate_roots(&PluginRootRequest {
@@ -113,7 +132,7 @@ fn scan_plugin_inventory(
         platform: crate::persistence::paths::Platform::current(),
         config_plugins_dir: paths.plugins.clone(),
     });
-    snapshot(&scan(&roots), &crate::domain::plugin::HostTriple::current())
+    scan(&roots)
 }
 
 fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
@@ -170,9 +189,10 @@ fn inspect_sources(file: &ResolvedFile) -> Result<Vec<InspectedSource>, PathErro
 
 fn validate_settings(
     path: &Path,
+    packages: &[crate::persistence::plugin_inventory::InstalledPackage],
 ) -> Result<(LoadedKeymap, SettingsDocument, ExpectedHash), PathError> {
     let bytes = read_optional(path)?;
-    let catalog = builtin_owner_catalog()
+    let catalog = owner_catalog_with_packages(packages)
         .map_err(|error| path_error(path, CfgCode::E005, 2, &format!("owner catalog: {error}")))?;
     let keymap = load_bytes(bytes.as_deref(), &catalog, &path.to_string_lossy())
         .map_err(|diagnostics| diagnostic_error(path, diagnostics, 2))?;
