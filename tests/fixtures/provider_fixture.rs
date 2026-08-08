@@ -61,7 +61,7 @@ use std::io::Write;
 use std::process::ExitCode;
 use std::process::Stdio;
 
-use jefe::runtime::provider::protocol::{Direction, ParsedMessage, ProviderMessage, parse_message};
+use serde_json::Value;
 
 fn main() -> ExitCode {
     match run() {
@@ -166,18 +166,20 @@ fn next_line() -> Result<String, u8> {
     Ok(line)
 }
 
-/// Parse one host-sent line back through the closed decoder. The framing layer
-/// requires the terminating line feed, which [`next_line`] strips, so it is
-/// re-added here.
-fn parse_host_line(line: &str) -> Option<ParsedMessage> {
-    let mut bytes = line.as_bytes().to_vec();
-    bytes.push(b'\n');
-    parse_message(&bytes, Direction::HostToProvider).ok()
+/// Parse one host-sent line as the JSON object fields this fixture observes.
+///
+/// The fixture deliberately does not link the production protocol decoder: the
+/// host decoder has focused tests of its own, while linking it here pulls the
+/// whole application into every spawned fixture under coverage instrumentation.
+fn parse_host_line(line: &str) -> Option<Value> {
+    serde_json::from_str(line).ok()
 }
 
 /// Extract the fixed generation from the host `hello` frame.
 fn parse_generation(line: &str) -> u64 {
-    parse_host_line(line).map_or(1, |parsed| parsed.generation)
+    parse_host_line(line)
+        .and_then(|parsed| parsed.get("generation")?.as_u64())
+        .unwrap_or(1)
 }
 
 /// Emit the post-`invoke-action` scenario (progress, terminal, or fault).
@@ -634,13 +636,15 @@ fn persistent_capabilities(mode: &str) -> String {
 
 /// Extract the plugin id the host sent in its `hello` frame.
 fn parse_plugin_id(hello: &str) -> String {
-    match parse_host_line(hello) {
-        Some(parsed) => match parsed.message {
-            ProviderMessage::Hello(payload) => payload.plugin_id.as_str().to_owned(),
-            _ => "unknown".to_owned(),
-        },
-        None => "unknown".to_owned(),
-    }
+    parse_host_line(hello)
+        .and_then(|parsed| {
+            parsed
+                .get("payload")?
+                .get("plugin_id")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 /// Append one plugin id line to a shared startup-sequence file. The supervisor
