@@ -42,6 +42,12 @@ mod redaction;
 // startup and the closed handshake to `ready`.
 mod candidate;
 
+// Persistent invocation sessions (Remediation E): command-owner threads that
+// drive repeated same-PID invocations on ready candidates.
+mod persistent_session;
+
+pub use persistent_session::{PersistentInvocation, PersistentInvokeError, PersistentSessionOwner};
+
 pub use composition::{CompositionRequest, Containment, ProviderComposition, compose};
 pub use coordinator::{ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator};
 pub use error::{

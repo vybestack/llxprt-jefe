@@ -68,9 +68,11 @@ fn containment(base: &Path) -> Containment {
 fn compose_for(root: &Path, base: &Path, trusted: &[&str]) -> ProviderComposition {
     let inventory = scan(&[PluginRoot::new(root.to_path_buf(), PluginRootKind::User)]);
     let owned: Vec<String> = trusted.iter().map(|value| (*value).to_owned()).collect();
+    let settings = crate::persistence::settings_document::PublishedSettings::default();
     compose(&CompositionRequest {
         packages: inventory.packages(),
         trusted: &|id: &str| owned.iter().any(|seen| seen == id),
+        settings: &settings,
         host: HostTriple::current(),
         containment: containment(base),
     })
@@ -269,7 +271,7 @@ fn resolved_binary_is_contained_under_the_package_directory() {
 }
 
 #[test]
-fn marking_persistent_startup_failed_makes_only_those_actions_unavailable() {
+fn failed_persistent_startup_discards_only_persistent_contributions() {
     let Ok(temp) = tempfile::tempdir() else {
         return;
     };
@@ -299,7 +301,7 @@ fn marking_persistent_startup_failed_makes_only_those_actions_unavailable() {
     );
 
     let mut composition = compose_for(&root, temp.path(), &["vendor.oneshot", "vendor.resident"]);
-    composition.mark_persistent_unavailable("provider startup failed");
+    composition.discard_persistent_contributions();
 
     assert_eq!(
         availability_of(&composition, "vendor.oneshot.run"),
@@ -307,9 +309,8 @@ fn marking_persistent_startup_failed_makes_only_those_actions_unavailable() {
     );
     assert_eq!(
         availability_of(&composition, "vendor.resident.run"),
-        Some(Availability::Unavailable {
-            reason: "provider startup failed".to_owned()
-        })
+        None,
+        "the failed atomic persistent set must publish no action metadata"
     );
     assert!(
         composition

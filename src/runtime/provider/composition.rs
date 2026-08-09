@@ -19,7 +19,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::domain::TypedMap;
 use crate::domain::action_registry::{
     Action as RegistryAction, ActionAvailability, ActionError, ActionId, ActionMetadata,
     Availability, HandlerKey,
@@ -28,12 +27,14 @@ use crate::domain::input_context::ContextId;
 use crate::domain::plugin::action::Action as DeclaredAction;
 use crate::domain::plugin::provider::{ProviderMode, ProviderSelection};
 use crate::domain::plugin::surface::ConfigSchema;
-use crate::domain::plugin::{HostTriple, Manifest};
+use crate::domain::plugin::{FieldKind, HostTriple, Manifest};
+use crate::domain::{TypedMap, TypedValue};
 use crate::persistence::plugin_inventory::InstalledPackage;
+use crate::persistence::settings_document::PublishedSettings;
 use crate::runtime::provider::coordinator::{ProviderActionDescriptor, ProviderCatalog};
 use crate::runtime::provider::dto::{Capability, ConfigurePayload};
 use crate::runtime::provider::environment::ProviderEnvironment;
-use crate::runtime::provider::identifiers::{RequestId, RequestIdError};
+use crate::runtime::provider::identifiers::{EnvName, RequestId, RequestIdError};
 use crate::runtime::provider::persistent::PersistentCandidate;
 use crate::state::provider_requests::ActionPolicy;
 
@@ -66,6 +67,8 @@ pub struct CompositionRequest<'a> {
     pub packages: &'a [InstalledPackage],
     /// Whether the operator currently trusts a package id.
     pub trusted: &'a dyn Fn(&str) -> bool,
+    /// The selected, typed package configuration published for this startup.
+    pub settings: &'a PublishedSettings,
     /// The exact build host triple provider binaries are selected against.
     pub host: HostTriple,
     /// The contained process locations and identity.
@@ -116,29 +119,21 @@ impl ProviderComposition {
         self.catalog
     }
 
-    /// Report that persistent startup did not publish.
+    /// Remove every persistent contribution after atomic startup fails.
     ///
-    /// Publication is all-or-nothing (CW10-03/CW10-04), so a startup failure
-    /// makes every persistent-package action unavailable with one shared reason
-    /// and removes them from the runnable catalog. One-shot actions are
-    /// untouched: they never needed the failed candidates.
-    pub fn mark_persistent_unavailable(&mut self, reason: &str) {
+    /// Persistent actions are not an unavailable publication: CW10-04 requires
+    /// the failed candidate set to publish no contribution at all. Independent
+    /// one-shot actions remain because they require no startup process.
+    pub fn discard_persistent_contributions(&mut self) {
         for action_id in &self.persistent_action_ids {
             self.catalog.remove(action_id);
-            if let Some(entry) = self
-                .availability
-                .iter_mut()
-                .find(|entry| entry.action() == action_id)
-            {
-                *entry = ActionAvailability::new(
-                    action_id.clone(),
-                    Availability::Unavailable {
-                        reason: reason.to_owned(),
-                    },
-                );
-            }
         }
+        self.actions
+            .retain(|action| !self.persistent_action_ids.contains(&action.id));
+        self.availability
+            .retain(|entry| !self.persistent_action_ids.contains(entry.action()));
         self.persistent_candidates.clear();
+        self.persistent_action_ids.clear();
     }
 }
 
@@ -185,10 +180,28 @@ fn compose_package(
         ProviderSelection::Ready(relative) => resolve_binary(package.directory(), relative),
     };
 
-    publish_available_actions(composition, package, request, &binary, mode);
+    let (environment, configure) = match provider_configuration(request.settings, manifest, &binary)
+    {
+        Ok(configuration) => configuration,
+        Err(reason) => {
+            publish_unavailable_actions(composition, manifest, &reason);
+            return;
+        }
+    };
+    publish_available_actions(
+        composition,
+        package,
+        request,
+        AvailableProvider {
+            binary: &binary,
+            mode,
+            environment: &environment,
+            configure: &configure,
+        },
+    );
 
     if mode == ProviderMode::Persistent {
-        match persistent_candidate(package, request, &binary) {
+        match persistent_candidate(package, request, &binary, environment, configure) {
             Ok(candidate) => composition.persistent_candidates.push(candidate),
             Err(_error) => {
                 // A request id this composition cannot build is a host defect,
@@ -214,6 +227,13 @@ fn resolve_binary(directory: &Path, relative: &crate::domain::plugin::RelativePa
     path
 }
 
+struct AvailableProvider<'a> {
+    binary: &'a Path,
+    mode: ProviderMode,
+    environment: &'a ProviderEnvironment,
+    configure: &'a ConfigurePayload,
+}
+
 /// Publish every declared action of a package that can run.
 ///
 /// The registry action and its runtime descriptor are built together, action by
@@ -225,13 +245,10 @@ fn publish_available_actions(
     composition: &mut ProviderComposition,
     package: &InstalledPackage,
     request: &CompositionRequest<'_>,
-    binary: &Path,
-    mode: ProviderMode,
+    provider: AvailableProvider<'_>,
 ) {
     let manifest = package.manifest();
     let plugin_id = manifest.id().owner_id().clone();
-    let environment = provider_environment(binary);
-    let configure = configure_payload(manifest);
     for declared in manifest.actions() {
         let Some(action) = registry_action(declared) else {
             continue;
@@ -242,7 +259,7 @@ fn publish_available_actions(
             Availability::Available,
         ));
         composition.actions.push(action);
-        if mode == ProviderMode::Persistent {
+        if provider.mode == ProviderMode::Persistent {
             composition.persistent_action_ids.push(action_id.clone());
         }
         composition.catalog.insert(
@@ -251,16 +268,16 @@ fn publish_available_actions(
                 plugin_id: plugin_id.clone(),
                 plugin_version: manifest.version().clone(),
                 action_id,
-                mode,
-                binary: binary.to_path_buf(),
+                mode: provider.mode,
+                binary: provider.binary.to_path_buf(),
                 provider_args: Vec::new(),
                 working_dir: request.containment.working_dir.clone(),
                 home: request.containment.home.clone(),
                 tmpdir: request.containment.tmpdir.clone(),
                 locale: request.containment.locale.clone(),
                 host_api: request.containment.host_api.clone(),
-                environment: environment.clone(),
-                configure: configure.clone(),
+                environment: provider.environment.clone(),
+                configure: provider.configure.clone(),
                 policy: action_policy(declared),
                 timeout_seconds: declared.timeout_seconds(),
             },
@@ -268,34 +285,62 @@ fn publish_available_actions(
     }
 }
 
-/// Build the bounded provider environment for one selected binary.
+/// Build one package's selected configuration and bounded environment.
 ///
-/// Only the provider directory is derived here. Declared non-secret values and
-/// secret references come from persisted package configuration, which CW-09
-/// does not yet publish, so they are empty rather than guessed: the supervisor
-/// resolves exactly what it is given and nothing else (CW10-14).
-fn provider_environment(binary: &Path) -> ProviderEnvironment {
-    ProviderEnvironment {
+/// Secret-reference fields name host environment variables. Their references
+/// are removed from ordinary configuration and resolved only by the supervisor
+/// into `Configure.secrets`. The manifest has no environment-export declaration,
+/// so selected nonsecret configuration is never implicitly exported.
+fn provider_configuration(
+    settings: &PublishedSettings,
+    manifest: &Manifest,
+    binary: &Path,
+) -> Result<(ProviderEnvironment, ConfigurePayload), String> {
+    let mut config = settings
+        .plugins
+        .get(manifest.id().owner_id())
+        .map_or_else(TypedMap::new, |owner| owner.values.clone());
+    let mut configure_secret_sources = BTreeMap::new();
+    if let Some(schema) = manifest.config() {
+        for field in schema.fields() {
+            if field.kind() != FieldKind::SecretReference {
+                continue;
+            }
+            let Some(value) = config.remove(field.id()) else {
+                continue;
+            };
+            let TypedValue::String(source) = value else {
+                return Err(format!(
+                    "provider {} secret reference {} must name a host environment variable",
+                    manifest.id(),
+                    field.id()
+                ));
+            };
+            let source = EnvName::parse(&source).map_err(|_| {
+                format!(
+                    "provider {} secret reference {} is not a valid environment name",
+                    manifest.id(),
+                    field.id()
+                )
+            })?;
+            configure_secret_sources.insert(source.clone(), source);
+        }
+    }
+    let environment = ProviderEnvironment {
         provider_dir: binary
             .parent()
             .map_or_else(|| binary.to_path_buf(), Path::to_path_buf),
         nonsecret: BTreeMap::new(),
         secret_env: BTreeMap::new(),
-        configure_secret_sources: BTreeMap::new(),
-    }
-}
-
-/// Build the base `configure` payload for one package.
-///
-/// The supervisor is the sole secret resolver, so `secrets` is always empty
-/// here; it refuses a caller-supplied secret outright.
-fn configure_payload(manifest: &Manifest) -> ConfigurePayload {
-    ConfigurePayload {
+        configure_secret_sources,
+    };
+    let configure = ConfigurePayload {
         config_version: u64::from(manifest.config().map_or(1, ConfigSchema::schema_version)),
-        config: TypedMap::new(),
+        config,
         secrets: BTreeMap::new(),
         environment: BTreeMap::new(),
-    }
+    };
+    Ok((environment, configure))
 }
 
 /// Derive the immutable invocation policy from a declared action.
@@ -312,6 +357,8 @@ fn persistent_candidate(
     package: &InstalledPackage,
     request: &CompositionRequest<'_>,
     binary: &Path,
+    environment: ProviderEnvironment,
+    configure: ConfigurePayload,
 ) -> Result<PersistentCandidate, RequestIdError> {
     let manifest = package.manifest();
     Ok(PersistentCandidate {
@@ -320,14 +367,14 @@ fn persistent_candidate(
         binary: binary.to_path_buf(),
         arguments: Vec::new(),
         working_dir: request.containment.working_dir.clone(),
-        environment: provider_environment(binary),
+        environment,
         home: request.containment.home.clone(),
         tmpdir: request.containment.tmpdir.clone(),
         locale: request.containment.locale.clone(),
         host_api: request.containment.host_api.clone(),
         generation: STARTUP_GENERATION,
         request_id: RequestId::new_host(STARTUP_GENERATION)?,
-        configure: configure_payload(manifest),
+        configure,
         declared_capabilities: declared_capabilities(manifest),
     })
 }

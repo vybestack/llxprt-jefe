@@ -1,6 +1,6 @@
 # Issue #390 — CW-10: One-shot and persistent action-provider lifecycle
 
-Branch: `issue390` (from current `origin/main` at `8538fdd1`).
+Branch: `issue390` (current `origin/main` ancestor `0c655965`).
 
 ## 1. Outcome
 
@@ -20,17 +20,30 @@ state.
 
 | Contract | Owning symbol | Status and CW-10 use |
 |---|---|---|
-| Closed post-commit effects and exact correlation | `src/domain/effects.rs::{Effect::Provider, ProviderEffect, ProviderResponse, Correlation, IssuedEffect, EffectCompletion}` | Delivered by CW-01; extend the existing closed provider variants rather than add a second effect model |
-| Commit, release, then execute | `src/state/transition.rs`, `src/services/effect_executor.rs`, `src/app_input/agent_lifecycle_ops.rs` | Delivered; the provider adapter follows this seam and never runs under a state guard |
+| Closed post-commit effects and exact correlation | `src/domain/effects.rs::{Effect::Provider, ProviderEffect, ProviderResponse, Correlation, IssuedEffect, EffectCompletion}` | Delivered by CW-01. Provider stream events must prove the exact pending correlation before any request mutation; terminal completion consumes that correlation exactly once. Accepted host outcomes stage another closed effect and are revalidated at execution rather than being applied inside the provider reducer |
+| Commit, release, then execute | `src/state/transition.rs`, `src/services/effect_executor.rs`, `src/app_input/agent_lifecycle_ops.rs` | Delivered by CW-01. Provider process I/O and accepted host outcomes execute only from effects returned by `commit_in_place`, never under a state guard or through `commit_pure_site` |
 | Immutable action/availability authority | `src/domain/action_registry.rs::{ActionRegistrySnapshot, ActionAvailability, Availability, Resolution}` | Delivered by CW-03; all visible availability reasons come from this snapshot |
+| Navigation, instance, owner, context, and activation authority | `src/state/navigation.rs`, `src/state/navigation_ops.rs`, `src/workbench/*`, effect correlations | Delivered by CW-06. Provider messages and Navigate/Refresh/Notice effects must name and revalidate the current screen instance and activation generation; a stale message changes neither request state nor host state |
 | Static provider/action declarations | `src/domain/plugin/action.rs::{Action, ActionConfirmation, ActionOutcome}` | Delivered by CW-09; owns contexts, timeout, destructive policy, confirmation mode, handler, and allowed outcomes |
-| Package/provider authority | `src/domain/plugin/{manifest.rs,provider.rs,field.rs,values.rs}` | Delivered by CW-09; owns exact package identity/version, selected binary, `ProviderMode`, config schema, secret references, and host triple |
+| Package/provider authority | `src/domain/plugin/{manifest.rs,provider.rs,field.rs,values.rs}`, `src/persistence/settings_publish.rs` | Delivered by CW-09; owns exact package identity/version, selected binary, `ProviderMode`, config schema, secret references, environment declarations, host triple, and the selected `plugins.<id>.config` values. CW-10 consumes those published values without rebuilding or replacing them with empty maps |
 | Physical selected package | `src/runtime/package_runtime.rs`, `src/persistence/plugin_inventory.rs` | Delivered; supervisor resolves the selected contained binary from the immutable inventory |
 | Process-group and bounded-capture conventions | `src/runtime/command_capture.rs`, Windows `src/runtime/job_object.rs` and `owner_anchor.rs` | Delivered; CW-10 adds live incremental framing and staged shutdown without introducing a dependency |
 | Deterministic process evidence | `src/harness/` and `dev-docs/tmux-scenarios/` | Delivered; CW-10 adds provider fixtures and UI scenarios |
 
-Entry gate: **open**. CW-01, CW-03, and CW-09 are present on current main. No
-contract shim and no new dependency is permitted.
+Entry gate: **open**. CW-01, CW-03, CW-06, and CW-09 are present. Their
+production seams are consumed directly; defects that prevent CW-10 from using
+those seams are bounded prerequisites in this PR rather than successor work. No
+contract shim, competing authority, or new dependency is permitted.
+
+### Successor handoff
+
+| Successor | CW-10 seam that must exist at merge | Still owned by successor |
+|---|---|---|
+| #391 / CW-11 | A persistent ready session accepts repeated typed requests, configuration, health changes, cancellation, and ownership-correlated results | Panel activation/rendering/events and generated-config migration execution |
+| #392 / CW-12 | Same-process persistent delivery; exact 1–600 s timeout selection including 600; live progress/cancel; confirmation continuation; selected config/secrets/environment; applied Navigate/Refresh/Notice | The Git Merger package and its package-specific behavior |
+| #393 / CW-13 | One connected runtime owner, exact stale-generation gates, no duplicate action/lifecycle authority, and closed post-commit host effects | Broad ownership/stale-generation audit and guard tests across architectures |
+| #394 / CW-14 | Production parsers, framing, transcripts, and lifecycle fixtures remain reusable | Cross-platform fixture expansion and protocol conformance aggregation |
+| #395 / CW-15 | Installed-layout lifecycle evidence uses the same runtime/composition path | Installed-layout aggregation and packaging assertions |
 
 ## 3. Decisions fixed by the issue contract
 
@@ -55,6 +68,23 @@ contract shim and no new dependency is permitted.
    generic JSON event, queue, bus, or second effect family is introduced.
 5. **Delivery shape.** The slices below are coherent internal commits in one
    issue branch and one PR. They are not stacked PRs.
+6. **One runtime owner, mode-aware sessions.** `ProviderCoordinator` (or a
+   boundary-local session owner it exclusively contains) dispatches by
+   `ProviderMode`. One-shot invocations create fresh contained sessions;
+   persistent invocations use the already-Ready process. Invoke, cancel,
+   retry/replacement, health, shutdown, timeout, Configure, and live event
+   delivery all cross that one typed boundary. No process, pipe, PID, thread,
+   sender, receiver, or cancellation handle enters `AppState`.
+7. **Persistent failure publication.** A required persistent startup failure
+   rolls back every candidate and contributes no provider action or availability
+   row to the candidate snapshot. It does not synthesize unavailable package
+   metadata. The already-committed host snapshot remains intact until a complete
+   replacement candidate exists.
+8. **Outcome authority.** Recording a valid provider terminal result is not host
+   application. Navigate, Refresh, and Notice each stage a closed post-commit
+   effect carrying the original authority; the adapter revalidates current
+   route/resource/screen-instance/activation authority immediately before the
+   host mutation. Panel and migration outcomes remain parsed but unexecutable.
 
 ## 4. Acceptance matrix
 
@@ -65,35 +95,43 @@ session-only and has no migration.
 | ID | Actor / launch path | Inputs and boundaries | Observable success | Observable failure and diagnostic | Side effects permitted before failure | Persistence / compatibility | RED evidence |
 |---|---|---|---|---|---|---|---|
 | CW10-01 | Startup composition with an enabled `ProviderMode::OneShot` package | Any valid selected one-shot manifest; local and platform-selected binary | Static action metadata publishes and process capture remains zero | Static validation/selection failure leaves action unavailable with its shared reason; no spawn | None | Exact selected package/config retained; no provider model persisted | startup executable trap and `provider-oneshot-zero-startup` scenario |
-| CW10-02 | Action dispatch through post-commit provider effect | Fresh positive generation; selected local binary; hello/ack/configure/ready; invoke; 0..256 progress; one terminal; shutdown/ack/EOF | Exact fresh lifecycle transcript and process reaped | Any crash, EOF, timeout, wrong ordering, or framing error marks only that generation unavailable with typed diagnostic | One contained spawn and bounded drains, followed by full reap | Package selection/config retained; request state not persisted | Rust fixture binary and exact transcript/process capture |
-| CW10-03 | Startup composition with required persistent providers | Providers sorted by plugin ID; each handshake stage <=5 s; Ready capabilities subset of declaration | Every required candidate is Ready before one atomic registry publication | Any candidate failure routes to CW10-04 | Candidate processes may exist before publication | Previous published snapshot retained until commit | ordered two-provider startup transcript |
-| CW10-04 | Persistent candidate startup failure | Spawn, hello-ack, configure, ready, timeout, or capability mismatch for any required candidate | All candidate processes and descendants stop/reap; nothing publishes | `PLG-E502` for protocol failure or typed unavailable runtime failure | Candidate spawns only; rollback reaps all | Existing selection/config and previous registry remain | failure fixture for every handshake phase and rollback capture |
+| CW10-02 | Action dispatch through the mode-aware post-commit provider owner | Fresh positive host generation; descriptor-selected timeout; selected local binary; hello/ack/configure/ready; invoke; 0..256 progress; one terminal; shutdown/ack/EOF | One-shot uses one exact fresh lifecycle; each progress reaches state/UI before terminal; process and descendants reap; post-terminal cleanup diagnostics remain observable without replacing the first terminal | Any crash, EOF, descriptor timeout, wrong ordering, framing, or cleanup error affects only the exact correlated generation with a typed diagnostic | One contained spawn and bounded drains, followed by full reap | Package selection/config retained; request state not persisted | fresh-PID transcript, pre-terminal progress observation, exact timeout 1/60/600, and post-terminal cleanup-failure evidence |
+| CW10-03 | Startup composition and later dispatch with required persistent providers | Providers sorted by plugin ID; each handshake stage <=5 s; Ready capabilities subset of declaration; repeated invocations after publication | Every required candidate is Ready before one atomic registry publication; action dispatch uses that same PID/session and does not spawn; health remains observable | Any startup failure routes to CW10-04; post-Ready failure marks the shared action unavailable without restart | Candidate processes may exist before publication; only the runtime owner accesses them afterward | Previous published snapshot retained until commit; runtime health is session-only | ordered startup plus same-PID repeated invoke/no-second-spawn and post-Ready crash availability evidence |
+| CW10-04 | Persistent candidate startup failure | Spawn, hello-ack, configure, ready, timeout, or capability mismatch for any required candidate | All candidate processes and descendants stop/reap; provider contributes no action or unavailable row | `PLG-E502` for protocol failure or typed runtime failure; diagnostic is separate from publication | Candidate spawns only; rollback reaps all | Existing selection/config and already-committed registry remain | failure fixture for every handshake phase, rollback capture, and literal publish-nothing assertion |
 | CW10-05 | Pure framing/protocol parser | Exactly one UTF-8 JSON object plus LF; exact envelope; every closed payload and Outcome | Canonical table parses to strongly typed DTOs in legal order | Unknown/missing/extra/wrong-type field, unknown payload, wrong direction/ID/generation/order fails | None | Wire schema 1 only | per-payload canonical table and lifecycle state-machine table |
-| CW10-06 | Framing, protocol state machine, request reducer | CRLF, BOM, blank, duplicate key, trailing data, non-UTF-8, >1,048,576 bytes; host/provider ID rules; positive fixed generation; queue 64; concurrent 16 | Every value at its limit succeeds | Every limit+1 or invalid framing/field/direction/generation/order/rate fails the generation with `PLG-E502` | Bounded read/drain only | No partial provider state survives failure | exhaustive negative table including each boundary at N/N+1 |
-| CW10-07 | Provider progress reducer | Sequence begins 1, increments exactly 1, max 256; total implies completed; completed<=total; completed/total never decrease | Bounded progress state updates deterministically | Gap, duplicate, decrease, missing completed, completed>total, or event 257 fails generation | None | Progress is session-only | progress property/table tests |
-| CW10-08 | Provider continuation plus shared host confirmation modal | Declared provider continuation; owner/action/context/generation-bound ID; 5-minute TTL; exact declared field schema | Confirm consumes ID once and starts fresh invocation B/full one-shot handshake with exact continuation; Cancel starts none | Forged, expired, reused, owner/action/context/generation mismatch, or undeclared destructive policy starts no continuation | Bounded handle-free pending confirmation only | Confirmation is not persisted | two-invocation transcript, cancel capture, expiry/reuse table, TUI scenario |
-| CW10-09 | Cancel/terminal reducer | Both event orderings; exactly one outcome/error terminal | First terminal result remains authoritative | Every later byte is `PLG-E502` but cannot replace first result | Best-effort cancel envelope when still live | Session-only | both orderings property test |
-| CW10-10 | Explicit Retry | Old generation output races a new positive generation | Retry spawns a fresh generation; all old completions/lines change nothing | Current-generation failure is visible; stale output is ignored | Old generation is reaped before replacement publication | Selection/config retained | stale-line/completion generation property |
-| CW10-11 | Supervisor shutdown and host exit | Continuous stdout/stderr drain; shutdown 2 s; stdin close/group terminate 2 s; kill/reap descendants and final drain 2 s; Unix/Windows | Child and grandchild are gone and reaped | Expired stage escalates deterministically; no orphan remains | Bounded termination signals and drain | None | child/grandchild hang fixture with PID liveness capture |
+| CW10-06 | Framing, protocol state machine, request reducer, and correlation gate | CRLF, BOM, blank, duplicate key, trailing data, non-UTF-8, >1,048,576 bytes; host/provider ID rules; positive fixed generation; queue 64; 16 concurrent live requests | Every value at its limit succeeds; terminal requests leave the live-capacity count so sixteen sequential terminals permit request seventeen | Every limit+1 or invalid framing/field/direction/generation/order/rate fails the exact generation with `PLG-E502`; stale screen/activation/effect correlation mutates nothing | Bounded read/drain only | No partial provider state survives failure | exhaustive N/N+1 table, seventeen-sequential-request test, and stale-correlation pre-mutation test |
+| CW10-07 | Provider progress reducer plus live delivery adapter | Sequence begins 1, increments exactly 1, max 256; total implies completed; completed/total never decrease | Bounded progress state updates deterministically and renders while the process is still running | Gap, duplicate, decrease, missing completed, completed>total, event 257, or stale correlation fails/ignores only that generation | Live typed delivery only | Progress is session-only | progress property/table tests plus a fixture barrier proving UI/state observes progress before terminal |
+| CW10-08 | Provider continuation plus shared host confirmation modal | Declared provider continuation; owner/action/context/generation-bound ID; 5-minute TTL; exact declared field schema | Production modal renders exact provider text/fields; Confirm consumes ID once and starts fresh invocation B (fresh one-shot lifecycle or same persistent session according to mode) with exact continuation; Cancel starts none and restores focus | Forged, expired, reused, owner/action/context/generation mismatch, or undeclared destructive policy starts no continuation | Bounded handle-free pending confirmation and UI intent only | Confirmation is not persisted | two-invocation transcript, production key routing, expiry/reuse table, and real TUI scenario |
+| CW10-09 | Live cancel/terminal race | Both event orderings; exactly one outcome/error terminal; invocation remains live while cancellation is requested | Runtime owner writes one typed cancel envelope for a live request; first terminal result remains authoritative in cancel-first and terminal-first orderings | Every later byte is `PLG-E502` and is preserved as a diagnostic but cannot replace first result; cancel after terminal performs no write | Best-effort live cancel envelope and bounded cleanup | Session-only | real transcript proves cancel frame and both race orderings |
+| CW10-10 | Explicit production Retry | Old generation output races a new positive generation | Retry input creates a fresh host generation, replaces/reaps old one-shot work or starts a fresh request on the persistent session, and stale lines change neither provider nor host state | Current-generation failure is visible; stale output/completion/host effect is ignored before mutation | Runtime owner cancels/reaps replaced work; new invoke is post-commit | Selection/config retained | production key routing plus stale stream/completion/effect generation tests |
+| CW10-11 | Supervisor shutdown, cancellation, replacement, and host exit | Continuous stdout/stderr drain; shutdown 2 s; stdin close/group/known descendants terminate 2 s; kill/reap every known descendant and final drain 2 s; Unix/Windows | Leader, child, escaped child, and grandchild are dead after bounded cleanup and the owned leader is reaped | Expired stage escalates deterministically; no known descendant or held pipe remains; cleanup evidence is retained | Bounded targeted signals and drain only; never broad process-name killing | None | child/grandchild/escaped-group fixture with PID liveness capture and cleanup diagnostic assertions |
 | CW10-12 | Offline recovery/config CLI | Malformed config plus selected hanging provider | Command reports its normal recovery result and starts zero providers | Config diagnostic only; provider executable is untouched | None | Recovery retains/repairs only its documented durable target | executable trap around recovery command |
-| CW10-13 | TUI projection and input dispatch | NORMAL, FOCUSED, UNAVAILABLE, ERROR, DIRTY/CONFIRMATION, RECOVERY, SMALL; protected exit; accessible focus | Distinct states render; reason is byte-identical to action-registry availability; focus is visible without colour and trapped/restored | Unavailable action dispatches no effect; tiny viewport remains usable | UI intent messages only | No UI runtime state persisted | TUI harness scenarios created and proven RED before UI implementation plus pure projection tests |
-| CW10-14 | Supervisor Configure/environment construction and every provider-owned observation surface | Empty base env; provider dir + system bins PATH; contained HOME/TMPDIR; locale; declared nonsecret values; declared secret references; stderr max 262,144 | Provider receives only allowed names; secret value appears only in owning Configure or explicitly declared secret environment binding | Missing declaration/value is typed and redacted; no secret appears in state/log/stderr/report/diagnostic | Contained directories and bounded redacted capture | Config stores only references, never values | fixture records argv/env/cwd/stdin and scans Configure, env, state, stderr, report, diagnostics |
+| CW10-13 | Production TUI projection and input dispatch | NORMAL, FOCUSED, UNAVAILABLE, ERROR, DIRTY/CONFIRMATION, RECOVERY, SMALL; live progress; Confirm/Cancel/Retry; protected exit; accessible focus | All seven modes and progress render through the real screen/modal tree; reason is byte-identical to action-registry availability; focus is visible without colour and trapped/restored; production keys dispatch typed intents | Unavailable action dispatches no effect; tiny viewport remains usable; stale mode input is inert | UI intent messages only | No UI runtime state persisted | TUI scenarios authored/proven RED before renderer work, then real tmux scenarios for all modes and controls plus unit projection/input tests |
+| CW10-14 | Composition, Configure/environment construction, and every provider-owned observation surface | Published `plugins.<id>.config`; empty base env; provider dir + system bins PATH; contained HOME/TMPDIR; locale; declared nonsecret values; declared secret references; stderr max 262,144 | Owning Configure receives exact selected typed config and resolved declared secret references; provider environment receives only explicitly declared bindings; values work for one-shot and persistent modes | Missing declaration/value is typed and redacted; no secret appears in state/log/stderr/report/diagnostic or another provider's Configure | Contained directories and bounded redacted capture | Config stores only references, never resolved secret values | composition-to-fixture transcript records config/env/cwd/stdin and scans Configure, env, state, stderr, report, diagnostics |
 
 ## 5. Bounds and lifecycle invariants
 
 - Request IDs are `h-` or `p-` plus 6–20 ASCII digits; host/provider direction
   is checked for every payload.
-- One process has one fixed positive generation.
+- One process has one fixed positive wire generation. Host request generations
+  remain independently monotonic correlation identities; persistent requests
+  share the ready process's wire generation without sharing host authority.
 - Handshake is exactly hello, hello-ack, configure, ready; each stage has 5 s.
-- Invocation timeout is 60 s by default and the manifest range is 1–600 s.
-- Maximum active requests is 16; maximum queued outbound envelopes is 64.
+- Invocation timeout is 60 s by default and the manifest range is 1–600 s; the
+  descriptor-selected value is copied exactly into each invocation deadline.
+- Maximum concurrent *live* requests is 16; terminal history does not consume
+  capacity. Maximum queued outbound envelopes is 64.
 - Maximum stderr retained is 262,144 bytes; stdout and stderr drain continuously.
-- First terminal wins. Data after terminal is fatal but cannot change that result.
+- First terminal wins. Data after terminal is fatal and observable but cannot
+  change that result.
 - One-shot starts no process at startup and performs a fresh full lifecycle for
   each invocation, including continuation invocation B.
 - Persistent processes start only during candidate startup in plugin-ID order;
-  all required candidates reach Ready before publication; no auto-restart.
-- Retry is operator-explicit and allocates a new generation.
+  all required candidates reach Ready before publication; invocations use those
+  same processes; health loss publishes unavailable once and never auto-restarts.
+- Retry is operator-explicit and allocates a new host request generation.
+- Stream messages must match an exact pending effect correlation before request
+  mutation. Host outcome effects repeat current-authority validation at apply.
 
 ## 6. Bounded vertical slices
 
@@ -172,6 +210,53 @@ session-only and has no migration.
 - Stop: integration needs an unplanned public abstraction or navigation behavior
   beyond the issue contract.
 
+### Remediation Slice E — mode-aware live runtime owner
+
+- Rows: CW10-02/03/06/07/09/10 and S14–S19/S23/S26.
+- RED first: same-PID persistent invocation/no second spawn, progress barrier before
+  terminal, live cancel frame and both terminal races, exact 1/60/600-second
+  descriptor bounds, sequential request 17, stale-correlation pre-mutation, and
+  post-Ready crash availability.
+- GREEN: one boundary-local owner dispatches by mode, owns every live control and
+  event stream, and emits correlated progress/terminal/diagnostic/health events.
+- Stop: a second lifecycle authority, runtime handle in `AppState`, new
+  dependency, or protocol vocabulary expansion would be required.
+
+### Remediation Slice F — configuration and authority effects
+
+- Rows: CW10-14, the host-operation half of CW10-10, and S20/S22/S24.
+- RED first: selected plugin config/secret references/environment reach only the
+  owning Configure or declared binding; stale outcome effects do nothing;
+  current Navigate/Refresh/Notice effects apply; startup failure contributes no
+  provider row.
+- GREEN: composition consumes the immutable publication, terminal reducers stage
+  closed host effects, adapters revalidate current authority immediately before
+  application, and rollback publication is literal.
+- Stop: secret storage, undeclared ambient environment, panel/migration execution,
+  or a second route/resource authority would be required.
+
+### Remediation Slice G — production provider interaction surface
+
+- Rows: CW10-08/10/13 and S21.
+- RED first: real TUI scenarios for all seven modes, live progress, and production
+  Confirm/Cancel/Retry controls are authored and shown failing before renderer or
+  input changes.
+- GREEN: one thin production surface projects `ProviderRequestState`, traps and
+  restores focus, emits typed intents, and stays usable in the small layout.
+- Stop: provider-authored UI, arbitrary host messages, or CW-11 panel ownership
+  would be required.
+
+### Remediation Slice H — complete bounded cleanup
+
+- Rows: CW10-02/09/11 and S25/S26.
+- RED first: escaped child/grandchild PIDs survive the old cleanup and a
+  post-terminal protocol/cleanup fault disappears at the old worker boundary.
+- GREEN: targeted platform process-tree cleanup leaves every captured descendant
+  dead within the staged bounds; the first terminal remains authoritative while
+  later failures remain visible diagnostics.
+- Stop: broad name-based process killing, unsafe code, or sandboxing would be
+  required.
+
 ## 7. Expected paths by architectural layer
 
 | Layer | Expected paths |
@@ -220,7 +305,20 @@ requires it; no runtime dependency or feature is added.
 | S13 | Help's scroll clamp used `content_lines - viewport`, but `ScrollableText` word-wraps content and the offset is in *content-line* units. The clamp therefore stopped short by however many lines wrapped, leaving the tail of Help permanently unreachable. Invisible while the compiled table was all of Help; it hid the entire package section the moment anything was appended. The clamp also derived its viewport from raw terminal rows while the renderer used the app's (smaller) render rows | **In scope (fixed)** — `help_max_scroll` is one wrap-aware function both call sites share, returning the first content line whose own first display row still fills the viewport |
 | S8 | CW-09 never registers installed packages as configuration owners, so `plugins.<id>` trust published as *dormant* and every package read as untrusted no matter what the operator chose. CW-10 cannot select trusted packages without this | **In scope (prerequisite)** — added `config_owners::owner_catalog_with_packages` and used it at the startup boundary, and moved the package scan ahead of settings publication. `plugin_command` already worked around the gap by string-scanning the raw document |
 | S9 | The settings **editor** still builds its catalog from `builtin_owner_catalog()`, so toggling package trust in the UI remains unpublishable | **Deferred follow-up** — pre-existing CW-09 defect, not introduced here, and out of CW-10's acceptance matrix. Startup now reads trust correctly; the editor path needs the same package-aware catalog |
-| S10 | `run_one_shot` retained only `TranscriptEntry::Progress(sequence)`, so the worker was fabricating empty progress (`message: ""`, no counts) — progress an operator cannot read, contradicting CW10-07 | **In scope (fixed)** — `LifecycleTranscript` now also retains the provider's own ordered `ProgressPayload`s, redacted against resolved secrets, and the worker forwards them verbatim |
+| S10 | `run_one_shot` retained only `TranscriptEntry::Progress(sequence)`, so the worker was fabricating empty progress (`message: ""`, no counts) — progress an operator cannot read, contradicting CW10-07 | **In scope (partially fixed)** — transcript payload retention is valuable, but production must now deliver each redacted payload live before terminal rather than replay the transcript afterward |
+| S14 | `ProviderActionDescriptor.mode` is retained but dispatch always calls `build_one_shot`; a Ready persistent provider sits idle while a second process runs the action | **In scope (CW10-02/03; successor prerequisite)** — one mode-aware runtime owner dispatches one-shot to a fresh session and persistent to its already-Ready session |
+| S15 | `ProviderActionDescriptor.timeout_seconds` is ignored and every action uses the fixed 60-second production bound | **In scope (CW10-02/06)** — carry the exact validated descriptor value (1–600, default 60) into invocation timing; prove 1, 60, and 600 |
+| S16 | The provider worker buffers progress until process completion and serially blocks before polling more work | **In scope (CW10-07/09)** — runtime sessions emit live typed events and observe cancellation while an invocation is active; no generic event bus is introduced |
+| S17 | `CancelRequest` logs only; no live cancel envelope or real cancel/terminal race exists | **In scope (CW10-09)** — route cancellation to the owning live session and preserve first-terminal semantics plus later protocol diagnostics |
+| S18 | Terminal request records count permanently against the 16-request bound despite `drain_terminal` having no production caller | **In scope (CW10-06)** — capacity counts only live requests; bounded terminal display/history is drained or evicted without losing the current terminal result |
+| S19 | Provider progress/outcome/error mutates request state before CW-01 effect-correlation acceptance | **In scope (CW01/CW06 integration, CW10-06/10)** — add a non-consuming exact-live correlation gate for stream events; consume once at terminal completion; stale stream and host effects are inert |
+| S20 | Accepted Navigate/Refresh/Notice values stop in provider request state | **In scope (CW10 Outcome contract)** — stage closed post-commit host effects and revalidate current route/resource/screen-instance/activation authority at execution; panel and migration outcomes remain #391 |
+| S21 | Pure confirmation/retry/cancel reducers and seven provider view modes have no complete production renderer/input path | **In scope (CW10-08/10/13)** — add production modal/surface and key routing with UI/unit tests and RED-first real TUI scenarios |
+| S22 | Composition replaces published plugin config, secret references, and environment declarations with empty maps | **In scope (CW09 integration, CW10-14)** — carry the selected immutable publication into only the owning Configure/environment boundary, preserving redaction and isolation |
+| S23 | `PersistentSupervisor::health` has no production poller and a post-Ready crash never updates shared action availability | **In scope (CW10-03/04)** — the runtime owner observes sticky health and republishes affected action availability without auto-restart |
+| S24 | Persistent startup failure synthesizes unavailable provider actions after rollback | **In scope (CW10-04)** — literal atomic publish-nothing for that provider contribution; retain diagnostics separately and preserve the prior committed snapshot |
+| S25 | Escaped descendants outlive leader-group shutdown and keep drains open | **In scope (CW10-11)** — capture and target the owned descendant tree with platform-specific bounded process-tree cleanup; never use broad name-based killing |
+| S26 | The worker drops `cleanup_failure` after a terminal result | **In scope (CW10-02/09/11)** — preserve the first terminal and surface later protocol/cleanup failure through a separate correlated diagnostic |
 | S11 | Any `.github/`, quality-gate, dependency, `.llxprt/`, or `.code_puppy/` change | **Out of scope / approval required** |
 
 New discoveries are appended before implementation expands.
@@ -229,15 +327,16 @@ New discoveries are appended before implementation expands.
 
 | Review | Budget | Used |
 |---|---|---|
-| Subagent design/code review cycles total | 2 | 0 |
-| Local OCR before PR | 2 | 0 |
-| OCR after PR | 2 | 0 |
-| CodeRabbit | Ready-head review plus one bounded remediation cycle | 0 |
+| Clean architecture/code review cycles total | 2 | 1 |
+| Local OCR before PR | 2 | 2 |
+| OCR after PR | 2 | 2 (exhausted) |
+| CodeRabbit | Ready-head review plus one bounded remediation cycle | Attempted; declined for external fair-usage limit, no findings |
 
-DeepThinker was requested for issue shaping but its transport closed before a
-result; the successful evidence-grounded shaping analysis came from the
-code-analysis subagent. A fresh DeepThinker review remains required in one code
-review cycle.
+DeepThinker completed the first clean architecture/intent cycle and found the
+production seams recorded as S14–S26. Exactly one clean review cycle remains
+after implementation; it must include DeepThinker with a generous synchronous
+budget. OCR's post-open allowance is exhausted and will not be run again without
+an explicit override.
 
 ## 11. Verification evidence
 

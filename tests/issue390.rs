@@ -24,6 +24,8 @@
 //!   into the single action registry, and what Help shows for it.
 //! - [`recovery_zero_spawn`]: CW10-12, the offline command starting no provider.
 
+#[path = "issue390/persistent_invocation.rs"]
+mod persistent_invocation;
 #[path = "issue390/persistent_lifecycle.rs"]
 mod persistent_lifecycle;
 #[path = "issue390/persistent_remediation.rs"]

@@ -7,7 +7,7 @@
 //! reducer registered, and the focus defaults to [`ConfirmFocus::Cancel`].
 
 use crate::domain::action_registry::Availability;
-use crate::domain::effects::ProviderRequestKey;
+use crate::domain::effects::{ProviderNotice, ProviderNoticeSeverity, ProviderRequestKey};
 use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
 use crate::domain::{Id, TypedMap};
@@ -18,7 +18,7 @@ use crate::state::provider_requests::{
 };
 use crate::state::provider_view::{
     ProviderRowStatus, ProviderViewInput, ProviderViewMode, SMALL_VIEWPORT_ROW_THRESHOLD,
-    project_provider_view,
+    project_provider_view, provider_notice_line,
 };
 
 fn owner() -> Id {
@@ -412,7 +412,7 @@ fn progress_row_shows_completed_and_total() {
         .unwrap_or_else(|| panic!("a focused row"));
     match &request_row.status {
         ProviderRowStatus::InProgress(summary) => {
-            assert_eq!(summary, "working: 3/10");
+            assert_eq!(summary, "working: 3 / 10");
         }
         other => panic!("expected InProgress, got {other:?}"),
     }
@@ -453,7 +453,11 @@ fn completed_row_shows_completed_status() {
         .iter()
         .find(|row| row.label.contains("gen 1"))
         .unwrap_or_else(|| panic!("the request row"));
-    assert_eq!(request_row.status, ProviderRowStatus::Completed);
+    assert_eq!(
+        request_row.status,
+        ProviderRowStatus::Completed("done".to_owned())
+    );
+    assert!(!projection.has_active_request);
 }
 
 #[test]
@@ -502,4 +506,19 @@ fn mode_precedence_confirmation_beats_unavailable() {
         matches!(projection.mode, ProviderViewMode::Confirmation { .. }),
         "Confirmation must beat Unavailable"
     );
+}
+
+#[test]
+fn typed_provider_notices_have_severity_specific_status_text() {
+    let info = ProviderNotice {
+        severity: ProviderNoticeSeverity::Info,
+        message: "completed".to_owned(),
+    };
+    let warning = ProviderNotice {
+        severity: ProviderNoticeSeverity::Warning,
+        message: "check the result".to_owned(),
+    };
+
+    assert_eq!(provider_notice_line(&info), "completed");
+    assert_eq!(provider_notice_line(&warning), "Warning: check the result");
 }

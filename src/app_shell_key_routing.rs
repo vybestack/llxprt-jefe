@@ -63,6 +63,37 @@ fn resolve_in_context(
     })
 }
 
+fn route_provider_surface_control(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    key_event: &KeyEvent,
+) -> bool {
+    if !key_event.modifiers.is_empty() {
+        return false;
+    }
+    let control = {
+        let state = app_state.read();
+        if !matches!(state.modal, jefe::state::ModalState::None)
+            || (state.provider_requests.is_idle() && state.provider_surface_action.is_none())
+        {
+            return false;
+        }
+        let confirming = state.provider_requests.pending_confirmation_count() > 0;
+        match key_event.code {
+            iocraft::prelude::KeyCode::Enter if confirming => {
+                crate::app_input::ProviderSurfaceControl::ActivateConfirmation
+            }
+            iocraft::prelude::KeyCode::Tab if confirming => {
+                crate::app_input::ProviderSurfaceControl::CycleConfirmationFocus
+            }
+            iocraft::prelude::KeyCode::Enter => crate::app_input::ProviderSurfaceControl::Retry,
+            iocraft::prelude::KeyCode::Esc => crate::app_input::ProviderSurfaceControl::Escape,
+            _ => return false,
+        }
+    };
+    crate::app_input::dispatch_provider_surface_control(app_state, &ctx.cloned(), control)
+}
+
 pub fn route_registry_key(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -70,6 +101,10 @@ pub fn route_registry_key(
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     key_event: &KeyEvent,
 ) -> bool {
+    if route_provider_surface_control(ctx, app_state, key_event) {
+        return true;
+    }
+
     let state = app_state.read();
     let input_mode = input_mode_for_state(&state);
     let context = match derive_action_context(&state, input_mode) {
@@ -166,8 +201,8 @@ fn route_pty_owned(
         Resolution::Dispatch { action, handler } => {
             execute_dispatch(handles, key_event, resolved.chord, action, handler)
         }
-        Resolution::Unavailable { reason, .. } => {
-            record_unavailable(&mut handles.app_state.write(), reason);
+        Resolution::Unavailable { action, reason } => {
+            record_unavailable(&mut handles.app_state.write(), Some(action), reason);
             true
         }
         Resolution::ForwardToPty | Resolution::Unbound => {
@@ -192,8 +227,8 @@ fn route_app_owned(
             }
             execute_dispatch(handles, key_event, resolved.chord, action, handler)
         }
-        Resolution::Unavailable { reason, .. } => {
-            record_unavailable(&mut handles.app_state.write(), reason);
+        Resolution::Unavailable { action, reason } => {
+            record_unavailable(&mut handles.app_state.write(), Some(action), reason);
             true
         }
         Resolution::ForwardToPty => {
@@ -219,8 +254,12 @@ fn route_app_owned(
     }
 }
 
-fn record_unavailable(state: &mut AppState, reason: String) {
-    state.record_unavailable_action(reason);
+fn record_unavailable(
+    state: &mut AppState,
+    action: Option<jefe::domain::action_registry::ActionId>,
+    reason: String,
+) {
+    state.record_unavailable_action(action, reason);
 }
 
 fn rapid_quit_eligible(input_mode: InputMode) -> bool {
@@ -272,10 +311,12 @@ fn execute_provider_action(
         drop(state);
         names
     };
-    let (Ok(context_screen), Ok(context_instance)) = (
-        jefe::domain::Id::parse(&screen),
-        jefe::domain::Id::parse(&instance),
-    ) else {
+    let Ok(context_screen) = jefe::domain::Id::parse(&screen) else {
+        tracing::error!(screen = %screen, "current provider screen is not a valid domain id");
+        return false;
+    };
+    let Ok(context_instance) = jefe::domain::Id::parse(&instance) else {
+        tracing::error!(screen_instance = %instance, "current provider screen instance is not a valid domain id");
         return false;
     };
     crate::app_input::invoke_provider_action(
@@ -311,8 +352,8 @@ pub fn execute_mouse_resolution(
         Resolution::Dispatch { action, handler } => {
             execute_dispatch(&mut routes, input.key_event, input.chord, action, handler)
         }
-        Resolution::Unavailable { reason, .. } => {
-            record_unavailable(&mut routes.app_state.write(), reason);
+        Resolution::Unavailable { action, reason } => {
+            record_unavailable(&mut routes.app_state.write(), Some(action), reason);
             true
         }
         Resolution::ForwardToPty | Resolution::Unbound => false,

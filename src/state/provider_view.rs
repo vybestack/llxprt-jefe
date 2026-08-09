@@ -53,8 +53,8 @@ pub enum ProviderRowStatus {
     Unavailable(String),
     /// The request is in progress with a progress summary.
     InProgress(String),
-    /// The request completed.
-    Completed,
+    /// The request completed with this operator-facing result summary.
+    Completed(String),
     /// The request failed.
     Failed(String),
     /// The request was cancelled.
@@ -166,7 +166,7 @@ impl<'a> ProviderViewInput<'a> {
 #[must_use]
 pub fn project_provider_view(input: &ProviderViewInput<'_>) -> ProviderViewProjection {
     let rows = project_rows(input);
-    let has_active_request = !input.requests.is_idle();
+    let has_active_request = input.requests.live_count() > 0;
 
     let mode = if input.viewport_rows < SMALL_VIEWPORT_ROW_THRESHOLD {
         ProviderViewMode::Small
@@ -252,13 +252,13 @@ fn row_status(request: &ActiveRequest) -> ProviderRowStatus {
     if request.is_cancelled() {
         return ProviderRowStatus::Cancelled;
     }
-    if request.completed_outcome().is_some() {
-        return ProviderRowStatus::Completed;
+    if let Some(outcome) = request.completed_outcome() {
+        return ProviderRowStatus::Completed(outcome_summary(outcome));
     }
     if let Some(progress) = request.latest_progress() {
         let summary = match (progress.completed, progress.total) {
             (Some(completed), Some(total)) => {
-                format!("{}: {}/{}", progress.message, completed, total)
+                format!("{}: {} / {}", progress.message, completed, total)
             }
             _ => progress.message.clone(),
         };
@@ -268,6 +268,20 @@ fn row_status(request: &ActiveRequest) -> ProviderRowStatus {
         return ProviderRowStatus::InProgress("in progress".to_owned());
     }
     ProviderRowStatus::None
+}
+
+fn outcome_summary(outcome: &crate::runtime::provider::protocol::Outcome) -> String {
+    use crate::runtime::provider::protocol::Outcome;
+
+    match outcome {
+        Outcome::Navigate { route_id, .. } => format!("Navigate to {route_id}"),
+        Outcome::Refresh { .. } => "Refresh requested".to_owned(),
+        Outcome::Notice { message, .. } => message.clone(),
+        Outcome::ReplacePanel { .. } => "Panel replaced".to_owned(),
+        Outcome::RequestHostConfirmation { .. } => "Confirmation required".to_owned(),
+        Outcome::ClosePanel { .. } => "Panel closed".to_owned(),
+        Outcome::MigratedConfig { .. } => "Configuration migrated".to_owned(),
+    }
 }
 
 /// Extract the dominant recovery message (crash/EOF/protocol/timeout).
@@ -287,6 +301,17 @@ fn dominant_error(input: &ProviderViewInput<'_>) -> Option<String> {
         .iter()
         .rev()
         .find_map(|request| request.failed_message().map(ToString::to_string))
+}
+
+/// Project a typed provider notice into the shared non-error status line.
+#[must_use]
+pub fn provider_notice_line(notice: &crate::domain::effects::ProviderNotice) -> String {
+    match notice.severity {
+        crate::domain::effects::ProviderNoticeSeverity::Info => notice.message.clone(),
+        crate::domain::effects::ProviderNoticeSeverity::Warning => {
+            format!("Warning: {}", notice.message)
+        }
+    }
 }
 
 #[cfg(test)]

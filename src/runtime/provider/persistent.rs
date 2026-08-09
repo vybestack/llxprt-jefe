@@ -471,6 +471,20 @@ impl PersistentSupervisor {
         self.candidates.len()
     }
 
+    /// Consume the supervisor, moving each ready candidate into a dedicated
+    /// command-owner thread that drives repeated same-PID invocations.
+    ///
+    /// The supervisor is fully consumed: its candidates become owned by the
+    /// returned [`PersistentSessionOwner`], and the supervisor's `Drop` is a
+    /// no-op afterward. No `Child`, pipe, or thread handle enters `AppState` —
+    /// the session owner stays at the runtime boundary.
+    #[must_use]
+    pub fn into_sessions(mut self) -> super::persistent_session::PersistentSessionOwner {
+        self.shut_down = true;
+        let candidates = std::mem::take(&mut self.candidates);
+        super::persistent_session::PersistentSessionOwner::from_candidates(candidates, self.bounds)
+    }
+
     /// Observe each candidate's health. A `ready` process that has since exited
     /// is reported as [`CandidateHealth::Exited`]; no auto-restart follows.
     pub fn health(&mut self) -> Vec<CandidateHealthSnapshot> {
@@ -543,7 +557,7 @@ pub(super) struct OwnedCandidate {
 /// A protocol fault is **sticky**: once illegal stdout is observed the candidate
 /// is marked faulted until it is reaped, even after the offending bytes are
 /// drained from the channel, so repeated probes cannot flip it back to `Ready`.
-fn candidate_health(candidate: &mut OwnedCandidate) -> CandidateHealth {
+pub(super) fn candidate_health(candidate: &mut OwnedCandidate) -> CandidateHealth {
     if let Some(evidence) = candidate.fault.clone() {
         return CandidateHealth::ProtocolFault { evidence };
     }
@@ -659,6 +673,9 @@ fn reap_all(candidates: Vec<OwnedCandidate>, bounds: &SupervisorBounds) -> Vec<C
 pub(super) fn reap_owned(mut owned: OwnedCandidate, bounds: &SupervisorBounds) -> ReapedCandidate {
     let plugin_id = owned.plugin_id.clone();
     let redactor = owned.redactor.clone();
+    // Snapshot descendants before the shutdown frame gives a provider the
+    // opportunity to exit and orphan an escaped process-group member.
+    let descendant_observation_error = owned.process.observe_descendants().err();
 
     // A self-terminated candidate needs no shutdown handshake; only a still-
     // healthy candidate strictly validates the shutdown-ack.
@@ -670,25 +687,27 @@ pub(super) fn reap_owned(mut owned: OwnedCandidate, bounds: &SupervisorBounds) -
 
     // Escalate/reap the leader. Both branches collect terminate/force-kill
     // errors (a benign ESRCH is filtered by `signal_cleanup_evidence`).
-    let (leader_reaped, signal_errors): (bool, Vec<io::Error>) = if may_signal_group(owned.exited) {
-        let (outcome, errors) =
-            staged_shutdown(&mut owned.process, owned.stdin.take(), bounds, owned.pid);
-        (matches!(outcome, ShutdownOutcome::Exited(_)), errors)
-    } else {
-        // The leader was already reaped, so its pid is free for the kernel to
-        // reuse and no longer names our process group. Signalling `-pid` here
-        // would target whatever tree now owns that number — on a busy CI runner
-        // that was the job itself, which died with a shutdown signal and exit
-        // 143 rather than any test failure.
-        //
-        // Descendants are still cleaned up: closing stdin drops the pipes they
-        // inherited, and the bounded final drains below observe whether they
-        // actually closed. A descendant that outlives its parent surfaces as a
-        // `DrainTimeout`, which is the honest report — better than a signal
-        // aimed at a pid we no longer own.
-        owned.stdin.take();
-        (true, Vec::new())
-    };
+    let (leader_reaped, mut signal_errors): (bool, Vec<io::Error>) =
+        if may_signal_group(owned.exited) {
+            let (outcome, errors) =
+                staged_shutdown(&mut owned.process, owned.stdin.take(), bounds, owned.pid);
+            (matches!(outcome, ShutdownOutcome::Exited(_)), errors)
+        } else {
+            // The leader PID may have been recycled, so its old process group is
+            // never named. Exact descendants captured while parentage was live
+            // remain owned cleanup targets.
+            owned.stdin.take();
+            let errors = owned
+                .process
+                .force_kill_descendants()
+                .err()
+                .into_iter()
+                .collect();
+            (true, errors)
+        };
+    if let Some(error) = descendant_observation_error {
+        signal_errors.push(error);
+    }
 
     let stdout_final = final_stdout_drain(&owned.stdout_drain.receiver, bounds.final_drain);
     let (_retained, _truncated, stderr_timed_out) =

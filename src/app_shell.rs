@@ -18,12 +18,49 @@ use jefe::messages::AppMessage;
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
+use jefe::state::provider_view::{
+    ProviderViewInput, ProviderViewProjection, project_provider_view,
+};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
 use jefe::theme::{ThemeColors, ThemeManager};
+use jefe::ui::modals::ProviderModal;
 use jefe::ui::orchestration::{
     ModalViewport, TerminalRenderData, build_modal_element, build_screen_element,
     derive_confirm_modal_data,
 };
+
+fn provider_projection(snapshot: &AppState, viewport_rows: u16) -> Option<ProviderViewProjection> {
+    let registry = snapshot.action_registry_snapshot.as_ref()?;
+    if let Some(surface_action) = snapshot.provider_surface_action.as_ref() {
+        let action = registry
+            .provider_actions()
+            .find(|action| action.id == *surface_action)?;
+        return Some(project_provider_view(&ProviderViewInput {
+            requests: &snapshot.provider_requests,
+            availability: registry.availability_of(&action.id),
+            focused: false,
+            confirm: None,
+            viewport_rows: usize::from(viewport_rows),
+            focused_index: None,
+            action_label: Some(&action.label),
+        }));
+    }
+    let requests = snapshot.provider_requests.requests();
+    let request = requests.last()?;
+    let action = registry
+        .provider_actions()
+        .find(|action| action.id.as_str() == request.key().action_id.as_str())?;
+    let availability = registry.availability_of(&action.id);
+    Some(project_provider_view(&ProviderViewInput {
+        requests: &snapshot.provider_requests,
+        availability,
+        focused: !request.is_terminal(),
+        confirm: Some(snapshot.provider_requests.confirmation_focus()),
+        viewport_rows: usize::from(viewport_rows),
+        focused_index: Some(requests.len().saturating_sub(1)),
+        action_label: Some(&action.label),
+    }))
+}
 
 use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
@@ -213,11 +250,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         }
     });
     // Issue #390 CW-10 Slice D: background provider effect worker. The loop
-    // body lives in [`crate::app_shell_workers::run_provider_worker`].
+    // body lives in [`crate::app_shell_provider_worker::run_provider_worker`].
     hooks.use_future({
         let ctx = ctx.clone();
         async move {
-            crate::app_shell_workers::run_provider_worker(ctx, app_state).await;
+            crate::app_shell_provider_worker::run_provider_worker(ctx, app_state).await;
         }
     });
 
@@ -372,7 +409,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         crate::app_shell_workers::shutdown_flush_capture(ctx.as_ref());
         // Issue #390 CW-10 Slice D: shut down the provider coordinator so
         // every persistent provider candidate is reaped before host exit.
-        crate::app_shell_workers::shutdown_provider_coordinator(ctx.as_ref());
+        crate::app_shell_provider_worker::shutdown_provider_coordinator(ctx.as_ref());
 
         hooks.use_context_mut::<SystemContext>().exit();
 
@@ -537,6 +574,16 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
             rows: render_rows,
         },
     );
+    let provider_el: Option<AnyElement<'static>> = if matches!(modal, ModalState::None) {
+        provider_projection(&snapshot, render_rows).map(|projection| {
+            element! {
+                ProviderModal(projection: projection, colors: colors.clone())
+            }
+            .into_any()
+        })
+    } else {
+        None
+    };
 
     // Root element with proper dimensions.
     // Search is an in-band mode used by SplitScreen's filter bar, not a blocking
@@ -544,7 +591,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let content_el: AnyElement<'static> = if matches!(modal, ModalState::Search { .. }) {
         screen_el
     } else {
-        modal_el.unwrap_or(screen_el)
+        provider_el.or(modal_el).unwrap_or(screen_el)
     };
 
     element! {

@@ -11,6 +11,7 @@
 //! [`ProviderRequestState`]: crate::state::provider_requests::ProviderRequestState
 //! [`ProviderEffect`]: crate::domain::effects::ProviderEffect
 
+use crate::domain::action_registry::ActionId;
 use crate::domain::effects::ProviderRequestKey;
 use crate::domain::{Id, TypedMap};
 use crate::runtime::provider::protocol::{Outcome, ProgressPayload};
@@ -94,6 +95,10 @@ pub enum ProviderMessage {
         /// Epoch seconds when confirm was called (deterministic).
         now_epoch: u64,
     },
+    /// Move focus between the controls of a pending provider confirmation.
+    CycleConfirmationFocus,
+    /// Cancel and consume a pending provider confirmation without invocation B.
+    CancelConfirmation,
     /// Retry an old generation with a fresh one (CW10-10).
     Retry {
         /// The old request/generation identity.
@@ -113,6 +118,13 @@ pub enum ProviderMessage {
         /// Immutable action policy derived from the action declaration.
         policy: ActionPolicy,
     },
+    /// Replace the data-only post-Ready health projection for provider actions.
+    HealthChanged {
+        /// Actions whose persistent owner is no longer healthy.
+        unavailable: std::collections::BTreeMap<ActionId, String>,
+    },
+    /// Dismiss retained terminal rows without affecting live requests.
+    DismissTerminals,
 }
 
 impl ProviderMessage {
@@ -126,7 +138,11 @@ impl ProviderMessage {
             Self::Cancel { .. } => "ProviderCancel",
             Self::GenerationFailed { .. } => "ProviderGenerationFailed",
             Self::Confirm { .. } => "ProviderConfirm",
+            Self::CycleConfirmationFocus => "ProviderCycleConfirmationFocus",
+            Self::CancelConfirmation => "ProviderCancelConfirmation",
             Self::Retry { .. } => "ProviderRetry",
+            Self::HealthChanged { .. } => "ProviderHealthChanged",
+            Self::DismissTerminals => "ProviderDismissTerminals",
         }
     }
 }

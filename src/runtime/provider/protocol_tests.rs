@@ -387,6 +387,31 @@ fn a_payload_on_the_wrong_stream_is_rejected() {
 }
 
 #[test]
+fn request_id_origin_must_match_the_message_stream() {
+    let host_origin_on_provider_stream = envelope(
+        "hello-ack",
+        "h-000001",
+        1,
+        r#"{"provider_name":"x","protocol":1}"#,
+    );
+    assert!(matches!(
+        rejected(&host_origin_on_provider_stream, Direction::ProviderToHost),
+        ProviderError::InvalidRequestOrigin { .. }
+    ));
+
+    let provider_origin_on_host_stream = envelope(
+        "hello",
+        "p-000001",
+        1,
+        r#"{"host_api":"jefe","plugin_id":"vybestack.git-merger","plugin_version":"1.0.0"}"#,
+    );
+    assert!(matches!(
+        rejected(&provider_origin_on_host_stream, Direction::HostToProvider),
+        ProviderError::InvalidRequestOrigin { .. }
+    ));
+}
+
+#[test]
 fn request_ids_accept_and_reject_their_digit_boundaries() {
     let base = |rid: &str| {
         envelope(

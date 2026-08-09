@@ -30,8 +30,17 @@
 //!   shutdown-ack lifecycle-failure evidence.
 //! - `persistent-ready`: a persistent candidate that handshakes to `ready`,
 //!   records its plugin id into a shared startup-sequence file (argv[2]), then
-//!   waits for `shutdown` and acknowledges it. Used by the CW10-03 ordered
-//!   two-provider startup and the CW10-04 rollback/no-restart/shutdown tests.
+//!   enters the post-ready loop reading `invoke-action`/`cancel`/`shutdown`.
+//!   Used by the CW10-03 ordered two-provider startup and the CW10-04
+//!   rollback/no-restart/shutdown tests.
+//! - `persistent-invoke`: like `persistent-ready` but each `invoke-action`
+//!   emits three progress events and a Navigate outcome (repeated same-PID
+//!   invocation, progress-before-terminal evidence).
+//! - `persistent-invoke-hang`: like `persistent-invoke` but each
+//!   `invoke-action` emits one progress and never a terminal (cancel/timeout
+//!   evidence).
+//! - `persistent-invoke-then-crash`: after the first `invoke-action` emits one
+//!   progress then exits 1 (post-Ready crash during invocation evidence).
 //! - `persistent-hello-hang`: read `hello` then hang (hello-ack timeout).
 //! - `persistent-ready-hang`: `hello-ack` then hang before `ready` (ready
 //!   timeout).
@@ -202,6 +211,16 @@ fn emit_terminal_scenario(mode: &str, generation: u64, secret: Option<&str>) -> 
             hang_forever();
         }
         "progress-256" => emit_progress_256(generation),
+        // Emit a few progress frames then hang forever: the invocation is live
+        // but never reaches a terminal. Used to prove live progress delivery
+        // (S16) and that a host cancel is observed while the invocation is
+        // live rather than after the invocation deadline (S17).
+        "progress-then-hang" => {
+            for seq in 1..=3u16 {
+                emit(&progress_frame(generation, seq));
+            }
+            hang_forever();
+        }
         "error" => emit(&frame(
             "error",
             generation,
@@ -312,7 +331,7 @@ fn emit(line: &str) {
 
 fn frame(kind: &str, generation: u64, payload: &str) -> String {
     format!(
-        "{{\"protocol\":1,\"type\":\"{kind}\",\"request_id\":\"h-000001\",\"generation\":{generation},\"payload\":{payload}}}"
+        "{{\"protocol\":1,\"type\":\"{kind}\",\"request_id\":\"p-000001\",\"generation\":{generation},\"payload\":{payload}}}"
     )
 }
 
@@ -471,8 +490,10 @@ fn record_observations(dir: Option<&str>, configure_line: &str) {
 /// The persistent candidate handshake. It reaches `ready`, records its plugin
 /// id into a shared startup-sequence file (when argv[2] is a directory) so the
 /// ordered-startup test can observe the deterministic plugin-id start order,
-/// then waits for `shutdown` and acknowledges it. Failure modes hang or exit
-/// at the named handshake phase.
+/// then enters the post-ready loop: it reads `invoke-action` (emitting progress
+/// and a terminal outcome), `cancel` (recording receipt), and `shutdown`
+/// (acknowledging and exiting). Failure modes hang or exit at the named
+/// handshake phase before reaching the post-ready loop.
 fn run_persistent(mode: &str, hello: &str, generation: u64) -> Result<(), u8> {
     let plugin_id = parse_plugin_id(hello);
     if let Some(dir) = std::env::args().nth(2).as_deref() {
@@ -538,15 +559,36 @@ fn run_persistent(mode: &str, hello: &str, generation: u64) -> Result<(), u8> {
         std::process::exit(0);
     }
 
-    let _shutdown = next_line()?;
+    persistent_ready_loop(mode, generation, &plugin_id)
+}
+
+/// Read requests after a persistent candidate reaches Ready.
+fn persistent_ready_loop(mode: &str, generation: u64, plugin_id: &str) -> Result<(), u8> {
+    let record_dir = std::env::args().nth(2);
     if mode == "persistent-descendant-hang" {
-        // Spawn an escaping descendant in its own group that holds the inherited
-        // pipes, then acknowledge and exit. The leader reaps but the descendant
-        // keeps the pipes open, so the bounded drain observes no EOF (DrainTimeout).
-        spawn_escaping_descendant();
+        spawn_escaping_descendant(record_dir.as_deref(), plugin_id);
     }
-    emit_persistent_ack(mode, generation)?;
-    Ok(())
+    loop {
+        let line = next_line()?;
+        match frame_type(&line).as_deref() {
+            Some("invoke-action") => emit_persistent_invocation(mode, generation),
+            Some("cancel") => {
+                record_cancel_received(record_dir.as_deref(), plugin_id);
+                if mode == "persistent-cancel-then-terminal" {
+                    emit(&frame(
+                        "outcome",
+                        generation,
+                        r#"{\"kind\":\"navigate\",\"route_id\":\"r.home\",\"activation\":{}}"#,
+                    ));
+                }
+            }
+            Some("shutdown") => {
+                emit_persistent_ack(mode, generation)?;
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The `ready` payload for a persistent mode. `persistent-secret-protocol`
@@ -562,6 +604,47 @@ fn persistent_ready_payload(mode: &str, configure_line: &str) -> String {
         };
     }
     persistent_capabilities(mode)
+}
+
+/// Extract the `"type"` field from a JSONL line as an owned string.
+fn frame_type(line: &str) -> Option<String> {
+    parse_host_line(line).and_then(|value| value.get("type")?.as_str().map(str::to_owned))
+}
+
+/// Emit the post-`invoke-action` scenario for a persistent candidate. The
+/// default is three progress events then a Navigate outcome (the happy
+/// repeated-invocation path). `persistent-invoke-hang` emits one progress and
+/// never a terminal (cancel/timeout evidence). `persistent-invoke-then-crash`
+/// emits one progress then exits 1 (post-Ready crash during invocation).
+fn emit_persistent_invocation(mode: &str, generation: u64) {
+    match mode {
+        "persistent-invoke-hang" | "persistent-cancel-then-terminal" => {
+            emit(&progress_frame(generation, 1));
+        }
+        "persistent-invoke-then-crash" => {
+            emit(&progress_frame(generation, 1));
+            std::process::exit(1);
+        }
+        _ => {
+            for seq in 1..=3u16 {
+                emit(&progress_frame(generation, seq));
+            }
+            emit(&frame(
+                "outcome",
+                generation,
+                r#"{"kind":"navigate","route_id":"r.home","activation":{}}"#,
+            ));
+        }
+    }
+}
+
+/// Record that the host sent a `cancel` frame to this candidate (cancel
+/// delivery evidence for CW10-09). Best-effort; never affects the protocol.
+fn record_cancel_received(dir: Option<&str>, plugin_id: &str) {
+    if let Some(dir) = dir {
+        let path = std::path::Path::new(dir).join(format!("{plugin_id}.cancel"));
+        let _ = std::fs::write(path, b"1");
+    }
 }
 
 /// Emit the persistent shutdown-ack scenario. The default is a valid ack; the
@@ -599,7 +682,7 @@ fn emit_persistent_ack(mode: &str, generation: u64) -> Result<(), u8> {
 /// pipes and lingers. On Unix `process_group(0)` escapes the leader's group, so
 /// the supervisor's group reap cannot reach it and the inherited pipes stay open.
 #[cfg(unix)]
-fn spawn_escaping_descendant() {
+fn spawn_escaping_descendant(record_dir: Option<&str>, plugin_id: &str) {
     use std::os::unix::process::CommandExt;
     let exe = std::env::current_exe().unwrap_or_else(|error| {
         let mut stderr = std::io::stderr().lock();
@@ -613,13 +696,18 @@ fn spawn_escaping_descendant() {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .process_group(0);
-    let _ = command.spawn();
+    if let Ok(child) = command.spawn()
+        && let Some(dir) = record_dir
+    {
+        let path = std::path::Path::new(dir).join(format!("{plugin_id}.descendant-pid"));
+        let _ = std::fs::write(path, child.id().to_string());
+    }
 }
 
 /// Non-Unix fallback: no escaping descendant (Windows process-tree semantics
-/// differ); the DrainTimeout assertion is exercised only on Unix.
+/// differ); the cleanup assertion is exercised only on Unix.
 #[cfg(not(unix))]
-fn spawn_escaping_descendant() {}
+fn spawn_escaping_descendant(_record_dir: Option<&str>, _plugin_id: &str) {}
 
 /// The `ready` capabilities the persistent fixture reports for a mode.
 ///

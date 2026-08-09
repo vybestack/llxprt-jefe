@@ -4,7 +4,10 @@ mod action_availability;
 mod action_handlers;
 pub use action_availability::refresh_action_availability;
 mod provider_dispatch;
-pub use provider_dispatch::invoke_provider_action;
+pub use provider_dispatch::schedule_provider_effects;
+pub use provider_dispatch::{
+    ProviderSurfaceControl, dispatch_provider_surface_control, invoke_provider_action,
+};
 #[cfg(test)]
 #[path = "action_handlers_tests.rs"]
 mod action_handlers_tests;

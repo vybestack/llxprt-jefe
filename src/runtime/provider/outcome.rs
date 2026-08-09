@@ -22,6 +22,9 @@ pub enum OneShotOutcome {
     Completed(dto::Outcome),
     /// The provider reported a typed error.
     ProviderError(dto::ErrorPayload),
+    /// The host cancelled the invocation (first terminal from the session;
+    /// the reducer already marks the request Cancelled, S17).
+    Cancelled,
     /// A supervisor-level failure (spawn, protocol, timeout, crash, I/O).
     Failed(SupervisorFailure),
 }
@@ -94,6 +97,10 @@ pub enum CleanupFailure {
     /// Data buffered after a valid ack is also reported here (observed by the
     /// bounded final stdout drain, not by an unbounded wait).
     ShutdownAck(error::ProviderError),
+    /// Provider bytes observed after the request's first terminal event. The
+    /// original result remains authoritative; this protocol failure is emitted
+    /// separately and the persistent generation is no longer reusable.
+    PostTerminal(error::ProviderError),
     /// The stdout or stderr drain did not close within the final-drain bound, so
     /// the process tree could not be observed fully drained (a descendant likely
     /// holds an inherited pipe). The leader may have reaped while a descendant
@@ -114,7 +121,7 @@ impl CleanupFailure {
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
-            Self::ShutdownAck(_) => error::PROTOCOL_FAILURE_CODE,
+            Self::ShutdownAck(_) | Self::PostTerminal(_) => error::PROTOCOL_FAILURE_CODE,
             Self::DrainTimeout | Self::NotReaped | Self::Io(_) => error::RUNTIME_UNAVAILABLE_CODE,
         }
     }
@@ -215,5 +222,13 @@ impl OneShotResult {
             exit_code: None,
             cleanup_failure: None,
         }
+    }
+
+    /// A terminal-failed result for a failure outside the process lifecycle
+    /// (pre-spawn, thread panic). Public so the runtime boundary can construct
+    /// one without spawning a process. No process evidence is carried.
+    #[must_use]
+    pub fn without_process(failure: SupervisorFailure) -> Self {
+        Self::pre_spawn(failure)
     }
 }

@@ -61,7 +61,7 @@ fn cw10_14_a_persistent_startup_failure_redacts_a_secret_echoed_in_the_protocol_
 
 #[test]
 #[cfg(unix)]
-fn cw10_11_a_descendant_holding_pipes_surfaces_a_drain_timeout_not_a_clean_reap() {
+fn cw10_11_shutdown_kills_and_reaps_a_descendant_that_escaped_the_leader_group() {
     let _budget = super::persistent_support::process_budget();
     let scene = super::persistent_support::Scene::new();
     let startup = PersistentStartup {
@@ -76,19 +76,30 @@ fn cw10_11_a_descendant_holding_pipes_surfaces_a_drain_timeout_not_a_clean_reap(
     let shutdown = supervisor.shutdown();
     assert_eq!(shutdown.len(), 1);
     let entry = &shutdown[0];
+    assert!(entry.process_reaped, "the whole tree must reap: {entry:?}");
     assert!(
-        !entry.process_reaped,
-        "a descendant holding the pipes must not report a clean reap: {entry:?}"
+        entry.cleanup_failure.is_none(),
+        "escaped descendants must not leave a drain timeout: {entry:?}"
     );
-    match &entry.cleanup_failure {
-        Some(CleanupFailure::DrainTimeout) => {}
-        other => panic!("expected DrainTimeout cleanup failure, got {other:?}"),
-    }
-    // The leader was still killed even though the tree was not cleanly drained.
     assert!(
         process_is_gone(candidate_pid(&scene, "vendor.alpha")),
-        "the leader was still killed/reaped despite the lingering descendant"
+        "the provider leader must be gone"
     );
+    let descendant_pid = descendant_pid(&scene, "vendor.alpha");
+    assert!(
+        process_is_gone(descendant_pid),
+        "escaped descendant {descendant_pid} must be gone"
+    );
+}
+
+#[cfg(unix)]
+fn descendant_pid(scene: &super::persistent_support::Scene, plugin_id: &str) -> u32 {
+    let path = scene.record_dir.join(format!("{plugin_id}.descendant-pid"));
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read descendant pid {}: {error:?}", path.display()));
+    text.trim()
+        .parse()
+        .unwrap_or_else(|error| panic!("parse descendant pid {text:?}: {error:?}"))
 }
 
 #[test]

@@ -167,7 +167,7 @@ fn untrusted_package_never_reaches_the_snapshot() {
 }
 
 #[test]
-fn a_persistent_package_that_cannot_start_publishes_one_shared_reason() {
+fn a_persistent_package_that_cannot_start_publishes_no_contribution_and_warns() {
     let Ok(temp) = tempfile::tempdir() else {
         return;
     };
@@ -198,8 +198,8 @@ fn a_persistent_package_that_cannot_start_publishes_one_shared_reason() {
         .snapshot
         .availability_of(&action_id("vendor.resident.run"));
     assert!(
-        matches!(availability, Some(Availability::Unavailable { .. })),
-        "a candidate that never became ready must publish as unavailable, got {availability:?}"
+        availability.is_none(),
+        "a candidate that never became ready must publish no contribution, got {availability:?}"
     );
     assert!(
         !published.coordinator.has_persistent(),
@@ -236,4 +236,81 @@ fn no_packages_leaves_the_base_snapshot_untouched() {
     assert_eq!(published.snapshot, base);
     assert!(published.coordinator.catalog().is_empty());
     assert!(published.startup_warning.is_none());
+}
+
+fn configured_provider_publication(temp: &Path) -> ProviderPublication {
+    let root = temp.join("packages");
+    let host = HostTriple::current();
+    let manifest = manifest_json(
+        "vendor.configured",
+        "one-shot",
+        &format!(r#"{{ "{}": "bin/provider" }}"#, host.as_str()),
+    )
+    .replace(
+        "\"actions\": [",
+        r#""config": {
+            "schema_version": 7,
+            "fields": [
+              { "id": "mode", "kind": "string", "required": true, "restart": "none" },
+              { "id": "token", "kind": "secret-reference", "required": true, "restart": "none" }
+            ]
+          },
+          "actions": ["#,
+    );
+    write_package(&root, "vendor.configured", &manifest);
+    let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
+    let catalog = crate::config_owners::owner_catalog_with_packages(inventory.packages())
+        .unwrap_or_else(|diagnostics| panic!("owner catalog must build: {diagnostics:?}"));
+    let body = br#"
+settings_schema = 2
+[plugins."vendor.configured"]
+enabled = true
+[plugins."vendor.configured".config]
+mode = "safe"
+token = "JEFE_PROVIDER_TEST_TOKEN"
+"#;
+    let keymap = crate::persistence::keymap_edit::load_bytes(Some(body), &catalog, "test")
+        .unwrap_or_else(|diagnostics| panic!("settings fixture must load: {diagnostics:?}"));
+    publish_providers(&ProviderPublicationRequest {
+        packages: inventory.packages(),
+        settings: &keymap.settings,
+        base_snapshot: keymap.composed.snapshot(),
+        containment: containment(temp),
+    })
+}
+
+#[test]
+fn selected_config_and_declared_secret_reference_reach_the_runtime_descriptor() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let published = configured_provider_publication(temp.path());
+    let Some(descriptor) = published
+        .coordinator
+        .catalog()
+        .get(&action_id("vendor.configured.run"))
+    else {
+        panic!("configured action must be invocable");
+    };
+    let mode = crate::domain::Id::parse("mode").unwrap_or_else(|error| panic!("mode id: {error}"));
+    let token =
+        crate::domain::Id::parse("token").unwrap_or_else(|error| panic!("token id: {error}"));
+    assert_eq!(
+        descriptor.configure.config.get(&mode),
+        Some(&crate::domain::TypedValue::String("safe".to_owned()))
+    );
+    assert!(!descriptor.configure.config.contains_key(&token));
+    assert_eq!(descriptor.configure.config_version, 7);
+    assert!(
+        descriptor
+            .environment
+            .configure_secret_sources
+            .iter()
+            .any(|(binding, source)| {
+                binding.as_str() == "JEFE_PROVIDER_TEST_TOKEN"
+                    && source.as_str() == "JEFE_PROVIDER_TEST_TOKEN"
+            })
+    );
+    assert!(descriptor.environment.nonsecret.is_empty());
+    assert!(descriptor.environment.secret_env.is_empty());
 }

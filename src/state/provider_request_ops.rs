@@ -6,9 +6,11 @@
 //! handle, reads a clock, or performs I/O — timestamps arrive in the message.
 
 use crate::domain::effects::{
-    Effect, EffectFamily, ProviderEffect, ProviderRequestKey, RetryPolicy, SemanticKey,
+    Effect, EffectFamily, ProviderEffect, ProviderHostOutcome, ProviderNotice,
+    ProviderNoticeSeverity, ProviderRequestKey, RetryPolicy, SemanticKey,
 };
 use crate::messages::ProviderMessage;
+use crate::runtime::provider::protocol::{Outcome, Severity};
 use crate::state::provider_requests::{
     CancelOutcome, ConfirmInput, InvokeInput, ProviderRequestError,
 };
@@ -27,16 +29,26 @@ impl AppState {
                 context_refs,
                 arguments,
                 policy,
-            } => self.handle_provider_invoke(InvokeInput {
-                owner: &owner,
-                action_id: &action_id,
-                context_screen: &context_screen,
-                context_instance: &context_instance,
-                context_refs: &context_refs,
-                arguments: &arguments,
-                policy: &policy,
-            }),
+            } => {
+                self.provider_surface_action = None;
+                self.handle_provider_invoke(InvokeInput {
+                    owner: &owner,
+                    action_id: &action_id,
+                    context_screen: &context_screen,
+                    context_instance: &context_instance,
+                    context_refs: &context_refs,
+                    arguments: &arguments,
+                    policy: &policy,
+                });
+            }
             msg @ ProviderMessage::Confirm { .. } => self.apply_confirm_msg(msg),
+            ProviderMessage::CycleConfirmationFocus => {
+                self.provider_requests.cycle_confirmation_focus();
+            }
+            ProviderMessage::CancelConfirmation => {
+                self.provider_requests.cancel_latest_confirmation();
+                self.provider_requests.drain_terminal();
+            }
             ProviderMessage::Retry {
                 old_key,
                 owner,
@@ -58,6 +70,13 @@ impl AppState {
                     policy: &policy,
                 },
             ),
+            ProviderMessage::HealthChanged { unavailable } => {
+                self.provider_action_health = unavailable;
+            }
+            ProviderMessage::DismissTerminals => {
+                self.provider_surface_action = None;
+                self.provider_requests.drain_terminal();
+            }
             signal => self.handle_provider_signal(signal),
         }
     }
@@ -103,14 +122,17 @@ impl AppState {
                 key,
                 outcome,
                 now_epoch,
-            } => {
-                if let Err(error) = self
-                    .provider_requests
-                    .record_outcome(&key, outcome, now_epoch)
-                {
-                    self.provider_error(error);
+            } => match self
+                .provider_requests
+                .record_outcome(&key, outcome.clone(), now_epoch)
+            {
+                Ok(()) => {
+                    if let Some(host_outcome) = provider_host_outcome(outcome) {
+                        self.stage_provider_outcome_effect(key, host_outcome);
+                    }
                 }
-            }
+                Err(error) => self.provider_error(error),
+            },
             ProviderMessage::Error { key, message } => {
                 if let Err(error) = self.provider_requests.record_error(&key, message) {
                     self.provider_error(error);
@@ -187,11 +209,53 @@ impl AppState {
         }
     }
 
+    fn stage_provider_outcome_effect(
+        &mut self,
+        key: ProviderRequestKey,
+        outcome: ProviderHostOutcome,
+    ) {
+        let owner = key.owner.clone();
+        let subject = format!("outcome-{}-{}", key.action_id, key.generation);
+        let semantic_key = SemanticKey::new(EffectFamily::Provider, &subject);
+        let effect = Effect::Provider(ProviderEffect::ApplyOutcome { key, outcome });
+        if let Err(error) =
+            self.register_pending_effect(owner, semantic_key, effect, RetryPolicy::Never)
+        {
+            self.error_message = Some(error.to_string());
+        }
+    }
+
     /// Report a typed provider request error, except stale-generation output
     /// which is expected and silently ignored (CW10-10).
     fn provider_error(&mut self, error: ProviderRequestError) {
         if error != ProviderRequestError::UnknownGeneration {
             self.error_message = Some(error.to_string());
         }
+    }
+}
+
+fn provider_host_outcome(outcome: Outcome) -> Option<ProviderHostOutcome> {
+    match outcome {
+        Outcome::Navigate {
+            route_id,
+            activation,
+        } => Some(ProviderHostOutcome::Navigate {
+            route_id,
+            activation,
+        }),
+        Outcome::Refresh { resource_ref } => Some(ProviderHostOutcome::Refresh { resource_ref }),
+        Outcome::Notice { severity, message } => {
+            Some(ProviderHostOutcome::Notice(ProviderNotice {
+                severity: match severity {
+                    Severity::Info => ProviderNoticeSeverity::Info,
+                    Severity::Warning => ProviderNoticeSeverity::Warning,
+                },
+                message,
+            }))
+        }
+        Outcome::ReplacePanel { .. }
+        | Outcome::RequestHostConfirmation { .. }
+        | Outcome::ClosePanel { .. }
+        | Outcome::MigratedConfig { .. } => None,
     }
 }

@@ -109,6 +109,12 @@ pub fn parse_message(bytes: &[u8], stream: Direction) -> Result<ParsedMessage, P
         RequestId::parse(request_id_raw).map_err(|_| ProviderError::InvalidRequestId {
             raw: request_id_raw.to_owned(),
         })?;
+    if request_id.origin() != stream.request_origin() {
+        return Err(ProviderError::InvalidRequestOrigin {
+            raw: request_id_raw.to_owned(),
+            stream: stream.as_str().to_owned(),
+        });
+    }
     let generation = read_u64(members, "envelope", "generation")?;
     if generation == 0 {
         return Err(ProviderError::InvalidGeneration { value: 0 });

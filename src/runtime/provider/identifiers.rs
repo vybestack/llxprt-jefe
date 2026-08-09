@@ -37,6 +37,15 @@ impl Direction {
             Self::ProviderToHost => "provider-to-host",
         }
     }
+
+    /// The side that must have allocated request ids on this stream.
+    #[must_use]
+    pub const fn request_origin(self) -> RequestOrigin {
+        match self {
+            Self::HostToProvider => RequestOrigin::Host,
+            Self::ProviderToHost => RequestOrigin::Provider,
+        }
+    }
 }
 
 /// Which of the eleven closed message kinds a frame carries.

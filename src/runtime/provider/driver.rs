@@ -17,11 +17,13 @@
 
 use std::io::Write;
 use std::process::ChildStdin;
-use std::sync::mpsc::RecvTimeoutError;
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 use super::drains::{StdoutDrain, StdoutEvent};
 use super::encode;
+use super::environment::Redactor;
 use super::identifiers::Direction;
 use super::outbound::{OutboundError, OutboundQueue};
 use super::protocol::{LifecycleOrder, MessageKind, ProgressTracker, parse_message};
@@ -30,6 +32,13 @@ use super::supervisor::{
     SupervisorFailure, TranscriptEntry,
 };
 use super::{dto, error};
+
+/// Maximum time between cancel-signal checks while driving to the terminal
+/// (S17). Each read during the invoke/progress phase is capped at this slice
+/// so a host cancel is observed promptly even when the provider is silent,
+/// rather than hiding behind the full invocation deadline (up to 600 s). The
+/// overall invocation deadline is tracked separately and still fires exactly.
+const CANCEL_POLL: Duration = Duration::from_millis(200);
 
 /// Mutable driver state shared by the lifecycle steps.
 ///
@@ -57,6 +66,14 @@ pub(super) struct Driver<'a> {
     pub configure: &'a dto::ConfigurePayload,
     /// The pending shutdown-ack cleanup failure, if the lifecycle deviated.
     pub cleanup_ack_failure: &'a mut Option<CleanupFailure>,
+    /// Live progress stream sink (S16). When present, each accepted progress
+    /// payload is redacted and forwarded as it arrives, before the terminal.
+    pub progress_sink: Option<&'a mpsc::Sender<dto::ProgressPayload>>,
+    /// Live cancel observer (S17). When present, the driver checks this flag
+    /// between reads; `true` means the host cancelled the invocation.
+    pub cancel: Option<&'a AtomicBool>,
+    /// Secret redactor for live progress streaming (S16).
+    pub redactor: &'a Redactor,
 }
 
 impl Driver<'_> {
@@ -137,45 +154,87 @@ impl Driver<'_> {
     }
 
     /// Read progress events until the single terminal outcome/error (or a
-    /// supervisor failure) is reached.
+    /// supervisor failure) is reached. Checks for a live cancel signal between
+    /// reads (S17): a host cancel writes a cancel frame before the staged
+    /// shutdown. The first terminal observed by this driver is authoritative.
+    ///
+    /// When a cancel hook is present, each read is capped at [`CANCEL_POLL`] so
+    /// a cancel is observed promptly even during silence; the invocation
+    /// deadline still fires exactly via a tracked [`Instant`]. Without a hook
+    /// the full invocation timeout is used in one read, preserving the original
+    /// behavior for the blocking entry point.
     fn drive_to_terminal(
         &mut self,
         timeout: Duration,
     ) -> Result<OneShotOutcome, SupervisorFailure> {
+        let mut deadline: Option<Instant> = None;
         loop {
-            match self.read_inbound(timeout, SupervisorFailure::InvocationTimeout) {
-                Inbound::Message(parsed) => match self.observe_inbound(&parsed) {
-                    Ok(()) => match &parsed.message {
-                        dto::ProviderMessage::Progress(_) => {}
-                        dto::ProviderMessage::Outcome(outcome) => {
-                            return Ok(OneShotOutcome::Completed(outcome.clone()));
-                        }
-                        dto::ProviderMessage::Error(error) => {
-                            return Ok(OneShotOutcome::ProviderError(error.clone()));
-                        }
-                        _ => {
-                            return Ok(OneShotOutcome::Failed(SupervisorFailure::Protocol(
-                                unexpected_after_invoke(),
-                            )));
-                        }
-                    },
-                    Err(error) => {
-                        return Ok(OneShotOutcome::Failed(SupervisorFailure::Protocol(error)));
-                    }
-                },
-                Inbound::Protocol(error) => {
-                    return Ok(OneShotOutcome::Failed(SupervisorFailure::Protocol(error)));
-                }
-                Inbound::Timeout(failure) => return Err(failure),
-                Inbound::ReadError => {
-                    return Err(SupervisorFailure::Io("stdout read failed".to_owned()));
-                }
-                Inbound::Eof => {
-                    return Ok(OneShotOutcome::Failed(SupervisorFailure::Crashed {
-                        exit: None,
-                    }));
-                }
+            if let Some(inbound) = self.try_read_inbound()
+                && let Some(outcome) = self.accept_invocation_inbound(inbound)?
+            {
+                return Ok(outcome);
             }
+            if let Some(cancel) = self.cancel
+                && cancel.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                self.write_cancel_frame();
+                return Ok(OneShotOutcome::Cancelled);
+            }
+            let read_timeout = match (self.cancel, &mut deadline) {
+                (Some(_), slot) => {
+                    let deadline = slot.get_or_insert_with(|| Instant::now() + timeout);
+                    let now = Instant::now();
+                    if now >= *deadline {
+                        return Err(SupervisorFailure::InvocationTimeout);
+                    }
+                    deadline.saturating_duration_since(now).min(CANCEL_POLL)
+                }
+                (None, _) => timeout,
+            };
+            if let Some(outcome) = self.accept_invocation_inbound(
+                self.read_inbound(read_timeout, SupervisorFailure::InvocationTimeout),
+            )? {
+                return Ok(outcome);
+            }
+        }
+    }
+
+    fn accept_invocation_inbound(
+        &mut self,
+        inbound: Inbound,
+    ) -> Result<Option<OneShotOutcome>, SupervisorFailure> {
+        match inbound {
+            Inbound::Message(parsed) => match self.observe_inbound(&parsed) {
+                Ok(()) => match &parsed.message {
+                    dto::ProviderMessage::Progress(_) => Ok(None),
+                    dto::ProviderMessage::Outcome(outcome) => {
+                        Ok(Some(OneShotOutcome::Completed(outcome.clone())))
+                    }
+                    dto::ProviderMessage::Error(error) => {
+                        Ok(Some(OneShotOutcome::ProviderError(error.clone())))
+                    }
+                    _ => Ok(Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(
+                        unexpected_after_invoke(),
+                    )))),
+                },
+                Err(error) => Ok(Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(
+                    error,
+                )))),
+            },
+            Inbound::Protocol(error) => Ok(Some(OneShotOutcome::Failed(
+                SupervisorFailure::Protocol(error),
+            ))),
+            // A bounded slice expired: loop to re-check cancel and the
+            // invocation deadline. Without a hook this is the real invocation
+            // timeout and is returned as a failure.
+            Inbound::Timeout(SupervisorFailure::InvocationTimeout) if self.cancel.is_some() => {
+                Ok(None)
+            }
+            Inbound::Timeout(failure) => Err(failure),
+            Inbound::ReadError => Err(SupervisorFailure::Io("stdout read failed".to_owned())),
+            Inbound::Eof => Ok(Some(OneShotOutcome::Failed(SupervisorFailure::Crashed {
+                exit: None,
+            }))),
         }
     }
 
@@ -232,6 +291,15 @@ impl Driver<'_> {
                 self.transcript
                     .push(TranscriptEntry::Progress(progress.sequence));
                 self.transcript.push_progress(progress.clone());
+                // Stream each accepted progress payload live, redacted against
+                // resolved secrets, before the terminal result (S16). The
+                // transcript copy is redacted separately by the supervisor's
+                // finish step.
+                if let Some(sink) = self.progress_sink {
+                    let mut streamed = progress.clone();
+                    streamed.message = self.redactor.redact(&progress.message).into_owned();
+                    let _ = sink.send(streamed);
+                }
             }
             _ => self
                 .transcript
@@ -252,16 +320,19 @@ impl Driver<'_> {
         }
     }
 
+    /// Consume a provider event that was already queued before host control.
+    fn try_read_inbound(&self) -> Option<Inbound> {
+        match self.stdout.receiver.try_recv() {
+            Ok(event) => Some(classify_stdout_event(event)),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(Inbound::Eof),
+        }
+    }
+
     /// Read and classify one inbound event.
     fn read_inbound(&self, timeout: Duration, timeout_failure: SupervisorFailure) -> Inbound {
         match self.stdout.receiver.recv_timeout(timeout) {
-            Ok(StdoutEvent::Frame(frame)) => match parse_message(&frame, Direction::ProviderToHost)
-            {
-                Ok(parsed) => Inbound::Message(parsed),
-                Err(error) => Inbound::Protocol(error),
-            },
-            Ok(StdoutEvent::Oversize(error)) => Inbound::Protocol(error),
-            Ok(StdoutEvent::ReadError) => Inbound::ReadError,
+            Ok(event) => classify_stdout_event(event),
             Err(RecvTimeoutError::Timeout) => Inbound::Timeout(timeout_failure),
             Err(RecvTimeoutError::Disconnected) => Inbound::Eof,
         }
@@ -281,9 +352,31 @@ impl Driver<'_> {
             .map_err(|err| SupervisorFailure::Io(err.to_string()))?;
         Ok(())
     }
+
+    /// Write a best-effort `cancel` frame to the provider (S17). Write/flush
+    /// failures are not fatal: the staged reap is the authoritative cleanup.
+    fn write_cancel_frame(&mut self) {
+        let frame = encode::encode_cancel(
+            &self.request.request_id,
+            self.request.generation,
+            &self.request.request_id,
+        );
+        let _ = self.send(frame);
+    }
 }
 
 /// One classified inbound read result.
+fn classify_stdout_event(event: StdoutEvent) -> Inbound {
+    match event {
+        StdoutEvent::Frame(frame) => match parse_message(&frame, Direction::ProviderToHost) {
+            Ok(parsed) => Inbound::Message(parsed),
+            Err(error) => Inbound::Protocol(error),
+        },
+        StdoutEvent::Oversize(error) => Inbound::Protocol(error),
+        StdoutEvent::ReadError => Inbound::ReadError,
+    }
+}
+
 enum Inbound {
     Message(dto::ParsedMessage),
     Protocol(error::ProviderError),
@@ -302,7 +395,7 @@ fn map_outbound_error(error: OutboundError) -> SupervisorFailure {
     })
 }
 
-fn unexpected_after_invoke() -> error::ProviderError {
+pub(super) fn unexpected_after_invoke() -> error::ProviderError {
     error::ProviderError::OutOfOrder {
         phase: "ready".to_owned(),
         kind: "non-terminal".to_owned(),

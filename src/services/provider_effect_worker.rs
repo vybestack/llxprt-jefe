@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::domain::effects::{Correlation, ProviderInvocation};
+use crate::domain::effects::{Correlation, ProviderInvocation, ProviderRequestKey};
 
 /// One unit of pending provider work.
 #[derive(Debug, Clone)]
@@ -21,10 +21,11 @@ pub struct ProviderWorkItem {
     pub correlation: Correlation,
 }
 
-/// Shared handle for the input path to schedule provider effects.
+/// Shared handle for the input path to schedule provider effects and cancels.
 ///
-/// Cloning is cheap (shares the inner `Arc`). The background worker drains
-/// the queue asynchronously.
+/// Cloning is cheap (shares the inner `Arc`). The background worker drains the
+/// invoke queue asynchronously and forwards cancels to the active streaming
+/// session (S17).
 #[derive(Clone)]
 pub struct ProviderEffectHandle {
     inner: Arc<Inner>,
@@ -32,6 +33,8 @@ pub struct ProviderEffectHandle {
 
 struct Inner {
     pending: Mutex<VecDeque<ProviderWorkItem>>,
+    /// Pending cancel requests forwarded to the active session (S17).
+    cancels: Mutex<Vec<ProviderRequestKey>>,
     /// Bumps whenever new work is enqueued; the worker compares to detect it.
     schedule_generation: AtomicU64,
     /// Set to `true` when work is pending; cleared by the worker.
@@ -58,6 +61,7 @@ impl ProviderEffectHandle {
         Self {
             inner: Arc::new(Inner {
                 pending: Mutex::new(VecDeque::new()),
+                cancels: Mutex::new(Vec::new()),
                 schedule_generation: AtomicU64::new(0),
                 dirty: AtomicBool::new(false),
             }),
@@ -109,6 +113,28 @@ impl ProviderEffectHandle {
         items
     }
 
+    /// Enqueue a cancel for the active streaming session (S17). The worker
+    /// forwards this to the session whose key matches, setting its cancel flag.
+    pub fn schedule_cancel(&self, key: ProviderRequestKey) {
+        if let Ok(mut cancels) = self.inner.cancels.lock() {
+            cancels.push(key);
+        } else {
+            tracing::error!("provider cancellation queue poisoned; cancel rejected");
+        }
+    }
+
+    /// Drain all pending cancel requests. Called by the background worker each
+    /// poll iteration so cancel remains observable while an invocation runs.
+    #[must_use]
+    pub fn drain_cancels(&self) -> Vec<ProviderRequestKey> {
+        if let Ok(mut cancels) = self.inner.cancels.lock() {
+            std::mem::take(&mut *cancels)
+        } else {
+            tracing::error!("provider cancellation queue poisoned; cancel drain skipped");
+            Vec::new()
+        }
+    }
+
     /// Whether work is pending.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
@@ -138,6 +164,11 @@ pub struct ProviderExecutionResult {
     pub process_reaped: bool,
     /// Whether the invocation reached a terminal outcome.
     pub terminal: bool,
+    /// A bounded cleanup/lifecycle fault observed after the terminal result
+    /// (S26). Never replaces the first terminal message; surfaced as a
+    /// separate diagnostic so the full shutdown/ack/EOF/reap evidence is
+    /// visible alongside (not instead of) the authoritative result.
+    pub cleanup_diagnostic: Option<crate::runtime::provider::supervisor::CleanupFailure>,
 }
 
 /// Build a [`ProviderExecutionResult`] from the one-shot supervisor's
@@ -155,40 +186,63 @@ pub fn build_execution_result(
     result: &crate::runtime::provider::supervisor::OneShotResult,
     key: &crate::domain::effects::ProviderRequestKey,
 ) -> ProviderExecutionResult {
+    build_execution_result_with_progress(correlation, result, key, true)
+}
+
+/// Build a terminal execution result after progress was already delivered live.
+#[must_use]
+pub fn build_streaming_execution_result(
+    correlation: Correlation,
+    result: &crate::runtime::provider::supervisor::OneShotResult,
+    key: &crate::domain::effects::ProviderRequestKey,
+) -> ProviderExecutionResult {
+    build_execution_result_with_progress(correlation, result, key, false)
+}
+
+fn build_execution_result_with_progress(
+    correlation: Correlation,
+    result: &crate::runtime::provider::supervisor::OneShotResult,
+    key: &crate::domain::effects::ProviderRequestKey,
+    replay_progress: bool,
+) -> ProviderExecutionResult {
     use crate::messages::ProviderMessage;
     use crate::runtime::provider::supervisor::OneShotOutcome;
 
     let mut messages = Vec::new();
 
-    // The provider's own progress payloads, in order and already redacted by
-    // the supervisor. Rebuilding them from the transcript's sequence numbers
-    // would deliver progress the operator cannot read.
-    for payload in result.transcript.progress() {
-        messages.push(ProviderMessage::Progress {
-            key: key.clone(),
-            payload: payload.clone(),
-        });
+    if replay_progress {
+        for payload in result.transcript.progress() {
+            messages.push(ProviderMessage::Progress {
+                key: key.clone(),
+                payload: payload.clone(),
+            });
+        }
     }
 
     // Every one-shot lifecycle ends in exactly one terminal: a completed
-    // outcome, a typed provider error, or a supervisor failure. There is no
-    // fourth shape, which is why the request is always terminal once the
-    // supervisor returns.
-    messages.push(match &result.outcome {
-        OneShotOutcome::Completed(outcome) => ProviderMessage::Outcome {
+    // outcome, a typed provider error, a host cancel, or a supervisor failure.
+    // For a cancel, the reducer already marked the request Cancelled before the
+    // session observed the signal (S17). A Cancel must NOT be reported as
+    // unavailable — no `GenerationFailed` is pushed, so the reducer's Cancelled
+    // state stays authoritative. The effect completion closes the work item.
+    match &result.outcome {
+        OneShotOutcome::Completed(outcome) => messages.push(ProviderMessage::Outcome {
             key: key.clone(),
             outcome: outcome.clone(),
             now_epoch: epoch_seconds(),
-        },
-        OneShotOutcome::ProviderError(error) => ProviderMessage::Error {
+        }),
+        OneShotOutcome::ProviderError(error) => messages.push(ProviderMessage::Error {
             key: key.clone(),
-            message: error.message.clone(),
-        },
-        OneShotOutcome::Failed(failure) => ProviderMessage::GenerationFailed {
+            message: format!("{} {}", error.code, error.message)
+                .trim()
+                .to_owned(),
+        }),
+        OneShotOutcome::Cancelled => {}
+        OneShotOutcome::Failed(failure) => messages.push(ProviderMessage::GenerationFailed {
             key: key.clone(),
             reason: map_supervisor_failure(failure),
-        },
-    });
+        }),
+    }
 
     ProviderExecutionResult {
         correlation,
@@ -196,6 +250,7 @@ pub fn build_execution_result(
         messages,
         process_reaped: result.process_reaped,
         terminal: true,
+        cleanup_diagnostic: result.cleanup_failure.clone(),
     }
 }
 
@@ -228,6 +283,14 @@ fn epoch_seconds() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::effects::ProviderRequestKey;
+    use crate::messages::ProviderMessage;
+    use crate::runtime::provider::outcome::LifecycleTranscript;
+    use crate::runtime::provider::protocol::{Outcome, Severity};
+    use crate::runtime::provider::supervisor::{
+        CleanupFailure, OneShotOutcome, OneShotResult, SupervisorFailure,
+    };
+    use crate::state::provider_requests::UnavailableReason;
 
     fn id(value: &str) -> crate::domain::Id {
         match crate::domain::Id::parse(value) {
@@ -236,12 +299,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn handle_drain_returns_enqueued_items() {
-        let handle = ProviderEffectHandle::new();
-        assert!(!handle.is_dirty());
-
-        let correlation = Correlation {
+    fn correlation() -> Correlation {
+        Correlation {
             correlation_id: crate::domain::effects::CorrelationId::new(1),
             owner: id("host"),
             screen_generation: 0,
@@ -250,13 +309,39 @@ mod tests {
                 crate::domain::effects::EffectFamily::Provider,
                 "test",
             ),
-        };
+        }
+    }
+
+    fn key() -> ProviderRequestKey {
+        ProviderRequestKey {
+            owner: id("host"),
+            action_id: id("provider.action"),
+            generation: 1,
+        }
+    }
+
+    fn notice_result_with_cleanup(cleanup: Option<CleanupFailure>) -> OneShotResult {
+        OneShotResult {
+            outcome: OneShotOutcome::Completed(Outcome::Notice {
+                severity: Severity::Info,
+                message: "done".to_owned(),
+            }),
+            transcript: LifecycleTranscript::default(),
+            retained_stderr: String::new(),
+            stderr_truncated: false,
+            process_reaped: true,
+            exit_code: Some(0),
+            cleanup_failure: cleanup,
+        }
+    }
+
+    #[test]
+    fn handle_drain_returns_enqueued_items() {
+        let handle = ProviderEffectHandle::new();
+        assert!(!handle.is_dirty());
+
         let invocation = crate::domain::effects::ProviderInvocation {
-            key: crate::domain::effects::ProviderRequestKey {
-                owner: id("host"),
-                action_id: id("provider.action"),
-                generation: 1,
-            },
+            key: key(),
             arguments: crate::domain::TypedMap::new(),
             context_screen: id("core.dashboard"),
             context_instance: id("instance-1"),
@@ -266,7 +351,7 @@ mod tests {
 
         handle.schedule(ProviderWorkItem {
             invocation,
-            correlation,
+            correlation: correlation(),
         });
         assert!(handle.is_dirty());
 
@@ -276,6 +361,78 @@ mod tests {
 
         let more = handle.drain();
         assert!(more.is_empty());
+    }
+
+    // ── S26: cleanup diagnostic preserved alongside the terminal result ────
+
+    #[test]
+    fn build_result_preserves_cleanup_diagnostic_alongside_terminal() {
+        let result = notice_result_with_cleanup(Some(CleanupFailure::DrainTimeout));
+        let exec = build_execution_result(correlation(), &result, &key());
+        // The terminal outcome is still delivered as the authoritative message.
+        assert!(
+            exec.messages
+                .iter()
+                .any(|m| matches!(m, ProviderMessage::Outcome { .. })),
+            "terminal outcome must be present: {:?}",
+            exec.messages
+        );
+        // The cleanup fault is surfaced separately and never replaces it (S26).
+        assert!(
+            matches!(&exec.cleanup_diagnostic, Some(CleanupFailure::DrainTimeout)),
+            "cleanup diagnostic preserved: {:?}",
+            exec.cleanup_diagnostic
+        );
+        assert!(exec.process_reaped);
+        assert!(exec.terminal);
+    }
+
+    #[test]
+    fn build_result_without_cleanup_carries_no_diagnostic() {
+        let result = notice_result_with_cleanup(None);
+        let exec = build_execution_result(correlation(), &result, &key());
+        assert!(exec.cleanup_diagnostic.is_none());
+    }
+
+    #[test]
+    fn build_result_cancelled_outcome_does_not_report_unavailable() {
+        let result = OneShotResult {
+            outcome: OneShotOutcome::Cancelled,
+            ..notice_result_with_cleanup(None)
+        };
+        let exec = build_execution_result(correlation(), &result, &key());
+        // A host cancel must NOT be reported as unavailable: no
+        // GenerationFailed message is pushed. The reducer already holds the
+        // Cancelled state (S17), and the effect completion closes the work
+        // item without overwriting first-terminal semantics.
+        assert!(
+            exec.messages
+                .iter()
+                .all(|message| !matches!(message, ProviderMessage::GenerationFailed { .. })),
+            "cancelled must not produce a GenerationFailed message: {:?}",
+            exec.messages
+        );
+        assert!(exec.terminal);
+    }
+
+    #[test]
+    fn build_result_maps_supervisor_failure_to_generation_failed() {
+        let result = OneShotResult {
+            outcome: OneShotOutcome::Failed(SupervisorFailure::InvocationTimeout),
+            ..notice_result_with_cleanup(None)
+        };
+        let exec = build_execution_result(correlation(), &result, &key());
+        assert!(
+            exec.messages.iter().any(|m| matches!(
+                m,
+                ProviderMessage::GenerationFailed {
+                    reason: UnavailableReason::Timeout,
+                    ..
+                }
+            )),
+            "invocation timeout must map to GenerationFailed(Timeout): {:?}",
+            exec.messages
+        );
     }
 }
 

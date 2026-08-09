@@ -17,6 +17,8 @@
 
 use std::io;
 use std::process::{ChildStdin, Command, ExitStatus};
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::domain::{CanonicalSemver, Id};
@@ -75,6 +77,21 @@ impl SupervisorBounds {
 impl Default for SupervisorBounds {
     fn default() -> Self {
         Self::PRODUCTION
+    }
+}
+
+impl SupervisorBounds {
+    /// Production bounds with a specific invocation timeout (S15).
+    ///
+    /// The descriptor-selected `timeout_seconds` (validated 1..=600 at startup
+    /// composition) is carried exactly into the invocation deadline. All other
+    /// bounds remain at production defaults.
+    #[must_use]
+    pub fn for_invocation(timeout_seconds: u32) -> Self {
+        Self {
+            invocation: Duration::from_secs(u64::from(timeout_seconds)),
+            ..Self::PRODUCTION
+        }
     }
 }
 
@@ -157,7 +174,113 @@ pub fn run_one_shot<E: HostEnv>(
         configure.secrets.insert(binding, value);
     }
 
-    let raw = supervise(request, bounds, env, configure, &mut transcript, &redactor);
+    let live = LiveHooks {
+        redactor: &redactor,
+        progress: None,
+        cancel: None,
+    };
+    let raw = supervise(request, bounds, env, configure, &mut transcript, &live);
+    finish_result(raw, transcript, redactor)
+}
+
+/// Run one fresh one-shot provider lifecycle with **live streaming** (S16/S17).
+///
+/// Each accepted progress payload is forwarded through `progress` as it arrives
+/// (redacted against resolved secrets), before the terminal result. The
+/// `cancel` flag is checked between reads; when set, the driver writes a cancel
+/// frame and stops, preserving first-terminal semantics at the reducer layer.
+///
+/// The returned [`OneShotResult`] carries the same typed values as
+/// [`run_one_shot`], including the cleanup diagnostic.
+pub fn run_one_shot_streaming<E: HostEnv>(
+    request: &OneShotRequest,
+    bounds: &SupervisorBounds,
+    host_env: &E,
+    progress: Option<&mpsc::Sender<dto::ProgressPayload>>,
+    cancel: Option<&AtomicBool>,
+) -> OneShotResult {
+    let mut transcript = LifecycleTranscript::default();
+
+    let (env, configure, redactor) = match prepare_invocation(request, host_env) {
+        Prepared::Ready {
+            env,
+            configure,
+            redactor,
+        } => (env, configure, redactor),
+        Prepared::Failed(result) => return result,
+    };
+
+    let live = LiveHooks {
+        redactor: &redactor,
+        progress,
+        cancel,
+    };
+    let raw = supervise(request, bounds, env, configure, &mut transcript, &live);
+    finish_result(raw, transcript, redactor)
+}
+
+/// The common pre-spawn preparation shared by the blocking and streaming
+/// entry points. Resolves the environment and Configure secrets and rejects a
+/// caller-supplied Configure secret.
+enum Prepared {
+    Ready {
+        env: ProcessEnv,
+        configure: dto::ConfigurePayload,
+        redactor: Redactor,
+    },
+    Failed(OneShotResult),
+}
+
+fn prepare_invocation<E: HostEnv>(request: &OneShotRequest, host_env: &E) -> Prepared {
+    let env = match build_process_env(
+        &request.environment,
+        &request.home,
+        &request.tmpdir,
+        &request.locale,
+        host_env,
+    ) {
+        Ok(env) => env,
+        Err(err) => {
+            return Prepared::Failed(OneShotResult::pre_spawn(SupervisorFailure::Environment(
+                err,
+            )));
+        }
+    };
+    let configure_secrets = match resolve_configure_secrets(&request.environment, host_env) {
+        Ok(secrets) => secrets,
+        Err(err) => {
+            return Prepared::Failed(OneShotResult::pre_spawn(SupervisorFailure::Environment(
+                err,
+            )));
+        }
+    };
+    let redactor = env.redactor();
+
+    if let Some((binding, _)) = request.configure.secrets.first_key_value() {
+        return Prepared::Failed(OneShotResult::pre_spawn(SupervisorFailure::Environment(
+            EnvironmentError::UndeclaredConfigureSecret {
+                binding: binding.to_string(),
+            },
+        )));
+    }
+
+    let mut configure = request.configure.clone();
+    for (binding, value) in configure_secrets {
+        configure.secrets.insert(binding, value);
+    }
+    Prepared::Ready {
+        env,
+        configure,
+        redactor,
+    }
+}
+
+/// Apply redaction and assemble the final typed result from the raw internals.
+fn finish_result(
+    raw: RawResult,
+    mut transcript: LifecycleTranscript,
+    redactor: Redactor,
+) -> OneShotResult {
     transcript.redact_progress(&redactor);
     OneShotResult {
         outcome: redaction::redact_one_shot_outcome(raw.outcome, &redactor),
@@ -188,7 +311,7 @@ fn supervise(
     env: ProcessEnv,
     configure: dto::ConfigurePayload,
     transcript: &mut LifecycleTranscript,
-    redactor: &Redactor,
+    live: &LiveHooks<'_>,
 ) -> RawResult {
     let command = build_command(request, &env);
     let (mut process, mut stdin, stdout, stderr) = match process_tree::spawn(command) {
@@ -220,21 +343,48 @@ fn supervise(
         StderrDrainSpawn::Failed(raw) => return *raw,
     };
 
+    let req = DriveReq { request, bounds };
     let (outcome, cleanup_ack_failure) = drive_lifecycle(
-        request,
-        bounds,
+        &req,
+        &configure,
         &mut stdin,
         &stdout_drain,
-        &configure,
         transcript,
+        live,
     );
 
+    complete_lifecycle(
+        &mut process,
+        Some(stdin),
+        transcript,
+        LifecycleTail {
+            bounds,
+            pid,
+            stdout_drain: &stdout_drain,
+            stderr_drain,
+            redactor: live.redactor,
+            outcome,
+            ack_failure: cleanup_ack_failure,
+        },
+    )
+}
+
+/// Run the staged shutdown, bounded final drains, and cleanup-failure
+/// composition after the lifecycle terminal has been reached.
+///
+/// Extracted from [`supervise`] so the lifecycle and its completion remain
+/// separately readable and each stays under the source-size guidance.
+fn complete_lifecycle(
+    process: &mut ProviderProcess,
+    stdin: Option<ChildStdin>,
+    transcript: &mut LifecycleTranscript,
+    tail: LifecycleTail<'_>,
+) -> RawResult {
     // Staged shutdown always runs, regardless of the outcome. The stdout drain
     // is detached (its handle dropped) rather than joined: the lifecycle is
     // complete and the bounded reaper closed the pipe, so joining would be an
     // unbounded wait for no additional information.
-    let (shutdown_outcome, _signal_errors) =
-        staged_shutdown(&mut process, Some(stdin), bounds, pid);
+    let (shutdown_outcome, _signal_errors) = staged_shutdown(process, stdin, tail.bounds, tail.pid);
     let process_reaped = matches!(shutdown_outcome, ShutdownOutcome::Exited(_));
     let exit_code = match shutdown_outcome {
         ShutdownOutcome::Exited(code) => code,
@@ -245,7 +395,7 @@ fn supervise(
     // buffered after the ack, and surface an explicit DrainTimeout/protocol
     // cleanup failure if EOF was not observed. EOF is recorded only when it
     // was actually observed, never unconditionally.
-    let stdout_final = final_stdout_drain(&stdout_drain.receiver, bounds.final_drain);
+    let stdout_final = final_stdout_drain(&tail.stdout_drain.receiver, tail.bounds.final_drain);
     if matches!(stdout_final, FinalStdoutOutcome::Eof) {
         transcript.push(TranscriptEntry::Eof);
     }
@@ -254,17 +404,29 @@ fn supervise(
     }
 
     finish_cleanup(
-        stderr_drain,
-        redactor,
+        tail.stderr_drain,
+        tail.redactor,
         FinishCleanup {
-            final_drain: bounds.final_drain,
+            final_drain: tail.bounds.final_drain,
             process_reaped,
             exit_code,
-            ack_failure: cleanup_ack_failure,
+            ack_failure: tail.ack_failure,
             stdout_final,
-            outcome,
+            outcome: tail.outcome,
         },
     )
+}
+
+/// Inputs for [`complete_lifecycle`], grouping its references under the clippy
+/// argument limit by analogy with [`FinishCleanup`].
+struct LifecycleTail<'a> {
+    bounds: &'a SupervisorBounds,
+    pid: u32,
+    stdout_drain: &'a StdoutDrain,
+    stderr_drain: StderrDrain,
+    redactor: &'a Redactor,
+    outcome: OneShotOutcome,
+    ack_failure: Option<CleanupFailure>,
 }
 
 /// Spawn the stdout drain, returning a typed failure if the thread cannot start.
@@ -370,13 +532,16 @@ fn reap_on_drain_failure(
 
 /// Drive the closed lifecycle and the strict shutdown-ack observation,
 /// returning the terminal outcome and the pending cleanup-ack failure.
+///
+/// When `live.progress` is present, each accepted progress payload is streamed
+/// live (S16) and a host cancel signal is checked between reads (S17).
 fn drive_lifecycle(
-    request: &OneShotRequest,
-    bounds: &SupervisorBounds,
+    req: &DriveReq<'_>,
+    configure: &dto::ConfigurePayload,
     stdin: &mut ChildStdin,
     stdout_drain: &StdoutDrain,
-    configure: &dto::ConfigurePayload,
     transcript: &mut LifecycleTranscript,
+    live: &LiveHooks<'_>,
 ) -> (OneShotOutcome, Option<CleanupFailure>) {
     let mut queue = OutboundQueue::new();
     let mut lifecycle = LifecycleOrder::new();
@@ -385,8 +550,8 @@ fn drive_lifecycle(
     let mut cleanup_ack_failure: Option<CleanupFailure> = None;
     let outcome = {
         let mut driver = driver::Driver {
-            request,
-            bounds,
+            request: req.request,
+            bounds: req.bounds,
             stdin,
             queue: &mut queue,
             stdout: stdout_drain,
@@ -396,11 +561,32 @@ fn drive_lifecycle(
             healthy: &mut healthy,
             configure,
             cleanup_ack_failure: &mut cleanup_ack_failure,
+            progress_sink: live.progress,
+            cancel: live.cancel,
+            redactor: live.redactor,
         };
         driver.run()
     };
     queue.close();
     (outcome, cleanup_ack_failure)
+}
+
+/// The immutable one-shot invocation parameters bundled for [`drive_lifecycle`]
+/// to keep its argument count under the clippy limit.
+struct DriveReq<'a> {
+    request: &'a OneShotRequest,
+    bounds: &'a SupervisorBounds,
+}
+
+/// Live streaming context for one invocation (S16/S17).
+///
+/// Always constructed: the `redactor` is required for both blocking and
+/// streaming paths; `progress`/`cancel` are present only for the streaming
+/// entry point.
+struct LiveHooks<'a> {
+    redactor: &'a Redactor,
+    progress: Option<&'a mpsc::Sender<dto::ProgressPayload>>,
+    cancel: Option<&'a AtomicBool>,
 }
 
 /// Inputs for [`finish_cleanup`], keeping its signature at the clippy argument
@@ -519,30 +705,101 @@ pub(super) fn staged_shutdown(
     pid: u32,
 ) -> (ShutdownOutcome, Vec<io::Error>) {
     let mut signals: Vec<io::Error> = Vec::new();
-    if let Some(status) = wait_for_exit(process, bounds.shutdown_ack) {
-        return (ShutdownOutcome::Exited(status.code()), signals);
+    let mut leader_status = None;
+    let mut observation_error = None;
+    if wait_for_tree_exit(
+        process,
+        bounds.shutdown_ack,
+        &mut leader_status,
+        &mut observation_error,
+    ) {
+        append_observation_error(&mut signals, observation_error);
+        return (
+            ShutdownOutcome::Exited(leader_status.and_then(|status| status.code())),
+            signals,
+        );
     }
     drop(stdin);
-    // Stage B: graceful group termination (the group may already be gone, so a
-    // failure is best-effort; Stage C force-kills regardless). Error collected,
-    // not discarded.
-    if let Err(error) = process_tree::terminate_process_tree(pid) {
+    // A reaped leader's process-group id may already have been recycled. Signal
+    // its group only while the owned Child is still live; exact descendant PIDs
+    // were captured while parentage was authoritative and remain safe targets.
+    if leader_status.is_none()
+        && let Err(error) = process_tree::terminate_process_tree(pid)
+    {
         signals.push(error);
     }
-    if let Some(status) = wait_for_exit(process, bounds.stdin_close) {
-        return (ShutdownOutcome::Exited(status.code()), signals);
-    }
-    // Stage C: force-kill without an unbounded `wait`; the bounded poll is the
-    // sole reap authority. If no exit is observed the reap surfaces as
-    // `NotReaped`; signal errors are collected, not discarded.
-    if let Err(error) = process.force_kill_tree() {
+    if let Err(error) = process.terminate_descendants() {
         signals.push(error);
     }
-    let outcome = match wait_for_exit(process, bounds.final_drain) {
-        Some(status) => ShutdownOutcome::Exited(status.code()),
-        None => ShutdownOutcome::NotReaped,
+    if wait_for_tree_exit(
+        process,
+        bounds.stdin_close,
+        &mut leader_status,
+        &mut observation_error,
+    ) {
+        append_observation_error(&mut signals, observation_error);
+        return (
+            ShutdownOutcome::Exited(leader_status.and_then(|status| status.code())),
+            signals,
+        );
+    }
+    // Stage C: force-kill only exact targets and retain every signal error. The
+    // leader group is never named after the leader has been observed reaped.
+    let force_result = if leader_status.is_some() {
+        process.force_kill_descendants()
+    } else {
+        process.force_kill_tree()
+    };
+    if let Err(error) = force_result {
+        signals.push(error);
+    }
+    let exited = wait_for_tree_exit(
+        process,
+        bounds.final_drain,
+        &mut leader_status,
+        &mut observation_error,
+    );
+    append_observation_error(&mut signals, observation_error);
+    let outcome = if exited {
+        ShutdownOutcome::Exited(leader_status.and_then(|status| status.code()))
+    } else {
+        ShutdownOutcome::NotReaped
     };
     (outcome, signals)
+}
+
+fn append_observation_error(errors: &mut Vec<io::Error>, error: Option<io::Error>) {
+    if let Some(error) = error {
+        errors.push(error);
+    }
+}
+
+fn wait_for_tree_exit(
+    process: &mut ProviderProcess,
+    bound: Duration,
+    leader_status: &mut Option<ExitStatus>,
+    observation_error: &mut Option<io::Error>,
+) -> bool {
+    let deadline = Instant::now() + bound;
+    loop {
+        if let Err(error) = process.observe_descendants()
+            && observation_error.is_none()
+        {
+            *observation_error = Some(error);
+        }
+        if leader_status.is_none()
+            && let Ok(Some(status)) = process.try_wait()
+        {
+            *leader_status = Some(status);
+        }
+        if leader_status.is_some() && !process.descendants_alive() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(EXIT_POLL);
+    }
 }
 
 /// Poll for process exit up to `bound`, returning the status if it exits.

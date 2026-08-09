@@ -144,3 +144,51 @@ fn composing_without_providers_matches_the_compiled_snapshot() {
         _ => panic!("both compositions must succeed"),
     }
 }
+
+#[test]
+fn provider_binding_survives_initial_compiled_only_composition() {
+    let bytes = br#"settings_schema = 2
+[keymap.dashboard]
+"vendor.pkg.run" = ["Ctrl+Y"]
+"#;
+    let catalog = crate::config_owners::builtin_owner_catalog()
+        .unwrap_or_else(|error| panic!("owner catalog fixture must build: {error}"));
+    let loaded = super::keymap_edit::load_bytes(Some(bytes), &catalog, "settings.toml")
+        .unwrap_or_else(|diagnostics| {
+            panic!("provider binding must remain recoverable: {diagnostics:?}")
+        });
+    assert!(
+        loaded.diagnostic.is_some(),
+        "the compiled-only pass cannot resolve a provider action"
+    );
+    assert!(
+        loaded
+            .settings
+            .keymap
+            .get("dashboard")
+            .is_some_and(|bindings| bindings.contains_key("vendor.pkg.run")),
+        "the later provider-aware pass must receive the original binding"
+    );
+
+    let action = provider_action("vendor.pkg.run");
+    let composed = compose_published_with_providers(
+        &loaded.settings,
+        "settings.toml",
+        vec![action],
+        vec![ActionAvailability::new(
+            action_id("vendor.pkg.run"),
+            Availability::Available,
+        )],
+    )
+    .unwrap_or_else(|error| panic!("provider-aware composition must succeed: {error:?}"));
+    let chord = crate::domain::keymap::Chord::parse("Ctrl+Y")
+        .unwrap_or_else(|error| panic!("chord fixture must parse: {error}"));
+    let stack =
+        crate::domain::input_context::ContextStack::from_ordered(["dashboard", "global"], false)
+            .unwrap_or_else(|error| panic!("context fixture must build: {error}"));
+    assert!(matches!(
+        composed.snapshot().resolve(&chord, &stack),
+        crate::domain::action_registry::Resolution::Dispatch { action, handler }
+            if action.as_str() == "vendor.pkg.run" && handler == HandlerKey::ProviderAction
+    ));
+}

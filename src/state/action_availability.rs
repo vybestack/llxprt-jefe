@@ -20,8 +20,22 @@ const ACTION_AVAILABILITY_SUBJECT: &str = "action-availability";
 
 impl AppState {
     /// Record a refused action in the global warning and the active work-item
-    /// screen's existing notice band.
-    pub fn record_unavailable_action(&mut self, reason: String) {
+    /// screen's existing notice band. Provider actions also retain enough typed
+    /// identity to open the dedicated unavailable surface.
+    pub fn record_unavailable_action(
+        &mut self,
+        action_id: Option<crate::domain::action_registry::ActionId>,
+        reason: String,
+    ) {
+        self.provider_surface_action = action_id.filter(|action_id| {
+            self.action_registry_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .provider_actions()
+                        .any(|action| action.id == *action_id)
+                })
+        });
         match self.screen() {
             super::ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
             super::ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
@@ -111,6 +125,11 @@ fn action_availability(
     action: &crate::domain::action_registry::Action,
 ) -> Availability {
     if matches!(action.handler, HandlerKey::ProviderAction) {
+        if let Some(reason) = state.provider_action_health.get(&action.id) {
+            return Availability::Unavailable {
+                reason: reason.clone(),
+            };
+        }
         return state
             .action_registry_snapshot
             .as_ref()

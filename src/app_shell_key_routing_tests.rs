@@ -117,7 +117,7 @@ fn assert_list_send_unavailable(mut state: AppState, reason: &str) {
     };
     assert_eq!(actual_reason, reason);
 
-    super::record_unavailable(&mut state, actual_reason);
+    super::record_unavailable(&mut state, None, actual_reason);
 
     assert_eq!(state.warning_message.as_deref(), Some(reason));
     assert_eq!(state.issues_state.detail_pending, pending_issue_detail);
@@ -137,7 +137,11 @@ fn unavailable_dispatch_records_exact_notice_and_stages_no_effect() {
     let repository_count = state.repositories.len();
     let agent_count = state.agents.len();
 
-    super::record_unavailable(&mut state, "No pull request loaded to merge".to_owned());
+    super::record_unavailable(
+        &mut state,
+        None,
+        "No pull request loaded to merge".to_owned(),
+    );
 
     assert_eq!(
         state.warning_message.as_deref(),

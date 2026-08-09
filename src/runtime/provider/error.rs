@@ -82,6 +82,13 @@ pub enum ProviderError {
         /// The raw id text that failed validation.
         raw: String,
     },
+    /// A structurally valid request id originated from the wrong peer.
+    InvalidRequestOrigin {
+        /// The valid request id whose prefix identifies the wrong peer.
+        raw: String,
+        /// The stream on which the request id arrived.
+        stream: String,
+    },
     /// A generation was zero, negative, or changed within one process.
     InvalidGeneration {
         /// The offending generation value.
@@ -136,6 +143,12 @@ impl fmt::Display for ProviderError {
                 write!(
                     formatter,
                     "request id {raw:?} must be h-/p- plus 6-20 ASCII digits"
+                )
+            }
+            Self::InvalidRequestOrigin { raw, stream } => {
+                write!(
+                    formatter,
+                    "request id {raw:?} originated from the wrong peer for the {stream} stream"
                 )
             }
             Self::InvalidGeneration { value } => {

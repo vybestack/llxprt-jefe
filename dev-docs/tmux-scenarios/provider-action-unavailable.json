@@ -38,7 +38,7 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.alien\"]\nenabled = true\nversion = \"1.0.0\"\n"
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.alien\"]\nenabled = true\nversion = \"1.0.0\"\n\n[keymap.\"dashboard\"]\n\"vendor.alien.run\" = [\"F2\"]\n"
         },
         "mode": 384
       },
@@ -55,81 +55,25 @@
   "steps": [
     {
       "op": "launch",
-      "argv": [
-        "jefe",
-        "--config",
-        "${workspace}/config"
-      ],
+      "argv": ["jefe", "--config", "${workspace}/config"],
       "env": [
-        {
-          "name": "JEFE_SOCKET_PATH",
-          "value": "${workspace}/s"
-        },
-        {
-          "name": "JEFE_LOG_FILE",
-          "value": "${workspace}/jefe.log"
-        }
+        {"name": "JEFE_SOCKET_PATH", "value": "${workspace}/s"},
+        {"name": "JEFE_LOG_FILE", "value": "${workspace}/jefe.log"}
       ],
       "cwd": "work"
     },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Agent Types",
-      "timeout_ms": 20000
-    },
-    {
-      "op": "key",
-      "key": "h",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Help - Keyboard Shortcuts",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "end",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Packages:",
-      "timeout_ms": 15000
-    },
+    {"op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 20000},
+    {"op": "key", "key": "f2", "modifiers": []},
+    {"op": "wait", "source": "frame", "literal": "no binary for", "timeout_ms": 15000},
     {
       "op": "assert-frame",
-      "contains": [
-        "Run alien task",
-        "Unavailable: no binary"
-      ],
-      "absent": []
+      "contains": ["Run alien task", "no binary for", "Esc Close"],
+      "absent": ["Enter Retry"]
     },
-    {
-      "op": "key",
-      "key": "escape",
-      "modifiers": []
-    },
-    {
-      "op": "assert-frame",
-      "contains": [],
-      "absent": [
-        "Help - Keyboard Shortcuts"
-      ]
-    },
-    {
-      "op": "key",
-      "key": "q",
-      "modifiers": [
-        "control"
-      ]
-    },
-    {
-      "op": "finish"
-    }
+    {"op": "key", "key": "escape", "modifiers": []},
+    {"op": "assert-frame", "contains": ["Agent Types"], "absent": ["Provider Action"]},
+    {"op": "key", "key": "q", "modifiers": ["control"]},
+    {"op": "finish"}
   ],
   "secrets": []
 }

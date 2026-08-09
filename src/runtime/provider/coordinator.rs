@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use crate::domain::action_registry::ActionId;
 use crate::domain::plugin::provider::ProviderMode;
@@ -21,8 +22,9 @@ use crate::domain::{CanonicalSemver, Id};
 use crate::runtime::provider::dto::{ConfigurePayload, InvokeActionPayload, InvokeContext};
 use crate::runtime::provider::environment::ProviderEnvironment;
 use crate::runtime::provider::identifiers::RequestId;
-use crate::runtime::provider::persistent::{
-    PersistentPublication, PersistentStartupResult, PersistentSupervisor,
+use crate::runtime::provider::persistent::PersistentPublication;
+use crate::runtime::provider::persistent_session::{
+    PersistentInvocation, PersistentInvokeError, PersistentSessionOwner,
 };
 use crate::state::provider_requests::ActionPolicy;
 
@@ -90,6 +92,11 @@ impl ProviderCatalog {
     #[must_use]
     pub fn get(&self, action_id: &ActionId) -> Option<&ProviderActionDescriptor> {
         self.entries.get(action_id)
+    }
+
+    /// Iterate over action descriptors in stable action-ID order.
+    pub fn iter(&self) -> impl Iterator<Item = (&ActionId, &ProviderActionDescriptor)> {
+        self.entries.iter()
     }
 
     /// Withdraw one action from the runnable catalog.
@@ -247,15 +254,48 @@ pub fn build_one_shot_request(
 
 /// The provider runtime coordinator.
 ///
-/// Owns the [`PersistentSupervisor`] when persistent providers started
-/// successfully, plus the data-only publication snapshot. Held by `AppContext`,
+/// Owns the persistent session owner (when persistent providers started
+/// successfully) plus the data-only publication snapshot. Held by `AppContext`,
 /// never by `AppState`. Shuts down before host exit. Owns a monotonic
 /// request-id counter so each in-flight request gets a unique `h-` id.
 pub struct ProviderCoordinator {
-    persistent: Option<PersistentSupervisor>,
+    sessions: PersistentSessionOwner,
     publication: Option<PersistentPublication>,
     catalog: ProviderCatalog,
     request_counter: AtomicU64,
+}
+
+/// A persistent dispatch failure: the request id or invocation payload could
+/// not be built, or no live session owns the plugin id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PersistentDispatchError {
+    /// The request id or invocation id exceeded a grammar bound.
+    Build(RequestBuildError),
+    /// No session owns the plugin id or the owner thread has exited.
+    Session(PersistentInvokeError),
+}
+
+impl std::fmt::Display for PersistentDispatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Build(error) => write!(formatter, "{error}"),
+            Self::Session(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for PersistentDispatchError {}
+
+impl From<RequestBuildError> for PersistentDispatchError {
+    fn from(error: RequestBuildError) -> Self {
+        Self::Build(error)
+    }
+}
+
+impl From<PersistentInvokeError> for PersistentDispatchError {
+    fn from(error: PersistentInvokeError) -> Self {
+        Self::Session(error)
+    }
 }
 
 impl ProviderCoordinator {
@@ -272,7 +312,7 @@ impl ProviderCoordinator {
     #[must_use]
     pub fn from_catalog(catalog: ProviderCatalog) -> Self {
         Self {
-            persistent: None,
+            sessions: PersistentSessionOwner::empty(),
             publication: None,
             catalog,
             request_counter: AtomicU64::new(0),
@@ -280,22 +320,27 @@ impl ProviderCoordinator {
     }
 
     /// Construct from a persistent startup result and catalog. On success,
-    /// takes ownership of the supervisor and stores the publication snapshot.
-    /// On failure, no supervisor is held and no processes leak.
+    /// moves each ready candidate into a command-owner thread and stores the
+    /// publication snapshot. On failure, no sessions are held and no processes
+    /// leak.
     #[must_use]
-    pub fn from_startup(result: PersistentStartupResult, catalog: ProviderCatalog) -> Self {
+    pub fn from_startup(
+        result: crate::runtime::provider::persistent::PersistentStartupResult,
+        catalog: ProviderCatalog,
+    ) -> Self {
+        use crate::runtime::provider::persistent::PersistentStartupResult;
         match result {
             PersistentStartupResult::Started {
                 supervisor,
                 publication,
             } => Self {
-                persistent: Some(supervisor),
+                sessions: supervisor.into_sessions(),
                 publication: Some(publication),
                 catalog,
                 request_counter: AtomicU64::new(0),
             },
             PersistentStartupResult::Failed(_) => Self {
-                persistent: None,
+                sessions: PersistentSessionOwner::empty(),
                 publication: None,
                 catalog,
                 request_counter: AtomicU64::new(0),
@@ -315,10 +360,16 @@ impl ProviderCoordinator {
         &self.catalog
     }
 
-    /// Whether any persistent provider is owned and ready.
+    /// Whether any persistent provider session is owned.
     #[must_use]
     pub fn has_persistent(&self) -> bool {
-        self.persistent.is_some()
+        !self.sessions.is_empty()
+    }
+
+    /// Probe every persistent candidate's health.
+    #[must_use]
+    pub fn health(&self) -> Vec<crate::runtime::provider::persistent::CandidateHealthSnapshot> {
+        self.sessions.health()
     }
 
     /// Allocate the next monotonic request-id counter value.
@@ -342,19 +393,43 @@ impl ProviderCoordinator {
         build_one_shot_request(descriptor, invocation, counter)
     }
 
+    /// Invoke one action on the already-Ready persistent candidate for the
+    /// descriptor's plugin id. The invocation runs in the candidate's
+    /// command-owner thread; the returned handle lets the caller poll live
+    /// progress, set a cancel flag, and consume the terminal result. The
+    /// candidate stays alive for the next invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PersistentDispatchError`] when the request id or invocation
+    /// payload cannot be built, or when no session owns the plugin id or the
+    /// owner thread has exited.
+    pub fn invoke_persistent(
+        &self,
+        descriptor: &ProviderActionDescriptor,
+        invocation: &crate::domain::effects::ProviderInvocation,
+    ) -> Result<PersistentInvocation, PersistentDispatchError> {
+        let counter = self.next_request_counter();
+        let request_id = RequestId::new_host(counter).map_err(RequestBuildError::from)?;
+        let payload =
+            build_invocation_payload(descriptor, invocation).map_err(RequestBuildError::from)?;
+        let timeout = Duration::from_secs(u64::from(descriptor.timeout_seconds.max(1)));
+        Ok(self
+            .sessions
+            .invoke(&descriptor.plugin_id, request_id, payload, timeout)?)
+    }
+
     /// Shut down every persistent candidate and reap the process trees.
     /// Idempotent. Must be called before host exit.
     pub fn shutdown(&mut self) {
-        if let Some(supervisor) = self.persistent.as_mut() {
-            supervisor.shutdown();
-        }
+        self.sessions.shutdown();
     }
 }
 
 impl std::fmt::Debug for ProviderCoordinator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProviderCoordinator")
-            .field("has_persistent", &self.persistent.is_some())
+            .field("has_persistent", &self.has_persistent())
             .field(
                 "candidate_count",
                 &self

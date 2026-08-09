@@ -296,8 +296,24 @@ fn materialize_workspace(scenario: &ScenarioV1, root: &Path) -> Result<(), Harne
         std::fs::write(&path, bytes).map_err(|err| {
             HarnessError::process(format!("write '{}': {err}", file.path.as_str()))
         })?;
+        apply_file_mode(&path, file.mode, file.path.as_str())?;
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn apply_file_mode(path: &Path, mode: u32, display_path: &str) -> Result<(), HarnessError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|err| HarnessError::process(format!("chmod '{display_path}': {err}")))
+}
+
+#[cfg(not(unix))]
+fn apply_file_mode(path: &Path, _mode: u32, display_path: &str) -> Result<(), HarnessError> {
+    std::fs::metadata(path)
+        .map(|_| ())
+        .map_err(|err| HarnessError::process(format!("verify '{display_path}' after write: {err}")))
 }
 
 fn write_failure_artifacts(
@@ -324,4 +340,55 @@ fn write_artifact(directory: &Path, name: &str, body: &str) -> Result<(), Harnes
     })?;
     std::fs::write(directory.join(name), body)
         .map_err(|err| HarnessError::process(format!("write artifact '{name}': {err}")))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+    use crate::harness::v1::contract::{FileSpec, Platform, Size, WorkspaceSpec};
+
+    struct Cleanup(std::path::PathBuf);
+
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn tmux_workspace_materialization_preserves_executable_mode() {
+        let root =
+            std::env::temp_dir().join(format!("jefe-tmux-materialize-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&root)
+            .unwrap_or_else(|error| panic!("temporary root must create: {error}"));
+        let _cleanup = Cleanup(root.clone());
+        let path = crate::harness::v1::validate::validate_rel_path("test path", "bin/provider")
+            .unwrap_or_else(|error| panic!("fixture path must validate: {error}"));
+        let scenario = ScenarioV1 {
+            name: "mode preservation".to_owned(),
+            platform: Platform::current().unwrap_or(Platform::Linux),
+            terminal: Size { cols: 80, rows: 24 },
+            workspace: WorkspaceSpec {
+                dirs: Vec::new(),
+                files: vec![FileSpec {
+                    path,
+                    content: FileContent::Utf8("#!/bin/sh\n".to_owned()),
+                    mode: 0o755,
+                }],
+                env: Vec::new(),
+            },
+            steps: Vec::new(),
+            secrets: Vec::new(),
+        };
+
+        materialize_workspace(&scenario, &root)
+            .unwrap_or_else(|error| panic!("workspace must materialize: {error}"));
+        let mode = std::fs::metadata(root.join("bin/provider"))
+            .unwrap_or_else(|error| panic!("provider fixture must stat: {error}"))
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755);
+    }
 }

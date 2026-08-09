@@ -280,12 +280,12 @@ pub fn load_bytes(
             diagnostic: None,
         }),
         Err(diagnostic) => {
-            let mut fallback = settings;
-            fallback.keymap.clear();
-            let composed = compose_published(&fallback, source)
+            let mut compiled_fallback = settings.clone();
+            compiled_fallback.keymap.clear();
+            let composed = compose_published(&compiled_fallback, source)
                 .map_err(|error| vec![internal_diagnostic(error.to_string())])?;
             Ok(LoadedKeymap {
-                settings: fallback,
+                settings,
                 composed,
                 diagnostic: Some(diagnostic),
             })

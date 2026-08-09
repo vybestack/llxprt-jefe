@@ -59,6 +59,7 @@ pub(super) fn redact_one_shot_outcome(
         OneShotOutcome::ProviderError(payload) => {
             OneShotOutcome::ProviderError(redact_error_payload(payload, redactor))
         }
+        OneShotOutcome::Cancelled => OneShotOutcome::Cancelled,
         OneShotOutcome::Failed(failure) => {
             OneShotOutcome::Failed(redact_supervisor_failure(failure, redactor))
         }
@@ -182,6 +183,9 @@ pub(super) fn redact_cleanup_failure(
         CleanupFailure::ShutdownAck(error) => {
             CleanupFailure::ShutdownAck(redact_provider_error(error, redactor))
         }
+        CleanupFailure::PostTerminal(error) => {
+            CleanupFailure::PostTerminal(redact_provider_error(error, redactor))
+        }
         CleanupFailure::Io(message) => CleanupFailure::Io(redactor.redact(&message).into_owned()),
         other => other,
     }
@@ -222,6 +226,12 @@ fn redact_provider_error(error: ProviderError, redactor: &Redactor) -> ProviderE
         ProviderError::InvalidRequestId { raw } => ProviderError::InvalidRequestId {
             raw: redactor.redact(&raw).into_owned(),
         },
+        ProviderError::InvalidRequestOrigin { raw, stream } => {
+            ProviderError::InvalidRequestOrigin {
+                raw: redactor.redact(&raw).into_owned(),
+                stream,
+            }
+        }
         other => other,
     }
 }

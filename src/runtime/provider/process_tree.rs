@@ -9,12 +9,16 @@
 //! `command_capture.rs` / `process.rs` conventions; no new dependency or
 //! `unsafe` is introduced, and native Windows compiles.
 
+#[cfg(unix)]
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 
 /// The spawned provider process plus its owned standard streams.
 pub(super) struct ProviderProcess {
     child: Child,
+    known_descendants: BTreeSet<u32>,
 }
 
 impl ProviderProcess {
@@ -43,7 +47,35 @@ impl ProviderProcess {
     /// Forwards the underlying signal-delivery error if neither the group
     /// signal nor the in-process `kill` could be issued.
     pub(super) fn force_kill_tree(&mut self) -> io::Result<()> {
-        kill_process_tree(&mut self.child)
+        let group_result = kill_process_tree(&mut self.child);
+        let descendants_result = signal_descendants(&self.known_descendants, "-KILL");
+        group_result.and(descendants_result)
+    }
+
+    /// Snapshot descendants while the provider leader still proves their
+    /// ownership. Escaped process-group members remain in this set after the
+    /// leader exits, allowing later shutdown stages to target exact PIDs rather
+    /// than broad process names or a potentially recycled leader group.
+    pub(super) fn observe_descendants(&mut self) -> io::Result<()> {
+        let discovered = descendant_pids(self.child.id(), &self.known_descendants)?;
+        self.known_descendants.extend(discovered);
+        Ok(())
+    }
+
+    /// Gracefully terminate every exact descendant PID observed while the
+    /// provider leader still owned it.
+    pub(super) fn terminate_descendants(&self) -> io::Result<()> {
+        signal_descendants(&self.known_descendants, "-TERM")
+    }
+
+    /// Force-kill every exact descendant PID observed while the leader owned it.
+    pub(super) fn force_kill_descendants(&self) -> io::Result<()> {
+        signal_descendants(&self.known_descendants, "-KILL")
+    }
+
+    /// Whether any observed descendant remains alive.
+    pub(super) fn descendants_alive(&self) -> bool {
+        self.known_descendants.iter().copied().any(process_is_alive)
     }
 }
 
@@ -75,7 +107,15 @@ pub(super) fn spawn(
         .stderr
         .take()
         .ok_or_else(|| io::Error::other("provider did not expose stderr"))?;
-    Ok((ProviderProcess { child }, stdin, stdout, stderr))
+    Ok((
+        ProviderProcess {
+            child,
+            known_descendants: BTreeSet::new(),
+        },
+        stdin,
+        stdout,
+        stderr,
+    ))
 }
 
 /// Stage B: close new requests are already sealed by the caller; signal the
@@ -208,6 +248,108 @@ fn kill_process_group(pid: u32) -> io::Result<()> {
         let _ = group_id;
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn descendant_pids(root: u32, retained: &BTreeSet<u32>) -> io::Result<BTreeSet<u32>> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,ppid="])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other("could not enumerate provider descendants"));
+    }
+    let text = String::from_utf8(output.stdout)
+        .map_err(|_| io::Error::other("process listing was not UTF-8"))?;
+    let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for line in text.lines() {
+        let mut fields = line.split_ascii_whitespace();
+        let Some(pid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(parent) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        if pid > 1 {
+            children.entry(parent).or_default().push(pid);
+        }
+    }
+    let mut discovered = retained.clone();
+    let mut frontier = vec![root];
+    frontier.extend(retained.iter().copied());
+    while let Some(parent) = frontier.pop() {
+        if let Some(direct) = children.get(&parent) {
+            for pid in direct {
+                if discovered.insert(*pid) {
+                    frontier.push(*pid);
+                }
+            }
+        }
+    }
+    discovered.remove(&root);
+    Ok(discovered)
+}
+
+#[cfg(not(unix))]
+fn descendant_pids(root: u32, retained: &BTreeSet<u32>) -> io::Result<BTreeSet<u32>> {
+    if root == 0 || retained.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "provider process identities must be positive",
+        ));
+    }
+    Ok(retained.clone())
+}
+
+#[cfg(unix)]
+fn signal_descendants(descendants: &BTreeSet<u32>, signal: &str) -> io::Result<()> {
+    for pid in descendants {
+        let pid_text = pid.to_string();
+        Command::new("kill")
+            .args([signal, pid_text.as_str()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn signal_descendants(descendants: &BTreeSet<u32>, _signal: &str) -> io::Result<()> {
+    if descendants.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "provider descendant identities must be positive",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    let pid_text = pid.to_string();
+    let Ok(output) = Command::new("ps")
+        .args(["-o", "stat=", "-p", pid_text.as_str()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return true;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let state = String::from_utf8_lossy(&output.stdout);
+    state
+        .split_ascii_whitespace()
+        .next()
+        .is_some_and(|value| !value.starts_with('Z'))
+}
+
+#[cfg(not(unix))]
+const fn process_is_alive(_pid: u32) -> bool {
+    false
 }
 
 #[cfg(unix)]

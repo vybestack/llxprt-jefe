@@ -8,6 +8,9 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use jefe::domain::action_registry::ActionId;
@@ -18,11 +21,18 @@ use jefe::runtime::provider::protocol::{
 };
 use jefe::runtime::provider::supervisor::{
     CleanupFailure, OneShotOutcome, OneShotRequest, OneShotResult, SupervisorBounds,
-    SupervisorFailure, TranscriptEntry, run_one_shot,
+    SupervisorFailure, TranscriptEntry, run_one_shot, run_one_shot_streaming,
 };
 
 /// A distinctive secret canary used across the redaction tests.
 const SECRET: &str = "SUPER-secret-canary-390";
+
+fn join_or_resume<T>(handle: std::thread::JoinHandle<T>) -> T {
+    match handle.join() {
+        Ok(value) => value,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
 
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-provider-fixture");
 
@@ -648,6 +658,175 @@ fn cw10_11_data_after_ack_is_a_visible_cleanup_failure() {
         matches!(result.cleanup_failure, Some(CleanupFailure::ShutdownAck(_))),
         "data after ack is a lifecycle failure, got {:?}",
         result.cleanup_failure
+    );
+    assert!(result.process_reaped);
+}
+
+// ---------------------------------------------------------------------------
+// S16/S17: live one-shot progress/cancel delivery (remediation slice E)
+// ---------------------------------------------------------------------------
+
+/// Collect each live progress payload's sequence from `rx` until `count`
+/// arrive, failing if the channel closes or the deadline passes first.
+fn recv_progress(
+    rx: &mpsc::Receiver<jefe::runtime::provider::protocol::ProgressPayload>,
+    count: usize,
+) -> Vec<u16> {
+    let mut seqs = Vec::new();
+    while seqs.len() < count {
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(payload) => seqs.push(payload.sequence),
+            Err(error) => panic!("expected {count} live progress frames, got {seqs:?}: {error}"),
+        }
+    }
+    seqs
+}
+
+#[test]
+fn s16_streaming_delivers_each_progress_payload_live_before_terminal() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let request = scene.request("happy", base_env(scene.provider_dir.clone()));
+    let (tx, rx) = mpsc::channel();
+    // Run the streaming lifecycle on a dedicated thread so progress is observed
+    // on the channel *while the invocation is still live*, before the terminal
+    // result is produced. The blocking entry point would only reveal progress
+    // after completion (S10's old defect).
+    let handle = thread::spawn(move || {
+        run_one_shot_streaming(
+            &request,
+            &fast_bounds(),
+            &FixedEnv::from_pairs(&[]),
+            Some(&tx),
+            None,
+        )
+    });
+    let seqs = recv_progress(&rx, 3);
+    assert_eq!(
+        seqs,
+        vec![1, 2, 3],
+        "each progress payload delivered live, in order"
+    );
+    let result = join_or_resume(handle);
+    assert!(
+        matches!(result.outcome, OneShotOutcome::Completed(_)),
+        "terminal outcome preserved: {:?}",
+        result.outcome
+    );
+    assert!(result.process_reaped);
+}
+
+#[test]
+fn s17_cancel_is_observed_promptly_for_a_live_silent_invocation() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let request = scene.request("progress-then-hang", base_env(scene.provider_dir.clone()));
+    let (tx, rx) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_for_thread = cancel.clone();
+    // A long invocation deadline: a silent provider must not hide a host cancel
+    // behind it. The driver re-checks the cancel flag between bounded reads, so
+    // cancel is observed within the poll slice rather than after 30 s. Against
+    // the pre-fix code (one full-deadline read) this would take ~30 s.
+    let bounds = SupervisorBounds {
+        invocation: Duration::from_secs(30),
+        ..fast_bounds()
+    };
+    let handle = thread::spawn(move || {
+        run_one_shot_streaming(
+            &request,
+            &bounds,
+            &FixedEnv::from_pairs(&[]),
+            Some(&tx),
+            Some(&cancel_for_thread),
+        )
+    });
+    // Prove the invocation is live: its progress frames arrive on the channel.
+    let seqs = recv_progress(&rx, 3);
+    assert_eq!(
+        seqs,
+        vec![1, 2, 3],
+        "invocation reached live progress before cancel"
+    );
+
+    let start = Instant::now();
+    cancel.store(true, Ordering::SeqCst);
+    let result = join_or_resume(handle);
+    let elapsed = start.elapsed();
+
+    assert!(
+        matches!(result.outcome, OneShotOutcome::Cancelled),
+        "host cancel is the session terminal: {:?}",
+        result.outcome
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "cancel observed in {elapsed:?}, not hidden behind the 30 s invocation deadline"
+    );
+
+    assert!(
+        result.process_reaped,
+        "cancelled invocation is still reaped"
+    );
+}
+
+#[test]
+fn cw10_09_a_queued_one_shot_terminal_wins_over_a_later_cancel() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let request = scene.request("happy", base_env(scene.provider_dir.clone()));
+    let (tx, rx) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_for_thread = cancel.clone();
+    let handle = thread::spawn(move || {
+        run_one_shot_streaming(
+            &request,
+            &fast_bounds(),
+            &FixedEnv::from_pairs(&[]),
+            Some(&tx),
+            Some(&cancel_for_thread),
+        )
+    });
+
+    assert_eq!(recv_progress(&rx, 3), vec![1, 2, 3]);
+    thread::sleep(Duration::from_millis(100));
+    cancel.store(true, Ordering::SeqCst);
+    let result = join_or_resume(handle);
+
+    assert!(
+        matches!(result.outcome, OneShotOutcome::Completed(_)),
+        "a provider terminal queued before cancel is authoritative: {:?}",
+        result.outcome
+    );
+}
+
+#[test]
+fn s15_descriptor_timeout_carried_exactly_into_streaming_bounds() {
+    // The streaming entry point honors the caller-supplied bounds exactly:
+    // a 1-second invocation deadline times out a hung provider in ~1 s, not
+    // the 60 s production default. This proves the descriptor-selected
+    // timeout_seconds (1..=600) flows into invocation timing (S15).
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let request = scene.request("progress-then-hang", base_env(scene.provider_dir.clone()));
+    let bounds = SupervisorBounds {
+        invocation: Duration::from_secs(1),
+        ..fast_bounds()
+    };
+    let start = Instant::now();
+    let result = run_one_shot_streaming(&request, &bounds, &FixedEnv::from_pairs(&[]), None, None);
+    let elapsed = start.elapsed();
+    assert!(
+        matches!(
+            result.outcome,
+            OneShotOutcome::Failed(SupervisorFailure::InvocationTimeout)
+        ),
+        "exact 1 s deadline fires for a hung provider: {:?}",
+        result.outcome
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "timed out near the 1 s deadline, not the default: {elapsed:?}"
     );
     assert!(result.process_reaped);
 }

@@ -26,6 +26,7 @@
 use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
 use crate::domain::{Id, TypedMap};
 use crate::runtime::provider::protocol::{Outcome, ProgressPayload, Severity};
+use crate::state::ConfirmFocus;
 
 use super::{
     ActionPolicy, CONFIRMATION_TTL_SECONDS, CancelOutcome, ConfirmInput, InvokeInput,
@@ -174,6 +175,52 @@ fn drain_terminal_frees_active_slots() {
     assert_eq!(state.active_count(), 0);
     do_invoke(&mut state);
     assert_eq!(state.active_count(), 1);
+}
+
+// ── S18: terminal-capacity semantics ─────────────────────────────────────
+
+#[test]
+fn live_count_counts_only_non_terminal_requests() {
+    let mut state = ProviderRequestState::new();
+    let live = do_invoke(&mut state);
+    let terminal = do_invoke(&mut state);
+    state
+        .record_outcome(&terminal.key, notice_outcome(), 1000)
+        .unwrap_or_else(|e| panic!("record outcome: {e}"));
+    // Both records exist, but only the live one consumes capacity (S18).
+    assert_eq!(state.active_count(), 2);
+    assert_eq!(
+        state.live_count(),
+        1,
+        "terminal request must not consume live capacity"
+    );
+    // Marking the remaining live request terminal frees its slot without
+    // draining any records.
+    state
+        .record_error(&live.key, "boom".to_owned())
+        .unwrap_or_else(|e| panic!("record error: {e}"));
+    assert_eq!(state.active_count(), 2);
+    assert_eq!(state.live_count(), 0);
+}
+
+#[test]
+fn terminal_request_does_not_consume_capacity_seventeenth_succeeds() {
+    // Capacity counts only live requests (S18). Sixteen terminal requests must
+    // not block a seventeenth sequential invocation. Against the pre-fix code
+    // (capacity = requests.len()) this returns ActiveLimitExceeded.
+    let mut state = ProviderRequestState::new();
+    for _ in 0..MAX_ACTIVE_REQUESTS {
+        let outcome = do_invoke(&mut state);
+        state
+            .record_outcome(&outcome.key, notice_outcome(), 1000)
+            .unwrap_or_else(|e| panic!("record outcome: {e}"));
+    }
+    assert_eq!(state.active_count(), MAX_ACTIVE_REQUESTS);
+    assert_eq!(state.live_count(), 0, "all requests are terminal");
+    // The seventeenth sequential invocation succeeds.
+    let seventeenth = do_invoke(&mut state);
+    assert_eq!(state.live_count(), 1);
+    assert_eq!(seventeenth.key.generation, MAX_ACTIVE_REQUESTS as u64 + 1);
 }
 
 // ── CW10-07: progress integration ────────────────────────────────────────
@@ -666,4 +713,113 @@ fn confirm_at_exact_ttl_boundary_is_expired() {
     );
     // Fail-fast single-use: the expired token is consumed.
     assert_eq!(state.pending_confirmation_count(), 0);
+}
+
+#[test]
+fn provider_confirmation_focus_defaults_safe_and_cycles_only_while_pending() {
+    let mut state = ProviderRequestState::new();
+    assert_eq!(state.confirmation_focus(), ConfirmFocus::Cancel);
+    assert!(!state.cycle_confirmation_focus());
+
+    let policy = continuation_policy();
+    let invocation = do_invoke_with(&mut state, &policy, empty_map(), empty_map());
+    assert!(
+        state
+            .record_outcome(
+                &invocation.key,
+                confirmation_outcome("conf.focus", false),
+                1000,
+            )
+            .is_ok()
+    );
+    assert_eq!(state.confirmation_focus(), ConfirmFocus::Cancel);
+    assert!(state.cycle_confirmation_focus());
+    assert_eq!(state.confirmation_focus(), ConfirmFocus::Confirm);
+    assert!(state.cycle_confirmation_focus());
+    assert_eq!(state.confirmation_focus(), ConfirmFocus::Cancel);
+}
+
+#[test]
+fn cancelling_provider_confirmation_consumes_token_without_invocation_b() {
+    let mut state = ProviderRequestState::new();
+    let policy = continuation_policy();
+    let invocation = do_invoke_with(&mut state, &policy, empty_map(), empty_map());
+    assert!(
+        state
+            .record_outcome(
+                &invocation.key,
+                confirmation_outcome("conf.cancel", false),
+                1000,
+            )
+            .is_ok()
+    );
+
+    let generation_before_cancel = invocation.key.generation;
+    assert!(state.cancel_latest_confirmation());
+    assert_eq!(state.pending_confirmation_count(), 0);
+    assert_eq!(state.active_count(), 1);
+    assert_eq!(
+        state.requests()[0].key().generation,
+        generation_before_cancel
+    );
+    assert!(!state.cancel_latest_confirmation());
+}
+
+#[test]
+fn accepted_notice_outcome_stages_one_closed_post_commit_host_effect() {
+    use crate::domain::effects::{
+        Effect, ProviderEffect, ProviderHostOutcome, ProviderNoticeSeverity,
+    };
+    use crate::messages::{AppMessage, ProviderMessage};
+    use crate::state::AppState;
+
+    let invoke = ProviderMessage::Invoke {
+        owner: owner(),
+        action_id: action(),
+        context_screen: screen(),
+        context_instance: screen(),
+        context_refs: empty_map(),
+        arguments: empty_map(),
+        policy: default_policy(),
+    };
+    let invoke_transition = AppState::default()
+        .apply_message(AppMessage::Provider(Box::new(invoke)))
+        .unwrap_or_else(|error| panic!("invoke transition: {error}"));
+    let key = match &invoke_transition.effects[0].effect {
+        Effect::Provider(ProviderEffect::InvokeAction { invocation }) => invocation.key.clone(),
+        other => panic!("expected invoke effect, got {other:?}"),
+    };
+    let outcome = notice_outcome();
+    let outcome_transition = invoke_transition
+        .next_state
+        .apply_message(AppMessage::Provider(Box::new(ProviderMessage::Outcome {
+            key: key.clone(),
+            outcome: outcome.clone(),
+            now_epoch: 1,
+        })))
+        .unwrap_or_else(|error| panic!("outcome transition: {error}"));
+
+    assert_eq!(outcome_transition.effects.len(), 1);
+    assert!(matches!(
+        &outcome_transition.effects[0].effect,
+        Effect::Provider(ProviderEffect::ApplyOutcome {
+            key: staged_key,
+            outcome: ProviderHostOutcome::Notice(notice),
+        }) if staged_key == &key
+            && notice.severity == ProviderNoticeSeverity::Info
+            && notice.message == "completed"
+    ));
+
+    let repeated = outcome_transition
+        .next_state
+        .apply_message(AppMessage::Provider(Box::new(ProviderMessage::Outcome {
+            key,
+            outcome,
+            now_epoch: 2,
+        })))
+        .unwrap_or_else(|error| panic!("repeated outcome transition: {error}"));
+    assert!(
+        repeated.effects.is_empty(),
+        "a repeated terminal message must not stage a second host effect"
+    );
 }

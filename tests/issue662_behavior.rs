@@ -464,8 +464,9 @@ fn a_panicking_run_still_records_why_it_ended() {
 #[test]
 fn a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended() {
     let root = temp_root("prior-unclean");
+    let reused_pid = std::process::id();
     let dead = RunMarker {
-        identity: ProcessIdentity::new(4_000_000_001, 4_242),
+        identity: ProcessIdentity::new(reused_pid, u64::MAX),
         version: "0.0.31".to_string(),
         started_unix: 1_780_400_000,
         last_seen_unix: 1_780_412_566,
@@ -476,7 +477,7 @@ fn a_new_run_reports_and_clears_the_marker_of_a_prior_run_that_never_ended() {
     let (guard, prior) = jefe::run_diagnostics::begin_run(&root);
 
     assert_eq!(prior.len(), 1, "the abandoned run must be reported");
-    assert_eq!(prior[0].pid, 4_000_000_001);
+    assert_eq!(prior[0].pid, reused_pid);
     assert_eq!(prior[0].last_seen_unix, 1_780_412_566);
     assert_eq!(prior[0].breadcrumb.as_deref(), Some("attach agent-3"));
 

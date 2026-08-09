@@ -818,7 +818,10 @@ impl AppState {
     fn apply_system_message(&mut self, message: SystemMessage) {
         match message {
             SystemMessage::ClearError => self.error_message = None,
-            SystemMessage::ClearWarning => self.warning_message = None,
+            SystemMessage::ClearWarning => {
+                self.warning_message = None;
+                self.provider_notice = None;
+            }
             SystemMessage::Quit => {}
             SystemMessage::TransientAgentQueued { queue_position } => {
                 self.apply_transient_queued(queue_position);

@@ -12,6 +12,7 @@ mod app_shell_attach;
 mod app_shell_key_routing;
 mod app_shell_liveness;
 mod app_shell_panic;
+mod app_shell_provider_worker;
 mod app_shell_workers;
 mod detail_wrap_map;
 mod mouse_routing;

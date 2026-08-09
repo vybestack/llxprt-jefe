@@ -151,6 +151,36 @@ impl ActiveRequest {
         &self.key
     }
 
+    /// Screen from which this invocation was authorized.
+    #[must_use]
+    pub const fn context_screen(&self) -> &Id {
+        &self.context_screen
+    }
+
+    /// Screen instance from which this invocation was authorized.
+    #[must_use]
+    pub const fn context_instance(&self) -> &Id {
+        &self.context_instance
+    }
+
+    /// Resource references captured for this invocation.
+    #[must_use]
+    pub const fn context_refs(&self) -> &TypedMap {
+        &self.context_refs
+    }
+
+    /// Arguments captured for this invocation.
+    #[must_use]
+    pub const fn arguments(&self) -> &TypedMap {
+        &self.arguments
+    }
+
+    /// Immutable outcome and confirmation policy for this invocation.
+    #[must_use]
+    pub const fn policy(&self) -> &ActionPolicy {
+        &self.policy
+    }
+
     /// The latest accepted progress payload, if any.
     #[must_use]
     pub fn latest_progress(&self) -> Option<&ProgressPayload> {
@@ -236,6 +266,7 @@ impl PendingConfirmation {
     /// Read-only view of this token's UI fields for the pure view projection.
     pub(super) fn view(&self) -> PendingConfirmationView<'_> {
         PendingConfirmationView {
+            confirmation_id: &self.confirmation_id,
             title: &self.title,
             body: &self.body,
             confirm_label: &self.confirm_label,
@@ -251,6 +282,7 @@ impl PendingConfirmation {
 /// declared values without owning or mutating reducer state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PendingConfirmationView<'a> {
+    confirmation_id: &'a Id,
     title: &'a str,
     body: &'a str,
     confirm_label: &'a str,
@@ -258,6 +290,12 @@ pub struct PendingConfirmationView<'a> {
 }
 
 impl<'a> PendingConfirmationView<'a> {
+    /// Single-use confirmation identity declared by the provider.
+    #[must_use]
+    pub const fn confirmation_id(self) -> &'a Id {
+        self.confirmation_id
+    }
+
     /// The modal title declared by the provider.
     #[must_use]
     pub const fn title(self) -> &'a str {

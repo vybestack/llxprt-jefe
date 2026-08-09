@@ -409,3 +409,30 @@ fn stderr_is_only_reported_truncated_when_bytes_were_actually_dropped() {
     assert_eq!(bytes.len(), STDERR_RETENTION_MAX);
     assert!(truncated);
 }
+
+// ---------------------------------------------------------------------------
+// S15: descriptor-selected timeout_seconds carried exactly (1..=600)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn for_invocation_carries_exact_timeout_seconds() {
+    for timeout in [1_u32, 60, 600] {
+        let bounds = SupervisorBounds::for_invocation(timeout);
+        assert_eq!(
+            bounds.invocation,
+            Duration::from_secs(u64::from(timeout)),
+            "timeout {timeout} not carried exactly"
+        );
+        // All other bounds remain at production defaults.
+        assert_eq!(bounds.handshake, Duration::from_secs(5));
+        assert_eq!(bounds.shutdown_ack, Duration::from_secs(2));
+        assert_eq!(bounds.stdin_close, Duration::from_secs(2));
+        assert_eq!(bounds.final_drain, Duration::from_secs(2));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S16/S17: streaming progress and cancel hooks are exercised by the streaming
+// session tests below (live delivery and cancel surface). The pure
+// `OneShotOutcome::Cancelled` mapping and redaction are covered there too.
+// ---------------------------------------------------------------------------

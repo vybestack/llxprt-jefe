@@ -320,6 +320,35 @@ pub struct ProviderInvocation {
     pub continuation: Option<ProviderContinuation>,
 }
 
+/// Closed provider outcomes the host applies after the provider result commits.
+///
+/// Confirmation remains reducer/UI state and panel/config-migration outcomes
+/// remain owned by later slices. These three variants are the complete CW-10
+/// host-effect vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderHostOutcome {
+    /// Navigate to a route declared by the immutable screen registry.
+    Navigate { route_id: Id, activation: TypedMap },
+    /// Refresh the resource that was current when the invocation began.
+    Refresh { resource_ref: TypedMap },
+    /// Surface an operator notice on the still-current owning screen.
+    Notice(ProviderNotice),
+}
+
+/// A typed, redaction-safe provider notice committed by the host adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderNotice {
+    pub severity: ProviderNoticeSeverity,
+    pub message: String,
+}
+
+/// Closed severity carried by a provider host notice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderNoticeSeverity {
+    Info,
+    Warning,
+}
+
 /// Provider/package availability operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderEffect {
@@ -336,6 +365,11 @@ pub enum ProviderEffect {
     /// Send a cancel for an in-flight request (issue #390 CW-10, Slice B).
     CancelRequest {
         key: ProviderRequestKey,
+    },
+    /// Apply one validated terminal outcome after its reducer commit.
+    ApplyOutcome {
+        key: ProviderRequestKey,
+        outcome: ProviderHostOutcome,
     },
 }
 
@@ -354,6 +388,10 @@ pub enum ProviderResponse {
     },
     /// A cancel was sent to an in-flight request (CW-10 Slice B).
     Cancelled {
+        key: ProviderRequestKey,
+    },
+    /// A validated provider outcome was applied by the host adapter.
+    OutcomeApplied {
         key: ProviderRequestKey,
     },
 }

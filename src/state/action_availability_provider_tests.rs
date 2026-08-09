@@ -103,6 +103,47 @@ fn an_available_provider_action_stays_available() {
     );
 }
 
+/// A post-Ready persistent crash overrides startup availability without
+/// mutating the immutable action declaration or restarting the provider.
+#[test]
+fn persistent_health_failure_makes_the_provider_action_unavailable() {
+    let mut state = state_with_provider(Availability::Available);
+    state.provider_action_health.insert(
+        action_id("vendor.deploy.ship"),
+        "provider stopped after ready".to_owned(),
+    );
+    let Some(snapshot) = state.action_registry_snapshot.as_ref() else {
+        panic!("fixture must carry a snapshot");
+    };
+
+    let entries = availability_entries(&state, snapshot.actions());
+
+    let entry = entries
+        .iter()
+        .find(|entry| entry.action() == &action_id("vendor.deploy.ship"));
+    assert_eq!(
+        entry.map(ActionAvailability::availability),
+        Some(&Availability::Unavailable {
+            reason: "provider stopped after ready".to_owned()
+        })
+    );
+}
+
+#[test]
+fn refusing_a_provider_action_retains_identity_for_the_unavailable_surface() {
+    let mut state = state_with_provider(Availability::Unavailable {
+        reason: "provider stopped after ready".to_owned(),
+    });
+    let provider_id = action_id("vendor.deploy.ship");
+
+    state.record_unavailable_action(
+        Some(provider_id.clone()),
+        "provider stopped after ready".to_owned(),
+    );
+
+    assert_eq!(state.provider_surface_action, Some(provider_id));
+}
+
 /// Compiled actions must still be recomputed from host state, or the refresh
 /// would stop doing its job.
 #[test]

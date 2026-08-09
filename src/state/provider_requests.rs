@@ -22,6 +22,7 @@ use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
 use crate::runtime::provider::protocol::Outcome;
 
 use super::provider_request_model::{ConfirmationBinding, PendingConfirmation, RequestStatus};
+use super::types::ConfirmFocus;
 
 // Re-export public data types so consumers reach them through this module.
 pub use super::provider_request_model::{
@@ -102,6 +103,7 @@ fn validate_outcome(policy: &ActionPolicy, outcome: &Outcome) -> Result<(), Prov
 pub struct ProviderRequestState {
     requests: Vec<ActiveRequest>,
     pending_confirmations: Vec<PendingConfirmation>,
+    confirmation_focus: ConfirmFocus,
     next_generation: u64,
 }
 
@@ -118,10 +120,51 @@ impl ProviderRequestState {
         self.requests.len()
     }
 
+    /// Number of live (non-terminal) requests — the ones that consume capacity
+    /// against [`MAX_ACTIVE_REQUESTS`] (S18). Terminal requests do not count:
+    /// they remain visible until drained but do not block the seventeenth
+    /// sequential completed request.
+    #[must_use]
+    pub fn live_count(&self) -> usize {
+        self.requests
+            .iter()
+            .filter(|req| !req.is_terminal())
+            .count()
+    }
+
     /// Number of pending single-use confirmation tokens.
     #[must_use]
     pub fn pending_confirmation_count(&self) -> usize {
         self.pending_confirmations.len()
+    }
+
+    /// Focused control for the current provider confirmation.
+    #[must_use]
+    pub const fn confirmation_focus(&self) -> ConfirmFocus {
+        self.confirmation_focus
+    }
+
+    /// Move focus between the safe cancel control and the declared confirm
+    /// control. Returns whether a pending confirmation owned the input.
+    pub fn cycle_confirmation_focus(&mut self) -> bool {
+        if self.pending_confirmations.is_empty() {
+            return false;
+        }
+        self.confirmation_focus = match self.confirmation_focus {
+            ConfirmFocus::Cancel => ConfirmFocus::Confirm,
+            ConfirmFocus::Confirm => ConfirmFocus::Cancel,
+        };
+        true
+    }
+
+    /// Consume the latest pending confirmation without starting invocation B.
+    /// Returns whether a token was cancelled.
+    pub fn cancel_latest_confirmation(&mut self) -> bool {
+        let cancelled = self.pending_confirmations.pop().is_some();
+        if cancelled {
+            self.confirmation_focus = ConfirmFocus::Cancel;
+        }
+        cancelled
     }
 
     /// Read-only view of the most recently registered pending confirmation's
@@ -189,7 +232,7 @@ impl ProviderRequestState {
         &mut self,
         input: InvokeInput<'_>,
     ) -> Result<InvokeOutcome, ProviderRequestError> {
-        if self.requests.len() >= MAX_ACTIVE_REQUESTS {
+        if self.live_count() >= MAX_ACTIVE_REQUESTS {
             return Err(ProviderRequestError::ActiveLimitExceeded {
                 limit: MAX_ACTIVE_REQUESTS,
             });
@@ -361,6 +404,7 @@ impl ProviderRequestState {
             arguments,
             policy,
         });
+        self.confirmation_focus = ConfirmFocus::Cancel;
     }
 
     /// Record a terminal error (first terminal wins, CW10-09).
@@ -473,7 +517,7 @@ impl ProviderRequestState {
         input: ConfirmInput<'_>,
         now_epoch: u64,
     ) -> Result<ConfirmOutcome, ProviderRequestError> {
-        if self.requests.len() >= MAX_ACTIVE_REQUESTS {
+        if self.live_count() >= MAX_ACTIVE_REQUESTS {
             return Err(ProviderRequestError::ActiveLimitExceeded {
                 limit: MAX_ACTIVE_REQUESTS,
             });
@@ -503,6 +547,7 @@ impl ProviderRequestState {
         let elapsed = now_epoch.saturating_sub(self.pending_confirmations[position].created_epoch);
         if elapsed >= CONFIRMATION_TTL_SECONDS {
             self.pending_confirmations.remove(position);
+            self.confirmation_focus = ConfirmFocus::Cancel;
             return Err(ProviderRequestError::Expired { elapsed });
         }
 
@@ -511,6 +556,7 @@ impl ProviderRequestState {
         // token and commit the generation/request together (atomic).
         let generation = next_generation(self.next_generation)?;
         let token = self.pending_confirmations.remove(position);
+        self.confirmation_focus = ConfirmFocus::Cancel;
         self.next_generation = generation;
 
         // Build invocation B from the consumed token's original invocation A

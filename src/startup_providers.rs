@@ -9,8 +9,7 @@
 //! action metadata and a runnable catalog entry while starting nothing
 //! (CW10-01). Persistent packages start in plugin-id order and publish only
 //! after every required candidate reached `ready`; any failure reaps every
-//! started candidate and republishes those actions as unavailable with one
-//! shared reason (CW10-03/CW10-04).
+//! started candidate and publishes no persistent contribution (CW10-03/CW10-04).
 //!
 //! Everything that owns a handle stays inside the returned
 //! [`ProviderCoordinator`]. Nothing here reaches `AppState`.
@@ -50,9 +49,8 @@ pub struct ProviderPublication {
 
 /// Compose and publish every trusted package's provider contribution.
 ///
-/// Never fails startup: a provider that cannot run makes its own actions
-/// unavailable and says why, which is strictly more usable than refusing to
-/// start the host over a package the operator can simply disable.
+/// Never fails host startup: a persistent provider set that cannot become
+/// ready contributes no persistent actions and reports one operator warning.
 #[must_use]
 pub fn publish_providers(request: &ProviderPublicationRequest<'_>) -> ProviderPublication {
     ensure_containment(&request.containment);
@@ -60,6 +58,7 @@ pub fn publish_providers(request: &ProviderPublicationRequest<'_>) -> ProviderPu
     let mut composition = compose(&CompositionRequest {
         packages: request.packages,
         trusted: &trusted,
+        settings: request.settings,
         host: HostTriple::current(),
         containment: request.containment.clone(),
     });
@@ -103,9 +102,9 @@ fn ensure_containment(containment: &Containment) {
 /// Start every persistent candidate, or none.
 ///
 /// Returns the coordinator that owns whatever is running plus the operator
-/// warning when publication did not happen. A failure marks the composition's
-/// persistent actions unavailable *before* the snapshot is built, so the
-/// snapshot never advertises an action whose process is not there.
+/// warning when publication did not happen. A failure removes the composition's
+/// persistent contributions *before* the snapshot is built, so the atomic
+/// candidate set publishes nothing.
 fn start_persistent(
     composition: &mut ProviderComposition,
 ) -> (ProviderCoordinator, Option<String>) {
@@ -142,7 +141,7 @@ fn start_persistent(
                 "provider unavailable: persistent startup failed ({})",
                 failure.failure.code()
             );
-            composition.mark_persistent_unavailable(&reason);
+            composition.discard_persistent_contributions();
             (
                 ProviderCoordinator::from_catalog(composition.clone().into_catalog()),
                 Some(reason),
