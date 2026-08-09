@@ -228,9 +228,25 @@ pub fn process_is_gone(pid: u32) -> bool {
     !matches!(status, Ok(s) if s.success())
 }
 
-#[cfg(not(unix))]
-pub fn process_is_gone(_pid: u32) -> bool {
-    true
+#[cfg(windows)]
+pub fn process_is_gone(pid: u32) -> bool {
+    let filter = format!("PID eq {pid}");
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", filter.as_str(), "/FO", "CSV", "/NH"])
+        .output()
+        .unwrap_or_else(|err| panic!("query process {pid}: {err:?}"));
+    assert!(
+        output.status.success(),
+        "tasklist failed while querying process {pid}: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pid_text = pid.to_string();
+    let running = String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        line.split(',')
+            .nth(1)
+            .is_some_and(|field| field.trim_matches('"') == pid_text)
+    });
+    !running
 }
 
 /// How many of these tests may own live provider process trees at once.
@@ -267,8 +283,14 @@ pub fn process_budget() -> ProcessBudget {
     });
     loop {
         for slot in slots {
-            if let Ok(permit) = slot.try_lock() {
-                return ProcessBudget { _permit: permit };
+            match slot.try_lock() {
+                Ok(permit) => return ProcessBudget { _permit: permit },
+                Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                    return ProcessBudget {
+                        _permit: poisoned.into_inner(),
+                    };
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {}
             }
         }
         // Every slot is busy; yield rather than spin hot.
