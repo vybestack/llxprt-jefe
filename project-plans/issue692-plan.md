@@ -52,6 +52,41 @@ behavior, it reproduces it exactly. The working case (llxprt in PowerShell) and
 the fixed case (llxprt under jefe) deliver the identical console record, which
 is why the agent cannot tell them apart.
 
+### Client registration is not client readiness
+
+CI reported the transport test failing on the exact bytes the table above says
+work (`[10]`, observed as `nothing`). Investigation ruled out the encoding and
+found two facts worth recording, because both would mislead the next reader.
+
+First, `psmux -V` is not a version. The binary CI installs (the pinned v3.3.7
+release, build `05cc5d4`, 2026-07-20) and the locally built binary the table was
+measured against (`cb098c0`, 2026-08-03) both print `psmux 3.3.7`, and they do
+not behave identically. Any future transport measurement should record the build
+hash, not the version string.
+
+Second, the real fault was in the test, not the product. `list-clients` reports
+a client as soon as it registers with the server, which is earlier than the
+moment its terminal begins delivering keystrokes; bytes written into that window
+are discarded. The release build leaves that window open long enough to lose the
+chord whenever the machine is loaded, which is why the failure appeared only in
+CI and only in the full parallel suite:
+
+| psmux build | test alone | full parallel suite |
+|---|---|---|
+| `cb098c0` (local) | passes | passes |
+| `05cc5d4` (CI release) | passes | **loses the chord** |
+
+The test now writes a probe `CR` repeatedly until it is *observed*, which is the
+only evidence the path under test is live, then clears the record and waits for
+it to stay clear so an in-flight probe cannot be misread as the chord's result.
+Re-running with the encoder reverted to `CSI 13 ; 5 u` still fails against the
+release build, so the gate did not make the assertion vacuous — silence is now
+attributable to the encoding rather than to startup timing.
+
+This is a test-fidelity fix, not a product concession: in production the chord
+is sent in response to a keypress in a session the user is already attached to,
+so the startup window does not exist.
+
 ## Root cause
 
 | # | Defect | Location | Effect |

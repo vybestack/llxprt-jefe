@@ -52,6 +52,13 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Gap between polls while waiting on the client or the chord.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Byte written to prove the client's input path is live before the chord is
+/// sent. `CR` is the plainest key there is and is bound alongside the chord.
+const PROBE_BYTE: &[u8] = b"\r";
+
+/// Consecutive quiet polls that prove every probe byte has drained.
+const QUIET_POLLS: u32 = 5;
+
 /// Session-routing variables that must never be inherited by a client jefe
 /// starts. The test process itself frequently runs *inside* a jefe-managed
 /// pane, and a client that looks nested refuses to attach at all — which would
@@ -136,13 +143,28 @@ impl ScratchServer {
         let platform = LocalPlatform::current();
         let executable = resolve_multiplexer_binary(platform);
         let namespace = format!("jefe-ctrl-enter-{}", std::process::id());
-        MultiplexerPlan::for_platform(
+        let plan = MultiplexerPlan::for_platform(
             platform,
-            executable,
+            executable.clone(),
             MultiplexerIsolation::Namespace(namespace),
         )
-        .map(|plan| Self { plan })
-        .map_err(|error| format!("{error}"))
+        .map_err(|error| format!("{error}"))?;
+
+        // `for_platform` validates the executable's *name*, not its presence, so
+        // a plan for a multiplexer that was never installed builds cleanly and
+        // only fails later inside the pty spawn — as an `os error 2` that reads
+        // like a defect in the transport rather than a missing dependency. Jobs
+        // that do not install a multiplexer have to reach the skip path here.
+        let mut probe = plan.command();
+        probe.arg("-V");
+        if !probe.output().is_ok_and(|output| output.status.success()) {
+            return Err(format!(
+                "`{}` is not runnable on this machine",
+                executable.display()
+            ));
+        }
+
+        Ok(Self { plan })
     }
 
     fn plan(&self) -> &MultiplexerPlan {
@@ -206,6 +228,57 @@ fn wait_until(mut probe: impl FnMut() -> bool) -> bool {
             return false;
         }
         std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+/// Drive the client with a probe key until one actually reaches a binding.
+///
+/// `list-clients` reports a client the moment it registers with the server,
+/// which is earlier than the moment its terminal starts delivering keystrokes.
+/// Bytes written into that window are discarded, so a test that trusts
+/// registration alone reports "nothing arrived" for a chord that was in fact
+/// encoded correctly — the released psmux build loses the chord this way
+/// whenever the machine is loaded enough to widen the window. A probe key that
+/// has been *observed* is the only evidence that the path under test is live,
+/// so it is written repeatedly rather than once.
+fn wait_for_live_input(plan: &MultiplexerPlan, writer: &mut Box<dyn Write + Send>) -> bool {
+    wait_until(|| {
+        if writer.write_all(PROBE_BYTE).is_err() || writer.flush().is_err() {
+            return false;
+        }
+        observed_key(plan) != NOTHING_OBSERVED
+    })
+}
+
+/// Clear the observed key and wait until it stays cleared.
+///
+/// A probe byte still in flight would otherwise land after the reset and be
+/// read as the chord's result, reporting `Enter` for a chord that was never
+/// delivered. Requiring a run of quiet polls drains them before the real
+/// measurement starts.
+fn settle_after_probe(plan: &MultiplexerPlan) -> bool {
+    let deadline = Instant::now() + SETTLE_TIMEOUT;
+    loop {
+        let _ = run(
+            plan,
+            &["set-option", "-g", OBSERVED_KEY_OPTION, NOTHING_OBSERVED],
+        );
+
+        let mut quiet = 0;
+        while quiet < QUIET_POLLS {
+            std::thread::sleep(POLL_INTERVAL);
+            if observed_key(plan) != NOTHING_OBSERVED {
+                break;
+            }
+            quiet += 1;
+        }
+
+        if quiet >= QUIET_POLLS {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
     }
 }
 
@@ -273,6 +346,19 @@ fn key_recognised_for(plan: &MultiplexerPlan, bytes: &[u8]) -> String {
     assert!(
         attached,
         "the attach client never attached, so nothing about the chord could be observed"
+    );
+
+    let live = wait_for_live_input(plan, &mut writer);
+    assert!(
+        live,
+        "the attach client never delivered even a plain Enter, so a silent chord \
+         would prove nothing about its encoding"
+    );
+
+    let settled = settle_after_probe(plan);
+    assert!(
+        settled,
+        "the probe keys never drained, so the chord could not be measured on its own"
     );
 
     writer
