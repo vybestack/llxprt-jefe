@@ -347,10 +347,17 @@ mod key_tests {
     // byte sequence that could express `Ctrl+Enter` at all. It is now sent in
     // CSI-u form, which the multiplexer parses as a modified Enter and then
     // delivers to each pane child in the form that child negotiated.
+    //
+    // That reasoning holds for tmux only. Windows uses psmux, whose input
+    // parser has no CSI-u branch: it consumes and discards the sequence, so the
+    // chord never reaches the pane at all. There `LF` is the encoding psmux
+    // parses as `C-Enter`, and the console record it then writes into the pane
+    // is the same one a natively launched agent sees (issue #692).
 
     /// `Ctrl+Enter` is expressible at all, and is not the `Ctrl+J` alias that
     /// made agents insert a newline instead of steering.
     #[test]
+    #[cfg(not(windows))]
     fn ctrl_enter_is_distinguishable_from_ctrl_j() {
         let ctrl_enter = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
         let ctrl_j = key_event(KeyCode::Char('j'), KeyModifiers::CONTROL);
@@ -370,9 +377,39 @@ mod key_tests {
 
     /// Combined modifiers accumulate into the one CSI-u parameter.
     #[test]
+    #[cfg(not(windows))]
     fn ctrl_alt_enter_combines_modifier_bits_in_one_parameter() {
         let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::ALT);
         assert_eq!(key_to_bytes(&key), Some(b"\x1b[13;7u".to_vec()));
+    }
+
+    /// On Windows `Ctrl+Enter` must be the `LF` psmux recognises as `C-Enter`.
+    /// The CSI-u form is silently discarded there, which is why the nudge chord
+    /// never reached the agent (issue #692).
+    #[test]
+    #[cfg(windows)]
+    fn ctrl_enter_uses_the_encoding_psmux_recognises() {
+        let ctrl_enter = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
+        assert_eq!(key_to_bytes(&ctrl_enter), Some(vec![b'\n']));
+    }
+
+    /// `Ctrl+J` is unchanged. Its collision with `Ctrl+Enter` on Windows
+    /// predates issue #692 — `Ctrl+J` has always been `0x0A` — so encoding
+    /// `Ctrl+Enter` as `LF` does not make any agent worse off than it was.
+    #[test]
+    #[cfg(windows)]
+    fn ctrl_j_keeps_its_control_byte_on_windows() {
+        let ctrl_j = key_event(KeyCode::Char('j'), KeyModifiers::CONTROL);
+        assert_eq!(key_to_bytes(&ctrl_j), Some(vec![b'\n']));
+    }
+
+    /// `Ctrl+Alt+Enter` on Windows takes the same `ESC` prefix Jefe puts in
+    /// front of every other chord it cannot encode inline.
+    #[test]
+    #[cfg(windows)]
+    fn ctrl_alt_enter_prefixes_escape_before_lf() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::ALT);
+        assert_eq!(key_to_bytes(&key), Some(vec![0x1b, b'\n']));
     }
 
     /// Unmodified Enter stays a bare CR: "submit" means CR everywhere, and the
