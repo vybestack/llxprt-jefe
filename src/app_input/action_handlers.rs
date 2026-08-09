@@ -215,15 +215,14 @@ fn apply_terminal_manager_boundary(
 
 fn apply_help_scroll(boundary: BoundaryAction, app_state: &mut super::AppStateHandle) {
     let (_, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let viewport_rows = jefe::ui::modals::help_viewport_rows(terminal_rows);
     let mut state = app_state.write();
-    let content_rows = state
+    let content = state
         .action_registry_snapshot
         .as_ref()
-        .map_or(0, |snapshot| {
-            jefe::ui::modals::help_content_lines(snapshot).len()
+        .map_or_else(Vec::new, |snapshot| {
+            jefe::ui::modals::help_content_lines(snapshot)
         });
-    let max_scroll = content_rows.saturating_sub(viewport_rows);
+    let max_scroll = jefe::ui::modals::help_max_scroll(&content, terminal_rows);
     state.help_scroll_offset = match boundary {
         BoundaryAction::HelpScrollUp => state.help_scroll_offset.saturating_sub(1),
         BoundaryAction::HelpScrollDown => state.help_scroll_offset.saturating_add(1),
@@ -432,7 +431,8 @@ macro_rules! handler_execution {
             | H::ActionsPageUp
             | H::ActionsPageDown
             | H::ActionsActivate
-            | H::ActionsBack => E::LaterSlice,
+            | H::ActionsBack
+            | H::ProviderAction => E::LaterSlice,
         }
     }};
 }

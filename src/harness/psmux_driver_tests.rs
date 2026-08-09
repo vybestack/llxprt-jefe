@@ -120,3 +120,68 @@ fn real_psmux_runs_a_stable_native_process_when_available() {
     let screen = capture.unwrap_or_else(|error| panic!("screen should capture: {error}"));
     assert_eq!((screen.cols, screen.rows), (100, 32));
 }
+
+/// A scenario's launch environment must reach the contained app on Windows
+/// too, and the socket override is what keeps a scenario off the operator's
+/// live multiplexer server (issue #390).
+#[test]
+fn the_pane_command_carries_the_requested_environment() {
+    let request = TmuxStartRequest::command(
+        "env-apply",
+        vec!["C:\\jefe.exe".to_string(), "--config".to_string()],
+        std::env::temp_dir(),
+        80,
+        24,
+        1000,
+    )
+    .unwrap_or_else(|error| panic!("request should be valid: {error}"))
+    .with_env(vec![(
+        "JEFE_SOCKET_PATH".to_string(),
+        "C:\\ws\\jefe.sock".to_string(),
+    )]);
+
+    let line = windows_command_line(&request.command, &request.env);
+
+    let assignment = line
+        .find("$env:JEFE_SOCKET_PATH = 'C:\\ws\\jefe.sock';")
+        .unwrap_or_else(|| panic!("requested env missing from pane command: {line}"));
+    let invocation = line
+        .find("& ")
+        .unwrap_or_else(|| panic!("invocation missing from pane command: {line}"));
+    assert!(
+        assignment < invocation,
+        "environment must be assigned before the app is invoked: {line}"
+    );
+}
+
+/// An environment name reaches the pane command as part of a PowerShell
+/// assignment, so a name that is not an identifier must be refused rather than
+/// interpolated (issue #390).
+#[test]
+fn a_hostile_environment_name_is_refused() {
+    for hostile in ["x; rm -rf /", "with space", "$(id)", "", "1LEADING"] {
+        let request = TmuxStartRequest::command(
+            "hostile-env",
+            vec!["C:\\jefe.exe".to_string()],
+            std::env::temp_dir(),
+            80,
+            24,
+            1000,
+        )
+        .unwrap_or_else(|error| panic!("request should be valid: {error}"))
+        .with_env(vec![(hostile.to_string(), "v".to_string())]);
+
+        assert!(
+            request.validate_env().is_err(),
+            "env name {hostile:?} must be refused"
+        );
+    }
+}
+
+/// A request that asks for no environment must produce exactly the command it
+/// always did, so the change cannot perturb every existing scenario.
+#[test]
+fn an_env_free_request_is_unchanged() {
+    let line = windows_command_line(&["C:\\jefe.exe".to_string()], &[]);
+    assert_eq!(line, "& 'C:\\jefe.exe'");
+}

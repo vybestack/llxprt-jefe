@@ -12,6 +12,7 @@ mod app_shell_attach;
 mod app_shell_key_routing;
 mod app_shell_liveness;
 mod app_shell_panic;
+mod app_shell_provider_worker;
 mod app_shell_workers;
 mod detail_wrap_map;
 mod mouse_routing;
@@ -68,6 +69,14 @@ struct AppContext {
     /// is the only moment at which a vanished run can still be attributed
     /// (issue #662).
     unclean_prior_runs: Vec<jefe::domain::UncleanRun>,
+    /// Provider runtime coordinator (issue #390 CW-10, Slice D). Owns the
+    /// persistent supervisor and the immutable provider action catalog.
+    /// Held at the context boundary, never inside `AppState`.
+    provider_coordinator: Option<jefe::runtime::provider::ProviderCoordinator>,
+    /// Provider effect worker handle (issue #390 CW-10, Slice D). The input
+    /// path pushes staged provider effects here; the background `use_future`
+    /// drains and executes them via `smol::unblock`.
+    provider_effect_handle: jefe::services::provider_effect_worker::ProviderEffectHandle,
 }
 
 /// Parse CLI arguments, handling early-exit flags (`--version`, `--help`).
@@ -307,6 +316,97 @@ fn main() {
     run_tui(cli_args, startup);
 }
 
+/// Bring logging up once persistence has validated, and record what it opened.
+///
+/// Deliberately after validation: a session that is about to refuse to start
+/// over a malformed settings file should not first create log files for it.
+fn init_startup_diagnostics(config_dir: Option<&std::path::Path>) {
+    init_diagnostics();
+    tracing::info!(version = jefe::VERSION, "jefe starting");
+    tracing::debug!(
+        log_file = ?jefe::logging::log_file_path(),
+        config_dir = ?config_dir,
+        "logging initialized"
+    );
+}
+
+/// Build the agent runtime and the optional local JSP host it reports to.
+///
+/// The PTY viewport is derived from the dashboard geometry here rather than by
+/// the caller, because the two are one decision: the runtime is sized for the
+/// pane it will draw into.
+fn build_runtime(
+    state_path: &std::path::Path,
+) -> (Option<jefe::jsp_host::JspHostRuntime>, TmuxRuntimeManager) {
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let layout = compute_pty_layout(cols, rows);
+    let jsp_host = start_jsp_host(state_path);
+    let mut runtime = runtime_manager(layout.pty_rows, layout.pty_cols, state_path);
+    if let Some(host) = &jsp_host {
+        runtime.install_jsp_launches(host.coordinator());
+    }
+    (jsp_host, runtime)
+}
+
+/// Start trusted package providers and fold their actions into the registry.
+///
+/// This is the one place a provider process can start (issue #390 CW-10), which
+/// is what keeps `jefe config` and recovery provider-free. A provider that
+/// cannot run never blocks startup: it publishes its actions as unavailable and
+/// the reason is written once, where the operator will see it.
+fn publish_providers_or_warn(
+    packages: &[jefe::persistence::plugin_inventory::InstalledPackage],
+    settings: &jefe::persistence::settings_document::PublishedSettings,
+    base_snapshot: &jefe::domain::action_registry::ActionRegistrySnapshot,
+    paths: &jefe::persistence::paths::ResolvedPaths,
+) -> (
+    jefe::domain::action_registry::ActionRegistrySnapshot,
+    Option<jefe::runtime::provider::ProviderCoordinator>,
+) {
+    let published = jefe::startup_providers::publish_providers(
+        &jefe::startup_providers::ProviderPublicationRequest {
+            packages,
+            settings,
+            base_snapshot,
+            containment: provider_containment(paths),
+        },
+    );
+    write_optional_diagnostic(published.startup_warning);
+    // Logged unconditionally: "my package action is not in the menu" is the
+    // first thing an operator hits, and the answer is almost always that the
+    // package is not trusted or has no binary for this host. Saying how many
+    // packages were seen, trusted and published turns that into one log line.
+    tracing::info!(
+        installed = packages.len(),
+        published = published.snapshot.provider_actions().count(),
+        runnable = published.coordinator.catalog().len(),
+        "composed package providers"
+    );
+    (published.snapshot, Some(published.coordinator))
+}
+
+/// Where every provider process is contained (issue #390 CW-10, row CW10-14).
+///
+/// A provider never sees the operator's real `HOME` or `TMPDIR`. It gets a
+/// per-host directory beside the state file so a package cannot read or write
+/// anything the host did not hand it, and a fixed `C` locale so its output does
+/// not change with the operator's environment.
+fn provider_containment(
+    paths: &jefe::persistence::paths::ResolvedPaths,
+) -> jefe::runtime::provider::Containment {
+    let root = paths.state.path.parent().map_or_else(
+        || std::path::PathBuf::from("providers"),
+        |parent| parent.join("providers"),
+    );
+    jefe::runtime::provider::Containment {
+        home: root.join("home"),
+        tmpdir: root.join("tmp"),
+        working_dir: root.join("work"),
+        locale: "C".to_owned(),
+        host_api: jefe::VERSION.to_owned(),
+    }
+}
+
 /// Start the local JSP host beside the state file.
 ///
 /// Returns `None` when the host cannot start. Observation is optional
@@ -335,46 +435,38 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     let keymap_snapshot = startup.keymap_snapshot;
     let settings_expected_hash = startup.settings_expected_hash;
     let published_settings = startup.settings;
+    let plugin_packages = startup.plugin_packages;
+    let startup_paths = startup.paths;
     let persistence = startup.manager;
     write_optional_diagnostic(keymap_diagnostic);
-
-    // Initialize diagnostics only after persistence has validated.
-    init_diagnostics();
-    tracing::info!(version = jefe::VERSION, "jefe starting");
-    tracing::debug!(
-        log_file = ?jefe::logging::log_file_path(),
-        config_dir = ?cli_args.config_dir,
-        "logging initialized"
-    );
+    init_startup_diagnostics(cli_args.config_dir.as_deref());
 
     // Claim the run boundary before anything else can fail: from here on the
     // run either records why it ended or leaves a marker saying it did not
     // (issue #662).
     let (run_guard, unclean_prior_runs) = jefe::run_diagnostics::begin_run(
-        &jefe::persistence::run_marker::run_marker_dir(&startup.paths.state.path),
+        &jefe::persistence::run_marker::run_marker_dir(&startup_paths.state.path),
     );
     // Registered only once the run exists, so a teardown arriving during
     // startup keeps the host's default handling rather than reporting the end
     // of a run that never began.
     jefe::run_diagnostics::install_host_termination_handler();
 
-    // Get terminal size and derive PTY viewport size from dashboard geometry.
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let layout = compute_pty_layout(cols, rows);
-    let pty_rows = layout.pty_rows;
-    let pty_cols = layout.pty_cols;
-
     let mut theme_manager = FileThemeManager::new();
     theme_manager.load_from_dir(&themes_dir);
-    let jsp_host = start_jsp_host(&startup.paths.state.path);
-    let mut runtime = runtime_manager(pty_rows, pty_cols, &startup.paths.state.path);
-    if let Some(host) = &jsp_host {
-        runtime.install_jsp_launches(host.coordinator());
-    }
+    let (jsp_host, runtime) = build_runtime(&startup_paths.state.path);
 
     let persist_handle =
         jefe::services::persist_worker::PersistHandle::new(build_persist_fn(persist_paths));
     let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
+    let provider_effect_handle =
+        jefe::services::provider_effect_worker::ProviderEffectHandle::new();
+    let (keymap_snapshot, provider_coordinator) = publish_providers_or_warn(
+        &plugin_packages,
+        &published_settings,
+        &keymap_snapshot,
+        &startup_paths,
+    );
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         keymap_snapshot: Some(keymap_snapshot),
@@ -391,6 +483,8 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
         persist_handle,
         capture_handle,
         unclean_prior_runs,
+        provider_coordinator,
+        provider_effect_handle,
     }));
 
     let _console_guard = prepare_console_and_detect_font();

@@ -294,6 +294,18 @@ impl EffectLedger {
         before.saturating_sub(self.records.len())
     }
 
+    /// Whether `correlation` exactly identifies work that is still pending.
+    ///
+    /// Streaming adapters use this non-consuming check before applying an
+    /// intermediate provider event. The terminal completion remains the only
+    /// operation that consumes the pending record.
+    #[must_use]
+    pub fn is_pending(&self, correlation: &Correlation) -> bool {
+        self.records
+            .iter()
+            .any(|record| record.correlation.matches(correlation))
+    }
+
     /// Apply a completion identity: remove and report the exact pending match,
     /// or report stale without changing anything.
     pub fn complete(&mut self, correlation: &Correlation) -> CompletionOutcome {

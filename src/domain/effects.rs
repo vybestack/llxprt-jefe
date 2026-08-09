@@ -13,7 +13,7 @@ use crate::agent_candidate::CandidateResolution;
 
 use super::action_registry::ActionAvailability;
 use super::agent_definition::{AgentDefinition, Availability};
-use super::{AgentId, Id, StateV2};
+use super::{AgentId, Id, StateV2, TypedMap};
 
 /// Maximum ordered effects (including completion-produced follow-ups) that
 /// one committed transition may carry.
@@ -273,18 +273,127 @@ pub enum SshTmuxResponse {
     SessionPresence { present: bool },
 }
 
+/// Identity of one provider request across its whole lifecycle
+/// (issue #390 CW-10, Slice B).
+///
+/// Owner, action, and the fixed positive generation together name exactly one
+/// invocation; a later generation is a different request.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProviderRequestKey {
+    /// The host-side owner that staged the invocation.
+    pub owner: Id,
+    /// The provider action being invoked.
+    pub action_id: Id,
+    /// The fixed positive generation allocated for this invocation.
+    pub generation: u64,
+}
+
+/// The typed continuation a confirmed second invocation carries
+/// (issue #390 CW-10, Slice B).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderContinuation {
+    /// The single-use confirmation id the provider issued.
+    pub confirmation_id: Id,
+    /// Whether the operator approved.
+    pub approved: bool,
+    /// Declared continuation values.
+    pub values: TypedMap,
+}
+
+/// One host-to-provider action invocation (issue #390 CW-10, Slice B).
+///
+/// Pure post-commit effect data: the reducer commits request/generation
+/// ownership, releases state, then the supervisor (Slice C) owns the process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderInvocation {
+    /// The request/generation identity.
+    pub key: ProviderRequestKey,
+    /// Collected invocation arguments.
+    pub arguments: TypedMap,
+    /// Screen the action was invoked from.
+    pub context_screen: Id,
+    /// Screen instance the action was invoked from.
+    pub context_instance: Id,
+    /// Resource references currently in view.
+    pub context_refs: TypedMap,
+    /// Continuation, present only for a confirmed second invocation.
+    pub continuation: Option<ProviderContinuation>,
+}
+
+/// Closed provider outcomes the host applies after the provider result commits.
+///
+/// Confirmation remains reducer/UI state and panel/config-migration outcomes
+/// remain owned by later slices. These three variants are the complete CW-10
+/// host-effect vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderHostOutcome {
+    /// Navigate to a route declared by the immutable screen registry.
+    Navigate { route_id: Id, activation: TypedMap },
+    /// Refresh the resource that was current when the invocation began.
+    Refresh { resource_ref: TypedMap },
+    /// Surface an operator notice on the still-current owning screen.
+    Notice(ProviderNotice),
+}
+
+/// A typed, redaction-safe provider notice committed by the host adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderNotice {
+    pub severity: ProviderNoticeSeverity,
+    pub message: String,
+}
+
+/// Closed severity carried by a provider host notice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderNoticeSeverity {
+    Info,
+    Warning,
+}
+
 /// Provider/package availability operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderEffect {
-    ProbePackageAvailability { selector: String },
-    ProjectActionAvailability { entries: Vec<ActionAvailability> },
+    ProbePackageAvailability {
+        selector: String,
+    },
+    ProjectActionAvailability {
+        entries: Vec<ActionAvailability>,
+    },
+    /// Start one one-shot provider invocation (issue #390 CW-10, Slice B).
+    InvokeAction {
+        invocation: ProviderInvocation,
+    },
+    /// Send a cancel for an in-flight request (issue #390 CW-10, Slice B).
+    CancelRequest {
+        key: ProviderRequestKey,
+    },
+    /// Apply one validated terminal outcome after its reducer commit.
+    ApplyOutcome {
+        key: ProviderRequestKey,
+        outcome: ProviderHostOutcome,
+    },
 }
 
 /// Provider completion payloads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderResponse {
-    PackageAvailability { available: bool },
-    ActionAvailability { entries: Vec<ActionAvailability> },
+    PackageAvailability {
+        available: bool,
+    },
+    ActionAvailability {
+        entries: Vec<ActionAvailability>,
+    },
+    /// The invocation started and its envelope was sent (CW-10 Slice B).
+    Invoked {
+        key: ProviderRequestKey,
+    },
+    /// A cancel was sent to an in-flight request (CW-10 Slice B).
+    Cancelled {
+        key: ProviderRequestKey,
+    },
+    /// A validated provider outcome was applied by the host adapter.
+    OutcomeApplied {
+        key: ProviderRequestKey,
+    },
 }
 
 /// Clipboard and URL hand-off operations.

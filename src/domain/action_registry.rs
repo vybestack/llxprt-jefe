@@ -223,6 +223,11 @@ pub enum HandlerKey {
     ActionsPageDown,
     ActionsActivate,
     ActionsBack,
+    /// A provider action dispatched through the post-commit provider effect
+    /// path (issue #390 CW-10, Slice D). The `ActionId` arrives separately
+    /// from the `Resolution::Dispatch` — this variant is a closed unit marker
+    /// so `HandlerKey` stays `Copy`.
+    ProviderAction,
 }
 /// Why a protected action cannot be rebound.
 ///
@@ -547,9 +552,34 @@ impl ActionRegistrySnapshot {
         &self.availability.0
     }
 
+    /// This snapshot's availability for one action.
+    ///
+    /// The snapshot is the single authority for why an action cannot run, so
+    /// every surface that shows a reason reads it from here and they cannot
+    /// drift apart.
+    #[must_use]
+    pub fn availability_of(&self, action: &ActionId) -> Option<&Availability> {
+        self.availability
+            .entries()
+            .iter()
+            .find(|entry| entry.action() == action)
+            .map(ActionAvailability::availability)
+    }
+
     #[must_use]
     pub(crate) fn actions(&self) -> &[Action] {
         &self.actions
+    }
+
+    /// Every action a package provider contributed (issue #390 CW-10).
+    ///
+    /// Identified by handler rather than by an id convention: `ProviderAction`
+    /// is the only handler a package can be lowered onto, so a package cannot
+    /// disguise itself as a compiled action by choosing its id.
+    pub fn provider_actions(&self) -> impl Iterator<Item = &Action> {
+        self.actions
+            .iter()
+            .filter(|action| matches!(action.handler, HandlerKey::ProviderAction))
     }
 
     pub(crate) fn availability_entries(&self) -> &[ActionAvailability] {

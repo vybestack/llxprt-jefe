@@ -3,6 +3,11 @@ use std::sync::Arc;
 mod action_availability;
 mod action_handlers;
 pub use action_availability::refresh_action_availability;
+mod provider_dispatch;
+pub use provider_dispatch::schedule_provider_effects;
+pub use provider_dispatch::{
+    ProviderSurfaceControl, dispatch_provider_surface_control, invoke_provider_action,
+};
 #[cfg(test)]
 #[path = "action_handlers_tests.rs"]
 mod action_handlers_tests;
@@ -603,6 +608,9 @@ pub fn dispatch_app_message(
         AppMessage::TerminalManager(message) => {
             let mut state = app_state.write();
             jefe::state::transition::commit_pure_site(&mut state, (AppEvent::from(message)).into());
+        }
+        AppMessage::Provider(message) => {
+            provider_dispatch::dispatch_provider_messages(app_state, ctx, *message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }

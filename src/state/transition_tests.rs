@@ -136,9 +136,11 @@ fn exact_completion_applies_once_and_clears_the_pending_record() {
         .register_pending_effect(owner(), key, wakeup(5), RetryPolicy::Never)
         .value_or_panic("registration");
 
+    assert!(state.pending_effects.is_pending(&correlation));
     let outcome = state.apply_effect_completion(&correlation);
     assert_eq!(outcome, CompletionOutcome::Applied);
     assert!(state.pending_effects.is_empty());
+    assert!(!state.pending_effects.is_pending(&correlation));
 
     let duplicate = state.apply_effect_completion(&correlation);
     assert_eq!(

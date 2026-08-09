@@ -422,13 +422,16 @@ pub struct AppState {
     /// Active dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop).
     /// Transient interaction state — not persisted (like split_grab_index).
     pub dashboard_grab: Option<DashboardGrabPane>,
-
-    /// One root-owned immutable action/binding/availability snapshot.
-    /// Runtime-only; composed settings remain the persistence authority.
+    /// Root-owned immutable action snapshot; runtime-only and never persisted.
     pub action_registry_snapshot: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
-
+    /// Runtime-only health-derived provider availability overrides.
+    pub provider_action_health:
+        std::collections::BTreeMap<crate::domain::action_registry::ActionId, String>,
+    /// Provider action whose unavailable result currently owns the provider surface.
+    pub provider_surface_action: Option<crate::domain::action_registry::ActionId>,
+    /// Most recent provider notice accepted by the post-commit host adapter.
+    pub provider_notice: Option<crate::domain::effects::ProviderNotice>,
     /// One root-owned immutable geometry snapshot for the active screen.
-    ///
     /// Resolved once per size or state change and read by every geometry
     /// consumer — renderer, mouse routing, selection, wrapping, scrolling, and
     /// PTY resize — so no two can disagree about where a panel is. Runtime-only
@@ -586,6 +589,10 @@ pub struct AppState {
     /// counters stale completions are validated against (issue #381).
     /// Runtime-only — never persisted; no handle/closure/queue lives here.
     pub pending_effects: super::transition::EffectLedger,
+
+    /// Handle-free provider request reducer state (issue #390 CW-10, Slice B);
+    /// runtime-only, never persisted.
+    pub provider_requests: super::provider_requests::ProviderRequestState,
 }
 
 /// Embedded agent-shell overlay state (issue #222).

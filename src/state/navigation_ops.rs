@@ -17,7 +17,7 @@
 //!   whatever was underneath.
 
 use crate::domain::effects::{Correlation, EffectError};
-use crate::workbench::{ActivationValues, ScreenId, screen_registry};
+use crate::workbench::{ActivationValues, RouteId, ScreenId, screen_registry};
 
 use super::AppState;
 use super::navigation::{
@@ -46,6 +46,16 @@ impl AppState {
     /// Open `screen`, keeping the current one to come back to.
     pub fn enter_screen(&mut self, screen: ScreenId) -> DraftAction {
         let activation = self.activation_for(screen);
+        self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
+    }
+
+    /// Enter a compiled route with validated provider-supplied activation values.
+    pub fn enter_provider_route(
+        &mut self,
+        route: RouteId,
+        values: ActivationValues,
+    ) -> DraftAction {
+        let activation = Activation::from_source(route, values, self.nav.current());
         self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
     }
 

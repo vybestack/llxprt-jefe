@@ -23,6 +23,12 @@ pub struct TmuxStartRequest {
     pub rows: u16,
     pub history_limit: u32,
     pub keep_session: bool,
+    /// Environment applied to the contained application only (issue #390).
+    ///
+    /// Mirrors the tmux driver: a scenario can configure the app it is
+    /// testing, and a workspace-local `JEFE_SOCKET_PATH` keeps it off any
+    /// multiplexer server the operator already has running.
+    pub env: Vec<(String, String)>,
 }
 
 impl TmuxStartRequest {
@@ -42,8 +48,10 @@ impl TmuxStartRequest {
             rows,
             history_limit,
             keep_session: false,
+            env: Vec::new(),
         };
         request.validate()?;
+        request.validate_env()?;
         Ok(request)
     }
 
@@ -73,6 +81,39 @@ impl TmuxStartRequest {
     pub fn with_keep_session(mut self, keep_session: bool) -> Self {
         self.keep_session = keep_session;
         self
+    }
+
+    /// Return a copy of this request that applies `env` to the contained app.
+    #[must_use]
+    pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// Reject an environment name that is not a plain identifier.
+    ///
+    /// The name is interpolated into a PowerShell `$env:NAME` assignment, so a
+    /// name carrying metacharacters would be interpreted rather than assigned.
+    /// Scenario data is not a trust boundary (issue #390).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError::InvalidRequest`] naming the offending entry.
+    pub fn validate_env(&self) -> Result<(), TmuxDriverError> {
+        for (name, _) in &self.env {
+            let mut characters = name.chars();
+            let valid_start = characters
+                .next()
+                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_');
+            let valid_rest =
+                characters.all(|character| character.is_ascii_alphanumeric() || character == '_');
+            if !valid_start || !valid_rest {
+                return Err(invalid_request(&format!(
+                    "environment name {name:?} must be an identifier ([A-Za-z_][A-Za-z0-9_]*)"
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), TmuxDriverError> {
@@ -161,6 +202,7 @@ impl TmuxDriver {
         request: &TmuxStartRequest,
     ) -> Result<TmuxSession, TmuxDriverError> {
         request.validate()?;
+        request.validate_env()?;
         self.qualified_version()?;
         let args = new_session_args(request);
         if let Err(error) = self.run_owned(&args, Some(&request.working_dir)) {
@@ -492,17 +534,28 @@ fn new_session_args(request: &TmuxStartRequest) -> Vec<String> {
         "-c".to_string(),
         request.working_dir.to_string_lossy().into_owned(),
     ];
-    args.push(windows_command_line(&request.command));
+    args.push(windows_command_line(&request.command, &request.env));
     args
 }
 
-fn windows_command_line(arguments: &[String]) -> String {
+fn windows_command_line(arguments: &[String], env: &[(String, String)]) -> String {
     let quoted = arguments
         .iter()
         .map(|argument| powershell_quote(argument))
         .collect::<Vec<_>>()
         .join(" ");
-    format!("& {quoted}")
+    // Names are validated as identifiers, so `$env:NAME` is an assignment and
+    // not an expression the shell can be talked into evaluating; values are
+    // single-quoted.
+    let mut assignments = String::new();
+    for (name, value) in env {
+        assignments.push_str("$env:");
+        assignments.push_str(name);
+        assignments.push_str(" = ");
+        assignments.push_str(&powershell_quote(value));
+        assignments.push_str("; ");
+    }
+    format!("{assignments}& {quoted}")
 }
 
 fn powershell_quote(argument: &str) -> String {

@@ -5,7 +5,9 @@
 //! root-owned immutable registry snapshot.
 
 use crate::domain::Id;
-use crate::domain::action_registry::{ActionAvailability, Availability, AvailabilityGeneration};
+use crate::domain::action_registry::{
+    ActionAvailability, Availability, AvailabilityGeneration, HandlerKey,
+};
 use crate::domain::effects::{
     Correlation, Effect, EffectFamily, ProviderEffect, RetryPolicy, SemanticKey,
 };
@@ -18,8 +20,22 @@ const ACTION_AVAILABILITY_SUBJECT: &str = "action-availability";
 
 impl AppState {
     /// Record a refused action in the global warning and the active work-item
-    /// screen's existing notice band.
-    pub fn record_unavailable_action(&mut self, reason: String) {
+    /// screen's existing notice band. Provider actions also retain enough typed
+    /// identity to open the dedicated unavailable surface.
+    pub fn record_unavailable_action(
+        &mut self,
+        action_id: Option<crate::domain::action_registry::ActionId>,
+        reason: String,
+    ) {
+        self.provider_surface_action = action_id.filter(|action_id| {
+            self.action_registry_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .provider_actions()
+                        .any(|action| action.id == *action_id)
+                })
+        });
         match self.screen() {
             super::ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
             super::ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
@@ -89,15 +105,43 @@ fn availability_entries(
     actions
         .iter()
         .map(|action| {
-            let availability = unavailable_reason(state, action.id.as_str()).map_or(
-                Availability::Available,
-                |reason| Availability::Unavailable {
-                    reason: reason.to_owned(),
-                },
-            );
-            ActionAvailability::new(action.id.clone(), availability)
+            ActionAvailability::new(action.id.clone(), action_availability(state, action))
         })
         .collect()
+}
+
+/// Decide one action's availability for this refresh.
+///
+/// [`unavailable_reason`] is a table of *compiled* actions: it is exhaustive
+/// about the host's own surfaces and silent about everything else. A package
+/// action is not in it, so running it through would answer "available" for an
+/// action the host knows nothing about — including one whose provider has no
+/// binary for this platform, which startup composition had already marked
+/// unavailable. Offering the operator an action that cannot possibly run is
+/// worse than not offering it, so a package action keeps the availability the
+/// authority that *does* know about it published (issue #390 CW-10).
+fn action_availability(
+    state: &AppState,
+    action: &crate::domain::action_registry::Action,
+) -> Availability {
+    if matches!(action.handler, HandlerKey::ProviderAction) {
+        if let Some(reason) = state.provider_action_health.get(&action.id) {
+            return Availability::Unavailable {
+                reason: reason.clone(),
+            };
+        }
+        return state
+            .action_registry_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.availability_of(&action.id))
+            .cloned()
+            .unwrap_or(Availability::Available);
+    }
+    unavailable_reason(state, action.id.as_str()).map_or(Availability::Available, |reason| {
+        Availability::Unavailable {
+            reason: reason.to_owned(),
+        }
+    })
 }
 
 fn unavailable_reason(state: &AppState, action: &str) -> Option<&'static str> {
@@ -390,3 +434,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "action_availability_provider_tests.rs"]
+mod provider_tests;

@@ -12,6 +12,8 @@ pub mod effect_executor;
 mod effect_executor_tests;
 mod normalize;
 pub mod persist_worker;
+/// Provider effect background worker handle (issue #390 CW-10, Slice D).
+pub mod provider_effect_worker;
 /// Runtime-family effect adapter executing committed transitions (issue #381).
 pub mod runtime_effect_adapter;
 #[cfg(test)]
