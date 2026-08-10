@@ -211,7 +211,7 @@ fn the_template_row_shows_the_selected_template_label() {
 
 /// A5 — rendered rows stay emoji-free ASCII, as the New PR composer does.
 #[test]
-fn the_new_issue_document_is_emoji_free() {
+fn the_new_issue_document_is_ascii_only() {
     let form = form_with_title("subject", NewIssueFormFocus::Title);
     let rendered = build_new_issue_content(Some(&form)).text;
     assert!(
