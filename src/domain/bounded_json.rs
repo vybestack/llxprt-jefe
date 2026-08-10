@@ -195,6 +195,33 @@ impl std::error::Error for BoundedJsonError {}
 /// Returns [`BoundedJsonError`] for syntax, duplicate-key, non-UTF-8,
 /// inadmissible-number, or exceeded-bound failures.
 pub fn parse(input: &[u8], limits: &BoundedJsonLimits) -> Result<BoundedJson, BoundedJsonError> {
+    parse_tracking_top_member(input, limits, None).map(|(value, _)| value)
+}
+
+/// Parse a document and retain the exact source-byte length of one top-level
+/// object member's value.
+///
+/// The measurement comes from the same bounded parser that validates the
+/// document, so whitespace cannot be lost to canonical reserialization and no
+/// second JSON authority is introduced.
+///
+/// # Errors
+///
+/// Returns the same failures as [`parse`]. A missing member is represented by
+/// `None` because closed-schema mapping remains the caller's responsibility.
+pub fn parse_with_top_member_bytes(
+    input: &[u8],
+    limits: &BoundedJsonLimits,
+    member: &str,
+) -> Result<(BoundedJson, Option<usize>), BoundedJsonError> {
+    parse_tracking_top_member(input, limits, Some(member))
+}
+
+fn parse_tracking_top_member(
+    input: &[u8],
+    limits: &BoundedJsonLimits,
+    tracked_member: Option<&str>,
+) -> Result<(BoundedJson, Option<usize>), BoundedJsonError> {
     if input.len() > limits.document_bytes {
         return Err(BoundedJsonError::DocumentTooLarge {
             bytes: input.len(),
@@ -206,6 +233,8 @@ pub fn parse(input: &[u8], limits: &BoundedJsonLimits) -> Result<BoundedJson, Bo
         bytes: text.as_bytes(),
         pos: 0,
         limits,
+        tracked_member: tracked_member.map(str::to_owned),
+        tracked_member_bytes: None,
     };
     parser.skip_ws();
     let value = parser.parse_value(0)?;
@@ -213,13 +242,15 @@ pub fn parse(input: &[u8], limits: &BoundedJsonLimits) -> Result<BoundedJson, Bo
     if parser.pos != parser.bytes.len() {
         return Err(BoundedJsonError::TrailingData { offset: parser.pos });
     }
-    Ok(value)
+    Ok((value, parser.tracked_member_bytes))
 }
 
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
     limits: &'a BoundedJsonLimits,
+    tracked_member: Option<String>,
+    tracked_member_bytes: Option<usize>,
 }
 
 impl Parser<'_> {
@@ -297,7 +328,11 @@ impl Parser<'_> {
             self.skip_ws();
             self.expect_byte(b':')?;
             self.skip_ws();
+            let value_start = self.pos;
             let value = self.parse_value(depth + 1)?;
+            if depth == 0 && self.tracked_member.as_deref() == Some(key.as_str()) {
+                self.tracked_member_bytes = Some(self.pos.saturating_sub(value_start));
+            }
             members.push((key, value));
             if members.len() > self.limits.object_members {
                 return Err(BoundedJsonError::ObjectTooLarge {

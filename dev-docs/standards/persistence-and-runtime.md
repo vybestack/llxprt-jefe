@@ -498,3 +498,80 @@ A clean shutdown requires the leader to be reaped **and** both pipes to close.
 A descendant that survives holding an inherited pipe surfaces as a drain
 timeout rather than being assumed reaped. Cleanup failures are reported
 separately and never replace the request's terminal result.
+
+
+## Persistent Provider Panels (issue #391 CW-11)
+
+Only a persistent provider may own a panel. Panel activation, deactivation, and
+semantic events use the same persistent-session owner thread as action requests;
+there is no second stdout reader, writer, supervisor, or process registry. The
+coordinator owns the process handles and bounded command/delivery channels.
+`AppState` owns only the pure panel reducer.
+
+The provider-process generation in the outer protocol envelope is fixed for the
+life of that process. Each host panel instance has a separate positive,
+monotonic, session-only identity and activation generation. Activate, resume, and
+Retry allocate a fresh panel generation. Snapshot revisions begin at 1 and
+increase by exactly 1 for each panel instance/generation. Suspend sends a typed
+deactivation and retains only bounded host-local state; dispose invalidates the
+instance, so late snapshots can never revive it.
+
+A snapshot passes framing, request-origin, owner, process generation, panel
+instance/generation, revision, model schema, declared body-kind, exact source-byte
+size, structure, reference, and rate validation before one atomic replacement.
+The snapshot payload limit is 524,288 original UTF-8 bytes, the document limit is
+262,144 bytes, and the nesting/map/array limits are 16/256/1,024. The per-panel
+generation token bucket starts with 40 tokens and refills at 20 snapshots per
+second from monotonic elapsed time supplied by the runtime edge. Rejected
+well-formed snapshots consume their token but never partially mutate the model.
+
+Panel state is ephemeral. Lifecycle, models, revisions, generations, rate state,
+and host-local focus/scroll/selection/form drafts are never written to Settings
+or any other durable file. Provider health and action-request progress remain in
+`state::provider_requests`; panel model ownership remains exclusively in
+`state::provider_panels`.
+
+## Plugin Configuration and Pre-Configure Migration
+
+The selected installed package version is the single authority for its manifest,
+config schema, screens, panels, provider, and migration target. The closed config
+schema supports boolean, string, integer, finite-number, enum, path, string-list,
+and secret-reference values. The pure plugin-config validator owns type,
+required/default, inclusive bound, enum-choice, list-uniqueness, sibling
+visibility, and visibility-cycle rules. Active selected owners must validate
+before Save or Configure. Configuration for an absent or disabled owner is
+dormant and remains byte-for-byte in the lossless Settings document without
+owner validation or process startup.
+
+A secret reference persists exactly as `{ env = "NAME" }`, where the environment
+name satisfies the closed environment-name grammar. Resolution happens only
+while composing the owning provider's normal `configure` payload. Migration
+requests, migration previews, drafts, effective/export output, diagnostics,
+logs, panel models, and other providers contain references only, never resolved
+secret bytes.
+
+When a Settings draft changes a selected package to an installed version whose
+config schema version differs from the authoritative source version, migration
+runs before any write and before Configure:
+
+1. A provisional executable candidate performs `hello` / `hello-ack`.
+2. The host sends direct `migrate-config` with positive source/target schema
+   versions, the exact reference-only source config, and the draft token.
+3. A direct `migrated-config` must echo the host request id, process generation,
+   versions, source config, and draft token exactly. The proposed target must
+   pass the target schema and all protocol bounds and contain no resolved secret.
+4. The host shows a value-free, owner-qualified, path-sorted preview. Provider
+   notes are bounded display text and are never persisted.
+5. Approval writes the exact target version/config through the existing
+   expected-hash Settings writer. Only a matching `WriteOutcome::Authoritative`
+   adopts it.
+6. The provisional process shuts down and is reaped without Configure, Ready, or
+   publication. Normal startup configures the selected target only after the
+   required Jefe restart.
+
+Cancel, timeout, EOF, malformed or mismatched response, invalid target, stale
+completion, hash conflict, write failure, or cleanup failure leaves the prior
+selection/config bytes authoritative and starts no target provider. First
+installation and a package change with an unchanged config schema do not imply
+migration. Rollback means selecting a still-installed prior package version
+offline; Jefe never mutates config or acquires a rollback package automatically.

@@ -123,6 +123,10 @@ fn run() -> Result<(), u8> {
         r#"{"provider_name":"fixture","protocol":1}"#,
     ));
 
+    if mode.starts_with("migration-") {
+        return run_migration(&mode, generation);
+    }
+
     let configure_line = next_line()?;
     if mode == "record" {
         record_observations(record_dir.as_deref(), &configure_line);
@@ -156,8 +160,69 @@ fn run() -> Result<(), u8> {
     }
 
     let _shutdown = next_line()?;
+
     emit_ack_scenario(&mode, generation)?;
     Ok(())
+}
+
+fn run_migration(mode: &str, generation: u64) -> Result<(), u8> {
+    if mode == "migration-timeout" {
+        hang_forever();
+    }
+    if mode == "migration-eof" {
+        return Ok(());
+    }
+    let request = next_line()?;
+    if mode == "migration-malformed" {
+        emit("{not-json");
+        return Ok(());
+    }
+    let parsed: Value = serde_json::from_str(&request).map_err(|_| 2)?;
+    let request_id = parsed.get("request_id").and_then(Value::as_str).ok_or(2)?;
+    let payload = parsed.get("payload").and_then(Value::as_object).ok_or(2)?;
+    let mut response = serde_json::json!({
+        "from_version": payload.get("from_version").ok_or(2)?,
+        "to_version": payload.get("to_version").ok_or(2)?,
+        "config": payload.get("config").ok_or(2)?,
+        "draft_token": payload.get("draft_token").ok_or(2)?,
+        "target_config": payload.get("config").ok_or(2)?,
+        "notes": ["fixture migration"]
+    });
+    update_migration_response(mode, &mut response);
+    let response_id = if mode == "migration-wrong-request" {
+        "h-999999"
+    } else {
+        request_id
+    };
+    let response_generation = if mode == "migration-wrong-generation" {
+        generation.saturating_add(1)
+    } else {
+        generation
+    };
+    emit(&frame_with_request(
+        "migrated-config",
+        response_id,
+        response_generation,
+        &response.to_string(),
+    ));
+    let shutdown = next_line()?;
+    if frame_type(&shutdown).as_deref() != Some("shutdown") {
+        return Err(2);
+    }
+    emit(&frame("shutdown-ack", generation, "{}"));
+    Ok(())
+}
+
+fn update_migration_response(mode: &str, response: &mut Value) {
+    match mode {
+        "migration-wrong-source-version" => response["from_version"] = serde_json::json!(99),
+        "migration-wrong-target-version" => response["to_version"] = serde_json::json!(99),
+        "migration-wrong-source-config" => {
+            response["config"] = serde_json::json!({"unexpected": true});
+        }
+        "migration-wrong-draft-token" => response["draft_token"] = serde_json::json!(99),
+        _ => {}
+    }
 }
 
 /// Read one trimmed JSONL line from stdin (EOF or read error fails the run).
@@ -329,6 +394,12 @@ fn emit(line: &str) {
     let _ = stdout.flush();
 }
 
+fn frame_with_request(kind: &str, request_id: &str, generation: u64, payload: &str) -> String {
+    format!(
+        "{{\"protocol\":1,\"type\":\"{kind}\",\"request_id\":\"{request_id}\",\"generation\":{generation},\"payload\":{payload}}}"
+    )
+}
+
 fn frame(kind: &str, generation: u64, payload: &str) -> String {
     format!(
         "{{\"protocol\":1,\"type\":\"{kind}\",\"request_id\":\"p-000001\",\"generation\":{generation},\"payload\":{payload}}}"
@@ -358,7 +429,7 @@ fn secret_typed_map(secret: Option<&str>) -> String {
 fn secret_field(secret: Option<&str>) -> String {
     let value = secret.unwrap_or("");
     format!(
-        r#"{{"id":"vendor.pkg.token","kind":"string","required":false,"default":{json},"restart":"none"}}"#,
+        r#"{{"id":"vendor.pkg.token","label":"Token","type":"string","required":false,"default":{json},"restart":"none"}}"#,
         json = json_string(value)
     )
 }

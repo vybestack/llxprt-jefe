@@ -107,58 +107,6 @@ fn declared_outcome_kind_accepted() {
     assert!(request.completed_outcome().is_some());
 }
 
-// ── panel/migrated-config outcomes rejected in CW-10 ─────────────────────
-
-#[test]
-fn replace_panel_outcome_rejected() {
-    let mut state = ProviderRequestState::new();
-    let pol = policy(
-        ActionConfirmation::None,
-        &[ActionOutcome::ReplaceOwnedPanel, ActionOutcome::Notice],
-        false,
-    );
-    let outcome = do_invoke_with(&mut state, &pol, empty_map(), empty_map());
-    let replace = Outcome::ReplacePanel {
-        panel_instance_id: Id::parse("panel.1").unwrap_or_else(|_e| panic!("panel id")),
-        snapshot: crate::runtime::provider::protocol::PanelSnapshot(empty_map()),
-    };
-    let result = state.record_outcome(&outcome.key, replace, 1000);
-    assert_eq!(result, Err(ProviderRequestError::UnsupportedOutcome));
-    let request = state
-        .request(&outcome.key)
-        .unwrap_or_else(|| panic!("found request"));
-    assert!(request.is_terminal());
-    assert!(request.unavailable_reason().is_some());
-}
-
-#[test]
-fn close_panel_outcome_rejected() {
-    let mut state = ProviderRequestState::new();
-    let pol = policy(
-        ActionConfirmation::None,
-        &[ActionOutcome::CloseOwnedPanel, ActionOutcome::Notice],
-        false,
-    );
-    let outcome = do_invoke_with(&mut state, &pol, empty_map(), empty_map());
-    let close = Outcome::ClosePanel {
-        panel_instance_id: Id::parse("panel.1").unwrap_or_else(|_e| panic!("panel id")),
-    };
-    let result = state.record_outcome(&outcome.key, close, 1000);
-    assert_eq!(result, Err(ProviderRequestError::UnsupportedOutcome));
-}
-
-#[test]
-fn migrated_config_outcome_rejected() {
-    let mut state = ProviderRequestState::new();
-    let pol = policy(ActionConfirmation::None, &[ActionOutcome::Notice], false);
-    let outcome = do_invoke_with(&mut state, &pol, empty_map(), empty_map());
-    let migrated = Outcome::MigratedConfig {
-        migration: crate::runtime::provider::protocol::MigratedConfig(empty_map()),
-    };
-    let result = state.record_outcome(&outcome.key, migrated, 1000);
-    assert_eq!(result, Err(ProviderRequestError::UnsupportedOutcome));
-}
-
 // ── non-empty resource refs across confirmation ──────────────────────────
 
 #[test]

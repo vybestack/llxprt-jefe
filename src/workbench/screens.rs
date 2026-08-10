@@ -174,6 +174,24 @@ impl std::error::Error for RegistryError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenRegistry {
     screens: Vec<ScreenDescriptor>,
+    panel_bindings: Vec<PackagePanelBinding>,
+}
+
+/// Exact selected-package ownership for one lowered screen panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackagePanelBinding {
+    /// Lowered package screen that contains the panel.
+    pub screen: ScreenIdentity,
+    /// Panel identity within the screen.
+    pub panel: PanelId,
+    /// Selected package/provider owner.
+    pub owner: crate::domain::Id,
+    /// Owner-qualified manifest panel type.
+    pub panel_type: crate::domain::Id,
+    /// Model kinds this selected manifest permits.
+    pub model_kinds: Vec<crate::domain::plugin::ModelKind>,
+    /// Semantic events this selected manifest permits.
+    pub event_schema: Vec<crate::domain::plugin::EventSchemaEntry>,
 }
 
 impl ScreenRegistry {
@@ -183,6 +201,18 @@ impl ScreenRegistry {
     ///
     /// Returns the first structural violation found.
     pub fn new(screens: Vec<ScreenDescriptor>) -> Result<Self, RegistryError> {
+        Self::with_panel_bindings(screens, Vec::new())
+    }
+
+    /// Build a registry with explicit selected-package panel ownership.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first structural screen violation found.
+    pub fn with_panel_bindings(
+        screens: Vec<ScreenDescriptor>,
+        panel_bindings: Vec<PackagePanelBinding>,
+    ) -> Result<Self, RegistryError> {
         if screens.len() > MAX_SCREENS {
             return Err(RegistryError::TooManyScreens {
                 count: screens.len(),
@@ -196,7 +226,10 @@ impl ScreenRegistry {
                 });
             }
         }
-        Ok(Self { screens })
+        Ok(Self {
+            screens,
+            panel_bindings,
+        })
     }
 
     /// Every descriptor in declaration order.
@@ -215,6 +248,18 @@ impl ScreenRegistry {
     #[must_use]
     pub fn get_identity(&self, id: ScreenIdentity) -> Option<&ScreenDescriptor> {
         self.screens.iter().find(|screen| screen.id == id)
+    }
+
+    /// Exact package/provider binding for one panel on one lowered screen.
+    #[must_use]
+    pub fn panel_binding(
+        &self,
+        screen: ScreenIdentity,
+        panel: &PanelId,
+    ) -> Option<&PackagePanelBinding> {
+        self.panel_bindings
+            .iter()
+            .find(|binding| binding.screen == screen && &binding.panel == panel)
     }
 
     /// Resolve a routable screen from text that came from outside the program.

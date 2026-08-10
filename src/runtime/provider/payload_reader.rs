@@ -17,9 +17,8 @@ use crate::domain::bounded_json::BoundedJson;
 
 use super::dto::{
     CancelPayload, Capability, ConfigurePayload, Continuation, ErrorPayload, FieldError,
-    HelloAckPayload, HelloPayload, InvokeActionPayload, InvokeContext, MigratedConfig, Outcome,
-    PanelSnapshot, ParsedMessage, ProgressPayload, ProviderMessage, ReadyPayload, Severity,
-    ShutdownPayload, ShutdownReason,
+    HelloAckPayload, HelloPayload, InvokeActionPayload, InvokeContext, Outcome, ParsedMessage,
+    ProgressPayload, ProviderMessage, ReadyPayload, Severity, ShutdownPayload, ShutdownReason,
 };
 use super::error::ProviderError;
 use super::framing;
@@ -59,7 +58,6 @@ const SHUTDOWN_KEYS: [&str; 1] = ["reason"];
 const OUTCOME_NAVIGATE_KEYS: [&str; 3] = ["kind", "route_id", "activation"];
 const OUTCOME_REFRESH_KEYS: [&str; 2] = ["kind", "resource_ref"];
 const OUTCOME_NOTICE_KEYS: [&str; 3] = ["kind", "severity", "message"];
-const OUTCOME_REPLACE_PANEL_KEYS: [&str; 3] = ["kind", "panel_instance_id", "snapshot"];
 const OUTCOME_RHC_KEYS: [&str; 7] = [
     "kind",
     "confirmation_id",
@@ -69,12 +67,11 @@ const OUTCOME_RHC_KEYS: [&str; 7] = [
     "destructive",
     "continuation_schema",
 ];
-const OUTCOME_CLOSE_PANEL_KEYS: [&str; 2] = ["kind", "panel_instance_id"];
-const OUTCOME_MIGRATED_CONFIG_KEYS: [&str; 2] = ["kind", "migration"];
 
 /// Parse one provider line into a typed message.
 ///
-/// Framing and JSON well-formedness are delegated to [`framing::decode`]; this
+/// Framing, exact payload-byte accounting, and JSON well-formedness are delegated to
+/// [`framing::decode_with_top_member_bytes`]; this
 /// function then maps the envelope, validates the fixed protocol version, the
 /// message direction against `stream`, the request id, and the positive
 /// generation, and maps the closed payload.
@@ -84,7 +81,7 @@ const OUTCOME_MIGRATED_CONFIG_KEYS: [&str; 2] = ["kind", "migration"];
 /// Returns [`ProviderError`] (`PLG-E502`) for any framing, shape, direction,
 /// request-id, generation, or payload fault.
 pub fn parse_message(bytes: &[u8], stream: Direction) -> Result<ParsedMessage, ProviderError> {
-    let value = framing::decode(bytes)?;
+    let (value, payload_byte_count) = framing::decode_with_top_member_bytes(bytes, "payload")?;
     let members = closed_object(&value, "envelope", &ENVELOPE_KEYS)?;
     let protocol = read_u64(members, "envelope", "protocol")?;
     if protocol != PROTOCOL_VERSION {
@@ -109,7 +106,10 @@ pub fn parse_message(bytes: &[u8], stream: Direction) -> Result<ParsedMessage, P
         RequestId::parse(request_id_raw).map_err(|_| ProviderError::InvalidRequestId {
             raw: request_id_raw.to_owned(),
         })?;
-    if request_id.origin() != stream.request_origin() {
+    // Request origin is determined by message role, not stream direction: the
+    // direct `migrated-config` response echoes the host request id and the
+    // asynchronous `panel-snapshot` is provider-originated (issue #391).
+    if request_id.origin() != kind.request_origin() {
         return Err(ProviderError::InvalidRequestOrigin {
             raw: request_id_raw.to_owned(),
             stream: stream.as_str().to_owned(),
@@ -124,6 +124,10 @@ pub fn parse_message(bytes: &[u8], stream: Direction) -> Result<ParsedMessage, P
     Ok(ParsedMessage {
         request_id,
         generation,
+        payload_byte_count: payload_byte_count.ok_or_else(|| ProviderError::MissingField {
+            path: "envelope".to_owned(),
+            field: "payload".to_owned(),
+        })?,
         message,
     })
 }
@@ -146,6 +150,23 @@ fn read_payload(
         MessageKind::Shutdown => read_shutdown(payload).map(ProviderMessage::Shutdown),
         MessageKind::ShutdownAck => {
             read_shutdown_ack(payload).map(|()| ProviderMessage::ShutdownAck)
+        }
+        MessageKind::ActivatePanel => {
+            super::panel_reader::read_activate_panel(payload).map(ProviderMessage::ActivatePanel)
+        }
+        MessageKind::DeactivatePanel => super::panel_reader::read_deactivate_panel(payload)
+            .map(ProviderMessage::DeactivatePanel),
+        MessageKind::PanelEvent => {
+            super::panel_reader::read_panel_event(payload).map(ProviderMessage::PanelEvent)
+        }
+        MessageKind::PanelSnapshot => {
+            super::panel_reader::read_panel_snapshot(payload).map(ProviderMessage::PanelSnapshot)
+        }
+        MessageKind::MigrateConfig => {
+            super::panel_reader::read_migrate_config(payload).map(ProviderMessage::MigrateConfig)
+        }
+        MessageKind::MigratedConfig => {
+            super::panel_reader::read_migrated_config(payload).map(ProviderMessage::MigratedConfig)
         }
     }
 }
@@ -314,10 +335,7 @@ fn read_outcome(payload: &BoundedJson) -> Result<Outcome, ProviderError> {
         "navigate" => read_outcome_navigate(payload),
         "refresh" => read_outcome_refresh(payload),
         "notice" => read_outcome_notice(payload),
-        "replace-panel" => read_outcome_replace_panel(payload),
         "request-host-confirmation" => read_outcome_request_host_confirmation(payload),
-        "close-panel" => read_outcome_close_panel(payload),
-        "migrated-config" => read_outcome_migrated_config(payload),
         other => Err(ProviderError::UnknownValue {
             path: "outcome.kind".to_owned(),
             value: other.to_owned(),
@@ -354,17 +372,6 @@ fn read_outcome_notice(payload: &BoundedJson) -> Result<Outcome, ProviderError> 
     })
 }
 
-fn read_outcome_replace_panel(payload: &BoundedJson) -> Result<Outcome, ProviderError> {
-    let members = closed_object(payload, "outcome", &OUTCOME_REPLACE_PANEL_KEYS)?;
-    Ok(Outcome::ReplacePanel {
-        panel_instance_id: read_id(members, "outcome", "panel_instance_id")?,
-        snapshot: PanelSnapshot(read_typed_map(
-            require(members, "outcome", "snapshot")?,
-            "outcome.snapshot",
-        )?),
-    })
-}
-
 fn read_outcome_request_host_confirmation(payload: &BoundedJson) -> Result<Outcome, ProviderError> {
     let members = closed_object(payload, "outcome", &OUTCOME_RHC_KEYS)?;
     let schema = array(
@@ -382,22 +389,5 @@ fn read_outcome_request_host_confirmation(payload: &BoundedJson) -> Result<Outco
         confirm_label: read_string(members, "outcome", "confirm_label")?.to_owned(),
         destructive: read_bool(members, "outcome", "destructive")?,
         continuation_schema: schema,
-    })
-}
-
-fn read_outcome_close_panel(payload: &BoundedJson) -> Result<Outcome, ProviderError> {
-    let members = closed_object(payload, "outcome", &OUTCOME_CLOSE_PANEL_KEYS)?;
-    Ok(Outcome::ClosePanel {
-        panel_instance_id: read_id(members, "outcome", "panel_instance_id")?,
-    })
-}
-
-fn read_outcome_migrated_config(payload: &BoundedJson) -> Result<Outcome, ProviderError> {
-    let members = closed_object(payload, "outcome", &OUTCOME_MIGRATED_CONFIG_KEYS)?;
-    Ok(Outcome::MigratedConfig {
-        migration: MigratedConfig(read_typed_map(
-            require(members, "outcome", "migration")?,
-            "outcome.migration",
-        )?),
     })
 }

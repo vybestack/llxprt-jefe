@@ -32,50 +32,383 @@ pub async fn run_provider_worker(
         jefe::services::provider_effect_worker::ProviderWorkItem,
     > = std::collections::VecDeque::new();
     let mut unavailable_actions = std::collections::BTreeMap::new();
+    let mut unavailable_panel_owners = std::collections::BTreeSet::new();
     let mut next_health_probe = std::time::Instant::now();
+    let panel_clock_origin = std::time::Instant::now();
 
     loop {
         smol::Timer::after(Duration::from_millis(PROVIDER_POLL_MS)).await;
+        run_pending_migrations(ctx_arc, &mut app_state).await;
         forward_session_signals(&active, ctx_arc, &mut app_state);
         finalize_finished_sessions(&mut active, ctx_arc, &mut app_state);
+        dispatch_panel_commands(ctx_arc, &mut app_state);
+        let elapsed_ms =
+            u64::try_from(panel_clock_origin.elapsed().as_millis()).unwrap_or(u64::MAX);
+        accept_panel_deliveries(ctx_arc, &mut app_state, elapsed_ms);
         start_available_work(&mut active, &mut deferred, ctx_arc, &mut app_state);
         if std::time::Instant::now() >= next_health_probe {
-            publish_persistent_health(ctx_arc, &mut app_state, &mut unavailable_actions);
+            publish_persistent_health(
+                ctx_arc,
+                &mut app_state,
+                &mut unavailable_actions,
+                &mut unavailable_panel_owners,
+            );
             next_health_probe = std::time::Instant::now() + Duration::from_secs(1);
         }
     }
 }
+async fn run_pending_migrations(
+    ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
+    app_state: &mut crate::app_input::AppStateHandle,
+) {
+    let work = {
+        let Ok(context) = ctx_arc.try_lock() else {
+            return;
+        };
+        context.provider_effect_handle.drain_migrations()
+    };
+    for item in work {
+        let draft_token = item.draft_token;
+        let result = smol::unblock(move || {
+            jefe::runtime::provider::run_migration(
+                &item.request,
+                &jefe::runtime::provider::SupervisorBounds::default(),
+                &jefe::runtime::provider::ProcessHostEnv,
+            )
+        })
+        .await;
+        let message = match result.outcome {
+            jefe::runtime::provider::MigrationOutcome::Migrated(response)
+                if result.cleanup_failure.is_none() =>
+            {
+                jefe::messages::settings::SettingsMessage::MigrationCompleted {
+                    draft_token: response.draft_token,
+                    target_config: response.target_config,
+                    notes: response.notes,
+                }
+            }
+            jefe::runtime::provider::MigrationOutcome::Migrated(_) => {
+                let detail = result.cleanup_failure.as_ref().map_or_else(
+                    || {
+                        "the provisional provider could not complete configuration migration"
+                            .to_owned()
+                    },
+                    migration_cleanup_failure_detail,
+                );
+                jefe::messages::settings::SettingsMessage::MigrationFailed {
+                    draft_token,
+                    detail,
+                }
+            }
+            jefe::runtime::provider::MigrationOutcome::Failed(_) => {
+                jefe::messages::settings::SettingsMessage::MigrationFailed {
+                    draft_token,
+                    detail: "the provisional provider could not complete configuration migration"
+                        .to_owned(),
+                }
+            }
+        };
+        {
+            let mut state = app_state.write();
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                jefe::messages::AppMessage::Settings(Box::new(message)),
+            );
+        }
+        crate::app_input::write_pending(app_state, &Some(Arc::clone(ctx_arc)));
+    }
+}
 
-/// Publish post-Ready persistent failures into the immutable action
-/// availability generation. Healthy candidates contribute no override and are
-/// never restarted here.
+fn migration_cleanup_failure_detail(failure: &jefe::runtime::provider::CleanupFailure) -> String {
+    let reason = match failure {
+        jefe::runtime::provider::CleanupFailure::ShutdownAck(_) => {
+            "the provisional provider returned an invalid shutdown acknowledgement"
+        }
+        jefe::runtime::provider::CleanupFailure::PostTerminal(_) => {
+            "the provisional provider sent data after the migration response"
+        }
+        jefe::runtime::provider::CleanupFailure::DrainTimeout => {
+            "the provisional provider output did not close"
+        }
+        jefe::runtime::provider::CleanupFailure::NotReaped => {
+            "the provisional provider process was not reaped"
+        }
+        jefe::runtime::provider::CleanupFailure::Io(_) => {
+            "the provisional provider cleanup operation failed"
+        }
+    };
+    format!(
+        "{} migration response was not accepted because {reason}; settings remain unchanged",
+        failure.code()
+    )
+}
+
+fn dispatch_panel_commands(
+    ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
+    app_state: &mut crate::app_input::AppStateHandle,
+) {
+    let Ok(ctx_guard) = ctx_arc.try_lock() else {
+        return;
+    };
+    let commands = ctx_guard.provider_effect_handle.drain_panel_commands();
+    let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
+        return;
+    };
+    for command in commands {
+        let Some(dispatched) = send_panel_effect(coordinator, command.effect) else {
+            continue;
+        };
+        commit_panel_dispatch(app_state, command.correlation, dispatched);
+    }
+}
+
+struct PanelDispatch {
+    owner: jefe::domain::Id,
+    instance: u64,
+    result: Result<(), String>,
+}
+
+fn panel_dispatch(
+    owner: jefe::domain::Id,
+    instance: u64,
+    result: Result<(), impl std::fmt::Display>,
+) -> PanelDispatch {
+    PanelDispatch {
+        owner,
+        instance,
+        result: result.map_err(|error| error.to_string()),
+    }
+}
+
+fn send_panel_effect(
+    coordinator: &jefe::runtime::provider::ProviderCoordinator,
+    effect: jefe::domain::effects::ProviderEffect,
+) -> Option<PanelDispatch> {
+    use jefe::domain::effects::ProviderEffect;
+    use jefe::runtime::provider::protocol::{
+        ActivatePanelPayload, DeactivatePanelPayload, PanelEventPayload,
+    };
+
+    match effect {
+        ProviderEffect::ActivatePanel {
+            owner,
+            panel_instance_id,
+            screen_instance_id,
+            panel_type,
+            activation,
+            prior_host_local,
+            panel_generation,
+        } => {
+            let payload = ActivatePanelPayload {
+                panel_instance_id,
+                screen_instance_id,
+                panel_type,
+                activation,
+                prior_host_local: prior_host_local.map(runtime_host_local),
+                generation: panel_generation,
+            };
+            let result = coordinator.activate_panel(&owner, payload);
+            Some(panel_dispatch(owner, panel_instance_id, result))
+        }
+        ProviderEffect::DeactivatePanel {
+            owner,
+            panel_instance_id,
+            panel_generation,
+            reason,
+        } => {
+            let reason = runtime_deactivate_reason(reason);
+            let payload = DeactivatePanelPayload {
+                panel_instance_id,
+                reason,
+                generation: panel_generation,
+            };
+            let result = coordinator.deactivate_panel(&owner, payload);
+            Some(panel_dispatch(owner, panel_instance_id, result))
+        }
+        ProviderEffect::PanelEvent {
+            owner,
+            panel_instance_id,
+            panel_generation,
+            revision,
+            event,
+        } => {
+            let payload = PanelEventPayload {
+                panel_instance_id,
+                revision,
+                event: runtime_panel_event(event),
+                generation: panel_generation,
+            };
+            let result = coordinator.panel_event(&owner, payload);
+            Some(panel_dispatch(owner, panel_instance_id, result))
+        }
+        _ => None,
+    }
+}
+
+fn runtime_deactivate_reason(
+    reason: jefe::domain::effects::ProviderPanelDeactivateReason,
+) -> jefe::runtime::provider::protocol::DeactivateReason {
+    use jefe::domain::effects::ProviderPanelDeactivateReason as HostReason;
+    use jefe::runtime::provider::protocol::DeactivateReason as WireReason;
+
+    match reason {
+        HostReason::Suspend => WireReason::Suspend,
+        HostReason::Dispose => WireReason::Dispose,
+        HostReason::Replace => WireReason::Replace,
+    }
+}
+
+fn runtime_host_local(
+    local: jefe::domain::effects::ProviderPanelHostLocal,
+) -> jefe::runtime::provider::protocol::HostLocal {
+    jefe::runtime::provider::protocol::HostLocal {
+        focus_target: local.focus_target,
+        scroll_offset: local.scroll_offset,
+        selected_id: local.selected_id,
+        form_draft: local.form_draft,
+    }
+}
+
+fn commit_panel_dispatch(
+    app_state: &mut crate::app_input::AppStateHandle,
+    correlation: jefe::domain::effects::Correlation,
+    dispatched: PanelDispatch,
+) {
+    match dispatched.result {
+        Ok(()) => {
+            let mut state = app_state.write();
+            let completion = jefe::domain::effects::EffectCompletion {
+                correlation,
+                result: Ok(jefe::domain::effects::EffectResponse::Provider(
+                    jefe::domain::effects::ProviderResponse::PanelCommandSent {
+                        panel_instance_id: dispatched.instance,
+                    },
+                )),
+            };
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                jefe::messages::AppMessage::EffectCompletion(Box::new(completion)),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(owner = %dispatched.owner, %error, "provider panel command failed");
+            let mut state = app_state.write();
+            if let Err(lifecycle_error) = state.provider_panels.fail_runtime(
+                jefe::state::provider_panels::PanelInstanceId::from_u64(dispatched.instance),
+            ) {
+                tracing::debug!(
+                    panel_instance = dispatched.instance,
+                    %lifecycle_error,
+                    "panel delivery failure arrived after a terminal lifecycle transition"
+                );
+            }
+            state.error_message = Some(error);
+            let completion = jefe::domain::effects::EffectCompletion {
+                correlation,
+                result: Err(jefe::domain::effects::EffectError::new(
+                    jefe::domain::effects::EffectErrorKind::Unavailable,
+                    false,
+                    "provider panel delivery unavailable",
+                )),
+            };
+            jefe::state::transition::commit_pure_site(
+                &mut state,
+                jefe::messages::AppMessage::EffectCompletion(Box::new(completion)),
+            );
+            drop(state);
+        }
+    }
+}
+
+fn accept_panel_deliveries(
+    ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
+    app_state: &mut crate::app_input::AppStateHandle,
+    elapsed_ms: u64,
+) {
+    let Ok(ctx_guard) = ctx_arc.try_lock() else {
+        return;
+    };
+    let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
+        return;
+    };
+    let deliveries = coordinator.drain_panel_deliveries();
+    drop(ctx_guard);
+    for delivery in deliveries {
+        let mut state = app_state.write();
+        let accepted =
+            state
+                .provider_panels
+                .accept_snapshot(jefe::state::provider_panels::AcceptSnapshot {
+                    owner: &delivery.plugin_id,
+                    received_process_generation: delivery.process_generation,
+                    payload_byte_count: delivery.payload_byte_count,
+                    elapsed_ms,
+                    snapshot: &delivery.snapshot,
+                });
+        if let Err(error) = accepted {
+            tracing::warn!(owner = %delivery.plugin_id, %error, "provider panel snapshot rejected");
+            state.error_message = Some(error.to_string());
+        }
+    }
+}
+
+fn runtime_panel_event(
+    event: jefe::domain::effects::ProviderPanelEvent,
+) -> jefe::runtime::provider::protocol::PanelEvent {
+    use jefe::domain::effects::ProviderPanelEvent as HostEvent;
+    use jefe::runtime::provider::protocol::PanelEvent as WireEvent;
+
+    match event {
+        HostEvent::Selected { id } => WireEvent::Selected { id },
+        HostEvent::Activated { id } => WireEvent::Activated { id },
+        HostEvent::Action { id, arguments } => WireEvent::Action { id, arguments },
+        HostEvent::FieldChanged { field_id, value } => WireEvent::FieldChanged { field_id, value },
+        HostEvent::Submit { values } => WireEvent::Submit { values },
+        HostEvent::PageRequested { token } => WireEvent::PageRequested { token },
+        HostEvent::Retry => WireEvent::Retry,
+        HostEvent::Cancel => WireEvent::Cancel,
+        HostEvent::LinkSelected { link_id } => WireEvent::LinkSelected { link_id },
+    }
+}
+
+/// Publish post-Ready persistent failures into immutable action availability.
+/// Healthy candidates contribute no override and are never restarted here.
 fn publish_persistent_health(
     ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
     app_state: &mut crate::app_input::AppStateHandle,
-    prior: &mut std::collections::BTreeMap<jefe::domain::action_registry::ActionId, String>,
+    prior_actions: &mut std::collections::BTreeMap<jefe::domain::action_registry::ActionId, String>,
+    prior_panel_owners: &mut std::collections::BTreeSet<jefe::domain::Id>,
 ) {
-    let Some(unavailable) = persistent_unavailable_actions(ctx_arc) else {
+    let Some((unavailable, failed_owners)) = persistent_unavailable_actions(ctx_arc) else {
         return;
     };
-    if unavailable == *prior {
+    if unavailable == *prior_actions && failed_owners == *prior_panel_owners {
         return;
     }
-    *prior = unavailable.clone();
+    prior_actions.clone_from(&unavailable);
+    prior_panel_owners.clone_from(&failed_owners);
     {
         let mut state = app_state.write();
+        for owner in &failed_owners {
+            state.provider_panels.fail_runtime_owner(owner);
+        }
         jefe::state::transition::commit_pure_site(
             &mut state,
             jefe::messages::AppMessage::Provider(Box::new(
                 jefe::messages::ProviderMessage::HealthChanged { unavailable },
             )),
         );
+        drop(state);
     }
     crate::app_input::refresh_action_availability(app_state);
 }
 
 fn persistent_unavailable_actions(
     ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
-) -> Option<std::collections::BTreeMap<jefe::domain::action_registry::ActionId, String>> {
+) -> Option<(
+    std::collections::BTreeMap<jefe::domain::action_registry::ActionId, String>,
+    std::collections::BTreeSet<jefe::domain::Id>,
+)> {
     use jefe::runtime::provider::persistent::CandidateHealth;
 
     let Ok(ctx_guard) = ctx_arc.lock() else {
@@ -83,7 +416,10 @@ fn persistent_unavailable_actions(
         return None;
     };
     let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
-        return Some(std::collections::BTreeMap::new());
+        return Some((
+            std::collections::BTreeMap::new(),
+            std::collections::BTreeSet::new(),
+        ));
     };
     let failed_plugins = coordinator
         .health()
@@ -98,17 +434,17 @@ fn persistent_unavailable_actions(
             Some((snapshot.plugin_id, reason.to_owned()))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
-    Some(
-        coordinator
-            .catalog()
-            .iter()
-            .filter_map(|(action_id, descriptor)| {
-                failed_plugins
-                    .get(&descriptor.plugin_id)
-                    .map(|reason| (action_id.clone(), reason.clone()))
-            })
-            .collect(),
-    )
+    let unavailable = coordinator
+        .catalog()
+        .iter()
+        .filter_map(|(action_id, descriptor)| {
+            failed_plugins
+                .get(&descriptor.plugin_id)
+                .map(|reason| (action_id.clone(), reason.clone()))
+        })
+        .collect();
+    let failed_owners = failed_plugins.keys().cloned().collect();
+    Some((unavailable, failed_owners))
 }
 
 /// Forward host cancels and live progress for every active session.

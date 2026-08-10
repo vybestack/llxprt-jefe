@@ -10,6 +10,12 @@ use std::fmt;
 /// The single wire protocol version this layer accepts.
 pub(super) const PROTOCOL_VERSION: u64 = 1;
 
+/// First process generation for a provider candidate in one Jefe session.
+///
+/// Persistent providers do not auto-restart; a future explicit restart must
+/// allocate the next generation rather than reusing this value.
+pub const INITIAL_PROCESS_GENERATION: u64 = 1;
+
 /// Minimum ASCII digits after the `h-`/`p-` request-id prefix.
 const REQUEST_ID_MIN_DIGITS: usize = 6;
 
@@ -48,7 +54,7 @@ impl Direction {
     }
 }
 
-/// Which of the eleven closed message kinds a frame carries.
+/// Which of the seventeen closed message kinds a frame carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageKind {
     /// Host greeting that opens a handshake.
@@ -73,11 +79,23 @@ pub enum MessageKind {
     Shutdown,
     /// Provider acknowledgement of shutdown.
     ShutdownAck,
+    /// Host request to activate a panel (issue #391).
+    ActivatePanel,
+    /// Host request to deactivate a panel (issue #391).
+    DeactivatePanel,
+    /// Host semantic panel input event (issue #391).
+    PanelEvent,
+    /// Provider asynchronous panel snapshot (issue #391).
+    PanelSnapshot,
+    /// Host request to migrate configuration (issue #391).
+    MigrateConfig,
+    /// Provider direct migration response (issue #391).
+    MigratedConfig,
 }
 
 impl MessageKind {
     /// Every kind, in declaration order.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 17] = [
         Self::Hello,
         Self::HelloAck,
         Self::Configure,
@@ -89,6 +107,12 @@ impl MessageKind {
         Self::Error,
         Self::Shutdown,
         Self::ShutdownAck,
+        Self::ActivatePanel,
+        Self::DeactivatePanel,
+        Self::PanelEvent,
+        Self::PanelSnapshot,
+        Self::MigrateConfig,
+        Self::MigratedConfig,
     ];
 
     /// The lower-kebab-case wire name.
@@ -106,6 +130,12 @@ impl MessageKind {
             Self::Error => "error",
             Self::Shutdown => "shutdown",
             Self::ShutdownAck => "shutdown-ack",
+            Self::ActivatePanel => "activate-panel",
+            Self::DeactivatePanel => "deactivate-panel",
+            Self::PanelEvent => "panel-event",
+            Self::PanelSnapshot => "panel-snapshot",
+            Self::MigrateConfig => "migrate-config",
+            Self::MigratedConfig => "migrated-config",
         }
     }
 
@@ -119,15 +149,58 @@ impl MessageKind {
     #[must_use]
     pub const fn direction(self) -> Direction {
         match self {
-            Self::Hello | Self::Configure | Self::InvokeAction | Self::Cancel | Self::Shutdown => {
-                Direction::HostToProvider
-            }
+            Self::Hello
+            | Self::Configure
+            | Self::InvokeAction
+            | Self::Cancel
+            | Self::Shutdown
+            | Self::ActivatePanel
+            | Self::DeactivatePanel
+            | Self::PanelEvent
+            | Self::MigrateConfig => Direction::HostToProvider,
             Self::HelloAck
             | Self::Ready
             | Self::Progress
             | Self::Outcome
             | Self::Error
-            | Self::ShutdownAck => Direction::ProviderToHost,
+            | Self::ShutdownAck
+            | Self::PanelSnapshot
+            | Self::MigratedConfig => Direction::ProviderToHost,
+        }
+    }
+
+    /// Which side must have originated the request id this kind carries.
+    ///
+    /// Request origin is determined by message role, not stream direction. The
+    /// asynchronous `panel-snapshot` is provider-originated even though it
+    /// travels provider-to-host; the direct `migrated-config` response echoes
+    /// the **same** host-originated `migrate-config` request id despite
+    /// travelling provider-to-host. Every other kind's origin matches its
+    /// stream direction (issue #391).
+    #[must_use]
+    pub const fn request_origin(self) -> RequestOrigin {
+        match self {
+            // The direct migration response echoes the host request id, and
+            // everything host-to-provider is host-originated.
+            Self::MigratedConfig
+            | Self::Hello
+            | Self::Configure
+            | Self::InvokeAction
+            | Self::Cancel
+            | Self::Shutdown
+            | Self::ActivatePanel
+            | Self::DeactivatePanel
+            | Self::PanelEvent
+            | Self::MigrateConfig => RequestOrigin::Host,
+            // Asynchronous provider-originated snapshot, and everything else
+            // provider-to-host is provider-originated.
+            Self::PanelSnapshot
+            | Self::HelloAck
+            | Self::Ready
+            | Self::Progress
+            | Self::Outcome
+            | Self::Error
+            | Self::ShutdownAck => RequestOrigin::Provider,
         }
     }
 }

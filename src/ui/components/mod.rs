@@ -86,6 +86,7 @@ mod preview;
 /// @requirement REQ-ISS-010
 mod property_editor;
 pub(crate) mod property_editor_view;
+mod provider_screen;
 mod scrollable_text;
 mod selectable_line;
 /// Generic bordered, scrollable, selectable list used by the Issue, PR, and
@@ -167,6 +168,7 @@ pub use preview::{Preview, PreviewProps, preview_content_lines};
 ///
 /// @requirement REQ-ISS-010
 pub use property_editor::{PropertyEditor, PropertyEditorProps};
+pub use provider_screen::{ProviderScreen, ProviderScreenProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use selectable_line::selectable_line;
 pub use selectable_list::{

@@ -27,13 +27,13 @@ use super::error::{FramingFault, ProviderError};
 pub const MAX_LINE_BYTES: usize = 1_048_576;
 
 /// The maximum nesting depth admitted on the wire.
-const WIRE_DEPTH: usize = 64;
+const WIRE_DEPTH: usize = 16;
 
 /// The maximum members one wire object may carry.
-const WIRE_OBJECT_MEMBERS: usize = 1024;
+const WIRE_OBJECT_MEMBERS: usize = 256;
 
 /// The maximum elements one wire array may carry.
-const WIRE_ARRAY_ELEMENTS: usize = 4096;
+const WIRE_ARRAY_ELEMENTS: usize = 1024;
 
 /// Bounded-reader limits for the provider protocol.
 ///
@@ -67,11 +67,21 @@ const BYTE_ORDER_MARK: [u8; 3] = [0xEF, 0xBB, 0xBF];
 ///
 /// Returns [`ProviderError`] (`PLG-E502`) for any framing or JSON fault.
 pub fn decode(bytes: &[u8]) -> Result<BoundedJson, ProviderError> {
+    decode_with_top_member_bytes(bytes, "").map(|(value, _)| value)
+}
+
+/// Decode one frame while preserving the exact byte length of one top-level
+/// member value through the shared bounded parser.
+pub(super) fn decode_with_top_member_bytes(
+    bytes: &[u8],
+    member: &str,
+) -> Result<(BoundedJson, Option<usize>), ProviderError> {
     validate_frame(bytes)?;
     // `validate_frame` guarantees a trailing line feed, so the content before
     // it is the one JSON object this frame carries.
     let content = &bytes[..bytes.len() - 1];
-    bounded_json::parse(content, &WIRE_LIMITS).map_err(ProviderError::Json)
+    bounded_json::parse_with_top_member_bytes(content, &WIRE_LIMITS, member)
+        .map_err(ProviderError::Json)
 }
 
 /// Enforce the byte-level framing rules before any JSON parsing runs.

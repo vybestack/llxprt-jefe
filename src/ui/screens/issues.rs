@@ -451,7 +451,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen: state.map_or(ScreenId::Issues, crate::state::AppState::screen),
+                screen: state.map_or(ScreenId::Issues, |s| {
+                    s.compiled_screen().unwrap_or(ScreenId::Issues)
+                }),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,

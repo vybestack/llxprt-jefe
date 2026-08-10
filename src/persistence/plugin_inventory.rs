@@ -217,6 +217,38 @@ pub fn package_trusted(
     })
 }
 
+/// Resolve the one enabled installed package version each plugin contributes.
+///
+/// Published Settings is the sole selection authority. An explicitly selected
+/// version must match exactly; with no explicit version, the first package in
+/// inventory order wins, which is the highest SemVer precedence for that
+/// plugin. Disabled, dormant, and missing selections contribute nothing.
+///
+/// The result is ordered by plugin id because `PublishedSettings::plugins` is a
+/// `BTreeMap`. Every downstream static consumer must use this same snapshot so
+/// screens, panels, config, and providers cannot disagree about package version.
+#[must_use]
+pub fn selected_packages<'a>(
+    packages: &'a [InstalledPackage],
+    settings: &crate::persistence::settings_document::PublishedSettings,
+) -> Vec<&'a InstalledPackage> {
+    settings
+        .plugins
+        .iter()
+        .filter(|(_, owner)| owner.enabled == Some(true))
+        .filter_map(|(id, owner)| {
+            packages
+                .iter()
+                .filter(|package| package.coordinate().id().owner_id() == id)
+                .find(|package| {
+                    owner.version.as_ref().is_none_or(|version| {
+                        package.coordinate().version().as_str() == version.as_str()
+                    })
+                })
+        })
+        .collect()
+}
+
 /// The immutable result of one physical inventory scan.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PluginInventory {

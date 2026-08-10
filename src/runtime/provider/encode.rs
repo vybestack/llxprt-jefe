@@ -110,6 +110,199 @@ pub fn encode_shutdown(
     envelope("shutdown", request_id, generation, &payload)
 }
 
+/// Encode an `activate-panel` frame (issue #391).
+#[must_use]
+pub fn encode_activate_panel(
+    request_id: &RequestId,
+    generation: u64,
+    payload: &super::panel_model::ActivatePanelPayload,
+) -> Vec<u8> {
+    let mut body = String::new();
+    body.push('{');
+    q(&mut body, "panel_instance_id");
+    let _ = write!(body, ":{},", payload.panel_instance_id);
+    q(&mut body, "screen_instance_id");
+    let _ = write!(body, ":{},", payload.screen_instance_id);
+    q(&mut body, "panel_type");
+    body.push(':');
+    json_string(&mut body, payload.panel_type.as_str());
+    body.push(',');
+    q(&mut body, "activation");
+    body.push(':');
+    typed_map_to_json(&mut body, &payload.activation);
+    if let Some(host_local) = payload.prior_host_local.as_ref() {
+        body.push(',');
+        q(&mut body, "prior_host_local");
+        body.push(':');
+        host_local_to_json(&mut body, host_local);
+    }
+    body.push(',');
+    q(&mut body, "generation");
+    let _ = write!(body, ":{}}}", payload.generation);
+    envelope("activate-panel", request_id, generation, &body)
+}
+
+/// Encode a `deactivate-panel` frame (issue #391).
+#[must_use]
+pub fn encode_deactivate_panel(
+    request_id: &RequestId,
+    generation: u64,
+    payload: &super::panel_model::DeactivatePanelPayload,
+) -> Vec<u8> {
+    let mut body = String::new();
+    body.push('{');
+    q(&mut body, "panel_instance_id");
+    let _ = write!(body, ":{},", payload.panel_instance_id);
+    q(&mut body, "generation");
+    let _ = write!(body, ":{},", payload.generation);
+    q(&mut body, "reason");
+    body.push(':');
+    json_string(&mut body, payload.reason.as_str());
+    body.push('}');
+    envelope("deactivate-panel", request_id, generation, &body)
+}
+
+/// Encode a `panel-event` frame (issue #391).
+#[must_use]
+pub fn encode_panel_event(
+    request_id: &RequestId,
+    generation: u64,
+    payload: &super::panel_model::PanelEventPayload,
+) -> Vec<u8> {
+    let mut body = String::new();
+    body.push('{');
+    q(&mut body, "panel_instance_id");
+    let _ = write!(body, ":{},", payload.panel_instance_id);
+    q(&mut body, "generation");
+    let _ = write!(body, ":{},", payload.generation);
+    q(&mut body, "revision");
+    let _ = write!(body, ":{},", payload.revision);
+    q(&mut body, "event");
+    body.push(':');
+    panel_event_to_json(&mut body, &payload.event);
+    body.push('}');
+    envelope("panel-event", request_id, generation, &body)
+}
+
+/// Encode a `migrate-config` frame (issue #391).
+#[must_use]
+pub fn encode_migrate_config(
+    request_id: &RequestId,
+    generation: u64,
+    payload: &super::panel_model::MigrateConfigPayload,
+) -> Vec<u8> {
+    let mut body = String::new();
+    body.push('{');
+    q(&mut body, "from_version");
+    let _ = write!(body, ":{},", payload.from_version);
+    q(&mut body, "to_version");
+    let _ = write!(body, ":{},", payload.to_version);
+    q(&mut body, "config");
+    body.push(':');
+    typed_map_to_json(&mut body, &payload.config);
+    body.push(',');
+    q(&mut body, "draft_token");
+    let _ = write!(body, ":{}}}", payload.draft_token);
+    envelope("migrate-config", request_id, generation, &body)
+}
+
+/// Append one quoted JSON key.
+fn q(out: &mut String, key: &str) {
+    out.push('"');
+    out.push_str(key);
+    out.push('"');
+}
+
+/// Append a closed `HostLocal` object.
+fn host_local_to_json(out: &mut String, host_local: &super::panel_model::HostLocal) {
+    out.push('{');
+    let focus_emitted = if let Some(focus) = host_local.focus_target.as_ref() {
+        q(out, "focus_target");
+        out.push(':');
+        json_string(out, focus.as_str());
+        true
+    } else {
+        false
+    };
+    if focus_emitted {
+        out.push(',');
+    }
+    q(out, "scroll_offset");
+    let _ = write!(out, ":{}", host_local.scroll_offset);
+    if let Some(selected) = host_local.selected_id.as_ref() {
+        out.push(',');
+        q(out, "selected_id");
+        out.push(':');
+        json_string(out, selected.as_str());
+    }
+    if let Some(draft) = host_local.form_draft.as_ref() {
+        out.push(',');
+        q(out, "form_draft");
+        out.push(':');
+        typed_map_to_json(out, draft);
+    }
+    out.push('}');
+}
+
+/// Append a `"key":value` string pair after a comma separator.
+fn append_string_field(out: &mut String, key: &str, value: &str) {
+    out.push(',');
+    q(out, key);
+    out.push(':');
+    json_string(out, value);
+}
+
+/// Append a closed tagged `PanelEvent` `{kind, ...}`.
+fn panel_event_to_json(out: &mut String, event: &super::panel_model::PanelEvent) {
+    out.push('{');
+    q(out, "kind");
+    out.push(':');
+    match event {
+        super::panel_model::PanelEvent::Selected { id } => {
+            json_string(out, "selected");
+            append_string_field(out, "id", id.as_str());
+        }
+        super::panel_model::PanelEvent::Activated { id } => {
+            json_string(out, "activated");
+            append_string_field(out, "id", id.as_str());
+        }
+        super::panel_model::PanelEvent::Action { id, arguments } => {
+            json_string(out, "action");
+            append_string_field(out, "id", id.as_str());
+            out.push(',');
+            q(out, "arguments");
+            out.push(':');
+            typed_map_to_json(out, arguments);
+        }
+        super::panel_model::PanelEvent::FieldChanged { field_id, value } => {
+            json_string(out, "field-changed");
+            append_string_field(out, "field_id", field_id.as_str());
+            out.push(',');
+            q(out, "value");
+            out.push(':');
+            typed_value_to_json(out, value);
+        }
+        super::panel_model::PanelEvent::Submit { values } => {
+            json_string(out, "submit");
+            out.push(',');
+            q(out, "values");
+            out.push(':');
+            typed_map_to_json(out, values);
+        }
+        super::panel_model::PanelEvent::PageRequested { token } => {
+            json_string(out, "page-requested");
+            append_string_field(out, "token", token);
+        }
+        super::panel_model::PanelEvent::Retry => json_string(out, "retry"),
+        super::panel_model::PanelEvent::Cancel => json_string(out, "cancel"),
+        super::panel_model::PanelEvent::LinkSelected { link_id } => {
+            json_string(out, "link-selected");
+            append_string_field(out, "link_id", link_id.as_str());
+        }
+    }
+    out.push('}');
+}
+
 /// Wrap one payload in the closed envelope and terminate it with a line feed.
 fn envelope(kind: &str, request_id: &RequestId, generation: u64, payload: &str) -> Vec<u8> {
     let mut out = String::new();
@@ -204,8 +397,8 @@ fn typed_value_to_json(out: &mut String, value: &TypedValue) {
 }
 
 fn secret_ref_to_json(out: &mut String, reference: &SecretRef) {
-    out.push_str("{\"id\":");
-    json_string(out, reference.id.as_str());
+    out.push_str("{\"env\":");
+    json_string(out, reference.env.env());
     out.push('}');
 }
 

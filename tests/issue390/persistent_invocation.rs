@@ -469,22 +469,15 @@ fn cw10_e_j_late_terminal_after_cancel_is_diagnostic_not_the_next_result() {
         "the accepted cancellation must retain the later byte as a protocol diagnostic"
     );
 
-    let second = owner
-        .invoke(
-            &plugin_id,
-            RequestId::parse("h-000201").unwrap_or_else(|err| panic!("request id: {err:?}")),
-            invoke_payload("vendor.alpha", 201),
-            Duration::from_secs(2),
-        )
-        .unwrap_or_else(|err| panic!("second invoke: {err:?}"));
-    let second_result = wait_finish(second, Instant::now() + Duration::from_secs(5));
+    let second = owner.invoke(
+        &plugin_id,
+        RequestId::parse("h-000201").unwrap_or_else(|err| panic!("request id: {err:?}")),
+        invoke_payload("vendor.alpha", 201),
+        Duration::from_secs(2),
+    );
     assert!(
-        matches!(
-            second_result.outcome,
-            OneShotOutcome::Failed(SupervisorFailure::Protocol(_))
-        ),
-        "late first-invocation bytes must not complete the next invocation: {:?}",
-        second_result.outcome
+        matches!(second, Err(PersistentInvokeError::SessionGone)),
+        "a generation made unhealthy by late terminal bytes must reject the next invocation"
     );
     owner.shutdown();
 }

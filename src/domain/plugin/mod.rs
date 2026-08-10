@@ -27,8 +27,8 @@ pub use plugin_id::{PluginId, PluginIdError, PluginIdErrorReason};
 pub use provider::{Provider, ProviderError, ProviderMode, ProviderSelection};
 pub use reader::{ManifestReadError, read_manifest};
 pub use surface::{
-    ConfigSchema, ConfigSchemaError, EventKind, ModelKind, Panel, PanelDraft, PanelError, Port,
-    Route, RouteDraft, RouteError, ScreenContribution, ScreenContributionError,
+    ConfigSchema, ConfigSchemaError, EventKind, EventSchemaEntry, ModelKind, Panel, PanelDraft,
+    PanelError, Port, Route, RouteDraft, RouteError, ScreenContribution, ScreenContributionError,
 };
 pub use values::{
     HostTriple, HostTripleError, RelativePath, RelativePathError, RelativePathErrorReason,

@@ -46,6 +46,12 @@ pub enum BoundaryAction {
     HelpPageDown,
     HelpHome,
     HelpEnd,
+    WorkbenchBack,
+    ProviderPanelPrevious,
+    ProviderPanelNext,
+    ProviderPanelActivate,
+    ProviderPanelRetry,
+    ProviderPanelCancel,
 }
 
 use super::settings::SettingsAction;
@@ -62,8 +68,8 @@ pub fn pre_mode_owned(
     match handler {
         HandlerKey::JumpAgent(_) => true,
         HandlerKey::ToggleTerminalFocus | HandlerKey::LeaveTerminal => matches!(
-            state.screen(),
-            ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions
+            state.compiled_screen(),
+            Some(ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions)
         ),
         HandlerKey::OpenEmbeddedShell | HandlerKey::OpenExternalTerminal => {
             input_mode == jefe::input::InputMode::Normal
@@ -168,6 +174,14 @@ fn apply_boundary(
             super::shell_overlay::open_external_terminal(app_state, ctx);
         }
         BoundaryAction::NewAgentOrRepository => new_agent_or_repository(app_state, ctx),
+        BoundaryAction::WorkbenchBack => leave_workbench(app_state, ctx),
+        BoundaryAction::ProviderPanelPrevious
+        | BoundaryAction::ProviderPanelNext
+        | BoundaryAction::ProviderPanelActivate
+        | BoundaryAction::ProviderPanelRetry
+        | BoundaryAction::ProviderPanelCancel => {
+            super::provider_panel_input::apply(boundary, app_state, ctx);
+        }
         BoundaryAction::FocusRepositories => {
             super::normal::set_pane_focus(app_state, ctx, PaneFocus::Repositories);
         }
@@ -192,6 +206,15 @@ fn apply_boundary(
         | BoundaryAction::HelpHome
         | BoundaryAction::HelpEnd => apply_help_scroll(boundary, app_state),
     }
+}
+
+fn leave_workbench(app_state: &mut super::AppStateHandle, ctx: &super::SharedContext) {
+    let staged = {
+        let mut state = app_state.write();
+        let _ = state.leave_screen();
+        state.take_staged_effects()
+    };
+    super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
 }
 
 fn apply_terminal_manager_boundary(
@@ -302,6 +325,12 @@ macro_rules! handler_execution {
             H::NavigateEnd => E::Event(AppEvent::NavigateEnd),
             H::NavigateLeft => E::Event(AppEvent::NavigateLeft),
             H::NavigateRight => E::Event(AppEvent::NavigateRight),
+            H::WorkbenchBack => E::Boundary(B::WorkbenchBack),
+            H::ProviderPanelPrevious => E::Boundary(B::ProviderPanelPrevious),
+            H::ProviderPanelNext => E::Boundary(B::ProviderPanelNext),
+            H::ProviderPanelActivate => E::Boundary(B::ProviderPanelActivate),
+            H::ProviderPanelRetry => E::Boundary(B::ProviderPanelRetry),
+            H::ProviderPanelCancel => E::Boundary(B::ProviderPanelCancel),
             H::CyclePaneFocus => E::Event(AppEvent::CyclePaneFocus),
             H::NewAgentOrRepository => E::Boundary(B::NewAgentOrRepository),
             H::OpenNewRepository => E::Event(AppEvent::OpenNewRepository),

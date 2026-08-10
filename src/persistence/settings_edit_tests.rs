@@ -415,7 +415,7 @@ fn a_secret_reference_survives_export_as_a_reference() {
     };
     let source = br#"settings_schema = 2
 [agents."core.codex"]
-repository_defaults = { token = { secret_ref = "core.codex-token" } }
+repository_defaults = { token = { env = "CODEX_TOKEN" } }
 "#;
     let candidate = candidate(source, &[SettingsEdit::Theme(theme("dracula"))]);
     let Ok(relative) = ExportPath::parse("settings-draft.toml") else {
@@ -431,12 +431,12 @@ repository_defaults = { token = { secret_ref = "core.codex-token" } }
     };
     let rendered = String::from_utf8_lossy(&exported);
     assert!(
-        rendered.contains("secret_ref"),
-        "a secret stays a reference: {rendered}"
+        rendered.contains("{ env = \"CODEX_TOKEN\" }"),
+        "a secret stays an environment reference: {rendered}"
     );
     assert!(
-        rendered.contains("core.codex-token"),
-        "the reference identity is retained: {rendered}"
+        !rendered.contains("resolved-secret-sentinel"),
+        "resolved secret bytes never enter the export: {rendered}"
     );
 }
 
@@ -790,5 +790,151 @@ fn the_plugin_leaves_render_their_exact_dotted_paths() {
     assert_eq!(
         SyntaxPath::PluginVersion(plugin_id("vendor.pkg")).segments(),
         vec!["plugins", "vendor.pkg", "version"]
+    );
+}
+
+// ── CW11-06/07: generated plugin config leaves ─────────────────────────────
+
+use crate::domain::plugin::SecretReference;
+use crate::persistence::settings_edit::PluginConfigEditValue;
+
+fn config_field(value: &str) -> Id {
+    Id::parse(value).unwrap_or_else(|error| panic!("config field fixture: {error}"))
+}
+
+#[test]
+fn plugin_config_leaf_segments_are_the_owner_config_field_path() {
+    assert_eq!(
+        SyntaxPath::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("endpoint")
+        }
+        .segments(),
+        vec!["plugins", "vendor.pkg", "config", "endpoint"]
+    );
+}
+
+#[test]
+fn plugin_config_leaf_applies_only_after_a_restart() {
+    assert!(
+        SyntaxPath::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("endpoint")
+        }
+        .structural(),
+        "plugin config is composed while the session builds its registries"
+    );
+}
+
+#[test]
+fn writing_a_boolean_config_value_patches_only_that_assignment() {
+    let source = br#"settings_schema = 2
+
+[plugins."vendor.pkg"]
+enabled = true
+version = "1.0.0"
+"#;
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("debug"),
+            value: PluginConfigEditValue::Boolean(true),
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        rendered.contains("[plugins.\"vendor.pkg\".config]"),
+        "the config table header must be nested under the owner: {rendered}"
+    );
+    assert!(rendered.contains("\"debug\" = true"), "{rendered}");
+    assert!(
+        rendered.contains(r#"version = "1.0.0""#),
+        "the existing version assignment is untouched: {rendered}"
+    );
+}
+
+#[test]
+fn writing_a_secret_reference_renders_only_the_env_table() {
+    let source = b"settings_schema = 2\n";
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("token"),
+            value: PluginConfigEditValue::SecretReference(
+                SecretReference::parse("API_KEY")
+                    .unwrap_or_else(|error| panic!("secret fixture: {error}")),
+            ),
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        rendered.contains("\"token\" = { env = \"API_KEY\" }"),
+        "a secret reference is an inline env table, never the bytes: {rendered}"
+    );
+}
+
+#[test]
+fn writing_a_string_list_config_renders_a_toml_array() {
+    let source = b"settings_schema = 2\n";
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("scopes"),
+            value: PluginConfigEditValue::StringList(vec!["read".to_owned(), "write".to_owned()]),
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        rendered.contains("\"scopes\" = [\"read\", \"write\"]"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn writing_an_integral_finite_number_preserves_the_decimal_type() {
+    let source = b"settings_schema = 2\n";
+    let number = crate::domain::CanonicalDecimal::parse("12")
+        .unwrap_or_else(|error| panic!("decimal fixture: {error}"));
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("threshold"),
+            value: PluginConfigEditValue::FiniteNumber(number),
+        }],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        rendered.contains("\"threshold\" = 12.0"),
+        "integral decimals must remain TOML floats: {rendered}"
+    );
+}
+
+#[test]
+fn resetting_a_config_field_removes_its_assignment() {
+    let source = br#"settings_schema = 2
+
+[plugins."vendor.pkg".config]
+debug = true
+endpoint = "https://old.example"
+"#;
+    let candidate = candidate(
+        source,
+        &[SettingsEdit::Reset(SyntaxPath::PluginConfig {
+            plugin: plugin_id("vendor.pkg"),
+            field: config_field("endpoint"),
+        })],
+    );
+    let rendered = String::from_utf8_lossy(candidate.bytes()).into_owned();
+    assert!(
+        !rendered.contains("endpoint"),
+        "the reset field's assignment must be gone: {rendered}"
+    );
+    assert!(
+        rendered.contains("debug = true"),
+        "sibling config assignments are untouched: {rendered}"
     );
 }

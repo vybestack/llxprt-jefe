@@ -309,11 +309,13 @@ pub fn request_pr_background_refresh(
 ) {
     let should_refresh = {
         let state = app_state.read();
-        should_background_refresh(BackgroundRefreshGuard {
-            screen: state.screen(),
-            list_reload_pending: state.prs_state.list.has_pending_request(),
-            detail_pending: state.prs_state.detail_pending.is_some(),
-            is_idle,
+        state.compiled_screen().is_some_and(|screen| {
+            should_background_refresh(BackgroundRefreshGuard {
+                screen,
+                list_reload_pending: state.prs_state.list.has_pending_request(),
+                detail_pending: state.prs_state.detail_pending.is_some(),
+                is_idle,
+            })
         })
     };
     if should_refresh {

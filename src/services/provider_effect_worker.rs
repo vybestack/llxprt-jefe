@@ -10,7 +10,25 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::domain::effects::{Correlation, ProviderInvocation, ProviderRequestKey};
+use crate::domain::effects::{Correlation, ProviderEffect, ProviderInvocation, ProviderRequestKey};
+
+/// One manifest-bound panel command scheduled for edge delivery.
+#[derive(Debug, Clone)]
+pub struct ProviderPanelWorkItem {
+    /// The pure command staged by the reducer.
+    pub effect: ProviderEffect,
+    /// The effect correlation for completion delivery.
+    pub correlation: Correlation,
+}
+
+/// One provisional pre-Configure migration scheduled on the existing provider worker.
+#[derive(Debug)]
+pub struct ProviderMigrationWorkItem {
+    /// The fully composed provider-owned migration request.
+    pub request: crate::runtime::provider::migration::MigrationRequest,
+    /// Host draft identity used to correlate the eventual Settings message.
+    pub draft_token: u64,
+}
 
 /// One unit of pending provider work.
 #[derive(Debug, Clone)]
@@ -33,6 +51,8 @@ pub struct ProviderEffectHandle {
 
 struct Inner {
     pending: Mutex<VecDeque<ProviderWorkItem>>,
+    panel_commands: Mutex<VecDeque<ProviderPanelWorkItem>>,
+    migrations: Mutex<VecDeque<ProviderMigrationWorkItem>>,
     /// Pending cancel requests forwarded to the active session (S17).
     cancels: Mutex<Vec<ProviderRequestKey>>,
     /// Bumps whenever new work is enqueued; the worker compares to detect it.
@@ -61,6 +81,8 @@ impl ProviderEffectHandle {
         Self {
             inner: Arc::new(Inner {
                 pending: Mutex::new(VecDeque::new()),
+                panel_commands: Mutex::new(VecDeque::new()),
+                migrations: Mutex::new(VecDeque::new()),
                 cancels: Mutex::new(Vec::new()),
                 schedule_generation: AtomicU64::new(0),
                 dirty: AtomicBool::new(false),
@@ -77,6 +99,45 @@ impl ProviderEffectHandle {
                 .schedule_generation
                 .fetch_add(1, Ordering::SeqCst);
         }
+    }
+    /// Enqueue one panel command for edge delivery.
+    pub fn schedule_panel(&self, item: ProviderPanelWorkItem) {
+        if let Ok(mut pending) = self.inner.panel_commands.lock() {
+            pending.push_back(item);
+            self.inner.dirty.store(true, Ordering::SeqCst);
+            self.inner
+                .schedule_generation
+                .fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Enqueue one provisional config migration on the existing provider worker.
+    pub fn schedule_migration(&self, item: ProviderMigrationWorkItem) {
+        if let Ok(mut pending) = self.inner.migrations.lock() {
+            pending.push_back(item);
+            self.inner.dirty.store(true, Ordering::SeqCst);
+            self.inner
+                .schedule_generation
+                .fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Drain pending provisional config migrations in reducer order.
+    #[must_use]
+    pub fn drain_migrations(&self) -> Vec<ProviderMigrationWorkItem> {
+        self.inner.migrations.lock().map_or_else(
+            |_poisoned| Vec::new(),
+            |mut pending| pending.drain(..).collect(),
+        )
+    }
+
+    /// Drain pending panel commands in reducer order.
+    #[must_use]
+    pub fn drain_panel_commands(&self) -> Vec<ProviderPanelWorkItem> {
+        self.inner.panel_commands.lock().map_or_else(
+            |_poisoned| Vec::new(),
+            |mut pending| pending.drain(..).collect(),
+        )
     }
 
     /// Return already-drained work to the front of the queue.

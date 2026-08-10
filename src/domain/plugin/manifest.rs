@@ -21,15 +21,14 @@ use std::fmt;
 
 use super::action::Action;
 use super::coordinate::PackageCoordinate;
-use super::field::Scalar;
 use super::limits::{
     ACTION_LIMIT, MANIFEST_PROTOCOL, MANIFEST_SCHEMA, PANEL_LIMIT, ROUTE_LIMIT,
     SCREEN_CONTRIBUTION_LIMIT,
 };
 use super::plugin_id::PluginId;
-use super::provider::Provider;
+use super::provider::{Provider, ProviderMode};
 use super::surface::{ConfigSchema, Panel, Route, ScreenContribution};
-use crate::domain::{CanonicalSemver, Id};
+use crate::domain::{CanonicalSemver, Id, TypedValue};
 
 /// What a package enables and configures out of the box.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,7 +38,7 @@ pub struct PluginDefaults {
     /// Screens enabled by default.
     pub screens_enabled: Vec<Id>,
     /// Default configuration values, by field id.
-    pub config: Vec<(Id, Scalar)>,
+    pub config: Vec<(Id, TypedValue)>,
 }
 
 /// An unvalidated manifest, as read from `plugin.json`.
@@ -251,20 +250,28 @@ fn validate_ownership(draft: &ManifestDraft) -> Result<(), ManifestError> {
 }
 
 fn validate_provider_consistency(draft: &ManifestDraft) -> Result<(), ManifestError> {
-    if draft.provider.is_executable() {
+    if draft.provider.mode() == ProviderMode::Persistent {
         return Ok(());
     }
-    if let Some(action) = draft.actions.first() {
+    if !draft.provider.is_executable()
+        && let Some(action) = draft.actions.first()
+    {
         return Err(ManifestError::ProviderFreeDeclaresHandler {
             kind: "action",
             id: action.id().as_str().to_owned(),
         });
     }
     if let Some(panel) = draft.panels.first() {
-        return Err(ManifestError::ProviderFreeDeclaresHandler {
-            kind: "panel",
-            id: panel.id().as_str().to_owned(),
-        });
+        return if draft.provider.is_executable() {
+            Err(ManifestError::PanelRequiresPersistentProvider {
+                id: panel.id().as_str().to_owned(),
+            })
+        } else {
+            Err(ManifestError::ProviderFreeDeclaresHandler {
+                kind: "panel",
+                id: panel.id().as_str().to_owned(),
+            })
+        };
     }
     Ok(())
 }
@@ -352,18 +359,21 @@ fn validate_defaults(draft: &ManifestDraft, screens: &BTreeSet<&Id>) -> Result<(
 /// The field itself owns the kind rules, so this reuses them by building the
 /// same check the field applies to its own declared default rather than
 /// restating the kind table here.
-fn value_matches(value: &Scalar, field: &super::field::Field) -> bool {
+fn value_matches(value: &TypedValue, field: &super::field::Field) -> bool {
     super::field::Field::parse(super::field::FieldDraft {
         id: field.id().clone(),
+        label: field.label().to_owned(),
+        description: field.description().map(str::to_owned),
         kind: field.kind(),
         required: field.required(),
         default: Some(value.clone()),
         // The field's own bounds must travel with it: without them the
         // reconstructed draft skips the bounds check and a default outside the
         // field's declared range would be accepted.
-        minimum: field.minimum().cloned(),
-        maximum: field.maximum().cloned(),
+        min: field.min().cloned(),
+        max: field.max().cloned(),
         choices: field.choices().to_vec(),
+        unique: field.unique(),
         visible_when: None,
         restart: field.restart(),
     })
@@ -389,6 +399,8 @@ pub enum ManifestError {
     DuplicateDeclaration { kind: &'static str, id: String },
     /// A package with no provider declared a handler.
     ProviderFreeDeclaresHandler { kind: &'static str, id: String },
+    /// A panel was declared by a package whose provider is not persistent.
+    PanelRequiresPersistentProvider { id: String },
     /// Two contributions declare the same descriptor path.
     DuplicateScreenPath { path: String },
     /// One screen id is bound by more than one contribution.
@@ -430,6 +442,9 @@ impl fmt::Display for ManifestError {
                 formatter,
                 "{kind} {id:?} declares a handler but the package declares no provider"
             ),
+            Self::PanelRequiresPersistentProvider { id } => {
+                write!(formatter, "panel {id:?} requires a persistent provider")
+            }
             Self::DuplicateScreenPath { path } => {
                 write!(formatter, "screen descriptor {path:?} is contributed twice")
             }

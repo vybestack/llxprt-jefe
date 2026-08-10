@@ -65,17 +65,53 @@ fn containment(base: &Path) -> Containment {
     }
 }
 
-fn compose_for(root: &Path, base: &Path, trusted: &[&str]) -> ProviderComposition {
-    let inventory = scan(&[PluginRoot::new(root.to_path_buf(), PluginRootKind::User)]);
-    let owned: Vec<String> = trusted.iter().map(|value| (*value).to_owned()).collect();
-    let settings = crate::persistence::settings_document::PublishedSettings::default();
+fn published_settings(
+    packages: &[crate::persistence::plugin_inventory::InstalledPackage],
+    selections: &[(&str, Option<&str>)],
+) -> crate::persistence::settings_document::PublishedSettings {
+    use std::fmt::Write as _;
+
+    let mut source = String::from(
+        "settings_schema = 2
+",
+    );
+    for (id, version) in selections {
+        let _ = writeln!(
+            source,
+            "
+[plugins.{id:?}]
+enabled = true"
+        );
+        if let Some(version) = version {
+            let _ = writeln!(source, "version = {version:?}");
+        }
+    }
+    let catalog = crate::config_owners::owner_catalog_with_packages(packages)
+        .unwrap_or_else(|diagnostics| panic!("owner catalog must build: {diagnostics:?}"));
+    crate::persistence::settings_document::SettingsDocument::parse(source.as_bytes())
+        .unwrap_or_else(|error| panic!("settings must parse: {error:?}"))
+        .publish(&catalog)
+        .unwrap_or_else(|diagnostics| panic!("settings must publish: {diagnostics:?}"))
+}
+
+fn compose_with_settings(
+    packages: &[crate::persistence::plugin_inventory::InstalledPackage],
+    base: &Path,
+    settings: &crate::persistence::settings_document::PublishedSettings,
+) -> ProviderComposition {
     compose(&CompositionRequest {
-        packages: inventory.packages(),
-        trusted: &|id: &str| owned.iter().any(|seen| seen == id),
-        settings: &settings,
+        packages,
+        settings,
         host: HostTriple::current(),
         containment: containment(base),
     })
+}
+
+fn compose_for(root: &Path, base: &Path, trusted: &[&str]) -> ProviderComposition {
+    let inventory = scan(&[PluginRoot::new(root.to_path_buf(), PluginRootKind::User)]);
+    let selections: Vec<(&str, Option<&str>)> = trusted.iter().map(|id| (*id, None)).collect();
+    let settings = published_settings(inventory.packages(), &selections);
+    compose_with_settings(inventory.packages(), base, &settings)
 }
 
 fn availability_of(composition: &ProviderComposition, action: &str) -> Option<Availability> {
@@ -197,6 +233,99 @@ fn package_without_provider_contributes_nothing() {
     assert!(composition.actions().is_empty());
     assert!(composition.catalog().is_empty());
     assert!(composition.persistent_candidates().is_empty());
+}
+#[test]
+fn composition_uses_only_the_exact_settings_selected_package_version() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    for version in ["2.0.0", "1.0.0"] {
+        write_package(
+            &root,
+            "vendor.selected",
+            version,
+            &manifest_json(
+                "vendor.selected",
+                version,
+                "one-shot",
+                &host_binaries(&host, "bin/provider"),
+            ),
+        );
+    }
+    let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
+    let settings = published_settings(inventory.packages(), &[("vendor.selected", Some("1.0.0"))]);
+
+    let composition = compose_with_settings(inventory.packages(), temp.path(), &settings);
+
+    assert_eq!(composition.actions().len(), 1);
+    assert_eq!(composition.catalog().len(), 1);
+    let action = crate::domain::action_registry::ActionId::parse("vendor.selected.run")
+        .unwrap_or_else(|error| panic!("action id must parse: {error}"));
+    let descriptor = composition
+        .catalog()
+        .get(&action)
+        .unwrap_or_else(|| panic!("selected action must be runnable"));
+    assert!(
+        descriptor
+            .binary
+            .ends_with("vendor.selected/1.0.0/bin/provider"),
+        "provider composition must use only the exact selected package, got {}",
+        descriptor.binary.display()
+    );
+}
+
+#[test]
+fn invalid_config_unavailability_names_the_field_and_reason_without_its_value() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    let manifest = manifest_json(
+        "vendor.invalid-config",
+        "1.0.0",
+        "one-shot",
+        &host_binaries(&host, "bin/provider"),
+    )
+    .replacen(
+        "\"actions\": [",
+        r#""config": {
+            "schema_version": 1,
+            "fields": [
+              { "id": "mode", "label": "Mode", "type": "string", "required": true, "restart": "none" }
+            ]
+          },
+          "actions": ["#,
+        1,
+    );
+    write_package(&root, "vendor.invalid-config", "1.0.0", &manifest);
+    let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
+    let catalog = crate::config_owners::owner_catalog_with_packages(inventory.packages())
+        .unwrap_or_else(|diagnostics| panic!("owner catalog must build: {diagnostics:?}"));
+    let source = br#"
+settings_schema = 2
+[plugins."vendor.invalid-config"]
+enabled = true
+version = "1.0.0"
+[plugins."vendor.invalid-config".config]
+mode = 42
+"#;
+    let settings = crate::persistence::settings_document::SettingsDocument::parse(source)
+        .unwrap_or_else(|error| panic!("settings must parse: {error:?}"))
+        .publish(&catalog)
+        .unwrap_or_else(|diagnostics| panic!("settings must publish: {diagnostics:?}"));
+
+    let composition = compose_with_settings(inventory.packages(), temp.path(), &settings);
+    let Some(Availability::Unavailable { reason }) =
+        availability_of(&composition, "vendor.invalid-config.run")
+    else {
+        panic!("invalid active config must publish an unavailable action");
+    };
+
+    assert!(reason.contains("mode (value has the wrong type)"));
+    assert!(!reason.contains("42"), "diagnostics must not echo values");
 }
 
 #[test]

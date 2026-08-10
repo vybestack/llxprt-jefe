@@ -63,15 +63,18 @@ pub(super) fn actions_page_item_count(
 #[must_use]
 pub fn dashboard_page_item_count(
     state: &AppState,
-    screen: ScreenId,
+    screen: Option<ScreenId>,
     terminal_cols: u16,
     terminal_rows: u16,
 ) -> PageItemCount {
     match screen {
-        ScreenId::Issues => issues_page_item_count(state, terminal_cols, terminal_rows),
-        ScreenId::PullRequests => prs_page_item_count(state, terminal_cols, terminal_rows),
-        ScreenId::Actions => actions_page_item_count(state, terminal_cols, terminal_rows),
-        _ => dashboard_or_split_page_item_count(state, screen, terminal_cols, terminal_rows),
+        Some(ScreenId::Issues) => issues_page_item_count(state, terminal_cols, terminal_rows),
+        Some(ScreenId::PullRequests) => prs_page_item_count(state, terminal_cols, terminal_rows),
+        Some(ScreenId::Actions) => actions_page_item_count(state, terminal_cols, terminal_rows),
+        Some(screen) => {
+            dashboard_or_split_page_item_count(state, screen, terminal_cols, terminal_rows)
+        }
+        None => PageItemCount::default(),
     }
 }
 
@@ -130,7 +133,7 @@ mod tests {
         assert_eq!(layout.sidebar_rows, 18);
         assert_eq!(expected, PageItemCount::new(13));
         assert_eq!(
-            dashboard_page_item_count(&state, ScreenId::Repositories, 100, 25),
+            dashboard_page_item_count(&state, Some(ScreenId::Repositories), 100, 25),
             expected
         );
     }
@@ -145,7 +148,7 @@ mod tests {
         assert_eq!(layout.sidebar_rows, 0);
         assert_eq!(expected, PageItemCount::new(0));
         assert_eq!(
-            dashboard_page_item_count(&state, ScreenId::Repositories, 2, 6),
+            dashboard_page_item_count(&state, Some(ScreenId::Repositories), 2, 6),
             expected
         );
     }
@@ -173,7 +176,7 @@ mod tests {
             )
         );
         assert_eq!(
-            dashboard_page_item_count(&state, ScreenId::Repositories, raw.0, raw.1),
+            dashboard_page_item_count(&state, Some(ScreenId::Repositories), raw.0, raw.1),
             ListGeometry::bordered_padded(RowsPerItem::new(1)).page_item_count(PaneRows::new(
                 usize::from(split_layout_for_render_size(effective.0, effective.1).sidebar_rows),
             ))

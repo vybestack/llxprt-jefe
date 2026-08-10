@@ -252,7 +252,9 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen: state.map_or(ScreenId::Terminals, crate::state::AppState::screen),
+                screen: state.map_or(ScreenId::Terminals, |s| {
+                    s.compiled_screen().unwrap_or(ScreenId::Terminals)
+                }),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: live_shell_active,
                 actions_focus: None,

@@ -216,6 +216,7 @@ handler_surface! {
     NavigateEnd,
     NavigateLeft,
     NavigateRight,
+    WorkbenchBack,
     CyclePaneFocus,
     NewAgentOrRepository,
     OpenNewRepository,
@@ -330,6 +331,11 @@ handler_surface! {
     ActionsPageDown,
     ActionsActivate,
     ActionsBack,
+    ProviderPanelPrevious,
+    ProviderPanelNext,
+    ProviderPanelActivate,
+    ProviderPanelRetry,
+    ProviderPanelCancel,
 }
 
 impl fmt::Display for InventoryGoldenRow {

@@ -277,10 +277,7 @@ fn outcome_summary(outcome: &crate::runtime::provider::protocol::Outcome) -> Str
         Outcome::Navigate { route_id, .. } => format!("Navigate to {route_id}"),
         Outcome::Refresh { .. } => "Refresh requested".to_owned(),
         Outcome::Notice { message, .. } => message.clone(),
-        Outcome::ReplacePanel { .. } => "Panel replaced".to_owned(),
         Outcome::RequestHostConfirmation { .. } => "Confirmation required".to_owned(),
-        Outcome::ClosePanel { .. } => "Panel closed".to_owned(),
-        Outcome::MigratedConfig { .. } => "Configuration migrated".to_owned(),
     }
 }
 

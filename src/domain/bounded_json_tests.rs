@@ -1,6 +1,16 @@
 //! Bounds and policy table for the shared bounded JSON reader (issue #389 D1).
 
 use super::*;
+#[test]
+fn top_member_byte_measurement_preserves_internal_whitespace() {
+    let limits = INTEGER_LIMITS;
+    let source = br#"{"protocol":1,"payload": { "message" : "x" }, "tail":true}"#;
+    let (parsed, measured) = super::parse_with_top_member_bytes(source, &limits, "payload")
+        .unwrap_or_else(|error| panic!("document parses: {error}"));
+
+    assert!(parsed.as_object().is_some());
+    assert_eq!(measured, Some(br#"{ "message" : "x" }"#.len()));
+}
 
 const INTEGER_LIMITS: BoundedJsonLimits = BoundedJsonLimits {
     document_bytes: 1_024,

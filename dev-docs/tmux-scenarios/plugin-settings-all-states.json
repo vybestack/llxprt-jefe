@@ -58,14 +58,14 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n"
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.git-merger\"]\nenabled = true\nversion = \"1.0.0\"\n\n[plugins.\"vendor.git-merger\".config]\ndepth = 2\ntoken = { env = \"GITHUB_TOKEN\" }\n"
         },
         "mode": 384
       },
       {
         "path": "config/plugins/installed/vendor.git-merger/1.0.0/plugin.json",
         "content": {
-          "utf8": "{\"manifest_schema\":1,\"id\":\"vendor.git-merger\",\"version\":\"1.0.0\",\"display_name\":\"Git Merger\",\"host_api\":{\"minimum\":\"1.0.0\",\"maximum\":\"1.0.0\"},\"protocol\":1,\"provider\":{\"mode\":\"none\",\"binaries\":{}},\"actions\":[],\"panels\":[],\"routes\":[],\"screens\":[]}\n"
+          "utf8": "{\"manifest_schema\":1,\"id\":\"vendor.git-merger\",\"version\":\"1.0.0\",\"display_name\":\"Git Merger\",\"host_api\":{\"minimum\":\"1.0.0\",\"maximum\":\"1.0.0\"},\"protocol\":1,\"provider\":{\"mode\":\"none\",\"binaries\":{}},\"config\":{\"schema_version\":1,\"fields\":[{\"id\":\"depth\",\"label\":\"Depth\",\"description\":\"History depth\",\"type\":\"integer\",\"required\":true,\"default\":2,\"min\":1,\"max\":10,\"restart\":\"provider\"},{\"id\":\"token\",\"label\":\"Token\",\"type\":\"secret-reference\",\"required\":false,\"restart\":\"none\"}]},\"actions\":[],\"panels\":[],\"routes\":[],\"screens\":[]}\n"
         },
         "mode": 420
       },
@@ -161,7 +161,11 @@
       "op": "assert-frame",
       "contains": [
         "Git Merger 1.0.0",
-        "installed"
+        "installed",
+        "Depth",
+        "History depth",
+        "Token",
+        "GITHUB_TOKEN"
       ],
       "absent": []
     },

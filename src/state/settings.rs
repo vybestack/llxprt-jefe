@@ -13,26 +13,39 @@
 //! - only the newest scheduled revision is answerable, so a completion that
 //!   arrives after the user has saved again is a fact about work that has been
 //!   superseded, not an instruction.
-
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::config_owners::builtin_owner_catalog;
 use crate::domain::effects::{
     Correlation, CorrelationId, EffectError, EffectErrorKind, EffectFamily, SemanticKey,
 };
-use crate::domain::{Id, ThemeId};
+use crate::domain::plugin::{FieldKind, SecretReference};
+use crate::domain::plugin_config::{ConfigValueError, validate_config};
+use crate::domain::{
+    CanonicalDecimal, ConfigContractError, Id, OwnerCatalog, OwnerDescriptor, OwnerKind, ThemeId,
+    TypedMap, TypedValue,
+};
 use crate::messages::NavDir;
-use crate::messages::settings::{SettingsMessage, SettingsSection, SettingsSource};
+use crate::messages::settings::{
+    PluginConfigMessage, SelectedPluginConfig, SettingsMessage, SettingsSection, SettingsSource,
+};
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::migration::SettingsMigration;
+use crate::persistence::settings_document::PublishedSettings;
 use crate::persistence::settings_edit::load_settings_base;
 use crate::persistence::writer::ExpectedHash;
-use crate::persistence::{SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath};
+use crate::persistence::{
+    PluginConfigEditValue, SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath,
+};
 use crate::theme::ThemePreviewToken;
 use crate::workbench::ScreenId;
 
 use super::navigation_dirty::{DirtyChoice, DraftAction, SaveIntent};
-use super::settings_types::{DraftCandidate, DraftStatus, SettingsDraft, SettingsFocus};
+use super::settings_types::{
+    DraftCandidate, DraftStatus, PluginConfigChange, PluginConfigDiffRow, PluginConfigMigration,
+    PluginConfigMigrationPreview, PluginConfigMigrationState, SettingsDraft, SettingsFocus,
+};
 use super::{AppState, settings_view};
 
 /// The owner identity the navigation dirty guard waits on for a settings save.
@@ -79,6 +92,18 @@ impl AppState {
             SettingsMessage::CapturedChord(chord) => self.resolve_chord_capture(chord),
             SettingsMessage::CaptureCancelled => self.cancel_chord_capture(),
             SettingsMessage::Layout(message) => self.reduce_layout(message),
+            SettingsMessage::PluginConfig(message) => self.reduce_plugin_config_editor(message),
+            SettingsMessage::MigrationCompleted {
+                draft_token,
+                target_config,
+                notes,
+            } => self.complete_plugin_config_migration(draft_token, target_config, notes),
+            SettingsMessage::MigrationFailed {
+                draft_token,
+                detail,
+            } => self.fail_plugin_config_migration(draft_token, detail),
+            SettingsMessage::ApproveMigration => self.approve_plugin_config_migration(),
+            SettingsMessage::CancelMigration => self.cancel_plugin_config_migration(),
             SettingsMessage::Save => self.save_settings(false),
             SettingsMessage::SaveAndExit => self.save_settings(true),
             SettingsMessage::Discard => self.discard_settings(),
@@ -152,6 +177,8 @@ impl AppState {
 
     fn bind_settings_source(&mut self, source: SettingsSource) {
         self.settings_state.themes = source.themes;
+        self.settings_state.plugin_configs = source.plugin_configs;
+        self.settings_state.installed_plugin_configs = source.installed_plugin_configs;
         self.settings_state.environment = Some(source.environment);
         // The theme to go back to is the one the *screen* opened on. Sampling
         // the manager again during a reload would record whatever preview it is
@@ -160,16 +187,25 @@ impl AppState {
             self.settings_state.opened_theme = Some(source.active_theme);
         }
         self.settings_state.restore_theme = None;
+        self.settings_state.plugin_config_editor = None;
         let expected = source
             .bytes
             .as_deref()
             .map_or(ExpectedHash::Absent, |bytes| {
                 ExpectedHash::Present(crate::domain::sha256::Sha256::digest(bytes))
             });
-        match load_base(source.bytes.as_deref()) {
+        match load_base(
+            source.bytes.as_deref(),
+            &self.settings_state.installed_plugin_configs,
+        ) {
             Ok(base) => {
                 let base = Arc::new(base);
-                let candidate = build_candidate(&base, &[], expected);
+                let candidate = build_candidate(
+                    &base,
+                    &[],
+                    expected,
+                    &self.settings_state.installed_plugin_configs,
+                );
                 self.settings_state.blocked.clear();
                 self.settings_state.draft = Some(SettingsDraft::bound(
                     base,
@@ -207,6 +243,7 @@ impl AppState {
         self.settings_state.agent_types.clear();
         self.settings_state.plugins.clear();
         self.settings_state.actions = None;
+        self.settings_state.plugin_config_editor = None;
         self.settings_state.restore_theme = unsaved_preview
             .then(|| self.settings_state.opened_theme.clone())
             .flatten();
@@ -284,6 +321,71 @@ impl AppState {
         self.apply_settings_activation(activation)
     }
 
+    /// Open one generated plugin config scalar in the Settings-owned editor.
+    pub(super) fn open_plugin_config_editor(
+        &mut self,
+        plugin: Id,
+        field: Id,
+        kind: FieldKind,
+        value: String,
+    ) -> bool {
+        self.settings_state.plugin_config_editor =
+            Some(super::settings_types::PluginConfigEditorState {
+                plugin,
+                field,
+                kind,
+                text: value,
+                error: None,
+            });
+        true
+    }
+
+    fn reduce_plugin_config_editor(&mut self, message: PluginConfigMessage) -> bool {
+        match message {
+            PluginConfigMessage::TypeChar(character) => {
+                let Some(editor) = self.settings_state.plugin_config_editor.as_mut() else {
+                    return false;
+                };
+                editor.text.push(character);
+                editor.error = None;
+                true
+            }
+            PluginConfigMessage::Backspace => {
+                let Some(editor) = self.settings_state.plugin_config_editor.as_mut() else {
+                    return false;
+                };
+                editor.text.pop();
+                editor.error = None;
+                true
+            }
+            PluginConfigMessage::Cancel => {
+                self.settings_state.plugin_config_editor.take().is_some()
+            }
+            PluginConfigMessage::Apply => self.apply_plugin_config_editor(),
+        }
+    }
+
+    fn apply_plugin_config_editor(&mut self) -> bool {
+        let Some(editor) = self.settings_state.plugin_config_editor.clone() else {
+            return false;
+        };
+        let value = match parse_plugin_config_edit(editor.kind, &editor.text) {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some(current) = self.settings_state.plugin_config_editor.as_mut() {
+                    current.error = Some(error);
+                }
+                return true;
+            }
+        };
+        self.settings_state.plugin_config_editor = None;
+        self.edit_settings(SettingsEdit::PluginConfig {
+            plugin: editor.plugin,
+            field: editor.field,
+            value,
+        })
+    }
+
     /// Write one typed value into the draft and revalidate the whole candidate.
     pub(super) fn edit_settings(&mut self, edit: SettingsEdit) -> bool {
         self.edit_settings_all(vec![edit])
@@ -307,17 +409,24 @@ impl AppState {
             self.settings_state.notice = Some(format!("{theme} is not installed"));
             return true;
         }
+        if self
+            .settings_state
+            .draft
+            .as_ref()
+            .is_some_and(|draft| draft.status().is_saving())
+        {
+            return false;
+        }
+        self.settings_state.plugin_config_migration = PluginConfigMigrationState::Idle;
+        self.settings_state.approved_plugin_migrations.clear();
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
-        if draft.status().is_saving() {
-            return false;
-        }
         let touches_theme = edits.iter().any(|edit| edit.path() == SyntaxPath::Theme);
         for edit in edits {
             draft.record(edit);
         }
-        revalidate(draft);
+        revalidate(draft, &self.settings_state.installed_plugin_configs);
         if touches_theme {
             self.refresh_theme_preview();
         }
@@ -385,8 +494,163 @@ impl AppState {
         true
     }
 
+    /// Return the migration request the Settings boundary must run, if any.
+    #[must_use]
+    pub fn pending_plugin_config_migration(&self) -> Option<PluginConfigMigration> {
+        match &self.settings_state.plugin_config_migration {
+            PluginConfigMigrationState::Running(request) => Some(request.clone()),
+            PluginConfigMigrationState::Idle
+            | PluginConfigMigrationState::Preview(_)
+            | PluginConfigMigrationState::Failed { .. } => None,
+        }
+    }
+
+    fn begin_plugin_config_migration(&mut self, exit_after: bool) -> bool {
+        let Some(draft) = self.settings_state.draft.as_ref() else {
+            return false;
+        };
+        let Some(request) = migration_requirement(
+            draft,
+            &self.settings_state.plugin_configs,
+            &self.settings_state.installed_plugin_configs,
+            &self.settings_state.approved_plugin_migrations,
+            exit_after,
+        ) else {
+            return false;
+        };
+        self.settings_state.plugin_config_migration = PluginConfigMigrationState::Running(request);
+        self.settings_state.notice = Some("Provider config migration is running".to_owned());
+        true
+    }
+
+    fn complete_plugin_config_migration(
+        &mut self,
+        draft_token: u64,
+        target_config: TypedMap,
+        notes: Vec<String>,
+    ) -> bool {
+        let PluginConfigMigrationState::Running(request) =
+            &self.settings_state.plugin_config_migration
+        else {
+            return false;
+        };
+        if request.draft_token.get() != draft_token {
+            return false;
+        }
+        let Some(target_schema) = selected_schema(
+            &self.settings_state.installed_plugin_configs,
+            &request.owner,
+            &request.target_package_version,
+        ) else {
+            return self.fail_plugin_config_migration(
+                draft_token,
+                "the selected migration target is no longer installed".to_owned(),
+            );
+        };
+        if !validate_config(target_schema, &target_config).is_empty() {
+            return self.fail_plugin_config_migration(
+                draft_token,
+                "the provider proposed invalid target configuration".to_owned(),
+            );
+        }
+        let preview = PluginConfigMigrationPreview {
+            diff: redacted_config_diff(&request.owner, &request.source_config, &target_config),
+            request: request.clone(),
+            target_config,
+            notes,
+        };
+        self.settings_state.plugin_config_migration = PluginConfigMigrationState::Preview(preview);
+        self.settings_state.notice = Some("Approve or cancel the config migration".to_owned());
+        true
+    }
+
+    fn fail_plugin_config_migration(&mut self, draft_token: u64, detail: String) -> bool {
+        let PluginConfigMigrationState::Running(request) =
+            &self.settings_state.plugin_config_migration
+        else {
+            return false;
+        };
+        if request.draft_token.get() != draft_token {
+            return false;
+        }
+        self.settings_state.plugin_config_migration = PluginConfigMigrationState::Failed {
+            owner: request.owner.clone(),
+            detail: detail.clone(),
+        };
+        self.settings_state.notice = Some(detail);
+        true
+    }
+
+    fn cancel_plugin_config_migration(&mut self) -> bool {
+        if matches!(
+            self.settings_state.plugin_config_migration,
+            PluginConfigMigrationState::Idle
+        ) {
+            return false;
+        }
+        self.settings_state.plugin_config_migration = PluginConfigMigrationState::Idle;
+        self.settings_state.notice =
+            Some("Config migration cancelled; settings unchanged".to_owned());
+        true
+    }
+
+    fn approve_plugin_config_migration(&mut self) -> bool {
+        let PluginConfigMigrationState::Preview(preview) =
+            &self.settings_state.plugin_config_migration
+        else {
+            return false;
+        };
+        let preview = preview.clone();
+        let target_edits = preview
+            .target_config
+            .iter()
+            .map(|(field, value)| {
+                plugin_config_edit_value(value.clone()).map(|value| (field.clone(), value))
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(target_edits) = target_edits else {
+            self.settings_state.notice =
+                Some("the migration proposal contains an unsupported value".to_owned());
+            return true;
+        };
+        let Some(draft) = self.settings_state.draft.as_mut() else {
+            return false;
+        };
+        if draft.token() != preview.request.draft_token {
+            return false;
+        }
+        let mut reset_fields = preview
+            .request
+            .source_config
+            .keys()
+            .chain(preview.target_config.keys())
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(published) = draft
+            .candidate()
+            .described()
+            .map(SettingsCandidate::published)
+            && let Some(owner) = published.plugins.get(&preview.request.owner)
+        {
+            reset_fields.extend(owner.values.keys().cloned());
+        }
+        reset_fields.sort();
+        reset_fields.dedup();
+        apply_migration_edits(draft, &preview.request.owner, reset_fields, target_edits);
+        revalidate(draft, &self.settings_state.installed_plugin_configs);
+        self.settings_state.approved_plugin_migrations.insert(
+            preview.request.owner,
+            preview.request.target_package_version,
+        );
+        self.settings_state.plugin_config_migration = PluginConfigMigrationState::Idle;
+        self.save_settings(preview.request.exit_after_save)
+    }
+
     /// Schedule one durable save of the current candidate.
     fn save_settings(&mut self, exit_after: bool) -> bool {
+        if self.begin_plugin_config_migration(exit_after) {
+            return true;
+        }
         let revision = self
             .settings_state
             .last_scheduled_revision
@@ -394,7 +658,7 @@ impl AppState {
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
-        revalidate(draft);
+        revalidate(draft, &self.settings_state.installed_plugin_configs);
         if !draft.is_saveable() {
             self.settings_state.notice =
                 Some("Save is blocked until the draft validates".to_owned());
@@ -483,6 +747,7 @@ impl AppState {
 
     /// Make a completed save the new base.
     fn adopt_saved(&mut self, revision: u64, hash: crate::domain::sha256::Sha256) -> bool {
+        let schemas = self.settings_state.installed_plugin_configs.clone();
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
@@ -491,7 +756,7 @@ impl AppState {
         };
         let bytes = candidate.bytes().to_vec();
         let structural = candidate.structural();
-        let base = match load_base(Some(&bytes)) {
+        let base = match load_base(Some(&bytes), &schemas) {
             Ok(base) => base,
             Err(diagnostics) => {
                 // The bytes that were just written no longer load, which is a
@@ -509,7 +774,7 @@ impl AppState {
         draft.adopt(Arc::new(base), hash, revision);
         let adopted = draft.preview().cloned().map(ThemePreviewToken::adopt);
         draft.set_preview(None);
-        revalidate(draft);
+        revalidate(draft, &self.settings_state.installed_plugin_configs);
         let exits = draft.exits_after_save();
         if let Some(theme) = adopted {
             self.settings_state.opened_theme = Some(theme);
@@ -601,12 +866,21 @@ impl AppState {
         if !self.save_settings(true) {
             return false;
         }
-        let Some(revision) = self
+        let revision = if let Some(revision) = self
             .settings_state
             .draft
             .as_ref()
             .and_then(SettingsDraft::pending_revision)
-        else {
+        {
+            revision
+        } else if !matches!(
+            self.settings_state.plugin_config_migration,
+            PluginConfigMigrationState::Idle
+        ) {
+            self.settings_state
+                .last_scheduled_revision
+                .saturating_add(1)
+        } else {
             // Nothing was scheduled, so the guard is still waiting on a save
             // that will never run; say so rather than leaving it stuck.
             let correlation = self.guard_correlation(owner, semantic_key, 0);
@@ -656,7 +930,7 @@ impl AppState {
         draft.clear_pending();
         draft.set_preview(None);
         draft.set_status(DraftStatus::Clean);
-        revalidate(draft);
+        revalidate(draft, &self.settings_state.installed_plugin_configs);
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = Some("Changes discarded".to_owned());
         let _ = self.mark_screen_clean();
@@ -723,73 +997,4 @@ pub(super) fn step(current: usize, count: usize, direction: NavDir) -> usize {
     }
 }
 
-/// Rebuild the complete candidate and the status the edits imply.
-fn revalidate(draft: &mut SettingsDraft) {
-    let edits = draft
-        .edited_paths()
-        .filter_map(|path| draft.edit(path).cloned())
-        .collect::<Vec<_>>();
-    let candidate = build_candidate(draft.base(), &edits, draft.base_expected());
-    let unchanged = candidate
-        .valid()
-        .is_some_and(|candidate| candidate.bytes() == draft.base().document().original_bytes());
-    draft.set_candidate(candidate);
-    if unchanged {
-        // Every edit put the document back exactly where it started, so there
-        // is nothing unsaved left to warn about.
-        draft.forget_edits();
-        draft.set_preview(None);
-    }
-    if !draft.status().needs_recovery() && !draft.status().is_saving() {
-        draft.set_status(if draft.is_dirty() {
-            DraftStatus::Dirty
-        } else {
-            DraftStatus::Clean
-        });
-    }
-}
-
-/// Build the complete candidate one edit set describes.
-fn build_candidate(
-    base: &SettingsMigration,
-    edits: &[SettingsEdit],
-    expected: ExpectedHash,
-) -> DraftCandidate {
-    let Ok(catalog) = builtin_owner_catalog() else {
-        return DraftCandidate::Blocked(vec![internal_diagnostic(
-            "the compiled owner catalog is unavailable",
-        )]);
-    };
-    match SettingsCandidate::from_edits(base, &catalog, edits, expected) {
-        Ok(candidate) => match super::settings_registry_ops::registry_refusals(&candidate) {
-            refusals if refusals.is_empty() => DraftCandidate::Valid(Box::new(candidate)),
-            diagnostics => DraftCandidate::Refused {
-                candidate: Box::new(candidate),
-                diagnostics,
-            },
-        },
-        Err(diagnostics) => DraftCandidate::Blocked(diagnostics),
-    }
-}
-
-/// Load one settings base, or the diagnostics that stop it being editable.
-fn load_base(bytes: Option<&[u8]>) -> Result<SettingsMigration, Vec<Diagnostic>> {
-    let catalog = builtin_owner_catalog().map_err(|_| {
-        vec![internal_diagnostic(
-            "the compiled owner catalog is unavailable",
-        )]
-    })?;
-    load_settings_base(bytes, &catalog)
-}
-
-fn internal_diagnostic(detail: &str) -> Diagnostic {
-    let mut diagnostic = Diagnostic::new(
-        CfgCode::E103,
-        Severity::Error,
-        DiagnosticPath::root(),
-        None,
-        "reinstall Jefe: the compiled configuration contract is malformed",
-    );
-    detail.clone_into(&mut diagnostic.redacted_detail);
-    diagnostic
-}
+include!("settings_validation.rs");

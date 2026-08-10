@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use crate::domain::bounded_json::BoundedJson;
+use crate::domain::plugin::SecretReference;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, Scalar};
 use crate::domain::plugin::limits::FIELD_CHOICE_LIMIT;
 use crate::domain::{CanonicalDateTime, CanonicalDecimal, Id, SecretRef, TypedMap, TypedValue};
@@ -26,15 +27,18 @@ use super::object_reader::{
 const TYPED_LIST_ELEMENT_LIMIT: usize = 4096;
 
 const TYPED_VALUE_KEYS: [&str; 2] = ["type", "value"];
-const SECRET_REF_KEYS: [&str; 1] = ["id"];
-const FIELD_DECLARATION_KEYS: [&str; 9] = [
+const SECRET_REF_KEYS: [&str; 1] = ["env"];
+const FIELD_DECLARATION_KEYS: [&str; 12] = [
     "id",
-    "kind",
+    "label",
+    "description",
+    "type",
     "required",
     "default",
-    "minimum",
-    "maximum",
+    "min",
+    "max",
     "choices",
+    "unique",
     "visible_when",
     "restart",
 ];
@@ -57,7 +61,10 @@ pub(super) fn read_typed_map(value: &BoundedJson, path: &str) -> Result<TypedMap
 }
 
 /// Map a bounded object `{type, value}` onto a closed typed value.
-fn read_typed_value(value: &BoundedJson, path: &str) -> Result<TypedValue, ProviderError> {
+pub(super) fn read_typed_value(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<TypedValue, ProviderError> {
     let members = closed_object(value, path, &TYPED_VALUE_KEYS)?;
     let kind = read_string(members, path, "type")?;
     let content_path = format!("{path}.value");
@@ -101,9 +108,12 @@ fn read_typed_value(value: &BoundedJson, path: &str) -> Result<TypedValue, Provi
 
 fn read_secret_ref(value: &BoundedJson, path: &str) -> Result<SecretRef, ProviderError> {
     let members = closed_object(value, path, &SECRET_REF_KEYS)?;
-    Ok(SecretRef {
-        id: read_id(members, path, "id")?,
-    })
+    let raw = read_string(members, path, "env")?;
+    let env = SecretReference::parse(raw).map_err(|error| ProviderError::InvalidValue {
+        path: format!("{path}.env"),
+        reason: error.to_string(),
+    })?;
+    Ok(SecretRef { env })
 }
 
 /// Map a bounded object onto an environment-name-keyed string map.
@@ -134,19 +144,35 @@ pub(super) fn read_field_declaration(
     path: &str,
 ) -> Result<Field, ProviderError> {
     let members = closed_object(value, path, &FIELD_DECLARATION_KEYS)?;
-    let kind = read_enum(members, path, "kind", FieldKind::from_wire)?;
+    let kind = read_enum(members, path, "type", FieldKind::from_wire)?;
     let choices = match find(members, "choices") {
         Some(entry) => read_scalars(entry, &format!("{path}.choices"))?,
         None => Vec::new(),
     };
     let draft = FieldDraft {
         id: read_id(members, path, "id")?,
+        label: read_string(members, path, "label")?.to_owned(),
+        description: match find(members, "description") {
+            Some(entry) => Some(
+                entry
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| type_mismatch(&format!("{path}.description"), "string"))?,
+            ),
+            None => None,
+        },
         kind,
         required: read_bool(members, path, "required")?,
-        default: read_scalar_option(members, path, "default")?,
-        minimum: read_scalar_option(members, path, "minimum")?,
-        maximum: read_scalar_option(members, path, "maximum")?,
+        default: read_default_option(members, path, "default", kind)?,
+        min: read_scalar_option(members, path, "min")?,
+        max: read_scalar_option(members, path, "max")?,
         choices,
+        unique: match find(members, "unique") {
+            Some(entry) => entry
+                .as_bool()
+                .ok_or_else(|| type_mismatch(&format!("{path}.unique"), "boolean"))?,
+            None => false,
+        },
         visible_when: match find(members, "visible_when") {
             Some(_) => Some(read_id(members, path, "visible_when")?),
             None => None,
@@ -174,6 +200,62 @@ fn read_scalar_option(
     find(members, key)
         .map(|entry| read_scalar(entry, &format!("{path}.{key}")))
         .transpose()
+}
+
+/// Read an optional field default as a closed typed value.
+///
+/// A `string-list` default is a JSON array of strings; a `secret-reference`
+/// default is a `{"env":"NAME"}` object. Other kinds read as scalar-mapped
+/// typed values. The domain field validator enforces the final kind match.
+fn read_default_option(
+    members: &[(String, BoundedJson)],
+    path: &str,
+    key: &str,
+    kind: FieldKind,
+) -> Result<Option<TypedValue>, ProviderError> {
+    find(members, key)
+        .map(|entry| read_default_value(entry, &format!("{path}.{key}"), kind))
+        .transpose()
+}
+
+/// Lower one JSON value onto a typed default value.
+fn read_default_value(
+    value: &BoundedJson,
+    path: &str,
+    kind: FieldKind,
+) -> Result<TypedValue, ProviderError> {
+    match (kind, value) {
+        (FieldKind::StringList, BoundedJson::Array(elements)) => {
+            let values = elements
+                .iter()
+                .enumerate()
+                .map(|(index, element)| {
+                    element
+                        .as_str()
+                        .map(|text| TypedValue::String(text.to_owned()))
+                        .ok_or_else(|| type_mismatch(&format!("{path}[{index}]"), "string"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(TypedValue::List(values))
+        }
+        (FieldKind::SecretReference, BoundedJson::Object(_)) => {
+            let members = closed_object(value, path, &SECRET_REF_KEYS)?;
+            let env = read_string(members, path, "env")?;
+            let reference =
+                SecretReference::parse(env).map_err(|error| ProviderError::InvalidValue {
+                    path: format!("{path}.env"),
+                    reason: error.to_string(),
+                })?;
+            Ok(TypedValue::SecretRef(SecretRef { env: reference }))
+        }
+        (_, BoundedJson::Bool(flag)) => Ok(TypedValue::Bool(*flag)),
+        (_, BoundedJson::Int(number)) => Ok(TypedValue::Integer(*number)),
+        (_, BoundedJson::Number(decimal)) => Ok(TypedValue::Decimal(decimal.clone())),
+        (_, BoundedJson::Str(text)) => Ok(TypedValue::String(text.clone())),
+        (_, BoundedJson::Null | BoundedJson::Array(_) | BoundedJson::Object(_)) => {
+            Err(type_mismatch(path, "scalar default value"))
+        }
+    }
 }
 
 fn read_scalar(value: &BoundedJson, path: &str) -> Result<Scalar, ProviderError> {

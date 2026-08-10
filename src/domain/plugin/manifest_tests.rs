@@ -5,9 +5,9 @@ use super::*;
 use crate::domain::plugin::limits::{ACTION_LIMIT, PANEL_LIMIT, ROUTE_LIMIT};
 use crate::domain::plugin::{
     ActionConfirmation, ActionDraft, Field, FieldDraft, FieldKind, HostTriple, ModelKind,
-    PanelDraft, ProviderMode, RelativePath, RestartScope, RouteDraft,
+    PanelDraft, ProviderMode, RelativePath, RestartScope, RouteDraft, Scalar,
 };
-use crate::domain::{CanonicalSemver, Id};
+use crate::domain::{CanonicalSemver, Id, TypedValue};
 
 fn id(value: &str) -> Id {
     Id::parse(value).unwrap_or_else(|error| panic!("{value} must parse: {error}"))
@@ -42,7 +42,7 @@ fn panel(owner: &str) -> Panel {
     Panel::parse(PanelDraft {
         id: id(owner),
         model_kinds: vec![ModelKind::List],
-        event_kinds: Vec::new(),
+        event_schema: Vec::new(),
         handler: id("render"),
         ports: Vec::new(),
     })
@@ -238,6 +238,36 @@ fn a_provider_free_package_may_not_declare_handlers() {
 }
 
 #[test]
+fn a_one_shot_provider_may_not_declare_panels() {
+    let mut candidate = draft();
+    candidate.provider = provider_one_shot();
+    candidate.panels = vec![panel("vendor.pkg.list")];
+    assert_eq!(
+        error_of(candidate),
+        ManifestError::PanelRequiresPersistentProvider {
+            id: "vendor.pkg.list".to_owned()
+        }
+    );
+}
+
+#[test]
+fn a_persistent_provider_may_declare_panels() {
+    let triple = HostTriple::parse("aarch64-apple-darwin")
+        .unwrap_or_else(|error| panic!("must parse: {error}"));
+    let path = RelativePath::parse("bin/p").unwrap_or_else(|error| panic!("must parse: {error}"));
+    let persistent = Provider::parse(ProviderMode::Persistent, vec![(triple, path)])
+        .unwrap_or_else(|error| panic!("must parse: {error}"));
+
+    let mut candidate = draft();
+    candidate.provider = persistent;
+    candidate.panels = vec![panel("vendor.pkg.list")];
+    assert!(
+        Manifest::parse(candidate).is_ok(),
+        "a persistent provider may declare panels"
+    );
+}
+
+#[test]
 fn duplicate_declaration_ids_are_rejected() {
     let mut candidate = draft();
     candidate.provider = provider_one_shot();
@@ -348,12 +378,15 @@ fn defaults_may_only_enable_declarations_the_manifest_makes() {
 fn a_default_config_key_must_name_a_declared_config_field() {
     let field = Field::parse(FieldDraft {
         id: id("depth"),
+        label: "Depth".to_owned(),
+        description: None,
         kind: FieldKind::Integer,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: Vec::new(),
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })
@@ -367,7 +400,7 @@ fn a_default_config_key_must_name_a_declared_config_field() {
     candidate.defaults = Some(PluginDefaults {
         actions_enabled: Vec::new(),
         screens_enabled: Vec::new(),
-        config: vec![(id("absent"), Scalar::Integer(1))],
+        config: vec![(id("absent"), TypedValue::Integer(1))],
     });
     assert_eq!(
         error_of(candidate),
@@ -384,7 +417,7 @@ fn a_default_config_key_must_name_a_declared_config_field() {
     good.defaults = Some(PluginDefaults {
         actions_enabled: Vec::new(),
         screens_enabled: Vec::new(),
-        config: vec![(id("depth"), Scalar::Integer(1))],
+        config: vec![(id("depth"), TypedValue::Integer(1))],
     });
     assert!(Manifest::parse(good).is_ok());
 }
@@ -393,12 +426,15 @@ fn a_default_config_key_must_name_a_declared_config_field() {
 fn a_default_config_value_must_match_its_field_kind() {
     let field = Field::parse(FieldDraft {
         id: id("depth"),
+        label: "Depth".to_owned(),
+        description: None,
         kind: FieldKind::Integer,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: Vec::new(),
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })
@@ -411,7 +447,7 @@ fn a_default_config_value_must_match_its_field_kind() {
     candidate.defaults = Some(PluginDefaults {
         actions_enabled: Vec::new(),
         screens_enabled: Vec::new(),
-        config: vec![(id("depth"), Scalar::Text("deep".to_owned()))],
+        config: vec![(id("depth"), TypedValue::String("deep".to_owned()))],
     });
     assert_eq!(
         error_of(candidate),
@@ -425,12 +461,15 @@ fn a_default_config_value_must_match_its_field_kind() {
 fn a_default_outside_the_fields_declared_bounds_is_rejected() {
     let bounded = Field::parse(FieldDraft {
         id: id("depth"),
+        label: "Depth".to_owned(),
+        description: None,
         kind: FieldKind::Integer,
         required: false,
         default: None,
-        minimum: Some(Scalar::Integer(10)),
-        maximum: Some(Scalar::Integer(100)),
+        min: Some(Scalar::Integer(10)),
+        max: Some(Scalar::Integer(100)),
         choices: Vec::new(),
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })
@@ -444,7 +483,7 @@ fn a_default_outside_the_fields_declared_bounds_is_rejected() {
     candidate.defaults = Some(PluginDefaults {
         actions_enabled: Vec::new(),
         screens_enabled: Vec::new(),
-        config: vec![(id("depth"), Scalar::Integer(5))],
+        config: vec![(id("depth"), TypedValue::Integer(5))],
     });
     assert_eq!(
         error_of(candidate),
@@ -461,7 +500,7 @@ fn a_default_outside_the_fields_declared_bounds_is_rejected() {
     inside.defaults = Some(PluginDefaults {
         actions_enabled: Vec::new(),
         screens_enabled: Vec::new(),
-        config: vec![(id("depth"), Scalar::Integer(10))],
+        config: vec![(id("depth"), TypedValue::Integer(10))],
     });
     assert!(
         Manifest::parse(inside).is_ok(),

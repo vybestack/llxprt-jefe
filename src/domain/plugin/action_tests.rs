@@ -15,12 +15,15 @@ fn id(value: &str) -> Id {
 fn field(name: &str) -> Field {
     Field::parse(FieldDraft {
         id: id(name),
+        label: name.to_owned(),
+        description: None,
         kind: FieldKind::String,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: Vec::new(),
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })

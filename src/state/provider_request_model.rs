@@ -355,9 +355,6 @@ pub enum ProviderRequestError {
     PolicyViolation,
     /// The terminal outcome was not declared by the action (PLG-E502).
     UndeclaredOutcome,
-    /// The terminal outcome kind is not supported in this workbench slice
-    /// (panel/config-migration outcomes, PLG-E502).
-    UnsupportedOutcome,
 }
 
 impl std::fmt::Display for ProviderRequestError {
@@ -389,9 +386,6 @@ impl std::fmt::Display for ProviderRequestError {
             Self::UndeclaredOutcome => {
                 formatter.write_str("provider outcome was not declared by the action (PLG-E502)")
             }
-            Self::UnsupportedOutcome => formatter.write_str(
-                "provider outcome kind is not supported in this workbench slice (PLG-E502)",
-            ),
         }
     }
 }

@@ -16,7 +16,8 @@ use crate::state::screens_editor::CompositionStatus;
 use crate::state::screens_editor::preview_layout;
 use crate::state::settings_types::DirtyChoiceCursor;
 use crate::state::settings_view::{
-    SettingsRow, SettingsRowKind, detail_window, recovery_choices, section_rows,
+    PluginConfigMigrationView, SettingsRow, SettingsRowKind, detail_window,
+    plugin_config_migration_view, recovery_choices, section_rows,
 };
 use crate::state::{AppState, DraftStatus, SettingsDraft, SettingsFocus, SettingsState};
 use crate::theme::{ResolvedColors, ThemeColors};
@@ -82,7 +83,7 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
             KeybindBar(
                 screen: props.state.as_ref().map_or(
                     crate::state::ScreenId::Settings,
-                    crate::state::AppState::screen,
+                    |state| state.compiled_screen().unwrap_or(crate::state::ScreenId::Settings),
                 ),
                 action_registry_snapshot: props
                     .state
@@ -158,6 +159,8 @@ fn detail_pane(
             Text(content: title, weight: Weight::Bold, color: rc.fg)
             #(recovery_row(settings, rc))
             #(reload_confirmation_row(settings, rc))
+            #(plugin_config_editor_row(settings, rc))
+            #(plugin_config_migration_row(settings, rc))
             #(overflow_row(above, "above", rc))
             #(window.rows.into_iter().map(|(index, row)| {
                 let selected = focused && index == selected_row;
@@ -228,6 +231,61 @@ fn overflow_row(count: usize, side: &str, rc: &ResolvedColors) -> Option<AnyElem
         element! {
             Box(width: 100pct, background_color: rc.bg) {
                 Text(content: format!("  … {count} more {side}"), color: rc.dim)
+            }
+        }
+        .into_any(),
+    )
+}
+fn plugin_config_editor_row(
+    settings: &SettingsState,
+    rc: &ResolvedColors,
+) -> Option<AnyElement<'static>> {
+    let editor = settings.plugin_config_editor.as_ref()?;
+    let suffix = editor
+        .error
+        .map_or_else(String::new, |error| format!(" ! {error}"));
+    Some(
+        element! {
+            Box(width: 100pct, background_color: rc.sel_bg) {
+                Text(
+                    content: format!(">>{}.{}: {}{suffix}", editor.plugin, editor.field, editor.text),
+                    color: if editor.error.is_some() { rc.error } else { rc.sel_fg },
+                )
+            }
+        }
+        .into_any(),
+    )
+}
+
+fn plugin_config_migration_row(
+    settings: &SettingsState,
+    rc: &ResolvedColors,
+) -> Option<AnyElement<'static>> {
+    let view = plugin_config_migration_view(settings)?;
+    let (content, color) = match view {
+        PluginConfigMigrationView::Running { owner } => {
+            (format!("Migrating {owner} configuration..."), rc.bright)
+        }
+        PluginConfigMigrationView::Preview {
+            owner,
+            changes,
+            notes,
+        } => {
+            let mut lines = vec![format!("Approve migration for {owner}")];
+            lines.extend(changes);
+            lines.extend(notes.into_iter().map(|note| format!("note: {note}")));
+            lines.push("Enter Approve  Esc Cancel".to_owned());
+            (lines.join("\n"), rc.bright)
+        }
+        PluginConfigMigrationView::Failed { owner, detail } => (
+            format!("Migration failed for {owner}: {detail}\nEsc Dismiss"),
+            rc.error,
+        ),
+    };
+    Some(
+        element! {
+            Box(width: 100pct, border_style: BorderStyle::Round, border_color: color) {
+                Text(content: content, color: color)
             }
         }
         .into_any(),
@@ -400,6 +458,7 @@ fn render_row(row: &SettingsRow, selected: bool) -> String {
             format!("{marker}{}{active_marker} {}", row.label, row.value)
         }
         SettingsRowKind::Fact
+        | SettingsRowKind::PluginConfig { .. }
         | SettingsRowKind::Toggle { .. }
         | SettingsRowKind::Diagnostic { .. }
         | SettingsRowKind::AgentType { .. }
@@ -441,6 +500,7 @@ fn row_color(row: &SettingsRow, selected: bool, rc: &ResolvedColors) -> Color {
             rc.dim
         }
         SettingsRowKind::Theme { .. }
+        | SettingsRowKind::PluginConfig { .. }
         | SettingsRowKind::Toggle { .. }
         | SettingsRowKind::Screen { .. }
         | SettingsRowKind::Diagnostic { .. }

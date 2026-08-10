@@ -36,15 +36,22 @@ impl AppState {
                         .any(|action| action.id == *action_id)
                 })
         });
-        match self.screen() {
-            super::ScreenId::Issues => self.issues_state.draft_notice = Some(reason.clone()),
-            super::ScreenId::PullRequests => self.prs_state.draft_notice = Some(reason.clone()),
-            super::ScreenId::Dashboard
-            | super::ScreenId::Repositories
-            | super::ScreenId::Actions
-            | super::ScreenId::Errors
-            | super::ScreenId::Terminals
-            | super::ScreenId::Settings => {}
+        match self.compiled_screen() {
+            Some(super::ScreenId::Issues) => self.issues_state.draft_notice = Some(reason.clone()),
+            Some(super::ScreenId::PullRequests) => {
+                self.prs_state.draft_notice = Some(reason.clone());
+            }
+            Some(
+                super::ScreenId::Dashboard
+                | super::ScreenId::Repositories
+                | super::ScreenId::Actions
+                | super::ScreenId::Errors
+                | super::ScreenId::Terminals
+                | super::ScreenId::Settings,
+            )
+            // A lowered package or custom screen owns its own notice surface;
+            // the built-in draft-notice rules serve compiled screens only.
+            | None => {}
         }
         self.warning_message = Some(reason);
     }

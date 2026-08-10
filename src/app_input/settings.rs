@@ -10,13 +10,15 @@ use jefe::domain::ThemeId;
 use jefe::messages::AppMessage;
 use jefe::messages::NavDir;
 use jefe::messages::settings::{
-    LayoutMessage, RecoveryChoice, SettingsEnvironment, SettingsMessage, SettingsSection,
-    SettingsSource, ThemeChoice,
+    LayoutMessage, PluginConfigMessage, RecoveryChoice, SettingsEnvironment, SettingsMessage,
+    SettingsSection, SettingsSource, ThemeChoice,
 };
 use jefe::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use jefe::persistence::settings_edit::{ExportPath, export_candidate};
 use jefe::persistence::writer::{ExpectedHash, Freshness};
 use jefe::persistence::{PersistenceManager, SettingsCandidate, SettingsSaveOutcome};
+use jefe::runtime::provider::protocol::MigrateConfigPayload;
+use jefe::runtime::provider::{MigrationInputs, compose_migration_request};
 use jefe::state::navigation_dirty::DirtyChoice;
 use jefe::state::{DraftStatus, SettingsDraft, settings_view};
 use jefe::theme::ThemeManager;
@@ -96,6 +98,51 @@ pub fn apply(action: SettingsAction, app_state: &mut AppStateHandle, ctx: &Share
         }
     }
     reconcile_theme(app_state, ctx);
+}
+
+/// Give a migration preview exclusive ownership of Settings input.
+#[must_use]
+pub fn handle_plugin_config_migration_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) -> bool {
+    use jefe::state::settings_types::PluginConfigMigrationState;
+
+    let migration = app_state
+        .read()
+        .settings_state
+        .plugin_config_migration
+        .clone();
+    if matches!(migration, PluginConfigMigrationState::Idle) {
+        return false;
+    }
+    if key_event.kind == KeyEventKind::Release {
+        return true;
+    }
+    if key_event.modifiers == KeyModifiers::CONTROL
+        && matches!(key_event.code, KeyCode::Char('q' | 'Q'))
+    {
+        return false;
+    }
+    match migration {
+        PluginConfigMigrationState::Preview(_) => match key_event.code {
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                dispatch(app_state, SettingsMessage::ApproveMigration);
+                run_pending_migration(app_state, ctx);
+                write_pending(app_state, ctx);
+            }
+            KeyCode::Esc => dispatch(app_state, SettingsMessage::CancelMigration),
+            _ => {}
+        },
+        PluginConfigMigrationState::Failed { .. } => {
+            if key_event.code == KeyCode::Esc {
+                dispatch(app_state, SettingsMessage::CancelMigration);
+            }
+        }
+        PluginConfigMigrationState::Running(_) | PluginConfigMigrationState::Idle => {}
+    }
+    true
 }
 
 /// Answer the host dirty guard while it is holding a navigation back.
@@ -180,6 +227,7 @@ pub fn handle_layout_key(app_state: &mut AppStateHandle, key_event: &KeyEvent) -
     if key_event.kind == KeyEventKind::Release {
         return true;
     }
+
     if key_event.modifiers == KeyModifiers::CONTROL
         && matches!(key_event.code, KeyCode::Char('q' | 'Q'))
     {
@@ -197,7 +245,40 @@ pub fn handle_layout_key(app_state: &mut AppStateHandle, key_event: &KeyEvent) -
     true
 }
 
-/// What one key press means while the node dialog is open.
+/// Give one key press to the Settings-owned generated plugin config editor.
+#[must_use]
+pub fn handle_plugin_config_key(app_state: &mut AppStateHandle, key_event: &KeyEvent) -> bool {
+    if app_state
+        .read()
+        .settings_state
+        .plugin_config_editor
+        .is_none()
+    {
+        return false;
+    }
+    if key_event.kind == KeyEventKind::Release {
+        return true;
+    }
+    if key_event.modifiers == KeyModifiers::CONTROL
+        && matches!(key_event.code, KeyCode::Char('q' | 'Q'))
+    {
+        return false;
+    }
+    let message = match key_event.code {
+        KeyCode::Esc => PluginConfigMessage::Cancel,
+        KeyCode::Enter => PluginConfigMessage::Apply,
+        KeyCode::Backspace => PluginConfigMessage::Backspace,
+        KeyCode::Char(character)
+            if key_event.modifiers.is_empty() || key_event.modifiers == KeyModifiers::SHIFT =>
+        {
+            PluginConfigMessage::TypeChar(character)
+        }
+        _ => return true,
+    };
+    dispatch(app_state, SettingsMessage::PluginConfig(message));
+    true
+}
+
 fn dialog_message(key_event: &KeyEvent) -> Option<LayoutMessage> {
     match key_event.code {
         KeyCode::Esc => Some(LayoutMessage::CancelDialog),
@@ -233,6 +314,7 @@ fn tree_message(key_event: &KeyEvent) -> Option<LayoutMessage> {
 
 fn resolve_dirty(choice: DirtyChoice, app_state: &mut AppStateHandle, ctx: &SharedContext) {
     dispatch(app_state, SettingsMessage::ResolveDirty(choice));
+    run_pending_migration(app_state, ctx);
     write_pending(app_state, ctx);
     reconcile_theme(app_state, ctx);
 }
@@ -352,6 +434,8 @@ fn read_source(ctx: &SharedContext) -> Result<SettingsSource, String> {
         revision: context.settings_revision,
         active_theme: context.theme_manager.active_theme_id(),
         themes,
+        plugin_configs: context.plugin_configs.clone(),
+        installed_plugin_configs: context.installed_plugin_configs.clone(),
         environment: SettingsEnvironment {
             settings_path: path,
             state_path: context.persistence.paths_ref().state_path.clone(),
@@ -383,7 +467,77 @@ fn save(app_state: &mut AppStateHandle, ctx: &SharedContext, exit_after: bool) {
             SettingsMessage::Save
         },
     );
+    run_pending_migration(app_state, ctx);
     write_pending(app_state, ctx);
+}
+
+fn fail_migration(app_state: &mut AppStateHandle, draft_token: u64, detail: &str) {
+    dispatch(
+        app_state,
+        SettingsMessage::MigrationFailed {
+            draft_token,
+            detail: detail.to_owned(),
+        },
+    );
+}
+
+fn run_pending_migration(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let Some(pending) = app_state.read().pending_plugin_config_migration() else {
+        return;
+    };
+    let Ok(request_id) = jefe::runtime::provider::protocol::RequestId::new_host(1) else {
+        fail_migration(
+            app_state,
+            pending.draft_token.get(),
+            "migration request identity could not be allocated",
+        );
+        return;
+    };
+    let migrate = MigrateConfigPayload {
+        from_version: pending.from_schema_version,
+        to_version: pending.to_schema_version,
+        config: pending.source_config.clone(),
+        draft_token: pending.draft_token.get(),
+    };
+    let Some(shared_context) = ctx.as_ref() else {
+        fail_migration(
+            app_state,
+            pending.draft_token.get(),
+            "the migration runtime is unavailable",
+        );
+        return;
+    };
+    let (composed, provider_effect_handle) = {
+        let context = shared_context
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let request = compose_migration_request(
+            &context.plugin_packages,
+            &pending.owner,
+            &pending.target_package_version,
+            jefe::domain::plugin::HostTriple::current(),
+            &context.provider_containment,
+            MigrationInputs {
+                generation: jefe::runtime::provider::protocol::INITIAL_PROCESS_GENERATION,
+                request_id,
+                migrate,
+            },
+        );
+        (request, context.provider_effect_handle.clone())
+    };
+    let request = match composed {
+        Ok(request) => request,
+        Err(detail) => {
+            fail_migration(app_state, pending.draft_token.get(), &detail);
+            return;
+        }
+    };
+    provider_effect_handle.schedule_migration(
+        jefe::services::provider_effect_worker::ProviderMigrationWorkItem {
+            request,
+            draft_token: pending.draft_token.get(),
+        },
+    );
 }
 
 /// The revision and candidate the reducer scheduled, if it scheduled one.
@@ -402,7 +556,7 @@ fn pending_save(app_state: &AppStateHandle) -> Option<(u64, SettingsCandidate)> 
 }
 
 /// Perform the scheduled write and report what it did.
-fn write_pending(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+pub fn write_pending(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let Some((revision, candidate)) = pending_save(app_state) else {
         return;
     };

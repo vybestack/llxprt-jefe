@@ -238,7 +238,7 @@ fn no_packages_leaves_the_base_snapshot_untouched() {
     assert!(published.startup_warning.is_none());
 }
 
-fn configured_provider_publication(temp: &Path) -> ProviderPublication {
+fn configured_provider_publication(temp: &Path, body: &[u8]) -> ProviderPublication {
     let root = temp.join("packages");
     let host = HostTriple::current();
     let manifest = manifest_json(
@@ -251,8 +251,8 @@ fn configured_provider_publication(temp: &Path) -> ProviderPublication {
         r#""config": {
             "schema_version": 7,
             "fields": [
-              { "id": "mode", "kind": "string", "required": true, "restart": "none" },
-              { "id": "token", "kind": "secret-reference", "required": true, "restart": "none" }
+              { "id": "mode", "label": "Mode", "type": "string", "required": true, "restart": "none" },
+              { "id": "token", "label": "Token", "type": "secret-reference", "required": true, "restart": "none" }
             ]
           },
           "actions": ["#,
@@ -261,14 +261,6 @@ fn configured_provider_publication(temp: &Path) -> ProviderPublication {
     let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
     let catalog = crate::config_owners::owner_catalog_with_packages(inventory.packages())
         .unwrap_or_else(|diagnostics| panic!("owner catalog must build: {diagnostics:?}"));
-    let body = br#"
-settings_schema = 2
-[plugins."vendor.configured"]
-enabled = true
-[plugins."vendor.configured".config]
-mode = "safe"
-token = "JEFE_PROVIDER_TEST_TOKEN"
-"#;
     let keymap = crate::persistence::keymap_edit::load_bytes(Some(body), &catalog, "test")
         .unwrap_or_else(|diagnostics| panic!("settings fixture must load: {diagnostics:?}"));
     publish_providers(&ProviderPublicationRequest {
@@ -284,7 +276,17 @@ fn selected_config_and_declared_secret_reference_reach_the_runtime_descriptor() 
     let Ok(temp) = tempfile::tempdir() else {
         return;
     };
-    let published = configured_provider_publication(temp.path());
+    let published = configured_provider_publication(
+        temp.path(),
+        br#"
+settings_schema = 2
+[plugins."vendor.configured"]
+enabled = true
+[plugins."vendor.configured".config]
+mode = "safe"
+token = { env = "JEFE_PROVIDER_TEST_TOKEN" }
+"#,
+    );
     let Some(descriptor) = published
         .coordinator
         .catalog()
@@ -313,4 +315,31 @@ fn selected_config_and_declared_secret_reference_reach_the_runtime_descriptor() 
     );
     assert!(descriptor.environment.nonsecret.is_empty());
     assert!(descriptor.environment.secret_env.is_empty());
+}
+
+#[test]
+fn invalid_active_plugin_config_never_reaches_configure() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let published = configured_provider_publication(
+        temp.path(),
+        br#"
+settings_schema = 2
+[plugins."vendor.configured"]
+enabled = true
+[plugins."vendor.configured".config]
+mode = 42
+token = { env = "JEFE_PROVIDER_TEST_TOKEN" }
+"#,
+    );
+
+    assert!(
+        published
+            .coordinator
+            .catalog()
+            .get(&action_id("vendor.configured.run"))
+            .is_none(),
+        "schema-invalid active config must not produce a Configure descriptor"
+    );
 }

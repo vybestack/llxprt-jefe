@@ -245,7 +245,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         repositories: seeded.repositories.clone(),
-        nav: jefe::state::navigation::NavState::rooted(seeded.screen()),
+        nav: jefe::state::navigation::NavState::rooted(jefe::state::ScreenId::Issues),
         ..AppState::default()
     };
 

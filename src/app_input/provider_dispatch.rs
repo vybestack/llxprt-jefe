@@ -18,7 +18,9 @@ use jefe::domain::effects::{
 };
 use jefe::domain::{Id, TypedMap, TypedValue};
 use jefe::messages::{AppMessage, ProviderMessage};
-use jefe::services::provider_effect_worker::{ProviderEffectHandle, ProviderWorkItem};
+use jefe::services::provider_effect_worker::{
+    ProviderEffectHandle, ProviderPanelWorkItem, ProviderWorkItem,
+};
 use jefe::state::ConfirmFocus;
 use jefe::state::transition;
 
@@ -221,6 +223,24 @@ pub fn schedule_provider_effects(
                     correlation: issued.correlation,
                 });
             }
+            Effect::Provider(
+                effect @ (ProviderEffect::ActivatePanel { .. }
+                | ProviderEffect::DeactivatePanel { .. }
+                | ProviderEffect::PanelEvent { .. }),
+            ) => {
+                tracing::debug!("scheduling provider panel command");
+                let Some(handle) = runtime_handle
+                    .get_or_insert_with(|| acquire_provider_effect_handle(app_state, ctx))
+                    .as_ref()
+                else {
+                    reject_provider_effect(app_state, issued);
+                    continue;
+                };
+                handle.schedule_panel(ProviderPanelWorkItem {
+                    effect: effect.clone(),
+                    correlation: issued.correlation,
+                });
+            }
             Effect::Provider(ProviderEffect::CancelRequest { key }) => {
                 let Some(handle) = runtime_handle
                     .get_or_insert_with(|| acquire_provider_effect_handle(app_state, ctx))
@@ -299,6 +319,8 @@ fn apply_provider_host_outcome(
         drop(state);
         action
     };
+    let staged = app_state.write().take_staged_effects();
+    schedule_provider_effects(app_state, ctx, staged);
 
     match action {
         ProviderHostAction::Refresh(jefe::state::ScreenId::Issues) => {
@@ -364,7 +386,9 @@ fn authorize_provider_outcome(
         .provider_requests
         .request(key)
         .ok_or_else(|| "provider outcome request is no longer current".to_owned())?;
-    let screen = state.screen();
+    let screen = state
+        .compiled_screen()
+        .ok_or_else(|| "provider outcome is unsupported for the current screen".to_owned())?;
     if request.context_screen().as_str() != screen.as_str()
         || request.context_instance().as_str() != state.nav.current().id.to_string()
     {

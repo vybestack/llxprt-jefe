@@ -115,12 +115,15 @@ fn register_confirmation(
 fn boolean_field(id: &str) -> Field {
     Field::parse(FieldDraft {
         id: Id::parse(id).unwrap_or_else(|_e| panic!("field id")),
+        label: id.to_owned(),
+        description: None,
         kind: FieldKind::Boolean,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: vec![],
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })

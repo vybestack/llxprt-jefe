@@ -708,8 +708,9 @@ fn resolve_app_selection_point(
     );
     Some(SelectionPoint::new(pane, line, c))
 }
-fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let (mode_error, filter_open) = match state.screen() {
+fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> Option<ScreenLayout> {
+    let screen = state.compiled_screen()?;
+    let (mode_error, filter_open) = match screen {
         ScreenId::Issues => (
             jefe::layout::issues_banner_visible(
                 state.issues_state.error.as_deref(),
@@ -731,11 +732,11 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
         | ScreenId::Terminals
         | ScreenId::Settings => (false, false),
     };
-    let error_visible = (state.error_message.is_some()
-        && !matches!(state.screen(), ScreenId::Errors))
-        || mode_error;
-    ScreenLayout::new(cols, rows, state.screen(), error_visible, filter_open)
-        .with_overlay(active_overlay_for(state))
+    let error_visible = (state.error_message.is_some() && screen != ScreenId::Errors) || mode_error;
+    Some(
+        ScreenLayout::new(cols, rows, screen, error_visible, filter_open)
+            .with_overlay(active_overlay_for(state)),
+    )
 }
 /// Whether a blocking modal is open (Finding G).
 ///
@@ -821,7 +822,7 @@ fn resolve_pane(
     rows: u16,
     terminal_input_enabled: bool,
 ) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
-    let layout = screen_layout_for(state, cols, rows);
+    let layout = screen_layout_for(state, cols, rows)?;
     pane_at(
         col,
         row,

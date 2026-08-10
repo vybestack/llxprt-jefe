@@ -9,20 +9,18 @@ use crate::runtime::PreflightIssue;
 // Which screen is active is the workbench's vocabulary: identity is the stable
 // namespaced string that descriptors, persistence, and goldens agree on. State
 // re-exports it so consumers keep reaching for it through `crate::state`.
-pub use crate::workbench::ScreenId;
+pub use crate::workbench::{ScreenId, ScreenIdentity};
 
 // @plan PLAN-20260624-PR-MODE.P03
 #[path = "pr_types.rs"]
 mod pr_types;
 pub use pr_types::*;
 
-// Form-field types extracted to keep this file under the length limit.
 #[path = "form_types.rs"]
 mod form_types;
 pub use form_types::*;
 
-// New Issue dialog form-field types (issue #407). Extracted to keep this
-// file under the source-file-size hard limit.
+// New Issue dialog form-field types extracted for issue #407.
 #[path = "new_issue_form_types.rs"]
 mod new_issue_types;
 pub use new_issue_types::{IssueType, NewIssueFormFocus, NewIssueFormState, NewIssueTemplate};
@@ -431,6 +429,8 @@ pub struct AppState {
     pub provider_surface_action: Option<crate::domain::action_registry::ActionId>,
     /// Most recent provider notice accepted by the post-commit host adapter.
     pub provider_notice: Option<crate::domain::effects::ProviderNotice>,
+    /// Runtime-only provider panel lifecycle and complete accepted models.
+    pub provider_panels: super::provider_panels::ProviderPanelState,
     /// One root-owned immutable geometry snapshot for the active screen.
     /// Resolved once per size or state change and read by every geometry
     /// consumer — renderer, mouse routing, selection, wrapping, scrolling, and

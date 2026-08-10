@@ -28,20 +28,19 @@ use crate::domain::plugin::action::Action as DeclaredAction;
 use crate::domain::plugin::provider::{ProviderMode, ProviderSelection};
 use crate::domain::plugin::surface::ConfigSchema;
 use crate::domain::plugin::{FieldKind, HostTriple, Manifest};
-use crate::domain::{TypedMap, TypedValue};
-use crate::persistence::plugin_inventory::InstalledPackage;
+use crate::domain::{CanonicalSemver, Id, TypedMap, TypedValue};
+use crate::persistence::plugin_inventory::{InstalledPackage, selected_packages};
 use crate::persistence::settings_document::PublishedSettings;
 use crate::runtime::provider::coordinator::{ProviderActionDescriptor, ProviderCatalog};
 use crate::runtime::provider::dto::{Capability, ConfigurePayload};
 use crate::runtime::provider::environment::ProviderEnvironment;
-use crate::runtime::provider::identifiers::{EnvName, RequestId, RequestIdError};
+use crate::runtime::provider::identifiers::{
+    EnvName, INITIAL_PROCESS_GENERATION, RequestId, RequestIdError,
+};
+use crate::runtime::provider::migration::MigrationRequest;
+use crate::runtime::provider::panel_model::MigrateConfigPayload;
 use crate::runtime::provider::persistent::PersistentCandidate;
 use crate::state::provider_requests::ActionPolicy;
-
-/// The fixed positive generation every startup-composed provider process runs
-/// under. One process has exactly one generation, and startup composition
-/// happens once, so a single value is correct rather than a counter.
-const STARTUP_GENERATION: u64 = 1;
 
 /// The contained process locations and identity every composed provider shares.
 ///
@@ -65,8 +64,6 @@ pub struct Containment {
 pub struct CompositionRequest<'a> {
     /// The immutable package inventory scanned at the startup boundary.
     pub packages: &'a [InstalledPackage],
-    /// Whether the operator currently trusts a package id.
-    pub trusted: &'a dyn Fn(&str) -> bool,
     /// The selected, typed package configuration published for this startup.
     pub settings: &'a PublishedSettings,
     /// The exact build host triple provider binaries are selected against.
@@ -139,23 +136,84 @@ impl ProviderComposition {
 
 /// Compose the static provider contribution from the package inventory.
 ///
-/// Starts nothing. A package is skipped entirely when it is untrusted or
-/// declares no provider; an action is skipped when its declaration cannot be
-/// expressed as a registry action, because a half-published action is worse
-/// than an absent one.
+/// Starts nothing. Only the exact Settings-selected installed package version
+/// contributes; a package is skipped when it declares no provider. An action
+/// is skipped when its declaration cannot be expressed as a registry action,
+/// because a half-published action is worse than an absent one.
 #[must_use]
 pub fn compose(request: &CompositionRequest<'_>) -> ProviderComposition {
     let mut composition = ProviderComposition::default();
-    for package in request.packages {
-        if !(request.trusted)(package.coordinate().id().as_str()) {
-            continue;
-        }
+    for package in selected_packages(request.packages, request.settings) {
         compose_package(&mut composition, package, request);
     }
     composition
         .persistent_candidates
         .sort_by(|left, right| left.plugin_id.as_str().cmp(right.plugin_id.as_str()));
     composition
+}
+/// Wire identity and payload for one migration request.
+///
+/// These three fields flow into [`MigrationRequest`] unchanged; bundling them
+/// keeps the composer argument list within the lint limit.
+#[derive(Debug, Clone)]
+pub struct MigrationInputs {
+    /// Fixed positive generation for this invocation (the process generation).
+    pub generation: u64,
+    /// Host-originated request id for this invocation.
+    pub request_id: RequestId,
+    /// The `migrate-config` payload.
+    pub migrate: MigrateConfigPayload,
+}
+
+/// Resolve one exact installed package provider for a provisional migration.
+///
+/// This performs no Settings selection and resolves no Configure secrets: the
+/// caller supplies the already-authoritative owner/version and a reference-only
+/// migration payload.
+pub fn compose_migration_request(
+    packages: &[InstalledPackage],
+    owner: &Id,
+    version: &CanonicalSemver,
+    host: HostTriple,
+    containment: &Containment,
+    inputs: MigrationInputs,
+) -> Result<MigrationRequest, String> {
+    let Some(package) = packages.iter().find(|package| {
+        package.coordinate().id().owner_id() == owner && package.coordinate().version() == version
+    }) else {
+        return Err("the exact migration target package is not installed".to_owned());
+    };
+    let binary = match package.manifest().provider().select(&host) {
+        ProviderSelection::Ready(relative) => resolve_binary(package.directory(), relative),
+        ProviderSelection::NotDeclared => {
+            return Err("the migration target does not declare a provider".to_owned());
+        }
+        ProviderSelection::UnsupportedPlatform => {
+            return Err("the migration target has no provider for this host".to_owned());
+        }
+    };
+    Ok(MigrationRequest {
+        environment: ProviderEnvironment {
+            provider_dir: binary
+                .parent()
+                .map_or_else(|| binary.clone(), Path::to_path_buf),
+            nonsecret: BTreeMap::new(),
+            secret_env: BTreeMap::new(),
+            configure_secret_sources: BTreeMap::new(),
+        },
+        binary,
+        arguments: Vec::new(),
+        working_dir: containment.working_dir.clone(),
+        home: containment.home.clone(),
+        tmpdir: containment.tmpdir.clone(),
+        locale: containment.locale.clone(),
+        host_api: containment.host_api.clone(),
+        plugin_id: owner.clone(),
+        plugin_version: version.clone(),
+        generation: inputs.generation,
+        request_id: inputs.request_id,
+        migrate: inputs.migrate,
+    })
 }
 
 /// Compose one trusted package's contribution.
@@ -285,21 +343,48 @@ fn publish_available_actions(
     }
 }
 
+fn validate_provider_configuration(manifest: &Manifest, config: &TypedMap) -> Result<(), String> {
+    let Some(schema) = manifest.config() else {
+        return Ok(());
+    };
+    let errors = crate::domain::plugin_config::validate_config(schema, config);
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let details = errors
+        .iter()
+        .map(|error| format!("{} ({})", error.field, error.reason))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "provider {} configuration is invalid: {details}",
+        manifest.id()
+    ))
+}
+
 /// Build one package's selected configuration and bounded environment.
 ///
 /// Secret-reference fields name host environment variables. Their references
 /// are removed from ordinary configuration and resolved only by the supervisor
-/// into `Configure.secrets`. The manifest has no environment-export declaration,
-/// so selected nonsecret configuration is never implicitly exported.
+/// into `Configure.secrets`. Effective non-secret defaults are applied so a
+/// Configure carries every declared value a provider expects, while
+/// secret-reference defaults remain references resolved only at the Configure
+/// boundary. The manifest has no environment-export declaration, so selected
+/// nonsecret configuration is never implicitly exported.
 fn provider_configuration(
     settings: &PublishedSettings,
     manifest: &Manifest,
     binary: &Path,
 ) -> Result<(ProviderEnvironment, ConfigurePayload), String> {
-    let mut config = settings
+    let user_config = settings
         .plugins
         .get(manifest.id().owner_id())
         .map_or_else(TypedMap::new, |owner| owner.values.clone());
+    let mut config = match manifest.config() {
+        Some(schema) => crate::domain::plugin_config::effective_values(schema, &user_config),
+        None => user_config,
+    };
+    validate_provider_configuration(manifest, &config)?;
     let mut configure_secret_sources = BTreeMap::new();
     if let Some(schema) = manifest.config() {
         for field in schema.fields() {
@@ -309,14 +394,14 @@ fn provider_configuration(
             let Some(value) = config.remove(field.id()) else {
                 continue;
             };
-            let TypedValue::String(source) = value else {
+            let TypedValue::SecretRef(reference) = value else {
                 return Err(format!(
                     "provider {} secret reference {} must name a host environment variable",
                     manifest.id(),
                     field.id()
                 ));
             };
-            let source = EnvName::parse(&source).map_err(|_| {
+            let source = EnvName::parse(reference.env.env()).map_err(|_| {
                 format!(
                     "provider {} secret reference {} is not a valid environment name",
                     manifest.id(),
@@ -335,7 +420,7 @@ fn provider_configuration(
         configure_secret_sources,
     };
     let configure = ConfigurePayload {
-        config_version: u64::from(manifest.config().map_or(1, ConfigSchema::schema_version)),
+        config_version: manifest.config().map_or(1, ConfigSchema::schema_version),
         config,
         secrets: BTreeMap::new(),
         environment: BTreeMap::new(),
@@ -372,8 +457,8 @@ fn persistent_candidate(
         tmpdir: request.containment.tmpdir.clone(),
         locale: request.containment.locale.clone(),
         host_api: request.containment.host_api.clone(),
-        generation: STARTUP_GENERATION,
-        request_id: RequestId::new_host(STARTUP_GENERATION)?,
+        generation: INITIAL_PROCESS_GENERATION,
+        request_id: RequestId::new_host(INITIAL_PROCESS_GENERATION)?,
         configure,
         declared_capabilities: declared_capabilities(manifest),
     })

@@ -83,8 +83,15 @@ impl Activation {
 pub struct ScreenInstance {
     /// Process-unique identity, never reused.
     pub id: ScreenInstanceId,
-    /// The screen this instance is on.
-    pub screen: ScreenId,
+    /// The screen this instance is on, as the open descriptor identity.
+    ///
+    /// Routing, focus, and labels come from the descriptor rather than a
+    /// compiled table, so the identity is the open [`ScreenIdentity`] that the
+    /// composed registry resolves — a compiled screen, a lowered user screen,
+    /// or a lowered package screen. Built-in-only consumers that need a
+    /// compiled [`ScreenId`] use [`ScreenInstance::compiled_screen`] rather
+    /// than assuming this is compiled.
+    pub screen: ScreenIdentity,
     /// What this instance was activated with.
     pub activation: Activation,
     /// The panel that holds focus.
@@ -93,6 +100,20 @@ pub struct ScreenInstance {
     pub generation: u64,
     /// Whether this instance holds unsaved work.
     pub dirty: DirtyState,
+}
+
+impl ScreenInstance {
+    /// The compiled screen this instance is on, if it is on one.
+    ///
+    /// Built-in renderers and dispatchers that only know how to handle a
+    /// compiled screen call this rather than reading [`Self::screen`]
+    /// directly, so a package or custom screen is never silently treated as a
+    /// compiled one: a `None` forces the caller to its non-built-in path
+    /// instead of defaulting to a screen it cannot draw.
+    #[must_use]
+    pub const fn compiled_screen(&self) -> Option<ScreenId> {
+        self.screen.compiled()
+    }
 }
 
 /// An instance whose subscriptions are suspended while it waits on the stack.
@@ -148,14 +169,20 @@ impl NavState {
     /// compiled tables rather than a registry lookup, so starting a session
     /// has no failure mode to handle at the moment it is needed. Those tables
     /// duplicate the descriptors, and the drift tests in `screens_tests` are
-    /// what hold the two together.
+    /// what holds the two together.
+    ///
+    /// Rooting stays compiled-only: a session can only be *started* (or
+    /// restored from durable state) onto a screen the executable ships, because
+    /// persistence and the initial frame must always be drawable. Reaching a
+    /// lowered screen afterwards goes through navigation, which reads its focus
+    /// from the descriptor.
     #[must_use]
     pub fn rooted(screen: ScreenId) -> Self {
         let id = ScreenInstanceId::next();
         Self {
             current: ScreenInstance {
                 id,
-                screen,
+                screen: ScreenIdentity::Compiled(screen),
                 activation: Activation {
                     route: route_of(screen),
                     values: ActivationValues::empty(),
@@ -203,10 +230,25 @@ impl NavState {
         self.stack.len()
     }
 
-    /// The screen the session is on.
+    /// The screen the session is on, as the open descriptor identity.
+    ///
+    /// This is the honest active identity: a compiled screen, a lowered user
+    /// screen, or a lowered package screen. Built-in-only consumers that
+    /// require a compiled [`ScreenId`] use [`Self::compiled_screen`] so a
+    /// non-compiled screen is never silently treated as a compiled one.
     #[must_use]
-    pub const fn screen(&self) -> ScreenId {
+    pub const fn screen(&self) -> ScreenIdentity {
         self.current.screen
+    }
+
+    /// The compiled screen the session is on, if it is on one.
+    ///
+    /// Returns `None` when the active screen is a lowered package or custom
+    /// screen, forcing built-in-only callers onto their non-built-in path
+    /// rather than defaulting to a screen they cannot render.
+    #[must_use]
+    pub const fn compiled_screen(&self) -> Option<ScreenId> {
+        self.current.screen.compiled()
     }
 
     /// The generations work must name to still be answerable.
@@ -257,7 +299,13 @@ impl NavState {
         }
         let declaration = route_declaration(registry, activation.route)?;
         declaration.validate(&activation.values)?;
-        let ScreenIdentity::Compiled(screen) = declaration.target_screen else {
+        let target = declaration.target_screen;
+        // The descriptor owns where a screen focuses on entry. Compiled screens
+        // agree with the compiled focus table, but a lowered package or custom
+        // screen does not, so the focus is read from the descriptor rather than
+        // assumed from a compiled-only lookup. A target whose descriptor the
+        // route resolved but the registry cannot find is unreachable.
+        let Some(descriptor) = registry.get_identity(target) else {
             return Err(NavRefusal::NotRoutable {
                 route: activation.route,
             });
@@ -269,14 +317,14 @@ impl NavState {
         }
         Ok(ScreenInstance {
             id: ScreenInstanceId::next(),
-            screen,
+            screen: target,
             activation: Activation {
                 route: activation.route,
                 values: activation.values.clone(),
                 source_instance: activation.source_instance,
                 activation_generation: self.next_activation_generation,
             },
-            panel_focus: initial_focus(screen),
+            panel_focus: descriptor.initial_focus,
             generation: self.next_generation,
             dirty: DirtyState::Clean,
         })

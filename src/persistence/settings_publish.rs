@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::domain::plugin::SecretReference;
 use crate::domain::{
     ByteSpan, CanonicalDateTime, CanonicalDecimal, CanonicalSemver, Id, OwnerCatalog,
     OwnerDescriptor, OwnerKind, ProvenanceKind, ProvenanceOrigin, SecretRef, TypedMap, TypedValue,
@@ -375,16 +376,21 @@ fn table_to_typed(
     path: &str,
 ) -> Result<TypedValue, Vec<Diagnostic>> {
     if values.len() == 1
-        && let Some(secret) = values.get("secret_ref")
+        && let Some(secret) = values.get("env")
     {
         let Some(secret) = secret.as_str() else {
             return Err(vec![type_diagnostic(
                 path,
-                "secret_ref must be an identifier string",
+                "env must be an environment-variable name",
             )]);
         };
-        let id = parse_id(secret, path)?;
-        return Ok(TypedValue::SecretRef(SecretRef { id }));
+        let env = SecretReference::parse(secret).map_err(|_| {
+            vec![type_diagnostic(
+                path,
+                "env is not a valid environment-variable name",
+            )]
+        })?;
+        return Ok(TypedValue::SecretRef(SecretRef { env }));
     }
     toml_to_typed_map(&toml::Value::Table(values.clone()), path).map(TypedValue::Map)
 }

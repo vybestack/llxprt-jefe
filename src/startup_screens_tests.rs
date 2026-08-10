@@ -91,8 +91,12 @@ fn review() -> String {
 fn a_config_with_no_definitions_directory_composes_the_compiled_screens() {
     let config = Config::new("absent");
 
-    let composition = compose(&config.without_definitions(), &PublishedSettings::default())
-        .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
+    let composition = compose(
+        &config.without_definitions(),
+        &[],
+        &PublishedSettings::default(),
+    )
+    .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
     assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
     assert!(composition.warnings.is_empty());
@@ -102,7 +106,7 @@ fn a_config_with_no_definitions_directory_composes_the_compiled_screens() {
 fn an_empty_definitions_directory_composes_the_compiled_screens() {
     let config = Config::new("empty");
 
-    let composition = compose(&config.paths(), &PublishedSettings::default())
+    let composition = compose(&config.paths(), &[], &PublishedSettings::default())
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
     assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
@@ -113,7 +117,7 @@ fn an_enabled_definition_on_disk_joins_the_registry() {
     let config = Config::new("enabled");
     config.write_definition("review", &review());
 
-    let composition = compose(&config.paths(), &settings_enabling(&["review"]))
+    let composition = compose(&config.paths(), &[], &settings_enabling(&["review"]))
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
     assert_eq!(
@@ -128,7 +132,7 @@ fn a_definition_settings_do_not_enable_is_left_out_without_complaint() {
     let config = Config::new("dormant");
     config.write_definition("review", &review());
 
-    let composition = compose(&config.paths(), &PublishedSettings::default())
+    let composition = compose(&config.paths(), &[], &PublishedSettings::default())
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
     assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
@@ -141,7 +145,7 @@ fn an_invalid_dormant_definition_warns_and_keeps_its_bytes() {
     let broken = "screen_schema = 1\nid = \"local.review\"\n";
     config.write_definition("review", broken);
 
-    let composition = compose(&config.paths(), &PublishedSettings::default())
+    let composition = compose(&config.paths(), &[], &PublishedSettings::default())
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
     assert_eq!(composition.warnings.len(), 1);
@@ -159,7 +163,7 @@ fn an_invalid_enabled_definition_refuses_the_whole_registry_and_keeps_its_bytes(
     let broken = review().replace("type = \"pr-list\"", "type = \"invented-panel\"");
     config.write_definition("review", &broken);
 
-    let outcome = compose(&config.paths(), &settings_enabling(&["review"]));
+    let outcome = compose(&config.paths(), &[], &settings_enabling(&["review"]));
 
     assert!(
         matches!(outcome, Err(ScreenStartupError::Refused(_))),
@@ -177,7 +181,7 @@ fn a_refusal_traceable_to_a_file_exits_two() {
     let config = Config::new("exit-codes");
     config.write_definition("review", "not toml {{{");
 
-    let Err(refusal) = compose(&config.paths(), &settings_enabling(&["review"])) else {
+    let Err(refusal) = compose(&config.paths(), &[], &settings_enabling(&["review"])) else {
         unreachable!("composition must be refused")
     };
 

@@ -201,7 +201,7 @@ mod tests {
     use crate::app_input::apply_background_gh_delivery;
     use core::time::Duration;
     use iocraft::prelude::*;
-    use jefe::state::{AppState, ScreenId};
+    use jefe::state::{AppState, ScreenId, ScreenIdentity};
     use smol::stream::StreamExt;
     use std::sync::mpsc;
 
@@ -391,7 +391,7 @@ mod tests {
     #[derive(Default, Props)]
     struct SilentPanicProbeProps {
         deliveries: Option<GhDeliveryHandle>,
-        observed: Option<mpsc::Sender<(usize, String, String, ScreenId)>>,
+        observed: Option<mpsc::Sender<(usize, String, String, ScreenIdentity)>>,
     }
 
     /// Drives a worker that panics on a route which fails silently, then

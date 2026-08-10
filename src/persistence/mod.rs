@@ -89,7 +89,8 @@ pub mod settings_document;
 pub mod settings_edit;
 mod settings_layout;
 pub use settings_edit::{
-    EDITED_PATH_LIMIT, ExportPath, SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath,
+    EDITED_PATH_LIMIT, ExportPath, PluginConfigEditValue, SettingsCandidate, SettingsEdit,
+    SettingsSaveOutcome, SyntaxPath,
 };
 mod settings_publish;
 mod settings_syntax;

@@ -151,6 +151,47 @@ fn the_line_bound_accepts_its_limit_and_rejects_one_more() {
 }
 
 #[test]
+fn wire_depth_bound_accepts_sixteen_and_rejects_seventeen() {
+    let at_limit = format!("{}0{}\n", "[".repeat(16), "]".repeat(16));
+    let _ = decoded(at_limit.as_bytes());
+
+    let over_limit = format!("{}0{}\n", "[".repeat(17), "]".repeat(17));
+    assert!(matches!(
+        rejected(over_limit.as_bytes()),
+        ProviderError::Json(BoundedJsonError::DepthExceeded { limit: 16 })
+    ));
+}
+
+#[test]
+fn wire_object_bound_accepts_256_and_rejects_257() {
+    let members = (0..256)
+        .map(|index| format!("\"k{index}\":null"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let _ = decoded(line(&format!("{{{members}}}")).as_slice());
+
+    let over = format!("{{{members},\"overflow\":null}}");
+    assert!(matches!(
+        rejected(line(&over).as_slice()),
+        ProviderError::Json(BoundedJsonError::ObjectTooLarge { limit: 256 })
+    ));
+}
+
+#[test]
+fn wire_array_bound_accepts_1024_and_rejects_1025() {
+    let elements = std::iter::repeat_n("null", 1024)
+        .collect::<Vec<_>>()
+        .join(",");
+    let _ = decoded(line(&format!("[{elements}]")).as_slice());
+
+    let over = format!("[{elements},null]");
+    assert!(matches!(
+        rejected(line(&over).as_slice()),
+        ProviderError::Json(BoundedJsonError::ArrayTooLarge { limit: 1024 })
+    ));
+}
+
+#[test]
 fn every_framing_failure_carries_the_protocol_code() {
     assert_eq!(rejected(b"").code(), "PLG-E502");
     assert_eq!(rejected(b"{} junk\n").code(), "PLG-E502");

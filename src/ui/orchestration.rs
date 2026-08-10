@@ -7,6 +7,7 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenId};
 use crate::theme::ThemeColors;
+use crate::ui::components::ProviderScreen;
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
     TerminalManagerScreen,
@@ -271,8 +272,8 @@ pub fn build_screen_element(
     theme_name: &str,
     terminal: TerminalRenderData,
 ) -> AnyElement<'static> {
-    match snapshot.screen() {
-        ScreenId::Dashboard => element! {
+    match snapshot.compiled_screen() {
+        Some(ScreenId::Dashboard) => element! {
             Dashboard(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
@@ -287,17 +288,26 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        ScreenId::Issues => screen_element!(IssuesScreen, snapshot, colors, theme_name),
-        ScreenId::Repositories => screen_element!(SplitScreen, snapshot, colors, theme_name),
+        Some(ScreenId::Issues) => screen_element!(IssuesScreen, snapshot, colors, theme_name),
+        Some(ScreenId::Repositories) => screen_element!(SplitScreen, snapshot, colors, theme_name),
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
-        ScreenId::PullRequests => {
+        Some(ScreenId::PullRequests) => {
             screen_element!(PullRequestsScreen, snapshot, colors, theme_name)
         }
-        ScreenId::Actions => screen_element!(ActionsScreen, snapshot, colors, theme_name),
-        ScreenId::Errors => screen_element!(ErrorsScreen, snapshot, colors, theme_name),
-        ScreenId::Terminals => terminal_manager_element(snapshot, colors, theme_name, terminal),
-        ScreenId::Settings => screen_element!(SettingsScreen, snapshot, colors, theme_name),
+        Some(ScreenId::Actions) => screen_element!(ActionsScreen, snapshot, colors, theme_name),
+        Some(ScreenId::Errors) => screen_element!(ErrorsScreen, snapshot, colors, theme_name),
+        Some(ScreenId::Terminals) => {
+            terminal_manager_element(snapshot, colors, theme_name, terminal)
+        }
+        Some(ScreenId::Settings) => screen_element!(SettingsScreen, snapshot, colors, theme_name),
+        None => element! {
+            ProviderScreen(
+                state: Some(snapshot.clone()),
+                colors: colors.clone(),
+            )
+        }
+        .into_any(),
     }
 }
 
