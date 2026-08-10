@@ -7,11 +7,12 @@ use jefe::ui::components::{IssueDetailProjectionInputs, issue_detail_props};
 
 /// The New Issue composer is only ever open alongside a form, and the document
 /// summarises that form's fields (issue #693), so the layout contract is
-/// measured against a form whose title is long enough to wrap when narrow.
+/// measured against a form carrying real text. The title is deliberately short
+/// enough that no row wraps at the wide width and long enough that it must wrap
+/// at the narrow one, which is exactly what the two widths are contrasting.
 fn new_issue_form() -> NewIssueFormState {
     NewIssueFormState {
-        title_text: "a fairly long new issue subject that has to wrap when the pane is narrow"
-            .to_string(),
+        title_text: "a subject that wraps when narrow".to_string(),
         ..NewIssueFormState::default()
     }
 }
