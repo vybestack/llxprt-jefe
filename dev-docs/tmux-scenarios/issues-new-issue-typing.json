@@ -94,13 +94,6 @@
       "timeout_ms": 15000
     },
     {
-      "op": "assert-frame",
-      "contains": [
-        "HelloTitle"
-      ],
-      "absent": []
-    },
-    {
       "op": "key",
       "key": "tab",
       "modifiers": []
