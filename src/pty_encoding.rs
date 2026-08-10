@@ -101,10 +101,26 @@ fn function_key_to_bytes(n: u8, modifier: Option<u8>) -> Option<Vec<u8>> {
 /// for one that did not. Jefe therefore does not have to guess what the child
 /// understands (issue #627).
 ///
-/// The other chords keep their existing encodings: unmodified Enter is `CR`
-/// because that is what "submit" means everywhere, and `Shift+Enter` keeps the
-/// backslash-CR form that made it distinguishable before extended keys were
-/// available (issue #1).
+/// That reasoning holds only for tmux. Windows runs psmux, whose input parser
+/// has no CSI-u branch at all: it consumes `CSI 13 ; 5 u` and discards it, so
+/// the chord reached no agent on Windows whatsoever (issue #692). Measured
+/// against a real psmux client in jefe's own topology, the encoding it does
+/// recognise as `C-Enter` is a bare `LF`, which it then delivers to the pane
+/// child as a genuine Enter-plus-Control console key record. That record is
+/// byte-for-byte what an agent sees when it runs in a plain Windows console,
+/// which is why the chord works there and is the reason `LF` is the right
+/// answer rather than an approximation of one.
+///
+/// `LF` is also `Ctrl+J`, so the two chords are indistinguishable on Windows.
+/// That collision predates this encoding — `Ctrl+J` has always been sent as
+/// `0x0A` — and an ambiguous chord that arrives beats an unambiguous one that
+/// is thrown away. Resolving it needs psmux's win32-input-mode handshake,
+/// which jefe's embedded terminal does not yet answer.
+///
+/// The other chords keep their existing encodings on every platform:
+/// unmodified Enter is `CR` because that is what "submit" means everywhere,
+/// and `Shift+Enter` keeps the backslash-CR form that made it distinguishable
+/// before extended keys were available (issue #1).
 fn enter_bytes(modifiers: KeyModifiers) -> (Vec<u8>, bool) {
     if modifiers.contains(KeyModifiers::SHIFT) {
         if modifiers.contains(KeyModifiers::ALT) {
@@ -113,9 +129,15 @@ fn enter_bytes(modifiers: KeyModifiers) -> (Vec<u8>, bool) {
             (b"\\\r".to_vec(), false)
         }
     } else if modifiers.contains(KeyModifiers::CONTROL) {
-        match modifiers_to_param(modifiers) {
-            Some(param) => (format!("\x1b[13;{param}u").into_bytes(), true),
-            None => (vec![b'\r'], false),
+        if cfg!(windows) {
+            // `false` leaves Alt to the shared ESC-prefix path, so
+            // `Ctrl+Alt+Enter` stays `ESC LF` rather than losing its Alt.
+            (vec![b'\n'], false)
+        } else {
+            match modifiers_to_param(modifiers) {
+                Some(param) => (format!("\x1b[13;{param}u").into_bytes(), true),
+                None => (vec![b'\r'], false),
+            }
         }
     } else {
         (vec![b'\r'], false)
@@ -329,3 +351,9 @@ pub fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec
 #[cfg(test)]
 #[path = "pty_encoding_tests.rs"]
 mod tests;
+
+// Windows is the only platform whose multiplexer is psmux, and the transport
+// defect this covers is psmux's alone (issue #692).
+#[cfg(all(test, windows))]
+#[path = "pty_encoding_transport_tests.rs"]
+mod transport_tests;
