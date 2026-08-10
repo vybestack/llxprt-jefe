@@ -514,3 +514,72 @@ fn new_issue_composer_renders_focused_form_field_text() {
         "new-issue composer must render the typed body text: {rendered_body}"
     );
 }
+
+/// Regression for issue #693: the reported "swallowed" subject. The user types
+/// a title and presses Enter, which advances focus to Body (issue #480). The
+/// embedded TextBox then shows the *body*, so before this fix the typed title
+/// disappeared from the screen even though it was still stored and still became
+/// the created issue's subject. The rendered pane must keep showing it.
+#[test]
+fn typed_new_issue_title_stays_rendered_after_focus_advances_to_body() {
+    let detail = issue_detail_with_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: String::new(),
+        cursor: 0,
+    };
+    let form = NewIssueFormState {
+        title_text: "HelloTitle".to_string(),
+        title_cursor: "HelloTitle".chars().count(),
+        focus: NewIssueFormFocus::Body,
+        ..NewIssueFormState::default()
+    };
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &inline,
+        new_issue_form: Some(&form),
+        scroll_offset: 0,
+        pane_height: 24,
+        cols: 80,
+    });
+    assert!(
+        rendered.contains("HelloTitle"),
+        "the typed title must stay visible once focus advances to the body: {rendered}"
+    );
+}
+
+/// Companion to the regression above: a typed body must likewise survive focus
+/// moving on to a picker field, so no field is left with the same defect.
+#[test]
+fn typed_new_issue_body_stays_rendered_after_focus_advances_to_labels() {
+    let detail = issue_detail_with_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: String::new(),
+        cursor: 0,
+    };
+    let form = NewIssueFormState {
+        title_text: "HelloTitle".to_string(),
+        body_text: "BodyLineOne".to_string(),
+        focus: NewIssueFormFocus::Labels,
+        ..NewIssueFormState::default()
+    };
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &inline,
+        new_issue_form: Some(&form),
+        scroll_offset: 0,
+        pane_height: 24,
+        cols: 80,
+    });
+    assert!(
+        rendered.contains("HelloTitle"),
+        "the typed title must stay visible on a picker field: {rendered}"
+    );
+    assert!(
+        rendered.contains("BodyLineOne"),
+        "the typed body must stay visible on a picker field: {rendered}"
+    );
+}

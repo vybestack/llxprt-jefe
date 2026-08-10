@@ -139,6 +139,13 @@
       "absent": []
     },
     {
+      "op": "assert-frame",
+      "contains": [
+        "HelloTitle"
+      ],
+      "absent": []
+    },
+    {
       "op": "key",
       "key": "backspace",
       "modifiers": []

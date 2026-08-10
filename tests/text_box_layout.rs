@@ -1,9 +1,20 @@
 //! Behavioral layout contracts for parent-sized text boxes (issue #408).
 
-use jefe::state::{ComposerTarget, DetailSubfocus, InlineState};
+use jefe::state::{ComposerTarget, DetailSubfocus, InlineState, NewIssueFormState};
 use jefe::text_box_view::build_text_box_view;
 use jefe::theme::ThemeColors;
 use jefe::ui::components::{IssueDetailProjectionInputs, issue_detail_props};
+
+/// The New Issue composer is only ever open alongside a form, and the document
+/// summarises that form's fields (issue #693), so the layout contract is
+/// measured against a form whose title is long enough to wrap when narrow.
+fn new_issue_form() -> NewIssueFormState {
+    NewIssueFormState {
+        title_text: "a fairly long new issue subject that has to wrap when the pane is narrow"
+            .to_string(),
+        ..NewIssueFormState::default()
+    }
+}
 
 fn new_issue_props(pane_height: u16) -> jefe::ui::components::DetailPaneProps {
     new_issue_props_at_width(pane_height, 80)
@@ -18,11 +29,12 @@ fn new_issue_props_at_width(
         text: String::new(),
         cursor: 0,
     };
+    let form = new_issue_form();
     issue_detail_props(IssueDetailProjectionInputs {
         issue_detail: None,
         detail_subfocus: DetailSubfocus::Body,
         inline_state: &inline,
-        new_issue_form: None,
+        new_issue_form: Some(&form),
         comments_loading: false,
         focused: true,
         scroll_offset: 0,
@@ -38,7 +50,8 @@ fn new_issue_composer_uses_all_rows_after_static_guidance() {
     let pane_height = 28;
     let props = new_issue_props(pane_height);
     let body_rows = jefe::layout::detail_body_viewport_rows(usize::from(pane_height));
-    let guidance_rows = jefe::issue_detail_content::build_new_issue_content(&InlineState::None)
+    let form = new_issue_form();
+    let guidance_rows = jefe::issue_detail_content::build_new_issue_content(Some(&form))
         .text
         .lines()
         .count()
@@ -68,12 +81,12 @@ fn narrow_new_issue_reserves_wrapped_guidance_rows() {
     let pane_height = 28;
     let props = new_issue_props_at_width(pane_height, 20);
     let body_rows = jefe::layout::detail_body_viewport_rows(usize::from(pane_height));
-    let logical_guidance_rows =
-        jefe::issue_detail_content::build_new_issue_content(&InlineState::None)
-            .text
-            .lines()
-            .count()
-            .max(1);
+    let form = new_issue_form();
+    let logical_guidance_rows = jefe::issue_detail_content::build_new_issue_content(Some(&form))
+        .text
+        .lines()
+        .count()
+        .max(1);
 
     assert!(
         props.viewport_rows > logical_guidance_rows,

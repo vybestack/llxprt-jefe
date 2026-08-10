@@ -157,7 +157,9 @@ fn build_header_rows(
 
 /// Resolve the content + header for the "new issue composer" branch (title
 /// "New Issue", state "Draft", bright state color).
-fn new_issue_composer_content(inline_state: &InlineState) -> (Vec<DetailHeaderRow>, DetailContent) {
+fn new_issue_composer_content(
+    form: Option<&crate::state::NewIssueFormState>,
+) -> (Vec<DetailHeaderRow>, DetailContent) {
     let rows = build_header_rows(
         "New Issue".to_string(),
         "Draft".to_string(),
@@ -165,7 +167,7 @@ fn new_issue_composer_content(inline_state: &InlineState) -> (Vec<DetailHeaderRo
         String::new(),
         DetailHeaderColor::Bright,
     );
-    (rows, build_new_issue_content(inline_state))
+    (rows, build_new_issue_content(form))
 }
 
 /// Resolve the content + header for a loaded issue detail.
@@ -263,7 +265,7 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
     let content_width = detail_content_width(inputs.available_width);
 
     let (header_rows, detail_content) = if showing_new_issue_composer {
-        new_issue_composer_content(inputs.inline_state)
+        new_issue_composer_content(inputs.new_issue_form)
     } else if let Some(detail) = inputs.issue_detail {
         loaded_issue_content(
             detail,
@@ -349,7 +351,6 @@ fn new_issue_composer_from_form(
 mod tests {
     use super::{DetailContent, build_new_issue_content, issue_detail_header_view};
     use crate::domain::{IssueDetail, IssueState, IssueStateReason};
-    use crate::state::{ComposerTarget, InlineState};
 
     fn detail_with_state(state: IssueState, state_reason: Option<IssueStateReason>) -> IssueDetail {
         IssueDetail {
@@ -424,26 +425,16 @@ mod tests {
         assert!(view.state.contains("OPEN"));
     }
 
+    /// Without a form there is nothing to summarise, so the document is just
+    /// the prompt and the composer anchor — and the stale inline draft text is
+    /// still never flattened into it (issue #212).
     #[test]
-    fn build_new_issue_content_renders_static_prompt_only() {
-        let inline = InlineState::Composer {
-            target: ComposerTarget::NewIssue,
-            text: "Issue title\nIssue body".to_string(),
-            cursor: "Issue title\nIssue body".len(),
-        };
-
-        let DetailContent { text, cursor } = build_new_issue_content(&inline);
+    fn build_new_issue_content_without_a_form_renders_prompt_and_anchor() {
+        let DetailContent { text, cursor } = build_new_issue_content(None);
 
         assert!(text.contains("New Issue"));
-        assert!(text.contains("Title: first line | Body: remaining lines"));
         assert!(text.contains("[Composer input]"));
         assert!(!text.contains("Alt+Enter submit"));
-        // The editor text is rendered by the embedded wrapping TextBox, so it
-        // must NOT be flattened into the read-only document (issue #212).
-        assert!(
-            !text.contains("Issue title"),
-            "editor text must not be flattened into the document: {text}"
-        );
         assert!(
             cursor.is_none(),
             "the TextBox owns the caret; the document must carry no cursor"
