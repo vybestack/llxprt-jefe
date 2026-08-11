@@ -324,6 +324,14 @@ fn cw11_timeout_retires_generation_and_rejects_queued_work_before_late_terminal(
             Duration::from_secs(2),
         )
         .unwrap_or_else(|err| panic!("queued invoke: {err:?}"));
+    let first_done = first.done.clone();
+    let late_terminal_marker = scene.record_dir.join("vendor.alpha.emit-late-terminal");
+    let signal_late_terminal = std::thread::spawn(move || {
+        while !first_done.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        std::fs::write(late_terminal_marker, b"1")
+    });
 
     let first_result = wait_finish(first, Instant::now() + Duration::from_secs(5));
     assert!(matches!(
@@ -335,6 +343,13 @@ fn cw11_timeout_retires_generation_and_rejects_queued_work_before_late_terminal(
         queued_result.outcome,
         OneShotOutcome::Failed(SupervisorFailure::Crashed { exit: None })
     ));
+    let marker_result = signal_late_terminal
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
+    assert!(
+        marker_result.is_ok(),
+        "late-terminal harness marker must be written"
+    );
     let third = owner.invoke(
         &plugin_id,
         RequestId::parse("h-000044").unwrap_or_else(|err| panic!("request id: {err:?}")),

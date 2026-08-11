@@ -311,28 +311,46 @@ fn project_affordances(
     snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
     rows: &mut Vec<ProjectedRow>,
 ) {
-    rows.extend(snapshot.action_affordances.iter().map(|affordance| {
-        if affordance.enabled {
-            ProjectedRow::targeted(
-                format!("[{}] {}", affordance.id, affordance.label),
-                affordance_target(snapshot, affordance),
-            )
-        } else {
-            ProjectedRow::targeted(
-                format!(
-                    "[{}] {} (unavailable: {})",
-                    affordance.id,
-                    affordance.label,
-                    affordance
-                        .unavailable_reason
-                        .as_deref()
-                        .filter(|reason| !reason.trim().is_empty())
-                        .unwrap_or("unavailable")
-                ),
-                PanelHitTarget::Unavailable,
-            )
-        }
-    }));
+    rows.extend(
+        snapshot
+            .action_affordances
+            .iter()
+            .filter(|affordance| !body_projects_affordance(&snapshot.body, affordance))
+            .map(|affordance| {
+                if affordance.enabled {
+                    ProjectedRow::targeted(
+                        format!("[{}] {}", affordance.id, affordance.label),
+                        affordance_target(snapshot, affordance),
+                    )
+                } else {
+                    ProjectedRow::targeted(
+                        format!(
+                            "[{}] {} (unavailable: {})",
+                            affordance.id,
+                            affordance.label,
+                            affordance
+                                .unavailable_reason
+                                .as_deref()
+                                .filter(|reason| !reason.trim().is_empty())
+                                .unwrap_or("unavailable")
+                        ),
+                        PanelHitTarget::Unavailable,
+                    )
+                }
+            }),
+    );
+}
+
+fn body_projects_affordance(body: &PanelBody, affordance: &Affordance) -> bool {
+    match body {
+        PanelBody::Form(body) => body.submit_action == affordance.action_id,
+        PanelBody::Error(body) => body.retry_action.as_ref() == Some(&affordance.id),
+        PanelBody::List(_)
+        | PanelBody::Detail(_)
+        | PanelBody::Status(_)
+        | PanelBody::Progress(_)
+        | PanelBody::Empty(_) => false,
+    }
 }
 
 fn affordance_target(

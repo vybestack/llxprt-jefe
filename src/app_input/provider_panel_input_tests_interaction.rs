@@ -470,17 +470,30 @@
     }
 
     #[test]
-    fn raw_form_edit_preserves_existing_values_and_stages_exactly_one_event() {
+    fn focused_raw_form_edit_preserves_existing_values_and_stages_exactly_one_event() {
         use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
 
         let (mut state, panel) = active_form(None);
         let key = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
+        assert!(
+            edit_form_field(&state, panel, &key).is_none(),
+            "unfocused character input must remain available to global bindings"
+        );
+        state
+            .provider_panels
+            .update_host_local(
+                panel,
+                HostLocal {
+                    focus_target: Some(id("name")),
+                    ..HostLocal::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("focus field: {error}"));
         let mutation = edit_form_field(&state, panel, &key)
-            .unwrap_or_else(|| panic!("valid edit must produce a field event"));
+            .unwrap_or_else(|| panic!("focused valid edit must produce a field event"));
         let RawKeyMutation::Event(event) = mutation else {
             panic!("field edit must be semantic");
         };
-        assert!(state.provider_panels.host_local(panel).is_none());
         assert!(state.submit_provider_panel_event(panel, event));
         let effects = state.take_staged_effects();
         assert_eq!(effects.len(), 1);

@@ -108,13 +108,13 @@ fn apply_mouse_target(
     panel_id: jefe::workbench::PanelId,
     target: Option<jefe::provider_panel_view::PanelHitTarget>,
 ) -> (bool, Option<Vec<jefe::domain::effects::IssuedEffect>>) {
+    let Some(instance) = panel else {
+        return (false, None);
+    };
     if matches!(target, Some(PanelHitTarget::Unavailable)) {
         return (false, None);
     }
     if let Some(PanelHitTarget::Field(field_id)) = target {
-        let Some(instance) = panel else {
-            return (false, None);
-        };
         if !focus_form_field(state, instance, field_id) {
             return (false, None);
         }
@@ -124,9 +124,6 @@ fn apply_mouse_target(
     let Some(target) = target else {
         state.nav.current_mut().panel_focus = panel_id;
         return (true, None);
-    };
-    let Some(instance) = panel else {
-        return (false, None);
     };
     let Some(event) = mouse_event(state, instance, target) else {
         return (false, None);
@@ -651,8 +648,7 @@ fn edit_form_field(
     let field = prior
         .focus_target
         .as_ref()
-        .and_then(|id| form.fields.iter().find(|field| field.id() == id))
-        .or_else(|| form.fields.first())?
+        .and_then(|id| form.fields.iter().find(|field| field.id() == id))?
         .clone();
     let current = prior
         .form_draft

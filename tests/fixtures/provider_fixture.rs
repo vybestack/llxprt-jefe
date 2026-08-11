@@ -644,14 +644,16 @@ fn persistent_ready_loop(mode: &str, generation: u64, plugin_id: &str) -> Result
     loop {
         let line = next_line()?;
         match frame_type(&line).as_deref() {
-            Some("invoke-action") => emit_persistent_invocation(mode, generation),
+            Some("invoke-action") => {
+                emit_persistent_invocation(mode, generation, record_dir.as_deref(), plugin_id);
+            }
             Some("cancel") => {
                 record_cancel_received(record_dir.as_deref(), plugin_id);
                 if mode == "persistent-cancel-then-terminal" {
                     emit(&frame(
                         "outcome",
                         generation,
-                        r#"{\"kind\":\"navigate\",\"route_id\":\"r.home\",\"activation\":{}}"#,
+                        r#"{"kind":"navigate","route_id":"r.home","activation":{}}"#,
                     ));
                 }
             }
@@ -689,18 +691,23 @@ fn frame_type(line: &str) -> Option<String> {
 /// repeated-invocation path). `persistent-invoke-hang` emits one progress and
 /// never a terminal (cancel/timeout evidence). `persistent-invoke-then-crash`
 /// emits one progress then exits 1 (post-Ready crash during invocation).
-fn emit_persistent_invocation(mode: &str, generation: u64) {
+fn emit_persistent_invocation(
+    mode: &str,
+    generation: u64,
+    record_dir: Option<&str>,
+    plugin_id: &str,
+) {
     match mode {
         "persistent-invoke-hang" | "persistent-cancel-then-terminal" => {
             emit(&progress_frame(generation, 1));
         }
         "persistent-timeout-then-terminal" => {
             emit(&progress_frame(generation, 1));
-            std::thread::sleep(std::time::Duration::from_millis(1_200));
+            wait_for_late_terminal_signal(record_dir, plugin_id);
             emit(&frame(
                 "outcome",
                 generation,
-                r#"{\"kind\":\"navigate\",\"route_id\":\"r.late\",\"activation\":{}}"#,
+                r#"{"kind":"navigate","route_id":"r.late","activation":{}}"#,
             ));
         }
         "persistent-invoke-then-crash" => {
@@ -717,6 +724,21 @@ fn emit_persistent_invocation(mode: &str, generation: u64) {
                 r#"{"kind":"navigate","route_id":"r.home","activation":{}}"#,
             ));
         }
+    }
+}
+
+/// Wait for the host harness to confirm that its invocation timeout terminal
+/// has been published before emitting the deliberately late provider terminal.
+/// The bound prevents a standalone fixture process from waiting forever.
+fn wait_for_late_terminal_signal(dir: Option<&str>, plugin_id: &str) {
+    let marker =
+        dir.map(|dir| std::path::Path::new(dir).join(format!("{plugin_id}.emit-late-terminal")));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if marker.as_ref().is_some_and(|path| path.exists()) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 

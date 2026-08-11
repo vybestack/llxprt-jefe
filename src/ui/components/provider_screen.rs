@@ -4,6 +4,7 @@
 //! every visible panel is drawn at its resolved chrome/content rectangle.
 
 use iocraft::prelude::*;
+use unicode_width::UnicodeWidthStr;
 
 use crate::provider_panel_view::{PanelProjection, PanelStatus, project_provider_screen};
 use crate::state::AppState;
@@ -124,7 +125,7 @@ fn render_panel(
         }
         .into_any(),
     );
-    let title = panel_title(panel);
+    let title = fitted_panel_title(panel, chrome);
     let title_rect = panel_title_rect(chrome, &title);
     children.push(absolute_text(title_rect, title, border_color));
 
@@ -159,8 +160,15 @@ fn panel_title(panel: &PanelProjection) -> String {
     }
 }
 
+fn fitted_panel_title(panel: &PanelProjection, chrome: Rect) -> String {
+    crate::ui::util::truncate_with_ellipsis(
+        &panel_title(panel),
+        usize::from(chrome.width.saturating_sub(2)),
+    )
+}
+
 fn panel_title_rect(chrome: Rect, title: &str) -> Rect {
-    let width = u16::try_from(title.chars().count())
+    let width = u16::try_from(UnicodeWidthStr::width(title))
         .unwrap_or(u16::MAX)
         .min(chrome.width.saturating_sub(2));
     Rect {
@@ -180,7 +188,7 @@ fn absolute_text(rect: Rect, content: String, color: Color) -> AnyElement<'stati
             width: u32::from(rect.width),
             height: u32::from(rect.height),
         ) {
-            Text(content: content, color: color)
+            Text(content: content, color: color, wrap: TextWrap::NoWrap)
         }
     }
     .into_any()
@@ -241,8 +249,22 @@ mod tests {
     fn panel_title_is_clipped_inside_narrow_resolved_chrome() {
         let chrome = Rect::new(7, 4, 5, 3);
         let panel = projection(false, chrome, Rect::new(8, 5, 3, 1));
-        let title = panel_title(&panel);
+        let title = fitted_panel_title(&panel, chrome);
 
+        assert_eq!(title, " M…");
         assert_eq!(panel_title_rect(chrome, &title), Rect::new(8, 4, 3, 1));
+    }
+
+    #[test]
+    fn panel_title_uses_terminal_columns_for_wide_unicode() {
+        let chrome = Rect::new(2, 3, 8, 4);
+        let mut panel = projection(false, chrome, Rect::new(3, 4, 6, 2));
+        panel.title = "界界界".to_owned();
+
+        let title = fitted_panel_title(&panel, chrome);
+
+        assert_eq!(title, " 界界…");
+        assert_eq!(UnicodeWidthStr::width(title.as_str()), 6);
+        assert_eq!(panel_title_rect(chrome, &title), Rect::new(3, 3, 6, 1));
     }
 }

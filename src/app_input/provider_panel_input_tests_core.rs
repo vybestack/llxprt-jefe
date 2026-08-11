@@ -509,6 +509,24 @@
     }
 
     #[test]
+    fn mouse_target_without_provider_instance_is_not_consumed() {
+        let mut state = AppState::default();
+        let prior_focus = state.nav.current().panel_focus;
+
+        let (consumed, staged) = apply_mouse_target(
+            &mut state,
+            None,
+            PanelId::from_static("pty-terminal"),
+            None,
+        );
+
+        assert!(!consumed);
+        assert!(staged.is_none());
+        assert_eq!(state.nav.current().panel_focus, prior_focus);
+        assert!(state.take_staged_effects().is_empty());
+    }
+
+    #[test]
     fn stale_mouse_target_preserves_focus_error_local_state_and_effects() {
         let (mut state, panel) = active_list();
         let prior_focus = state.nav.current().panel_focus;

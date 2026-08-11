@@ -539,24 +539,22 @@ fn form_body_projects_fields_errors_and_submit() {
     let field = string_field("vendor.name", "Name");
     let mut values = TypedMap::new();
     values.insert(id("vendor.name"), TypedValue::String("hello".to_owned()));
-    accept_snapshot(
-        &mut state,
+    let mut snapshot = snapshot_with_body(
         panel,
-        snapshot_with_body(
-            panel,
-            1,
-            PanelBody::Form(FormBody {
-                fields: vec![field],
-                values,
-                field_errors: vec![FormFieldError {
-                    field_id: id("vendor.name"),
-                    message: "too short".to_owned(),
-                }],
-                submit_action: action_id("vendor.submit"),
-            }),
-            BodyKind::Form,
-        ),
+        1,
+        PanelBody::Form(FormBody {
+            fields: vec![field],
+            values,
+            field_errors: vec![FormFieldError {
+                field_id: id("vendor.name"),
+                message: "too short".to_owned(),
+            }],
+            submit_action: action_id("vendor.run"),
+        }),
+        BodyKind::Form,
     );
+    snapshot.action_affordances = vec![affordance("submit", "Submit", true, None)];
+    accept_snapshot(&mut state, panel, snapshot);
     let view = project_provider_screen(
         &descriptor,
         1,
@@ -574,7 +572,20 @@ fn form_body_projects_fields_errors_and_submit() {
     assert!(
         main.lines
             .iter()
-            .any(|l| l.contains("submit: vendor.submit"))
+            .any(|l| l.contains("submit: vendor.run"))
+    );
+    assert_eq!(
+        main.hit_targets
+            .iter()
+            .filter(|target| matches!(target, Some(PanelHitTarget::Submit)))
+            .count(),
+        1
+    );
+    assert!(
+        !main
+            .hit_targets
+            .iter()
+            .any(|target| matches!(target, Some(PanelHitTarget::Action(id)) if id.as_str() == "submit"))
     );
 }
 
@@ -711,21 +722,19 @@ fn error_body_projects_code_message_and_retry() {
         1,
         &[BodyKind::Error],
     );
-    accept_snapshot(
-        &mut state,
+    let mut snapshot = snapshot_with_body(
         panel,
-        snapshot_with_body(
-            panel,
-            1,
-            PanelBody::Error(ErrorBody {
-                code: "PLG-E502".to_owned(),
-                message: "failed".to_owned(),
-                retryable: true,
-                retry_action: Some(id("retry")),
-            }),
-            BodyKind::Error,
-        ),
+        1,
+        PanelBody::Error(ErrorBody {
+            code: "PLG-E502".to_owned(),
+            message: "failed".to_owned(),
+            retryable: true,
+            retry_action: Some(id("retry")),
+        }),
+        BodyKind::Error,
     );
+    snapshot.action_affordances = vec![affordance("retry", "Retry", true, None)];
+    accept_snapshot(&mut state, panel, snapshot);
     let view = project_provider_screen(
         &descriptor,
         1,
@@ -738,6 +747,19 @@ fn error_body_projects_code_message_and_retry() {
         main.lines
             .iter()
             .any(|l| l.contains("PLG-E502 failed [Retry: retry]"))
+    );
+    assert_eq!(
+        main.hit_targets
+            .iter()
+            .filter(|target| matches!(target, Some(PanelHitTarget::Retry)))
+            .count(),
+        1
+    );
+    assert!(
+        !main
+            .hit_targets
+            .iter()
+            .any(|target| matches!(target, Some(PanelHitTarget::Action(id)) if id.as_str() == "retry"))
     );
 }
 
