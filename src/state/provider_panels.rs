@@ -10,6 +10,7 @@
 //! Every protocol/model failure is observable as [`PanelError`] carrying the
 //! `PLG-E502` code without echoing the offending value.
 
+use crate::domain::action_registry::ActionId;
 use crate::domain::plugin::field::Field;
 use crate::domain::{Id, TypedMap};
 use crate::runtime::provider::protocol::{
@@ -289,6 +290,8 @@ pub struct DeclareInput<'a> {
     pub allowed_model_kinds: &'a [BodyKind],
     /// Semantic events declared by the exact selected manifest.
     pub allowed_events: &'a [EventDeclaration],
+    /// Owner-declared action ids that snapshot affordances may reference.
+    pub action_authority: &'a [ActionId],
     /// The fixed provider-process generation.
     pub process_generation: u64,
 }
@@ -477,6 +480,7 @@ struct PanelRecord {
     activation: TypedMap,
     allowed_model_kinds: Vec<BodyKind>,
     allowed_events: Vec<EventDeclaration>,
+    action_authority: Vec<ActionId>,
     process_generation: u64,
     lifecycle: PanelLifecycle,
     generation: u64,
@@ -498,6 +502,7 @@ impl PanelRecord {
             activation: command.activation.clone(),
             allowed_model_kinds: command.allowed_model_kinds.to_vec(),
             allowed_events: command.allowed_events.to_vec(),
+            action_authority: command.action_authority.to_vec(),
             process_generation: command.process_generation,
             lifecycle: PanelLifecycle::Declared,
             generation: 0,

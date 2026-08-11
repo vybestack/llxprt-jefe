@@ -296,6 +296,7 @@ impl AppState {
                         activation: &activation,
                         allowed_model_kinds: &allowed_model_kinds,
                         allowed_events: &allowed_events,
+                        action_authority: &binding.action_authority,
                         process_generation:
                             crate::runtime::provider::protocol::INITIAL_PROCESS_GENERATION,
                     });
@@ -330,13 +331,20 @@ impl AppState {
             PanelEvent::Selected { id } => Some(id.clone()),
             _ => None,
         };
+        let field_change = match &event {
+            PanelEvent::FieldChanged { field_id, value } => Some((field_id.clone(), value.clone())),
+            _ => None,
+        };
         match self.provider_panels.submit_live_event(panel, event) {
-            Ok(EventOutcome::None) => false,
             Ok(EventOutcome::Event(effect)) => {
-                if let Some(id) = selected
-                    && let Err(error) = self.update_panel_host_selection(panel, id)
-                {
-                    self.error_message = Some(error.to_string());
+                let local_result = if let Some(id) = selected {
+                    self.update_panel_host_selection(panel, id)
+                } else if let Some((field_id, value)) = field_change {
+                    self.update_panel_host_field(panel, field_id, value)
+                } else {
+                    Ok(())
+                };
+                if local_result.is_err() {
                     return false;
                 }
                 self.stage_panel_event(effect);
@@ -346,10 +354,7 @@ impl AppState {
                 self.stage_panel_activate(effect);
                 true
             }
-            Err(error) => {
-                self.error_message = Some(error.to_string());
-                false
-            }
+            Ok(EventOutcome::None) | Err(_) => false,
         }
     }
 
@@ -364,6 +369,37 @@ impl AppState {
             scroll_offset: prior.as_ref().map_or(0, |local| local.scroll_offset),
             selected_id: Some(selected_id),
             form_draft: prior.and_then(|local| local.form_draft),
+        };
+        self.provider_panels.update_host_local(panel, host)
+    }
+
+    fn update_panel_host_field(
+        &mut self,
+        panel: crate::state::provider_panels::PanelInstanceId,
+        field_id: crate::domain::Id,
+        value: crate::domain::TypedValue,
+    ) -> Result<(), crate::state::provider_panels::PanelError> {
+        let prior = self
+            .provider_panels
+            .host_local(panel)
+            .cloned()
+            .unwrap_or_default();
+        let initial_values = self
+            .provider_panels
+            .accepted_snapshot(panel)
+            .and_then(|snapshot| match &snapshot.body {
+                crate::runtime::provider::protocol::PanelBody::Form(form) => {
+                    Some(form.values.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+        let mut form_draft = prior.form_draft.clone().unwrap_or(initial_values);
+        form_draft.insert(field_id.clone(), value);
+        let host = crate::runtime::provider::protocol::HostLocal {
+            focus_target: Some(field_id),
+            form_draft: Some(form_draft),
+            ..prior
         };
         self.provider_panels.update_host_local(panel, host)
     }

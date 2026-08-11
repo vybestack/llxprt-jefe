@@ -107,6 +107,10 @@ pub fn handle_fullscreen_mouse(
 ) {
     let shift_held = mouse_event.modifiers.contains(iocraft::KeyModifiers::SHIFT);
     mouse_click.write().observe(&mouse_event);
+    if route_provider_panel_mouse(ctx, app_state, &mouse_event) {
+        mouse_click.write().clear();
+        return;
+    }
     let (terminal_active, mouse_reporting_active) = terminal_target_info(ctx, app_state);
     let overlay_active = app_state.read().shell_overlay_active();
     if terminal_active
@@ -153,6 +157,45 @@ pub fn handle_fullscreen_mouse(
         _ => {}
     }
 }
+/// Route supported provider-panel mouse input through the frame projection.
+///
+/// Unsupported buttons, releases, drags, and coordinates outside a provider
+/// panel pass through unchanged.
+fn route_provider_panel_mouse(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) -> bool {
+    use crate::app_input::ProviderPanelMouseAction;
+    use crossterm::event::{MouseButton, MouseEventKind};
+    let action = match mouse_event.kind {
+        MouseEventKind::Down(MouseButton::Left) => ProviderPanelMouseAction::Click,
+        MouseEventKind::ScrollUp => ProviderPanelMouseAction::ScrollUp,
+        MouseEventKind::ScrollDown => ProviderPanelMouseAction::ScrollDown,
+        _ => return false,
+    };
+    let Some(ctx) = ctx else {
+        return false;
+    };
+    let shared_ctx = Some(ctx.clone());
+    crate::app_input::apply_provider_panel_mouse(
+        app_state,
+        &shared_ctx,
+        mouse_event.column,
+        mouse_event.row,
+        action,
+    )
+}
+
+#[cfg(test)]
+fn set_provider_panel_focus(state: &mut AppState, col: u16, row: u16) {
+    if let Some(layout) = &state.resolved_layout
+        && let Some(panel) = layout.panel_at(col, row)
+    {
+        state.nav.current_mut().panel_focus = panel.id;
+    }
+}
+
 fn is_left_button(kind: crossterm::event::MouseEventKind) -> bool {
     matches!(
         kind,

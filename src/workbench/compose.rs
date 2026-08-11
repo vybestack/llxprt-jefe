@@ -31,8 +31,10 @@ use crate::persistence::screen_files::{
 };
 use crate::persistence::settings_document::PublishedSettings;
 
+use super::config::{CHROME_TOP, insets_config};
 use super::descriptor::{LayoutNode, ScreenDescriptor};
 use super::diagnostics::ScreenDiagnostic;
+use super::geometry::Insets;
 use super::ids::CUSTOM_SCREEN_NAMESPACE;
 use super::lowering_error::LoweringError;
 use super::screen_file::parse_screen_file;
@@ -178,14 +180,16 @@ fn compose_package_screens(
                 })
                 .refuse(&path));
             };
-            let lowered = lower_package_screen(&file, expected.as_str(), &allowed, &file_path)
+            let mut lowered = lower_package_screen(&file, expected.as_str(), &allowed, &file_path)
                 .map_err(|error| CandidateFailure::Lowering(error).refuse(&path))?;
+            apply_package_panel_chrome(&mut lowered.descriptor, &path)?;
             for panel in &lowered.descriptor.panels {
                 let declaration = manifest
                     .panels()
                     .iter()
                     .find(|candidate| candidate.id().as_str() == panel.panel_type.as_str());
                 if let Some(declaration) = declaration {
+                    let action_authority = package_action_authority(manifest, expected, &path)?;
                     panel_bindings.push(PackagePanelBinding {
                         screen: lowered.descriptor.id,
                         panel: panel.id,
@@ -193,6 +197,7 @@ fn compose_package_screens(
                         panel_type: declaration.id().clone(),
                         model_kinds: declaration.model_kinds().to_vec(),
                         event_schema: declaration.event_schema().to_vec(),
+                        action_authority,
                     });
                 }
             }
@@ -200,6 +205,42 @@ fn compose_package_screens(
         }
     }
     Ok(())
+}
+
+fn apply_package_panel_chrome(
+    descriptor: &mut ScreenDescriptor,
+    path: &DiagnosticPath,
+) -> Result<(), CompositionRefused> {
+    let panel_config = insets_config(Insets::new(1, 1, 1, 1)).ok_or_else(|| {
+        CandidateFailure::Lowering(LoweringError::ConfigKey {
+            key: CHROME_TOP.to_owned(),
+        })
+        .refuse(path)
+    })?;
+    descriptor
+        .panels
+        .iter_mut()
+        .for_each(|panel| panel.config.clone_from(&panel_config));
+    Ok(())
+}
+
+fn package_action_authority(
+    manifest: &crate::domain::plugin::Manifest,
+    screen: &Id,
+    path: &DiagnosticPath,
+) -> Result<Vec<crate::domain::action_registry::ActionId>, CompositionRefused> {
+    manifest
+        .actions()
+        .iter()
+        .filter(|action| action.contexts().contains(screen))
+        .map(|action| crate::domain::action_registry::ActionId::parse(action.id().as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CandidateFailure::Lowering(LoweringError::IdentityMismatch {
+                expected: error.to_string(),
+            })
+            .refuse(path)
+        })
 }
 
 /// Replace the layout of every screen settings override, or say why not.

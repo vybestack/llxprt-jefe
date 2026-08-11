@@ -447,7 +447,7 @@ fn plugin_config_catalogs(
 ) -> (PluginConfigCatalog, InstalledPluginConfigCatalog) {
     let packages = &startup.plugin_packages;
     let selected =
-        jefe::persistence::plugin_inventory::selected_packages(packages, &startup.settings)
+        jefe::persistence::plugin_inventory::configured_packages(packages, &startup.settings)
             .into_iter()
             .filter_map(|package| {
                 package.manifest().config().map(|schema| {

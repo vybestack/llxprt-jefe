@@ -9,6 +9,10 @@ mod provider_panel_input;
 pub use provider_dispatch::{
     ProviderSurfaceControl, dispatch_provider_surface_control, invoke_provider_action,
 };
+pub use provider_panel_input::apply_raw_key as apply_provider_panel_raw_key;
+pub use provider_panel_input::{
+    ProviderPanelMouseAction, apply_mouse as apply_provider_panel_mouse,
+};
 #[cfg(test)]
 #[path = "action_handlers_tests.rs"]
 mod action_handlers_tests;

@@ -92,6 +92,27 @@ fn inclusive_bounds_enum_choices_and_unique_lists_are_enforced() {
 }
 
 #[test]
+fn path_values_accept_4096_bytes_and_reject_4097() {
+    let path = field(FieldKind::Path);
+    assert_eq!(
+        validate_field_value(
+            &path,
+            &TypedValue::String("x".repeat(crate::domain::plugin::field::PATH_VALUE_BYTE_LIMIT))
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validate_field_value(
+            &path,
+            &TypedValue::String(
+                "x".repeat(crate::domain::plugin::field::PATH_VALUE_BYTE_LIMIT + 1)
+            )
+        ),
+        Err(ConfigValueErrorKind::AboveMaximum)
+    );
+}
+
+#[test]
 fn visibility_is_a_sibling_present_truthy_gate_and_required_is_visible_only() {
     let gate = Field::parse(FieldDraft {
         id: id("enabled"),

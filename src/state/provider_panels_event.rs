@@ -53,8 +53,7 @@ pub(super) fn validate_event_against_snapshot(
         PanelEvent::PageRequested { token } => page_token_matches(snapshot, token),
         PanelEvent::Cancel => progress_cancellable(snapshot),
         PanelEvent::LinkSelected { link_id } => link_is_enabled(snapshot, link_id),
-        // Retry is handled before snapshot validation.
-        PanelEvent::Retry => false,
+        PanelEvent::Retry => retry_is_enabled(snapshot),
     }
 }
 
@@ -132,6 +131,19 @@ fn link_is_enabled(snapshot: &PanelSnapshot, link_id: &Id) -> bool {
             .action_affordances
             .iter()
             .any(|affordance| affordance.enabled && &affordance.id == link_id)
+}
+
+fn retry_is_enabled(snapshot: &PanelSnapshot) -> bool {
+    let PanelBody::Error(error) = &snapshot.body else {
+        return false;
+    };
+    error.retryable
+        && error.retry_action.as_ref().is_some_and(|retry_action| {
+            snapshot
+                .action_affordances
+                .iter()
+                .any(|affordance| affordance.enabled && &affordance.id == retry_action)
+        })
 }
 
 fn progress_cancellable(snapshot: &PanelSnapshot) -> bool {

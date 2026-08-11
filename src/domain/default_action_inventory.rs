@@ -382,6 +382,30 @@ const SPECS: &[Spec] = &[
         H::ProviderPanelCancel,
         ["c"]
     ),
+    spec!(
+        "workbench",
+        "workbench.panel-action",
+        H::ProviderPanelAction,
+        ["a"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-submit",
+        H::ProviderPanelSubmit,
+        ["s"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-page-next",
+        H::ProviderPanelPageNext,
+        ["n"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-link-select",
+        H::ProviderPanelLinkSelect,
+        ["l"]
+    ),
     spec!(protected "split", "split.back", H::ExitSplit, ["Esc"]),
     spec!(
         "split",

@@ -264,7 +264,8 @@ impl ProviderPanelState {
     ///
     /// Undeclared, invalid, disabled, or stale events emit [`EventOutcome::None`]
     /// with zero mutation. A `Retry` event from `Failed` emits a fresh
-    /// [`EventOutcome::Activate`].
+    /// [`EventOutcome::Activate`]; an active error model's retry is a normal
+    /// provider event validated against that model.
     ///
     /// # Errors
     ///
@@ -274,7 +275,9 @@ impl ProviderPanelState {
         if self.panels[index].lifecycle == PanelLifecycle::Disposed {
             return Ok(EventOutcome::None);
         }
-        if matches!(command.event, PanelEvent::Retry) {
+        if matches!(command.event, PanelEvent::Retry)
+            && self.panels[index].lifecycle == PanelLifecycle::Failed
+        {
             let Some(declaration) = matching_declaration(command.allowed_events, &command.event)
             else {
                 return Ok(EventOutcome::None);
@@ -493,6 +496,7 @@ impl ProviderPanelState {
             || !self.panels[index]
                 .allowed_model_kinds
                 .contains(&command.snapshot.kind)
+            || !affordances_valid(&self.panels[index].action_authority, command.snapshot)
         {
             self.panels[index].lifecycle = PanelLifecycle::Failed;
             if let Some(model) = &mut self.panels[index].accepted {
@@ -559,6 +563,23 @@ fn base_event_correlation_ok(record: &PanelRecord, command: &SubmitEvent) -> boo
 // child module; event validation lives in the private `event_validation`
 // child module.
 // ---------------------------------------------------------------------------
+
+/// Whether every affordance in a snapshot is authorized by the owner's declared
+/// action ids.
+///
+/// An affordance whose `action_id` is not declared by the owner is rejected. A
+/// disabled affordance must carry a nonempty `unavailable_reason`. The check is
+/// atomic: if any affordance fails, the whole snapshot is invalid.
+fn affordances_valid(authority: &[ActionId], snapshot: &PanelSnapshot) -> bool {
+    snapshot.action_affordances.iter().all(|affordance| {
+        authority.contains(&affordance.action_id)
+            && (affordance.enabled
+                || affordance
+                    .unavailable_reason
+                    .as_ref()
+                    .is_some_and(|reason| !reason.trim().is_empty()))
+    })
+}
 
 #[cfg(test)]
 #[path = "provider_panels_tests.rs"]

@@ -12,7 +12,9 @@ use std::fs;
 use std::path::Path;
 
 use super::compose::{CompositionRefused, compose_screens_with_packages};
-use super::ids::{PluginScreenId, ScreenIdentity};
+use super::config::panel_insets;
+use super::geometry::Insets;
+use super::ids::{PanelId, PluginScreenId, ScreenIdentity};
 use super::intern::intern;
 use super::screens::{ScreenRegistry, builtin_screens};
 
@@ -62,6 +64,43 @@ fn manifest_json(id: &str, version: &str, host: &HostTriple, screens_json: &str)
           "screens": {screens_json}
         }}"#,
         host.as_str()
+    )
+}
+
+fn manifest_with_actions(id: &str, version: &str, host: &HostTriple, screens_json: &str) -> String {
+    let manifest = manifest_json(id, version, host, screens_json);
+    manifest.replace(
+        "\"actions\": []",
+        &format!(
+            r#""actions": [
+              {{
+                "id": "{id}.run",
+                "label": "Run",
+                "description": "Run here",
+                "category": "tasks",
+                "contexts": ["{id}.main"],
+                "arguments": [],
+                "timeout_seconds": 30,
+                "destructive": false,
+                "confirmation": "none",
+                "handler": "{id}.handler",
+                "allowed_outcomes": []
+              }},
+              {{
+                "id": "{id}.elsewhere",
+                "label": "Elsewhere",
+                "description": "Run elsewhere",
+                "category": "tasks",
+                "contexts": ["core.dashboard"],
+                "arguments": [],
+                "timeout_seconds": 30,
+                "destructive": false,
+                "confirmation": "none",
+                "handler": "{id}.handler",
+                "allowed_outcomes": []
+              }}
+            ]"#
+        ),
     )
 }
 
@@ -212,12 +251,23 @@ fn selected_package_screen_joins_registry() {
     let published = settings(&packages, &[("vendor.demo", Some("1.0.0"))]);
     let composition = compose(&packages, &published)
         .unwrap_or_else(|error| unreachable!("composition must succeed: {error}"));
+    let identity = package_identity("vendor.demo", "screen");
     assert!(
-        contains(
-            &composition.registry,
-            package_identity("vendor.demo", "screen")
-        ),
+        contains(&composition.registry, identity),
         "the selected package screen must be in the registry"
+    );
+    let descriptor = composition
+        .registry
+        .get_identity(identity)
+        .unwrap_or_else(|| panic!("the selected descriptor must be retained"));
+    let panel = descriptor
+        .panels
+        .first()
+        .unwrap_or_else(|| panic!("the selected descriptor must retain its panel"));
+    assert_eq!(
+        panel_insets(&panel.config),
+        Insets::new(1, 1, 1, 1),
+        "package panel content must not overlap its host-rendered border and title"
     );
 }
 
@@ -385,9 +435,9 @@ fn package_screen_identity_not_in_manifest_is_refused() {
             "vendor.demo",
             "1.0.0",
             &host,
-            r#"[{ "path": "screens/main.screen.toml", "screen_ids": ["vendor.demo.screen", "vendor.demo.other"] }]"#,
+            r#"[{ "path": "screens/main.screen.toml", "screen_ids": ["vendor.demo.screen"] }]"#,
         ),
-        // The file declares a screen id that does not match any manifest-declared
+        // The file declares a screen id that does not match the manifest-declared
         // screen id.
         Some(&screen_toml("vendor.demo.wrong", "vendor.demo.list")),
     );
@@ -410,7 +460,6 @@ fn package_screen_identity_not_in_manifest_is_refused() {
             .redacted_detail
             .contains("vendor.demo.screen")
     );
-    assert!(refusal.screen.redacted_detail.contains("vendor.demo.other"));
     assert!(!refusal.screen.redacted_detail.contains("vendor.demo.wrong"));
 }
 
@@ -623,4 +672,37 @@ fn selected_package_screen_preserves_builtin_screens() {
             .is_some(),
         "compiled screens must still be present"
     );
+}
+
+#[test]
+fn panel_action_authority_contains_only_actions_available_on_its_screen() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    let screens = contribution("screens/main.screen.toml", "vendor.pkg.main");
+    let manifest = manifest_with_actions("vendor.pkg", "1.0.0", &host, &screens);
+    write_package(
+        &root,
+        "vendor.pkg",
+        "1.0.0",
+        &manifest,
+        Some(&screen_toml("vendor.pkg.main", "vendor.pkg.list")),
+    );
+    let packages = scan_root(&root);
+    let published = settings(&packages, &[("vendor.pkg", Some("1.0.0"))]);
+
+    let composition =
+        compose(&packages, &published).unwrap_or_else(|error| panic!("compose: {error}"));
+    let binding = composition
+        .registry
+        .panel_binding(
+            package_identity("vendor.pkg", "main"),
+            &PanelId::from_static("list"),
+        )
+        .unwrap_or_else(|| panic!("package panel binding must exist"));
+
+    assert_eq!(binding.action_authority.len(), 1);
+    assert_eq!(binding.action_authority[0].as_str(), "vendor.pkg.run");
 }

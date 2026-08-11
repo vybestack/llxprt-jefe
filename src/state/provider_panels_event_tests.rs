@@ -12,8 +12,8 @@ use crate::domain::action_registry::ActionId;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
 use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{
-    Affordance, BodyKind, DetailBody, EmptyBody, FormBody, ListBody, ListItem, PanelBody,
-    PanelEvent, PanelSnapshot, ProgressBody,
+    Affordance, BodyKind, DetailBody, EmptyBody, ErrorBody, FormBody, ListBody, ListItem,
+    PanelBody, PanelEvent, PanelSnapshot, ProgressBody,
 };
 use crate::test_support::{Must, MustErr};
 use crate::workbench::PanelId;
@@ -53,6 +53,11 @@ fn declare_and_activate(state: &mut ProviderPanelState) -> PanelInstanceId {
             arguments: Vec::new(),
         },
     ];
+    let action_authority = [
+        action_id("vendor.run"),
+        action_id("vendor.submit"),
+        action_id("vendor.open"),
+    ];
     let outcome = state
         .declare(DeclareInput {
             owner: &owner(),
@@ -70,6 +75,7 @@ fn declare_and_activate(state: &mut ProviderPanelState) -> PanelInstanceId {
                 BodyKind::Error,
             ],
             allowed_events: &allowed_events,
+            action_authority: &action_authority,
             process_generation: 1,
         })
         .must("declare");
@@ -667,6 +673,52 @@ fn link_selected_requires_an_enabled_detail_action() {
         },
         &declaration,
     ));
+}
+
+#[test]
+fn active_error_retry_requires_retryable_body_and_enabled_affordance() {
+    for (retryable, enabled, emits) in [
+        (true, true, true),
+        (false, true, false),
+        (true, false, false),
+    ] {
+        let mut state = ProviderPanelState::new();
+        let panel = declare_and_activate(&mut state);
+        let retry = id("retry");
+        accept(
+            &mut state,
+            panel,
+            &PanelSnapshot {
+                model_schema: MODEL_SCHEMA,
+                panel_instance_id: panel.as_u64(),
+                generation: 1,
+                revision: 1,
+                kind: BodyKind::Error,
+                title: "error".to_owned(),
+                description: None,
+                loading: false,
+                action_affordances: vec![Affordance {
+                    id: retry.clone(),
+                    label: "Retry".to_owned(),
+                    action_id: action_id("vendor.run"),
+                    arguments: None,
+                    enabled,
+                    unavailable_reason: (!enabled).then(|| "not now".to_owned()),
+                }],
+                body: PanelBody::Error(ErrorBody {
+                    code: "failed".to_owned(),
+                    message: "try again".to_owned(),
+                    retryable,
+                    retry_action: Some(retry),
+                }),
+            },
+        );
+
+        let outcome = state
+            .submit_live_event(panel, PanelEvent::Retry)
+            .must("retry event processed");
+        assert_eq!(matches!(outcome, EventOutcome::Event(_)), emits);
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -103,6 +103,34 @@ version = "3.0.0"
 }
 
 #[test]
+fn configured_packages_retain_the_exact_disabled_source_version() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.pkg", "1.0.0");
+    write_package(&root, "vendor.pkg", "2.0.0");
+    let inventory = scan(&[user_root(&root)]);
+    let settings = published_settings(
+        &inventory,
+        br#"settings_schema = 2
+
+[plugins."vendor.pkg"]
+enabled = false
+version = "1.0.0"
+"#,
+    );
+
+    let configured: Vec<String> = configured_packages(inventory.packages(), &settings)
+        .into_iter()
+        .map(|package| package.coordinate().to_string())
+        .collect();
+
+    assert_eq!(configured, vec!["vendor.pkg@1.0.0"]);
+    assert!(selected_packages(inventory.packages(), &settings).is_empty());
+}
+
+#[test]
 fn selected_packages_default_to_highest_precedence_installed_version() {
     let Ok(temp) = tempfile::tempdir() else {
         return;

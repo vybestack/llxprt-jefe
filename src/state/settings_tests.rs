@@ -102,9 +102,12 @@ fn source_with_selected_config(bytes: &[u8]) -> SettingsSource {
     source
 }
 
-fn opened_migration_draft() -> (AppState, Id, CanonicalSemver) {
-    let bytes = b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = \"https://example.test\"\n";
-    let mut input = source_with_selected_config(bytes);
+fn opened_migration_draft_with_enabled(source_enabled: bool) -> (AppState, Id, CanonicalSemver) {
+    let enabled = if source_enabled { "true" } else { "false" };
+    let bytes = format!(
+        "settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = {enabled}\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = \"https://example.test\"\n"
+    );
+    let mut input = source_with_selected_config(bytes.as_bytes());
     let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner fixture: {error}"));
     let region = Field::parse(FieldDraft {
         id: Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
@@ -141,6 +144,10 @@ fn opened_migration_draft() -> (AppState, Id, CanonicalSemver) {
         version: target_version.clone(),
     }));
     (state, owner, target_version)
+}
+
+fn opened_migration_draft() -> (AppState, Id, CanonicalSemver) {
+    opened_migration_draft_with_enabled(true)
 }
 
 /// A state with Settings open over `bytes`.
@@ -271,6 +278,29 @@ fn save_detects_schema_migration_before_target_schema_validation() {
         Some(&TypedValue::String("https://example.test".to_owned()))
     );
     assert!(!matches!(draft_status(&state), DraftStatus::Saving { .. }));
+}
+
+#[test]
+fn re_enabling_a_dormant_owner_with_a_schema_upgrade_requires_migration() {
+    let (mut state, owner, target_version) = opened_migration_draft_with_enabled(false);
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::PluginEnabled {
+            plugin: owner.clone(),
+            enabled: true,
+        }),
+    );
+
+    apply(&mut state, SettingsMessage::Save);
+
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("re-enabling the upgraded dormant owner must migrate"));
+    assert_eq!(pending.owner, owner);
+    assert_eq!(pending.source_package_version.as_str(), "1.0.0");
+    assert_eq!(pending.target_package_version, target_version);
+    assert_eq!(pending.from_schema_version, 1);
+    assert_eq!(pending.to_schema_version, 2);
 }
 
 #[test]

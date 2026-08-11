@@ -52,6 +52,10 @@ pub enum BoundaryAction {
     ProviderPanelActivate,
     ProviderPanelRetry,
     ProviderPanelCancel,
+    ProviderPanelAction,
+    ProviderPanelSubmit,
+    ProviderPanelPageNext,
+    ProviderPanelLinkSelect,
 }
 
 use super::settings::SettingsAction;
@@ -161,17 +165,11 @@ fn apply_boundary(
         BoundaryAction::ForwardToPty => {
             super::forward_key_to_pty(ctx.as_ref(), suppress_next_enter, key_event);
         }
-        BoundaryAction::HideShellOverlay => {
-            super::shell_overlay::hide_shell_overlay(app_state, ctx);
-        }
-        BoundaryAction::CloseShellOverlay => {
-            super::shell_overlay::close_shell_overlay(app_state, ctx);
-        }
-        BoundaryAction::OpenEmbeddedShell => {
-            super::shell_overlay::open_embedded_shell(app_state, ctx);
-        }
-        BoundaryAction::OpenExternalTerminal => {
-            super::shell_overlay::open_external_terminal(app_state, ctx);
+        BoundaryAction::HideShellOverlay
+        | BoundaryAction::CloseShellOverlay
+        | BoundaryAction::OpenEmbeddedShell
+        | BoundaryAction::OpenExternalTerminal => {
+            apply_shell_overlay_boundary(boundary, app_state, ctx);
         }
         BoundaryAction::NewAgentOrRepository => new_agent_or_repository(app_state, ctx),
         BoundaryAction::WorkbenchBack => leave_workbench(app_state, ctx),
@@ -179,7 +177,11 @@ fn apply_boundary(
         | BoundaryAction::ProviderPanelNext
         | BoundaryAction::ProviderPanelActivate
         | BoundaryAction::ProviderPanelRetry
-        | BoundaryAction::ProviderPanelCancel => {
+        | BoundaryAction::ProviderPanelCancel
+        | BoundaryAction::ProviderPanelAction
+        | BoundaryAction::ProviderPanelSubmit
+        | BoundaryAction::ProviderPanelPageNext
+        | BoundaryAction::ProviderPanelLinkSelect => {
             super::provider_panel_input::apply(boundary, app_state, ctx);
         }
         BoundaryAction::FocusRepositories => {
@@ -205,6 +207,28 @@ fn apply_boundary(
         | BoundaryAction::HelpPageDown
         | BoundaryAction::HelpHome
         | BoundaryAction::HelpEnd => apply_help_scroll(boundary, app_state),
+    }
+}
+
+fn apply_shell_overlay_boundary(
+    boundary: BoundaryAction,
+    app_state: &mut super::AppStateHandle,
+    ctx: &super::SharedContext,
+) {
+    match boundary {
+        BoundaryAction::HideShellOverlay => {
+            super::shell_overlay::hide_shell_overlay(app_state, ctx);
+        }
+        BoundaryAction::CloseShellOverlay => {
+            super::shell_overlay::close_shell_overlay(app_state, ctx);
+        }
+        BoundaryAction::OpenEmbeddedShell => {
+            super::shell_overlay::open_embedded_shell(app_state, ctx);
+        }
+        BoundaryAction::OpenExternalTerminal => {
+            super::shell_overlay::open_external_terminal(app_state, ctx);
+        }
+        _ => unreachable!("shell-overlay boundary helper received another action"),
     }
 }
 
@@ -331,6 +355,10 @@ macro_rules! handler_execution {
             H::ProviderPanelActivate => E::Boundary(B::ProviderPanelActivate),
             H::ProviderPanelRetry => E::Boundary(B::ProviderPanelRetry),
             H::ProviderPanelCancel => E::Boundary(B::ProviderPanelCancel),
+            H::ProviderPanelAction => E::Boundary(B::ProviderPanelAction),
+            H::ProviderPanelSubmit => E::Boundary(B::ProviderPanelSubmit),
+            H::ProviderPanelPageNext => E::Boundary(B::ProviderPanelPageNext),
+            H::ProviderPanelLinkSelect => E::Boundary(B::ProviderPanelLinkSelect),
             H::CyclePaneFocus => E::Event(AppEvent::CyclePaneFocus),
             H::NewAgentOrRepository => E::Boundary(B::NewAgentOrRepository),
             H::OpenNewRepository => E::Event(AppEvent::OpenNewRepository),

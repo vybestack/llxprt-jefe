@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt;
 
-use super::plugin::field::{Field, FieldKind, Scalar};
+use super::plugin::field::{Field, FieldKind, PATH_VALUE_BYTE_LIMIT, Scalar};
 use super::plugin::surface::ConfigSchema;
 use super::{Id, TypedMap, TypedValue};
 
@@ -116,6 +116,11 @@ pub fn validate_fields(fields: &[Field], values: &TypedMap) -> Vec<ConfigValueEr
 /// constraints.
 pub fn validate_field_value(field: &Field, value: &TypedValue) -> Result<(), ConfigValueErrorKind> {
     let comparable = value_scalar(field.kind(), value)?;
+    if field.kind() == FieldKind::Path
+        && matches!(value, TypedValue::String(path) if path.len() > PATH_VALUE_BYTE_LIMIT)
+    {
+        return Err(ConfigValueErrorKind::AboveMaximum);
+    }
     validate_bounds(field, value, comparable.as_ref())?;
     validate_choice(field, comparable.as_ref())?;
     validate_unique(field, value)

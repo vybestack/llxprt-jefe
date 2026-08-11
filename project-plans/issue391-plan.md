@@ -328,27 +328,34 @@ with the accepted no-shim/reap-before-save contract. No finding expanded scope.
 
 ## 11. Verification evidence
 
-Completed exact-head evidence before commit:
+Latest remediation-tree evidence (to be rerun at the committed exact head):
 
 1. `cargo fmt --all --check` and `git diff --check` pass.
 2. `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
    passes with no allowance or threshold changes.
 3. `cargo build --workspace --all-targets --all-features --locked` passes.
-4. Segmented workspace verification passes: 4,658 library tests (one ignored),
-   885 binary tests, CW-10 75/75, CW-11 5/5, and the directly affected provider,
-   Settings, package-composition, panel, migration, persistence, and redaction
-   suites.
+4. All workspace library and binary unit-test targets pass. Segmented integration
+   targets pass, including CW-10 76/76 and CW-11 5/5, plus the directly affected
+   provider, Settings, package-composition, panel, migration, persistence,
+   navigation, projection, renderer, and redaction suites.
 5. `package-panel-lifecycle` passes 13/13 and
-   `plugin-settings-generated-config` passes 14/14 in the real tmux harness.
-6. The repository has no Makefile. `xtask ci` ignores trailing `--scenario`
-   arguments, so the three requested spellings all invoke the same aggregate.
-   That aggregate passes format, policy, strict-lint, architecture, complexity,
-   and build phases; its coverage test run reaches only three harness fixture
-   failures reproduced unchanged at base `4c2979a4` (`issue687` config isolation,
-   `issue687` session continuity, and the unclean-prior-run fixture). The other
-   33 harness fixtures pass, and segmented coverage is 63.62% (>30%).
-7. Final persistent-owner admission regression, persistent-session owner unit
-   tests, CW-10, and CW-11 were rerun after the last structural refactor and pass.
+   `plugin-settings-generated-config` passes 14/14 in isolated real tmux-harness
+   workspaces with absolute binary and config paths.
+6. The 36-test harness fixture aggregate has 33 passes and only the three failures
+   reproduced unchanged at base `4c2979a4`: `issue687` config isolation,
+   `issue687` session continuity, and the unclean-prior-run fixture. Prior
+   segmented coverage is 63.62%, above the 30% threshold.
+7. The full aggregate also encounters a watchdog-visible starvation hang in
+   `a_breadcrumb_recorded_while_the_run_heartbeats_survives_the_kill`. The exact
+   test hangs identically at base `4c2979a4`; the other 23 issue-662 tests pass in
+   the segmented run. Signal 15 from this external watchdog is not a test
+   assertion failure and is unrelated to the CW-11 diff.
+8. The repository has no Makefile. `xtask ci` ignores trailing `--scenario`
+   arguments, so scenario-specific spellings invoke the same aggregate rather
+   than the named scenario.
+9. Final persistent-owner retirement regressions, persistent-session owner unit
+   tests, CW-10, CW-11, package chrome, and provider renderer geometry were rerun
+   after the last structural refactor and pass.
 
 ## 12. Deferred findings / follow-ups
 

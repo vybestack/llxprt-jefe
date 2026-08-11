@@ -121,6 +121,24 @@ fn an_event_schema_entry_carries_typed_arguments() {
 }
 
 #[test]
+fn an_event_schema_rejects_duplicate_argument_field_ids() {
+    let duplicate = field("action.target");
+    let mut candidate = panel_draft();
+    candidate.event_schema = vec![EventSchemaEntry::new(
+        EventKind::Action,
+        vec![duplicate.clone(), duplicate],
+    )];
+
+    assert_eq!(
+        Panel::parse(candidate).err(),
+        Some(PanelError::DuplicateEventArgument {
+            kind: "action".to_owned(),
+            id: "action.target".to_owned(),
+        })
+    );
+}
+
+#[test]
 fn panel_ports_accept_their_limit_and_reject_one_more() {
     let mut at_limit = panel_draft();
     at_limit.ports = (0..PANEL_PORT_LIMIT)

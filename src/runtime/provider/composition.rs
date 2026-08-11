@@ -336,7 +336,7 @@ fn publish_available_actions(
                 host_api: request.containment.host_api.clone(),
                 environment: provider.environment.clone(),
                 configure: provider.configure.clone(),
-                policy: action_policy(declared),
+                policy: action_policy(declared, manifest),
                 timeout_seconds: declared.timeout_seconds(),
             },
         );
@@ -428,12 +428,19 @@ fn provider_configuration(
     Ok((environment, configure))
 }
 
-/// Derive the immutable invocation policy from a declared action.
-fn action_policy(declared: &DeclaredAction) -> ActionPolicy {
+/// Derive the immutable invocation policy from a declared action and its owner package.
+fn action_policy(declared: &DeclaredAction, manifest: &Manifest) -> ActionPolicy {
     ActionPolicy::new(
         declared.confirmation(),
         declared.allowed_outcomes().to_vec(),
         declared.destructive(),
+    )
+    .with_declared_routes(
+        manifest
+            .routes()
+            .iter()
+            .map(|route| route.id().clone())
+            .collect(),
     )
 }
 

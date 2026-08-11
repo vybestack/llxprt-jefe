@@ -361,6 +361,15 @@ fn service_idle_stdout(
                 return false;
             }
         };
+        if parsed.generation != candidate.generation {
+            tracing::warn!(
+                plugin_id = %candidate.plugin_id,
+                generation = parsed.generation,
+                "persistent provider changed generation while idle"
+            );
+            candidate.healthy = false;
+            return false;
+        }
         let parsed_kind = parsed.kind();
         let payload_byte_count = u64::try_from(parsed.payload_byte_count).unwrap_or(u64::MAX);
         let ProviderMessage::PanelSnapshot(snapshot) = parsed.message else {
@@ -418,6 +427,7 @@ fn drive_invocation(
     }
     let frame = encode::encode_invoke_action(request_id, candidate.generation, payload);
     if let Err(failure) = write_frame(candidate.stdin.as_mut(), &frame) {
+        candidate.healthy = false;
         return (OneShotResult::without_process(failure), false);
     }
     observe_outbound(candidate, MessageKind::InvokeAction);
@@ -493,6 +503,7 @@ fn drive_to_terminal(
         }
         let now = Instant::now();
         if now >= deadline {
+            candidate.healthy = false;
             return (
                 OneShotOutcome::Failed(SupervisorFailure::InvocationTimeout),
                 false,
@@ -516,6 +527,7 @@ fn drive_to_terminal(
 }
 
 fn disconnected_outcome(candidate: &mut OwnedCandidate) -> (OneShotOutcome, bool) {
+    candidate.healthy = false;
     candidate.exited = true;
     (
         OneShotOutcome::Failed(SupervisorFailure::Crashed { exit: None }),
@@ -531,6 +543,14 @@ fn deliver_active_panel_snapshot(
     payload_byte_count: usize,
     snapshot: super::panel_model::PanelSnapshot,
 ) -> Option<OneShotOutcome> {
+    if process_generation != candidate.generation {
+        candidate.healthy = false;
+        return Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(
+            ProviderError::InvalidGeneration {
+                value: process_generation,
+            },
+        )));
+    }
     let Some(snapshot) = redact_panel_snapshot(snapshot, &candidate.redactor) else {
         candidate.healthy = false;
         return Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(
@@ -555,6 +575,14 @@ fn deliver_active_panel_snapshot(
     None
 }
 
+fn fail_active_generation(
+    candidate: &mut OwnedCandidate,
+    failure: SupervisorFailure,
+) -> OneShotOutcome {
+    candidate.healthy = false;
+    OneShotOutcome::Failed(failure)
+}
+
 /// Apply one provider stream event to the active invocation.
 ///
 /// `None` means a progress or panel-snapshot frame was accepted and the
@@ -570,17 +598,24 @@ fn accept_invocation_event(
         StdoutEvent::Frame(frame) => match parse_message(&frame, Direction::ProviderToHost) {
             Ok(parsed) => parsed,
             Err(error) => {
-                return Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(error)));
+                return Some(fail_active_generation(
+                    candidate,
+                    SupervisorFailure::Protocol(error),
+                ));
             }
         },
         StdoutEvent::Oversize(error) => {
-            return Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(error)));
+            return Some(fail_active_generation(
+                candidate,
+                SupervisorFailure::Protocol(error),
+            ));
         }
         StdoutEvent::ReadError => {
             candidate.exited = true;
-            return Some(OneShotOutcome::Failed(SupervisorFailure::Io(
-                "stdout read failed".to_owned(),
-            )));
+            return Some(fail_active_generation(
+                candidate,
+                SupervisorFailure::Io("stdout read failed".to_owned()),
+            ));
         }
     };
     if let ProviderMessage::PanelSnapshot(snapshot) = &parsed.message {
@@ -600,9 +635,10 @@ fn accept_invocation_event(
     )
     .is_err()
     {
-        return Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(
-            super::driver::unexpected_after_invoke(),
-        )));
+        return Some(fail_active_generation(
+            candidate,
+            SupervisorFailure::Protocol(super::driver::unexpected_after_invoke()),
+        ));
     }
     match parsed.message {
         ProviderMessage::Progress(mut payload) => {
@@ -612,9 +648,10 @@ fn accept_invocation_event(
         }
         ProviderMessage::Outcome(outcome) => Some(OneShotOutcome::Completed(outcome)),
         ProviderMessage::Error(error) => Some(OneShotOutcome::ProviderError(error)),
-        _ => Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(
-            super::driver::unexpected_after_invoke(),
-        ))),
+        _ => Some(fail_active_generation(
+            candidate,
+            SupervisorFailure::Protocol(super::driver::unexpected_after_invoke()),
+        )),
     }
 }
 
@@ -665,7 +702,9 @@ fn drain_after_cancel(
 /// post-cancel drain decides whether this persistent generation remains reusable.
 fn write_cancel_frame(candidate: &mut OwnedCandidate, request_id: &super::identifiers::RequestId) {
     let frame = encode::encode_cancel(request_id, candidate.generation, request_id);
-    let _ = write_frame(candidate.stdin.as_mut(), &frame);
+    if write_frame(candidate.stdin.as_mut(), &frame).is_err() {
+        candidate.healthy = false;
+    }
 }
 
 /// Observe one outbound host message (advancing the lifecycle phase) while the

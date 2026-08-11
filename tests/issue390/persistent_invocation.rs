@@ -287,6 +287,61 @@ fn cw10_e_e_descriptor_timeout_applies_to_the_invocation() {
         elapsed >= Duration::from_secs(1) && elapsed <= Duration::from_secs(3),
         "timeout fired at {elapsed:?}, expected ~1s"
     );
+    let request_b =
+        RequestId::parse("h-000041").unwrap_or_else(|err| panic!("request id: {err:?}"));
+    let second = owner.invoke(
+        &plugin_id,
+        request_b,
+        invoke_payload("vendor.alpha", 41),
+        Duration::from_secs(2),
+    );
+    assert!(
+        matches!(second, Err(PersistentInvokeError::SessionGone)),
+        "a timed-out generation must retire before it can consume a late terminal"
+    );
+    owner.shutdown();
+}
+
+#[test]
+fn cw11_timeout_retires_generation_and_rejects_queued_work_before_late_terminal() {
+    let _budget = process_budget();
+    let scene = Scene::new();
+    let mut owner = start_session_owner(&scene, "persistent-timeout-then-terminal");
+    let plugin_id = Id::parse("vendor.alpha").unwrap_or_else(|err| panic!("plugin id: {err:?}"));
+    let first = owner
+        .invoke(
+            &plugin_id,
+            RequestId::parse("h-000042").unwrap_or_else(|err| panic!("request id: {err:?}")),
+            invoke_payload("vendor.alpha", 42),
+            Duration::from_secs(1),
+        )
+        .unwrap_or_else(|err| panic!("first invoke: {err:?}"));
+    let queued = owner
+        .invoke(
+            &plugin_id,
+            RequestId::parse("h-000043").unwrap_or_else(|err| panic!("request id: {err:?}")),
+            invoke_payload("vendor.alpha", 43),
+            Duration::from_secs(2),
+        )
+        .unwrap_or_else(|err| panic!("queued invoke: {err:?}"));
+
+    let first_result = wait_finish(first, Instant::now() + Duration::from_secs(5));
+    assert!(matches!(
+        first_result.outcome,
+        OneShotOutcome::Failed(SupervisorFailure::InvocationTimeout)
+    ));
+    let queued_result = wait_finish(queued, Instant::now() + Duration::from_secs(5));
+    assert!(matches!(
+        queued_result.outcome,
+        OneShotOutcome::Failed(SupervisorFailure::Crashed { exit: None })
+    ));
+    let third = owner.invoke(
+        &plugin_id,
+        RequestId::parse("h-000044").unwrap_or_else(|err| panic!("request id: {err:?}")),
+        invoke_payload("vendor.alpha", 44),
+        Duration::from_secs(2),
+    );
+    assert!(matches!(third, Err(PersistentInvokeError::SessionGone)));
     owner.shutdown();
 }
 

@@ -39,6 +39,8 @@
 //! - `persistent-invoke-hang`: like `persistent-invoke` but each
 //!   `invoke-action` emits one progress and never a terminal (cancel/timeout
 //!   evidence).
+//! - `persistent-timeout-then-terminal`: emit a terminal just after the host's
+//!   invocation timeout (late-output generation-retirement evidence).
 //! - `persistent-invoke-then-crash`: after the first `invoke-action` emits one
 //!   progress then exits 1 (post-Ready crash during invocation evidence).
 //! - `persistent-hello-hang`: read `hello` then hang (hello-ack timeout).
@@ -691,6 +693,15 @@ fn emit_persistent_invocation(mode: &str, generation: u64) {
     match mode {
         "persistent-invoke-hang" | "persistent-cancel-then-terminal" => {
             emit(&progress_frame(generation, 1));
+        }
+        "persistent-timeout-then-terminal" => {
+            emit(&progress_frame(generation, 1));
+            std::thread::sleep(std::time::Duration::from_millis(1_200));
+            emit(&frame(
+                "outcome",
+                generation,
+                r#"{\"kind\":\"navigate\",\"route_id\":\"r.late\",\"activation\":{}}"#,
+            ));
         }
         "persistent-invoke-then-crash" => {
             emit(&progress_frame(generation, 1));

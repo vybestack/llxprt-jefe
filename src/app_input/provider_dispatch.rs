@@ -359,7 +359,7 @@ fn prepare_provider_host_outcome_state(
         ProviderHostOutcome::Navigate {
             route_id,
             activation,
-        } => prepare_provider_navigation(state, &route_id, activation),
+        } => prepare_provider_navigation(state, key, &route_id, activation),
         ProviderHostOutcome::Refresh { resource_ref } => {
             let request = state
                 .provider_requests
@@ -399,11 +399,19 @@ fn authorize_provider_outcome(
 
 fn prepare_provider_navigation(
     state: &jefe::state::AppState,
+    key: &jefe::domain::effects::ProviderRequestKey,
     route_id: &Id,
     activation: TypedMap,
 ) -> Result<ProviderHostAction, String> {
     if state.nav.current().dirty.is_dirty() {
         return Err("provider navigation is blocked by unsaved changes".to_owned());
+    }
+    let request = state
+        .provider_requests
+        .request(key)
+        .ok_or_else(|| "provider outcome request is no longer current".to_owned())?;
+    if !request.policy().allows_route(route_id) {
+        return Err("provider requested a route not declared by its package".to_owned());
     }
     let registry = jefe::workbench::screen_registry().map_err(|error| error.to_string())?;
     let descriptor = registry
@@ -519,6 +527,16 @@ mod host_outcome_tests {
     fn active_request(
         state: &mut jefe::state::AppState,
     ) -> jefe::domain::effects::ProviderRequestKey {
+        active_request_with_policy(
+            state,
+            ActionPolicy::new(ActionConfirmation::None, vec![ActionOutcome::Notice], false),
+        )
+    }
+
+    fn active_request_with_policy(
+        state: &mut jefe::state::AppState,
+        policy: ActionPolicy,
+    ) -> jefe::domain::effects::ProviderRequestKey {
         let owner = Id::parse("host").unwrap_or_else(|error| panic!("owner: {error}"));
         let action = Id::parse("provider.notice").unwrap_or_else(|error| panic!("action: {error}"));
         let screen =
@@ -534,11 +552,7 @@ mod host_outcome_tests {
                 context_instance: &instance,
                 context_refs: &TypedMap::new(),
                 arguments: &TypedMap::new(),
-                policy: &ActionPolicy::new(
-                    ActionConfirmation::None,
-                    vec![ActionOutcome::Notice],
-                    false,
-                ),
+                policy: &policy,
             })
             .unwrap_or_else(|error| panic!("invoke: {error}"))
             .key
@@ -631,31 +645,46 @@ mod host_outcome_tests {
     }
 
     #[test]
-    fn provider_navigation_accepts_a_declared_route_and_rejects_an_unknown_route() {
+    fn provider_navigation_rejects_core_local_and_foreign_package_routes() {
+        let declared =
+            Id::parse("vendor.pkg.open").unwrap_or_else(|error| panic!("declared route: {error}"));
+        let policy = ActionPolicy::new(
+            ActionConfirmation::None,
+            vec![ActionOutcome::NavigateDeclaredRoute],
+            false,
+        )
+        .with_declared_routes(vec![declared.clone()]);
         let mut state = jefe::state::AppState::default();
-        let key = active_request(&mut state);
-        let unknown = prepare_provider_host_outcome_state(
+        let key = active_request_with_policy(&mut state, policy);
+
+        for route in ["actions", "local.open", "vendor.other.open"] {
+            let refusal = prepare_provider_host_outcome_state(
+                &mut state,
+                &key,
+                ProviderHostOutcome::Navigate {
+                    route_id: Id::parse(route)
+                        .unwrap_or_else(|error| panic!("route {route}: {error}")),
+                    activation: TypedMap::new(),
+                },
+            );
+            assert_eq!(
+                refusal,
+                Err("provider requested a route not declared by its package".to_owned())
+            );
+        }
+
+        let declared_but_not_composed = prepare_provider_host_outcome_state(
             &mut state,
             &key,
             ProviderHostOutcome::Navigate {
-                route_id: Id::parse("not-a-route").unwrap_or_else(|error| panic!("route: {error}")),
+                route_id: declared,
                 activation: TypedMap::new(),
             },
         );
         assert_eq!(
-            unknown,
+            declared_but_not_composed,
             Err("provider requested an unknown route".to_owned())
         );
-
-        let accepted = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Navigate {
-                route_id: Id::parse("actions").unwrap_or_else(|error| panic!("route: {error}")),
-                activation: TypedMap::new(),
-            },
-        );
-        assert!(matches!(accepted, Ok(ProviderHostAction::Navigate { .. })));
     }
 
     #[test]
@@ -690,7 +719,14 @@ mod host_outcome_tests {
     #[test]
     fn outcome_completion_closes_the_ledger_before_navigation_changes_generation() {
         let mut state = jefe::state::AppState::default();
-        let key = active_request(&mut state);
+        let route = Id::parse("actions").unwrap_or_else(|error| panic!("declared route: {error}"));
+        let policy = ActionPolicy::new(
+            ActionConfirmation::None,
+            vec![ActionOutcome::NavigateDeclaredRoute],
+            false,
+        )
+        .with_declared_routes(vec![route.clone()]);
+        let key = active_request_with_policy(&mut state, policy);
         let owner = key.owner.clone();
         let correlation = state
             .pending_effects
@@ -704,7 +740,7 @@ mod host_outcome_tests {
             effect: Effect::Provider(ProviderEffect::ApplyOutcome {
                 key: key.clone(),
                 outcome: ProviderHostOutcome::Navigate {
-                    route_id: Id::parse("actions").unwrap_or_else(|error| panic!("route: {error}")),
+                    route_id: route,
                     activation: TypedMap::new(),
                 },
             }),

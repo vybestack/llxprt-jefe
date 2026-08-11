@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::domain::Id;
 use crate::domain::action_registry::Availability;
 use crate::domain::plugin::HostTriple;
 use crate::persistence::plugin_inventory::{MANIFEST_FILE_NAME, scan};
@@ -153,6 +154,43 @@ fn one_shot_package_publishes_action_and_starts_no_process() {
         availability_of(&composition, "vendor.oneshot.run"),
         Some(Availability::Available)
     );
+}
+
+#[test]
+fn action_policy_retains_only_its_package_declared_routes() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    let manifest = manifest_json(
+        "vendor.oneshot",
+        "1.0.0",
+        "one-shot",
+        &host_binaries(&host, "bin/provider"),
+    )
+    .replace(
+        "\"routes\": [],",
+        "\"routes\": [{ \"id\": \"vendor.oneshot.open\", \"activation_fields\": [], \"target_screen\": \"vendor.oneshot.main\" }],",
+    )
+    .replace(
+        "\"screens\": []",
+        "\"screens\": [{ \"path\": \"screens/main.screen.toml\", \"screen_ids\": [\"vendor.oneshot.main\"] }]",
+    );
+    write_package(&root, "vendor.oneshot", "1.0.0", &manifest);
+
+    let composition = compose_for(&root, temp.path(), &["vendor.oneshot"]);
+    let descriptor = composition.catalog().iter().next().map_or_else(
+        || panic!("the selected action must have a runtime descriptor"),
+        |(_, descriptor)| descriptor,
+    );
+    let owned =
+        Id::parse("vendor.oneshot.open").unwrap_or_else(|error| panic!("owned route: {error}"));
+    let foreign =
+        Id::parse("vendor.other.open").unwrap_or_else(|error| panic!("foreign route: {error}"));
+
+    assert!(descriptor.policy.allows_route(&owned));
+    assert!(!descriptor.policy.allows_route(&foreign));
 }
 
 #[test]

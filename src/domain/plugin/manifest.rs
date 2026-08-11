@@ -282,6 +282,12 @@ fn validate_screens(draft: &ManifestDraft) -> Result<BTreeSet<&Id>, ManifestErro
     let mut bound: BTreeSet<&Id> = BTreeSet::new();
     let mut paths: BTreeSet<&str> = BTreeSet::new();
     for contribution in &draft.screens {
+        if contribution.screen_ids().len() != 1 {
+            return Err(ManifestError::ScreenDescriptorCoverage {
+                path: contribution.path().as_str().to_owned(),
+                declared: contribution.screen_ids().len(),
+            });
+        }
         if !paths.insert(contribution.path().as_str()) {
             return Err(ManifestError::DuplicateScreenPath {
                 path: contribution.path().as_str().to_owned(),
@@ -401,6 +407,8 @@ pub enum ManifestError {
     ProviderFreeDeclaresHandler { kind: &'static str, id: String },
     /// A panel was declared by a package whose provider is not persistent.
     PanelRequiresPersistentProvider { id: String },
+    /// One descriptor file declares anything other than one screen identity.
+    ScreenDescriptorCoverage { path: String, declared: usize },
     /// Two contributions declare the same descriptor path.
     DuplicateScreenPath { path: String },
     /// One screen id is bound by more than one contribution.
@@ -445,6 +453,10 @@ impl fmt::Display for ManifestError {
             Self::PanelRequiresPersistentProvider { id } => {
                 write!(formatter, "panel {id:?} requires a persistent provider")
             }
+            Self::ScreenDescriptorCoverage { path, declared } => write!(
+                formatter,
+                "screen descriptor {path:?} declares {declared} identities; exactly one is required"
+            ),
             Self::DuplicateScreenPath { path } => {
                 write!(formatter, "screen descriptor {path:?} is contributed twice")
             }

@@ -192,6 +192,8 @@ pub struct PackagePanelBinding {
     pub model_kinds: Vec<crate::domain::plugin::ModelKind>,
     /// Semantic events this selected manifest permits.
     pub event_schema: Vec<crate::domain::plugin::EventSchemaEntry>,
+    /// Owner-declared action ids that snapshot affordances may reference.
+    pub action_authority: Vec<crate::domain::action_registry::ActionId>,
 }
 
 impl ScreenRegistry {

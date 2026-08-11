@@ -406,6 +406,29 @@ fn unique_is_accepted_on_string_list_and_defaults_false() {
 }
 
 #[test]
+fn unique_string_list_rejects_a_duplicate_declared_default() {
+    let mut candidate = draft(FieldKind::StringList);
+    candidate.unique = true;
+    candidate.default = Some(TypedValue::List(vec![
+        TypedValue::String("same".to_owned()),
+        TypedValue::String("same".to_owned()),
+    ]));
+
+    assert_eq!(error_of(candidate), FieldError::DuplicateDefaultEntry);
+}
+
+#[test]
+fn path_defaults_accept_4096_bytes_and_reject_4097() {
+    let mut at_limit = draft(FieldKind::Path);
+    at_limit.default = Some(TypedValue::String("x".repeat(PATH_VALUE_BYTE_LIMIT)));
+    assert!(Field::parse(at_limit).is_ok());
+
+    let mut over_limit = draft(FieldKind::Path);
+    over_limit.default = Some(TypedValue::String("x".repeat(PATH_VALUE_BYTE_LIMIT + 1)));
+    assert_eq!(error_of(over_limit), FieldError::DefaultOutOfBounds);
+}
+
+#[test]
 fn string_and_string_list_accept_integer_length_bounds() {
     for kind in [FieldKind::String, FieldKind::StringList] {
         let mut candidate = draft(kind);

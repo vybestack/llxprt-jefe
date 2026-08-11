@@ -16,6 +16,9 @@ use std::fmt;
 use super::limits::FIELD_CHOICE_LIMIT;
 use crate::domain::{CanonicalDecimal, Id, TypedValue};
 
+/// Maximum UTF-8 byte length of a plugin path value.
+pub const PATH_VALUE_BYTE_LIMIT: usize = 4_096;
+
 /// A scalar declared by a field: its default, a bound, or an enum choice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Scalar {
@@ -411,6 +414,20 @@ fn validate_default(draft: &FieldDraft) -> Result<(), FieldError> {
     if !typed_value_matches_kind(draft.kind, default) {
         return Err(FieldError::DefaultKindMismatch);
     }
+    if draft.kind == FieldKind::Path
+        && matches!(default, TypedValue::String(value) if value.len() > PATH_VALUE_BYTE_LIMIT)
+    {
+        return Err(FieldError::DefaultOutOfBounds);
+    }
+    if draft.unique
+        && let TypedValue::List(values) = default
+        && values
+            .iter()
+            .enumerate()
+            .any(|(index, value)| values[..index].contains(value))
+    {
+        return Err(FieldError::DuplicateDefaultEntry);
+    }
     if draft.kind == FieldKind::Enum && !enum_choice_matches(draft, default) {
         return Err(FieldError::DefaultNotAChoice);
     }
@@ -528,6 +545,8 @@ pub enum FieldError {
     DefaultKindMismatch,
     /// An `enum` default is not one of its choices.
     DefaultNotAChoice,
+    /// A unique string-list default contains a repeated entry.
+    DuplicateDefaultEntry,
     /// The default falls outside the declared bounds.
     DefaultOutOfBounds,
     /// A field referenced itself for visibility.
@@ -559,6 +578,9 @@ impl fmt::Display for FieldError {
             }
             Self::DefaultNotAChoice => {
                 formatter.write_str("the default is not one of the declared choices")
+            }
+            Self::DuplicateDefaultEntry => {
+                formatter.write_str("a unique string-list default contains a duplicate")
             }
             Self::DefaultOutOfBounds => {
                 formatter.write_str("the default falls outside the declared bounds")

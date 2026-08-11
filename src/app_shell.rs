@@ -854,6 +854,11 @@ fn handle_key_event(
     }
     update_paste_enter_suppression(input_mode, suppress_next_enter, &key_event, now);
 
+    let shared_ctx = ctx.cloned();
+    if crate::app_input::apply_provider_panel_raw_key(app_state, &shared_ctx, &key_event) {
+        return;
+    }
+
     let raw_event = {
         let state = app_state.read();
         resolve_raw_key_mutation(&state, &key_event)

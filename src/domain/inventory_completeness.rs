@@ -336,6 +336,10 @@ handler_surface! {
     ProviderPanelActivate,
     ProviderPanelRetry,
     ProviderPanelCancel,
+    ProviderPanelAction,
+    ProviderPanelSubmit,
+    ProviderPanelPageNext,
+    ProviderPanelLinkSelect,
 }
 
 impl fmt::Display for InventoryGoldenRow {

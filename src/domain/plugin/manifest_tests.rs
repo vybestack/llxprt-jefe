@@ -307,6 +307,23 @@ fn each_contributed_screen_is_bound_exactly_once() {
 }
 
 #[test]
+fn one_screen_file_must_declare_exactly_one_descriptor_identity() {
+    let mut candidate = draft();
+    candidate.screens = vec![screens(
+        "screens/main.screen.toml",
+        &["vendor.pkg.main", "vendor.pkg.other"],
+    )];
+
+    assert_eq!(
+        error_of(candidate),
+        ManifestError::ScreenDescriptorCoverage {
+            path: "screens/main.screen.toml".to_owned(),
+            declared: 2,
+        }
+    );
+}
+
+#[test]
 fn two_contributions_may_not_share_a_descriptor_path() {
     let mut candidate = draft();
     candidate.screens = vec![

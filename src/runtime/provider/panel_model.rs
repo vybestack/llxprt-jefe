@@ -315,7 +315,7 @@ impl PanelBody {
 ///
 /// Exact closed shape: panels are host-rendered, so only the deterministic
 /// presentation state a provider needs to resume travels on the wire.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostLocal {
     /// The focused affordance or item, if any.
     pub focus_target: Option<Id>,

@@ -217,6 +217,33 @@ pub fn package_trusted(
     })
 }
 
+/// Resolve the installed package version recorded for every configured owner.
+///
+/// This intentionally includes disabled owners: their package version and
+/// configuration remain an authoritative dormant source that Settings may need
+/// to migrate when the operator explicitly re-enables a newer schema. It does
+/// not grant execution trust or compose any runtime contribution.
+#[must_use]
+pub fn configured_packages<'a>(
+    packages: &'a [InstalledPackage],
+    settings: &crate::persistence::settings_document::PublishedSettings,
+) -> Vec<&'a InstalledPackage> {
+    settings
+        .plugins
+        .iter()
+        .filter_map(|(id, owner)| {
+            packages
+                .iter()
+                .filter(|package| package.coordinate().id().owner_id() == id)
+                .find(|package| {
+                    owner.version.as_ref().is_none_or(|version| {
+                        package.coordinate().version().as_str() == version.as_str()
+                    })
+                })
+        })
+        .collect()
+}
+
 /// Resolve the one enabled installed package version each plugin contributes.
 ///
 /// Published Settings is the sole selection authority. An explicitly selected
@@ -232,20 +259,9 @@ pub fn selected_packages<'a>(
     packages: &'a [InstalledPackage],
     settings: &crate::persistence::settings_document::PublishedSettings,
 ) -> Vec<&'a InstalledPackage> {
-    settings
-        .plugins
-        .iter()
-        .filter(|(_, owner)| owner.enabled == Some(true))
-        .filter_map(|(id, owner)| {
-            packages
-                .iter()
-                .filter(|package| package.coordinate().id().owner_id() == id)
-                .find(|package| {
-                    owner.version.as_ref().is_none_or(|version| {
-                        package.coordinate().version().as_str() == version.as_str()
-                    })
-                })
-        })
+    configured_packages(packages, settings)
+        .into_iter()
+        .filter(|package| package_trusted(settings, package.coordinate().id().owner_id().as_str()))
         .collect()
 }
 

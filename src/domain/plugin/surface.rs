@@ -230,6 +230,17 @@ impl Panel {
                     kind: entry.kind().as_wire().to_owned(),
                 });
             }
+            for (argument_index, argument) in entry.arguments().iter().enumerate() {
+                if entry.arguments()[..argument_index]
+                    .iter()
+                    .any(|earlier| earlier.id() == argument.id())
+                {
+                    return Err(PanelError::DuplicateEventArgument {
+                        kind: entry.kind().as_wire().to_owned(),
+                        id: argument.id().as_str().to_owned(),
+                    });
+                }
+            }
         }
         if draft.ports.len() > PANEL_PORT_LIMIT {
             return Err(PanelError::TooManyPorts {
@@ -289,6 +300,8 @@ pub enum PanelError {
     DuplicateModelKind { kind: String },
     /// The same event kind was declared twice.
     DuplicateEventKind { kind: String },
+    /// Two arguments on one event share an identifier.
+    DuplicateEventArgument { kind: String, id: String },
     /// More than [`PANEL_PORT_LIMIT`] ports.
     TooManyPorts { len: usize },
     /// Two ports share an identifier.
@@ -306,6 +319,12 @@ impl fmt::Display for PanelError {
             }
             Self::DuplicateEventKind { kind } => {
                 write!(formatter, "event kind {kind:?} is declared twice")
+            }
+            Self::DuplicateEventArgument { kind, id } => {
+                write!(
+                    formatter,
+                    "event kind {kind:?} declares argument {id:?} twice"
+                )
             }
             Self::TooManyPorts { len } => {
                 write!(
