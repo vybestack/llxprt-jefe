@@ -1,4 +1,3 @@
-
 use super::*;
 use jefe::workbench::{
     PanelId, PluginScreenId, Rect, ResolvedLayout, ResolvedPanel, ScreenIdentity, ScreenInstanceId,
