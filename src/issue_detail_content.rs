@@ -7,6 +7,11 @@
 use crate::domain::{IssueComment, IssueDetail};
 use crate::state::{ComposerTarget, DetailSubfocus, EditorTarget, InlineState};
 
+#[path = "issue_detail_content_new_issue.rs"]
+mod new_issue;
+
+pub use new_issue::build_new_issue_content;
+
 /// Stable anchor rendered where a reply TextBox is logically attached.
 pub(crate) const ISSUE_REPLY_ANCHOR: &str = "    [Composer input]";
 
@@ -152,24 +157,6 @@ pub fn build_detail_content(
         comments_loading,
         &mut builder,
     );
-    builder.finish()
-}
-
-/// Build a full-screen content block for creating a new issue.
-///
-/// The editor text itself is rendered by the embedded wrapping `TextBox`
-/// (issue #212), so this document only carries the static prompt lines.
-#[must_use]
-pub fn build_new_issue_content(_inline_state: &InlineState) -> DetailContent {
-    let mut builder = ContentBuilder::new();
-
-    builder.lines.push("New Issue".to_string());
-    builder
-        .lines
-        .push("Title: first line | Body: remaining lines".to_string());
-    builder.lines.push(String::new());
-
-    builder.lines.push("[Composer input]".to_string());
     builder.finish()
 }
 
