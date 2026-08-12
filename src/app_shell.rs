@@ -527,7 +527,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // which guarantees a nonzero content rectangle or hides the pane, so there
     // is no `.max(1)` to apply here.
     let terminal_rect = snapshot.resolved_layout.as_ref().and_then(|layout| {
-        let descriptor = jefe::workbench::screen_descriptor(snapshot.screen()).ok()?;
+        let registry = jefe::workbench::screen_registry().ok()?;
+        let descriptor = registry.get_identity(snapshot.screen())?;
         jefe::workbench::pty_content_rect(
             descriptor,
             layout,
@@ -650,10 +651,20 @@ fn handle_terminal_event(
             if crate::app_input::handle_dirty_guard_key(app_state, &ctx.cloned(), &key_event) {
                 return;
             }
+            if crate::app_input::handle_plugin_config_migration_key(
+                app_state,
+                &ctx.cloned(),
+                &key_event,
+            ) {
+                return;
+            }
             // A waiting chord capture and an open layout tree each own the
             // keyboard while they are up, so the key the user is aiming at them
             // cannot also do whatever it is bound to underneath.
             if crate::app_input::handle_capture_key(app_state, &key_event) {
+                return;
+            }
+            if crate::app_input::handle_plugin_config_key(app_state, &key_event) {
                 return;
             }
             if crate::app_input::handle_layout_key(app_state, &key_event) {
@@ -842,6 +853,11 @@ fn handle_key_event(
         return;
     }
     update_paste_enter_suppression(input_mode, suppress_next_enter, &key_event, now);
+
+    let shared_ctx = ctx.cloned();
+    if crate::app_input::apply_provider_panel_raw_key(app_state, &shared_ctx, &key_event) {
+        return;
+    }
 
     let raw_event = {
         let state = app_state.read();

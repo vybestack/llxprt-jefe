@@ -12,6 +12,7 @@ pub mod encode;
 pub mod environment;
 pub mod error;
 pub mod framing;
+pub mod migration;
 pub mod outbound;
 pub mod outcome;
 pub mod persistent;
@@ -25,6 +26,8 @@ mod dto;
 mod identifiers;
 mod lifecycle;
 mod object_reader;
+mod panel_model;
+mod panel_reader;
 mod payload_reader;
 mod progress;
 mod typed_value;
@@ -48,12 +51,17 @@ mod persistent_session;
 
 pub use persistent_session::{PersistentInvocation, PersistentInvokeError, PersistentSessionOwner};
 
-pub use composition::{CompositionRequest, Containment, ProviderComposition, compose};
+pub use composition::{
+    CompositionRequest, Containment, MigrationInputs, ProviderComposition, compose,
+    compose_migration_request,
+};
 pub use coordinator::{ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator};
+pub use environment::ProcessHostEnv;
 pub use error::{
     FramingFault, PROGRESS_SEQUENCE_MAX, PROTOCOL_FAILURE_CODE, ProgressFault, ProviderError,
     RUNTIME_UNAVAILABLE_CODE,
 };
+pub use migration::{MigrationOutcome, MigrationRequest, MigrationResult, run_migration};
 pub use outbound::{MAX_QUEUED_ENVELOPES, OutboundError, OutboundQueue};
 pub use outcome::{
     CleanupFailure, LifecycleTranscript, OneShotOutcome, OneShotResult, SupervisorFailure,
@@ -64,7 +72,6 @@ pub use persistent::{
     PersistentStartupResult, PersistentSupervisor, ReadyCandidate, ReapedCandidate, StartupFailure,
 };
 pub use supervisor::{OneShotRequest, SupervisorBounds, run_one_shot};
-
 #[cfg(test)]
 #[path = "composition_tests.rs"]
 mod composition_tests;
@@ -78,12 +85,24 @@ mod framing_tests;
 mod protocol_tests;
 
 #[cfg(test)]
+#[path = "panel_wire_red_tests.rs"]
+mod panel_wire_red_tests;
+
+#[cfg(test)]
+#[path = "panel_wire_tests.rs"]
+mod panel_wire_tests;
+
+#[cfg(test)]
 #[path = "environment_tests.rs"]
 mod environment_tests;
 
 #[cfg(test)]
 #[path = "supervisor_tests.rs"]
 mod supervisor_tests;
+
+#[cfg(test)]
+#[path = "migration_tests.rs"]
+mod migration_tests;
 
 #[cfg(test)]
 #[path = "persistent_tests.rs"]

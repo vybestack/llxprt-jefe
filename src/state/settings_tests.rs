@@ -11,16 +11,19 @@
 
 use std::path::PathBuf;
 
-use crate::domain::ThemeId;
+use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
+use crate::domain::plugin::surface::ConfigSchema;
 use crate::domain::sha256::Sha256;
+use crate::domain::{CanonicalSemver, Id, ThemeId, TypedMap, TypedValue};
 use crate::messages::settings::{
-    RecoveryChoice, SettingsEnvironment, SettingsMessage, SettingsSource, ThemeChoice,
+    RecoveryChoice, SelectedPluginConfig, SettingsEnvironment, SettingsMessage, SettingsSource,
+    ThemeChoice,
 };
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::workbench::ScreenId;
 
-use super::settings_types::DraftStatus;
+use super::settings_types::{DraftStatus, PluginConfigMigrationState};
 use super::{AppState, settings_view};
 
 const SCHEMA_2: &[u8] = b"settings_schema = 2\n[appearance]\ntheme = 'green-screen'\n";
@@ -44,13 +47,107 @@ fn source(bytes: Option<&[u8]>) -> SettingsSource {
                 name: "Dracula".to_owned(),
             },
         ],
+        plugin_configs: std::collections::BTreeMap::new(),
+        installed_plugin_configs: std::collections::BTreeMap::new(),
         environment: SettingsEnvironment {
             settings_path: PathBuf::from("/tmp/jefe/settings.toml"),
             state_path: PathBuf::from("/tmp/jefe/state.json"),
+
             platform: "test",
             isolated: true,
         },
     }
+}
+
+fn selected_required_string() -> (Id, SelectedPluginConfig) {
+    let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner fixture: {error}"));
+    let field = Field::parse(FieldDraft {
+        id: Id::parse("endpoint").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Endpoint".to_owned(),
+        description: None,
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::Provider,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let schema = ConfigSchema::parse(1, vec![field])
+        .unwrap_or_else(|error| panic!("schema fixture: {error}"));
+    let version =
+        CanonicalSemver::parse("1.0.0").unwrap_or_else(|error| panic!("version fixture: {error}"));
+    (
+        owner,
+        SelectedPluginConfig {
+            version,
+            schema,
+            can_migrate: true,
+        },
+    )
+}
+
+fn source_with_selected_config(bytes: &[u8]) -> SettingsSource {
+    let mut source = source(Some(bytes));
+    let (owner, selected) = selected_required_string();
+    source
+        .plugin_configs
+        .insert(owner.clone(), selected.clone());
+    source
+        .installed_plugin_configs
+        .insert(owner, vec![selected]);
+    source
+}
+
+fn opened_migration_draft_with_enabled(source_enabled: bool) -> (AppState, Id, CanonicalSemver) {
+    let enabled = if source_enabled { "true" } else { "false" };
+    let bytes = format!(
+        "settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = {enabled}\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = \"https://example.test\"\n"
+    );
+    let mut input = source_with_selected_config(bytes.as_bytes());
+    let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner fixture: {error}"));
+    let region = Field::parse(FieldDraft {
+        id: Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Region".to_owned(),
+        description: None,
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::Provider,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let target_version =
+        CanonicalSemver::parse("2.0.0").unwrap_or_else(|error| panic!("version fixture: {error}"));
+    let target = SelectedPluginConfig {
+        version: target_version.clone(),
+        schema: ConfigSchema::parse(2, vec![region])
+            .unwrap_or_else(|error| panic!("schema fixture: {error}")),
+        can_migrate: true,
+    };
+    input
+        .installed_plugin_configs
+        .entry(owner.clone())
+        .or_default()
+        .insert(0, target);
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(input)));
+    state.reduce_settings(SettingsMessage::Edit(SettingsEdit::PluginVersion {
+        plugin: owner.clone(),
+        version: target_version.clone(),
+    }));
+    (state, owner, target_version)
+}
+
+fn opened_migration_draft() -> (AppState, Id, CanonicalSemver) {
+    opened_migration_draft_with_enabled(true)
 }
 
 /// A state with Settings open over `bytes`.
@@ -70,6 +167,375 @@ fn draft_status(state: &AppState) -> DraftStatus {
         .draft
         .as_ref()
         .map_or(DraftStatus::Clean, |draft| draft.status().clone())
+}
+
+#[test]
+fn selected_active_plugin_schema_blocks_save_when_required_config_is_missing() {
+    let bytes =
+        b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n";
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(
+        source_with_selected_config(bytes),
+    )));
+
+    let draft = state
+        .settings_state
+        .draft
+        .as_ref()
+        .unwrap_or_else(|| panic!("selected config binds a draft"));
+    assert!(draft.candidate().valid().is_none());
+    assert!(!draft.validation().is_empty());
+}
+
+#[test]
+fn changing_package_version_validates_against_the_exact_installed_target_schema() {
+    let bytes = b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = \"https://example.test\"\n";
+    let mut input = source_with_selected_config(bytes);
+    let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner fixture: {error}"));
+    let region = Field::parse(FieldDraft {
+        id: Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Region".to_owned(),
+        description: None,
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::Provider,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let target = SelectedPluginConfig {
+        version: CanonicalSemver::parse("2.0.0")
+            .unwrap_or_else(|error| panic!("version fixture: {error}")),
+        schema: ConfigSchema::parse(2, vec![region])
+            .unwrap_or_else(|error| panic!("schema fixture: {error}")),
+        can_migrate: true,
+    };
+    input
+        .installed_plugin_configs
+        .entry(owner.clone())
+        .or_default()
+        .insert(0, target.clone());
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(input)));
+
+    state.reduce_settings(SettingsMessage::Edit(SettingsEdit::PluginVersion {
+        plugin: owner,
+        version: target.version,
+    }));
+
+    let draft = state
+        .settings_state
+        .draft
+        .as_ref()
+        .unwrap_or_else(|| panic!("target version keeps the draft"));
+    assert!(draft.candidate().valid().is_none());
+    assert!(
+        draft.validation().iter().any(|diagnostic| {
+            diagnostic.path.as_str() == "/plugins/vendor.config/config/region"
+        })
+    );
+}
+
+#[test]
+fn disabled_plugin_config_is_dormant_and_preserved_without_owner_validation() {
+    let bytes = b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = false\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = 42\n";
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(
+        source_with_selected_config(bytes),
+    )));
+
+    assert_eq!(draft_status(&state), DraftStatus::Clean);
+    let draft = state
+        .settings_state
+        .draft
+        .as_ref()
+        .unwrap_or_else(|| panic!("dormant plugin config stays editable"));
+    assert_eq!(draft.base().document().original_bytes(), bytes);
+}
+
+#[test]
+fn save_detects_schema_migration_before_target_schema_validation() {
+    let (mut state, owner, target_version) = opened_migration_draft();
+
+    apply(&mut state, SettingsMessage::Save);
+
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("schema change starts a provisional migration"));
+    assert_eq!(pending.owner, owner);
+    assert_eq!(pending.source_package_version.as_str(), "1.0.0");
+    assert_eq!(pending.target_package_version, target_version);
+    assert_eq!(pending.from_schema_version, 1);
+    assert_eq!(pending.to_schema_version, 2);
+    assert_eq!(
+        pending
+            .source_config
+            .get(&Id::parse("endpoint").unwrap_or_else(|error| panic!("field fixture: {error}"))),
+        Some(&TypedValue::String("https://example.test".to_owned()))
+    );
+    assert!(!matches!(draft_status(&state), DraftStatus::Saving { .. }));
+}
+
+#[test]
+fn re_enabling_a_dormant_owner_with_a_schema_upgrade_requires_migration() {
+    let (mut state, owner, target_version) = opened_migration_draft_with_enabled(false);
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::PluginEnabled {
+            plugin: owner.clone(),
+            enabled: true,
+        }),
+    );
+
+    apply(&mut state, SettingsMessage::Save);
+
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("re-enabling the upgraded dormant owner must migrate"));
+    assert_eq!(pending.owner, owner);
+    assert_eq!(pending.source_package_version.as_str(), "1.0.0");
+    assert_eq!(pending.target_package_version, target_version);
+    assert_eq!(pending.from_schema_version, 1);
+    assert_eq!(pending.to_schema_version, 2);
+}
+
+#[test]
+fn provider_free_target_never_stages_a_config_migration() {
+    let (mut state, owner, target_version) = opened_migration_draft();
+    let Some(installed) = state
+        .settings_state
+        .installed_plugin_configs
+        .get_mut(&owner)
+    else {
+        panic!("installed target fixture");
+    };
+    let Some(target) = installed
+        .iter_mut()
+        .find(|selected| selected.version == target_version)
+    else {
+        panic!("target fixture");
+    };
+    target.can_migrate = false;
+
+    apply(&mut state, SettingsMessage::Save);
+    assert!(matches!(
+        state.settings_state.plugin_config_migration,
+        PluginConfigMigrationState::Idle
+    ));
+    assert!(
+        state
+            .settings_state
+            .draft
+            .as_ref()
+            .is_some_and(|draft| draft.pending_revision().is_none())
+    );
+}
+
+#[test]
+fn migration_completion_builds_owner_qualified_value_free_preview() {
+    let (mut state, owner, _) = opened_migration_draft();
+    apply(&mut state, SettingsMessage::Save);
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("migration is pending"));
+    let mut target_config = TypedMap::new();
+    target_config.insert(
+        Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        TypedValue::String("us-east".to_owned()),
+    );
+
+    apply(
+        &mut state,
+        SettingsMessage::MigrationCompleted {
+            draft_token: pending.draft_token.get(),
+            target_config,
+            notes: vec!["updated endpoint".to_owned()],
+        },
+    );
+
+    let PluginConfigMigrationState::Preview(preview) =
+        &state.settings_state.plugin_config_migration
+    else {
+        panic!("valid completion produces a preview");
+    };
+    assert_eq!(preview.request.owner, owner);
+    assert_eq!(preview.diff.len(), 2);
+    assert_eq!(
+        preview
+            .diff
+            .iter()
+            .map(|row| row.path.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "/plugins/vendor.config/config/endpoint",
+            "/plugins/vendor.config/config/region",
+        ]
+    );
+    assert!(preview.diff.iter().all(|row| !row.path.contains("us-east")));
+}
+
+#[test]
+fn approving_migration_replaces_owner_config_then_schedules_existing_writer() {
+    let (mut state, _, _) = opened_migration_draft();
+    apply(&mut state, SettingsMessage::Save);
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("migration is pending"));
+    let mut target_config = TypedMap::new();
+    target_config.insert(
+        Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        TypedValue::String("us-east".to_owned()),
+    );
+    apply(
+        &mut state,
+        SettingsMessage::MigrationCompleted {
+            draft_token: pending.draft_token.get(),
+            target_config,
+            notes: Vec::new(),
+        },
+    );
+
+    apply(&mut state, SettingsMessage::ApproveMigration);
+
+    assert!(matches!(draft_status(&state), DraftStatus::Saving { .. }));
+    let candidate = state
+        .settings_state
+        .draft
+        .as_ref()
+        .and_then(super::settings_types::SettingsDraft::candidate_bytes)
+        .unwrap_or_else(|| panic!("approval schedules one authoritative write"));
+    let text = String::from_utf8(candidate.bytes().to_vec())
+        .unwrap_or_else(|error| panic!("candidate utf8: {error}"));
+    assert!(text.contains("\"region\" = \"us-east\""), "{text}");
+    assert!(!text.contains("\"endpoint\" ="), "{text}");
+}
+
+#[test]
+fn cancelling_migration_preserves_exact_base_and_schedules_no_write() {
+    let (mut state, _, _) = opened_migration_draft();
+    let base = state.settings_state.draft.as_ref().map_or_else(
+        || panic!("migration draft has a base"),
+        |draft| draft.base().document().original_bytes().to_vec(),
+    );
+    apply(&mut state, SettingsMessage::Save);
+
+    apply(&mut state, SettingsMessage::CancelMigration);
+
+    assert!(matches!(
+        state.settings_state.plugin_config_migration,
+        PluginConfigMigrationState::Idle
+    ));
+    assert!(!matches!(draft_status(&state), DraftStatus::Saving { .. }));
+    assert_eq!(
+        state
+            .settings_state
+            .draft
+            .as_ref()
+            .map(|draft| draft.base().document().original_bytes()),
+        Some(base.as_slice())
+    );
+}
+
+#[test]
+fn migration_failure_preserves_exact_base_and_schedules_no_write() {
+    let (mut state, owner, _) = opened_migration_draft();
+    let base = state.settings_state.draft.as_ref().map_or_else(
+        || panic!("migration draft has a base"),
+        |draft| draft.base().document().original_bytes().to_vec(),
+    );
+    apply(&mut state, SettingsMessage::Save);
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("migration is pending"));
+
+    apply(
+        &mut state,
+        SettingsMessage::MigrationFailed {
+            draft_token: pending.draft_token.get(),
+            detail: "migration provider failed".to_owned(),
+        },
+    );
+
+    assert!(matches!(
+        &state.settings_state.plugin_config_migration,
+        PluginConfigMigrationState::Failed {
+            owner: failed_owner,
+            detail,
+        } if failed_owner == &owner && detail == "migration provider failed"
+    ));
+    assert!(!matches!(draft_status(&state), DraftStatus::Saving { .. }));
+    assert_eq!(
+        state
+            .settings_state
+            .draft
+            .as_ref()
+            .map(|draft| draft.base().document().original_bytes()),
+        Some(base.as_slice())
+    );
+}
+
+#[test]
+fn editing_while_migration_runs_invalidates_the_completion() {
+    let (mut state, owner, target_version) = opened_migration_draft();
+    apply(&mut state, SettingsMessage::Save);
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("migration is pending"));
+
+    apply(
+        &mut state,
+        SettingsMessage::Edit(SettingsEdit::PluginVersion {
+            plugin: owner,
+            version: target_version,
+        }),
+    );
+    let mut target_config = TypedMap::new();
+    target_config.insert(
+        Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        TypedValue::String("us-east".to_owned()),
+    );
+    apply(
+        &mut state,
+        SettingsMessage::MigrationCompleted {
+            draft_token: pending.draft_token.get(),
+            target_config,
+            notes: Vec::new(),
+        },
+    );
+
+    assert!(matches!(
+        state.settings_state.plugin_config_migration,
+        PluginConfigMigrationState::Idle
+    ));
+    assert!(!matches!(draft_status(&state), DraftStatus::Saving { .. }));
+}
+
+#[test]
+fn invalid_migration_target_fails_without_scheduling_a_write() {
+    let (mut state, _, _) = opened_migration_draft();
+    apply(&mut state, SettingsMessage::Save);
+    let pending = state
+        .pending_plugin_config_migration()
+        .unwrap_or_else(|| panic!("migration is pending"));
+
+    apply(
+        &mut state,
+        SettingsMessage::MigrationCompleted {
+            draft_token: pending.draft_token.get(),
+            target_config: TypedMap::new(),
+            notes: Vec::new(),
+        },
+    );
+
+    assert!(matches!(
+        state.settings_state.plugin_config_migration,
+        PluginConfigMigrationState::Failed { .. }
+    ));
+    assert!(!matches!(draft_status(&state), DraftStatus::Saving { .. }));
 }
 
 // ── CW07-01: the draft is bound to exact bytes, hash and revision ──────────
@@ -506,357 +972,4 @@ fn a_clean_draft_has_nothing_to_save() {
 
 // ── Save scheduling and CW07-09 stale completions ────────────────────────
 
-fn pending_revision(state: &AppState) -> u64 {
-    state
-        .settings_state
-        .draft
-        .as_ref()
-        .and_then(super::SettingsDraft::pending_revision)
-        .unwrap_or_else(|| panic!("a scheduled save carries a revision"))
-}
-
-fn written(revision: u64, state: &AppState) -> SettingsSaveOutcome {
-    let Some(candidate) = state
-        .settings_state
-        .draft
-        .as_ref()
-        .and_then(super::SettingsDraft::candidate_bytes)
-    else {
-        panic!("a saveable draft has a candidate");
-    };
-    SettingsSaveOutcome::Written {
-        revision,
-        hash: candidate.sha256(),
-    }
-}
-
-fn complete(state: &mut AppState, outcome: SettingsSaveOutcome) {
-    apply(state, SettingsMessage::SaveCompleted(Box::new(outcome)));
-}
-
-/// Answer the scheduled save as the writer would after a successful write.
-fn complete_written(state: &mut AppState) {
-    let revision = pending_revision(state);
-    let outcome = written(revision, state);
-    complete(state, outcome);
-}
-
-fn write_failure() -> Diagnostic {
-    let mut diagnostic = Diagnostic::new(
-        CfgCode::E104,
-        Severity::Error,
-        DiagnosticPath::new("/tmp/jefe/settings.toml"),
-        None,
-        "preserve the draft and resolve the filesystem write failure",
-    );
-    "injected writer phase failure".clone_into(&mut diagnostic.redacted_detail);
-    diagnostic
-}
-
-#[test]
-fn a_save_schedules_a_strictly_increasing_revision() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-
-    apply(&mut state, SettingsMessage::Save);
-    let first = pending_revision(&state);
-    complete_written(&mut state);
-
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::OverrideAgentTheme(true)),
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let second = pending_revision(&state);
-
-    assert!(second > first, "{second} must follow {first}");
-}
-
-#[test]
-fn a_matching_completion_adopts_the_saved_bytes_as_the_new_base() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let revision = pending_revision(&state);
-    let outcome = written(revision, &state);
-    let SettingsSaveOutcome::Written { hash, .. } = outcome else {
-        panic!("fixture outcome is a write");
-    };
-
-    complete(&mut state, SettingsSaveOutcome::Written { revision, hash });
-
-    let Some(draft) = state.settings_state.draft.as_ref() else {
-        panic!("a save keeps the draft");
-    };
-    assert_eq!(draft.status(), &DraftStatus::Clean);
-    assert_eq!(draft.base_hash(), Some(hash));
-    assert_eq!(draft.base_revision(), revision);
-    assert_eq!(draft.edited_paths().count(), 0);
-    assert_eq!(
-        draft.published().appearance.theme.as_deref(),
-        Some("dracula")
-    );
-}
-
-#[test]
-fn a_completion_for_a_superseded_revision_is_ignored() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let superseded_revision = pending_revision(&state);
-    // The first attempt conflicts, the user retries, and only then does a late
-    // answer for the first attempt arrive.
-    complete(
-        &mut state,
-        SettingsSaveOutcome::Conflict {
-            revision: superseded_revision,
-            disk_hash: None,
-        },
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let newest = pending_revision(&state);
-    assert!(newest > superseded_revision);
-
-    complete(
-        &mut state,
-        SettingsSaveOutcome::Written {
-            revision: superseded_revision,
-            hash: Sha256::digest(b"whatever was on disk then"),
-        },
-    );
-
-    assert_eq!(
-        draft_status(&state),
-        DraftStatus::Saving { revision: newest },
-        "the newest pending revision stands"
-    );
-    assert_eq!(pending_revision(&state), newest);
-    assert!(
-        state.settings_state.is_dirty(),
-        "the superseded completion adopted nothing"
-    );
-}
-
-// ── CW07-06: a hash conflict preserves disk and draft ────────────────────
-
-#[test]
-fn a_conflict_preserves_the_draft_and_offers_reload_export_and_retry() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let revision = pending_revision(&state);
-    let disk_hash = Sha256::digest(b"someone else's settings");
-
-    complete(
-        &mut state,
-        SettingsSaveOutcome::Conflict {
-            revision,
-            disk_hash: Some(disk_hash),
-        },
-    );
-
-    assert_eq!(
-        draft_status(&state),
-        DraftStatus::Conflict {
-            disk_hash: Some(disk_hash)
-        }
-    );
-    let Some(draft) = state.settings_state.draft.as_ref() else {
-        panic!("a conflict keeps the draft");
-    };
-    assert_eq!(
-        draft.published().appearance.theme.as_deref(),
-        Some("dracula"),
-        "the draft is preserved"
-    );
-    assert_eq!(
-        settings_view::recovery_choices(&state.settings_state),
-        vec![
-            RecoveryChoice::Reload,
-            RecoveryChoice::Export,
-            RecoveryChoice::Retry
-        ]
-    );
-}
-
-#[test]
-fn a_write_failure_offers_retry_export_and_discard() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let revision = pending_revision(&state);
-
-    complete(
-        &mut state,
-        SettingsSaveOutcome::Failed {
-            revision,
-            diagnostic: Box::new(write_failure()),
-        },
-    );
-
-    assert_eq!(
-        draft_status(&state),
-        DraftStatus::Failed {
-            code: CfgCode::E104
-        }
-    );
-    assert_eq!(
-        settings_view::recovery_choices(&state.settings_state),
-        vec![
-            RecoveryChoice::Retry,
-            RecoveryChoice::Export,
-            RecoveryChoice::Discard
-        ]
-    );
-}
-
-#[test]
-fn retrying_after_a_conflict_reschedules_the_same_draft() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    apply(&mut state, SettingsMessage::Save);
-    let first = pending_revision(&state);
-    complete(
-        &mut state,
-        SettingsSaveOutcome::Conflict {
-            revision: first,
-            disk_hash: None,
-        },
-    );
-
-    apply(&mut state, SettingsMessage::Save);
-
-    let retried = pending_revision(&state);
-    assert!(retried > first);
-    assert_eq!(
-        draft_status(&state),
-        DraftStatus::Saving { revision: retried }
-    );
-}
-
-// ── CW07-07: reload rebuilds from the exact disk bytes ───────────────────
-
-#[test]
-fn a_dirty_reload_asks_before_it_discards_anything() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-
-    apply(&mut state, SettingsMessage::Reload);
-
-    assert!(state.settings_state.reload_confirm);
-    assert!(
-        state.settings_state.is_dirty(),
-        "asking discards nothing yet"
-    );
-}
-
-#[test]
-fn a_clean_reload_needs_no_confirmation() {
-    let mut state = opened(Some(SCHEMA_2));
-
-    apply(&mut state, SettingsMessage::Reload);
-
-    assert!(!state.settings_state.reload_confirm);
-}
-
-#[test]
-fn a_reload_rebuilds_the_draft_from_the_exact_current_bytes() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    let external =
-        b"settings_schema = 2\n# somebody else was here\n[appearance]\ntheme = 'green-screen'\n";
-
-    apply(
-        &mut state,
-        SettingsMessage::Reloaded(Box::new(source(Some(external)))),
-    );
-
-    let Some(draft) = state.settings_state.draft.as_ref() else {
-        panic!("a reload binds a draft");
-    };
-    assert_eq!(draft.base().document().original_bytes(), external);
-    assert_eq!(draft.base_hash(), Some(Sha256::digest(external)));
-    assert!(!draft.is_dirty());
-    assert!(!state.settings_state.reload_confirm);
-}
-
-// ── CW07-08: export leaves the draft exactly where it is ─────────────────
-
-#[test]
-fn an_export_result_changes_no_base_hash_or_dirty_status() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-    let before_hash = state
-        .settings_state
-        .draft
-        .as_ref()
-        .and_then(super::SettingsDraft::base_hash);
-
-    apply(
-        &mut state,
-        SettingsMessage::ExportCompleted(Box::new(Ok(PathBuf::from("/tmp/jefe/draft.toml")))),
-    );
-
-    let Some(draft) = state.settings_state.draft.as_ref() else {
-        panic!("export keeps the draft");
-    };
-    assert_eq!(draft.base_hash(), before_hash);
-    assert!(draft.is_dirty());
-    assert!(
-        state
-            .settings_state
-            .notice
-            .as_ref()
-            .is_some_and(|notice| notice.contains("draft.toml"))
-    );
-}
-
-#[test]
-fn a_failed_export_retains_the_draft_and_reports_a_redacted_reason() {
-    let mut state = opened(Some(SCHEMA_2));
-    apply(
-        &mut state,
-        SettingsMessage::Edit(SettingsEdit::Theme(theme("dracula"))),
-    );
-
-    apply(
-        &mut state,
-        SettingsMessage::ExportCompleted(Box::new(Err(write_failure()))),
-    );
-
-    assert!(state.settings_state.is_dirty());
-    assert!(
-        state
-            .settings_state
-            .notice
-            .as_ref()
-            .is_some_and(|notice| notice.starts_with("CFG-E104"))
-    );
-}
+include!("settings_save_tests.rs");

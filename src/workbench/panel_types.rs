@@ -41,6 +41,8 @@ pub enum PanelTypeError {
     Unknown {
         /// The declared name.
         declared: String,
+        /// The panel types this screen source may use.
+        available: Vec<String>,
     },
     /// The name is a real panel type that definitions may not request.
     Forbidden {
@@ -59,10 +61,13 @@ pub enum PanelTypeError {
 impl std::fmt::Display for PanelTypeError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unknown { declared } => write!(
+            Self::Unknown {
+                declared,
+                available,
+            } => write!(
                 formatter,
-                "panel type {declared:?} has no compiled renderer (available: {})",
-                DEFINABLE_PANEL_TYPES.join(", ")
+                "panel type {declared:?} is not available; available: {}",
+                available.join(", ")
             ),
             Self::Forbidden { declared } => write!(
                 formatter,
@@ -77,6 +82,40 @@ impl std::fmt::Display for PanelTypeError {
 
 impl std::error::Error for PanelTypeError {}
 
+/// Find a declared panel type in an allowed set, or report why it is refused.
+///
+/// This is the shared validation core used by both built-in panel resolution
+/// and package panel resolution.  The PTY type is always forbidden, and any
+/// type not present in `allowed` is unknown.  The returned slice borrows from
+/// `allowed`, so for built-in types it is a `'static` compiled literal and for
+/// package types it borrows the manifest's declared panel ids.
+///
+/// # Errors
+///
+/// Returns why the name was refused: malformed, forbidden, or unknown.
+pub fn find_panel_type<'a>(
+    declared: &str,
+    allowed: &'a [&'a str],
+) -> Result<&'a str, PanelTypeError> {
+    check_identifier(declared).map_err(|reason| PanelTypeError::Malformed {
+        declared: declared.to_owned(),
+        reason,
+    })?;
+    if declared == PTY_PANEL_TYPE {
+        return Err(PanelTypeError::Forbidden {
+            declared: declared.to_owned(),
+        });
+    }
+    allowed
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == declared)
+        .ok_or_else(|| PanelTypeError::Unknown {
+            declared: declared.to_owned(),
+            available: allowed.iter().map(|value| (*value).to_owned()).collect(),
+        })
+}
+
 /// Resolve a declared panel type against the immutable registry.
 ///
 /// The registry entry is found before anything is interned, so the identifier
@@ -87,22 +126,7 @@ impl std::error::Error for PanelTypeError {}
 ///
 /// Returns why the name was refused: malformed, unknown, or forbidden.
 pub fn resolve_panel_type(declared: &str) -> Result<PanelTypeId, PanelTypeError> {
-    check_identifier(declared).map_err(|reason| PanelTypeError::Malformed {
-        declared: declared.to_owned(),
-        reason,
-    })?;
-    if declared == PTY_PANEL_TYPE {
-        return Err(PanelTypeError::Forbidden {
-            declared: declared.to_owned(),
-        });
-    }
-    let compiled = DEFINABLE_PANEL_TYPES
-        .iter()
-        .copied()
-        .find(|candidate| *candidate == declared)
-        .ok_or_else(|| PanelTypeError::Unknown {
-            declared: declared.to_owned(),
-        })?;
+    let compiled = find_panel_type(declared, &DEFINABLE_PANEL_TYPES)?;
     PanelTypeId::parse(compiled).map_err(|reason| PanelTypeError::Malformed {
         declared: declared.to_owned(),
         reason,

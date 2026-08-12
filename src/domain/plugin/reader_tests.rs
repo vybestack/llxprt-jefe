@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::domain::plugin::{
-    ActionConfirmation, ActionOutcome, EventKind, Field, FieldKind, ManifestError, ModelKind,
-    ProviderMode, RestartScope, Scalar,
+    ActionConfirmation, ActionOutcome, EventKind, EventSchemaEntry, Field, FieldKind,
+    ManifestError, ModelKind, ProviderMode, RestartScope,
 };
 
 /// A manifest carrying one instance of every closed field.
@@ -15,7 +15,7 @@ const COMPLETE: &str = r#"{
   "host_api": { "minimum": "1.0.0", "maximum": "2.0.0" },
   "protocol": 1,
   "provider": {
-    "mode": "one-shot",
+    "mode": "persistent",
     "binaries": { "aarch64-apple-darwin": "bin/provider" }
   },
   "config": {
@@ -23,30 +23,34 @@ const COMPLETE: &str = r#"{
     "fields": [
       {
         "id": "depth",
-        "kind": "integer",
+        "label": "Depth",
+        "type": "integer",
         "required": false,
         "default": 2,
-        "minimum": 1,
-        "maximum": 10,
+        "min": 1,
+        "max": 10,
         "restart": "provider"
       },
       {
         "id": "ratio",
-        "kind": "finite-number",
+        "label": "Ratio",
+        "type": "finite-number",
         "required": false,
         "default": 0.5,
         "restart": "none"
       },
       {
         "id": "mode",
-        "kind": "enum",
+        "label": "Mode",
+        "description": "Merge strategy",
+        "type": "enum",
         "required": true,
         "choices": ["fast", "safe"],
         "default": "safe",
         "visible_when": "depth",
         "restart": "host"
       },
-      { "id": "token", "kind": "secret-reference", "required": false, "restart": "none" }
+      { "id": "token", "label": "Token", "type": "secret-reference", "required": false, "restart": "none" }
     ]
   },
   "actions": [
@@ -57,7 +61,7 @@ const COMPLETE: &str = r#"{
       "category": "git",
       "contexts": ["core.dashboard"],
       "arguments": [
-        { "id": "branch", "kind": "string", "required": true, "restart": "none" }
+        { "id": "branch", "label": "Branch", "type": "string", "required": true, "restart": "none" }
       ],
       "timeout_seconds": 120,
       "destructive": true,
@@ -70,7 +74,10 @@ const COMPLETE: &str = r#"{
     {
       "id": "vendor.git-merger.status",
       "model_kinds": ["status", "error"],
-      "event_kinds": ["selected", "field-changed"],
+      "event_schema": [
+        { "kind": "selected", "arguments": [] },
+        { "kind": "field-changed", "arguments": [] }
+      ],
       "handler": "render-status",
       "ports": [{ "id": "rows" }]
     }
@@ -79,7 +86,7 @@ const COMPLETE: &str = r#"{
     {
       "id": "vendor.git-merger.open",
       "activation_fields": [
-        { "id": "sha", "kind": "string", "required": true, "restart": "none" }
+        { "id": "sha", "label": "SHA", "type": "string", "required": true, "restart": "none" }
       ],
       "target_screen": "vendor.git-merger.main"
     }
@@ -120,7 +127,7 @@ fn a_complete_manifest_lowers_its_identity_and_provider() {
     assert_eq!(manifest.id().as_str(), "vendor.git-merger");
     assert_eq!(manifest.version().as_str(), "1.0.0");
     assert_eq!(manifest.display_name(), "Git Merger");
-    assert_eq!(manifest.provider().mode(), ProviderMode::OneShot);
+    assert_eq!(manifest.provider().mode(), ProviderMode::Persistent);
     assert_eq!(manifest.provider().binaries().len(), 1);
 }
 
@@ -160,10 +167,12 @@ fn a_complete_manifest_lowers_its_panel() {
         .first()
         .unwrap_or_else(|| panic!("panel must be present"));
     assert_eq!(panel.model_kinds(), [ModelKind::Status, ModelKind::Error]);
-    assert_eq!(
-        panel.event_kinds(),
-        [EventKind::Selected, EventKind::FieldChanged]
-    );
+    let kinds: Vec<EventKind> = panel
+        .event_schema()
+        .iter()
+        .map(EventSchemaEntry::kind)
+        .collect();
+    assert_eq!(kinds, [EventKind::Selected, EventKind::FieldChanged]);
     assert_eq!(panel.ports().len(), 1);
 }
 
@@ -235,7 +244,7 @@ fn a_finite_number_default_keeps_its_canonical_text() {
         .find(|field| field.id().as_str() == "ratio")
         .unwrap_or_else(|| panic!("ratio must be present"));
     match ratio.default() {
-        Some(Scalar::Decimal(value)) => assert_eq!(value.as_str(), "0.5"),
+        Some(crate::domain::TypedValue::Decimal(value)) => assert_eq!(value.as_str(), "0.5"),
         other => panic!("expected a decimal default, got {other:?}"),
     }
 }
@@ -245,8 +254,8 @@ fn an_unknown_field_is_rejected_at_every_level() {
     for (from, to) in [
         (r#""protocol": 1,"#, r#""protocol": 1, "extra": 1,"#),
         (
-            r#""mode": "one-shot","#,
-            r#""mode": "one-shot", "extra": 1,"#,
+            r#""mode": "persistent","#,
+            r#""mode": "persistent", "extra": 1,"#,
         ),
         (r#""id": "depth","#, r#""id": "depth", "extra": 1,"#),
         (r#""label": "Merge","#, r#""label": "Merge", "extra": 1,"#),
@@ -267,6 +276,26 @@ fn an_unknown_field_is_rejected_at_every_level() {
     }
 }
 
+#[test]
+fn old_grammar_keys_are_rejected_as_unknown_fields() {
+    // The cutover is hard: the old wire names are not aliases.
+    for (from, to) in [
+        // Field kind → type
+        (r#""type": "integer""#, r#""kind": "integer""#),
+        // minimum → min
+        (r#""min": 1,"#, r#""minimum": 1,"#),
+        // maximum → max
+        (r#""max": 10,"#, r#""maximum": 10,"#),
+        // event_kinds → event_schema
+        (r#""event_schema": ["#, r#""event_kinds": ["#),
+    ] {
+        let error = rejected(&mutated(from, to));
+        assert!(
+            matches!(error, ManifestReadError::UnknownField { .. }),
+            "the old key {to:?} must be rejected, got {error}"
+        );
+    }
+}
 #[test]
 fn a_duplicate_key_is_rejected() {
     let error = rejected(&mutated(
@@ -294,9 +323,9 @@ fn a_missing_required_field_is_rejected() {
 #[test]
 fn a_wrong_case_or_snake_case_enum_spelling_is_rejected() {
     for (from, to) in [
-        (r#""mode": "one-shot""#, r#""mode": "one_shot""#),
-        (r#""mode": "one-shot""#, r#""mode": "OneShot""#),
-        (r#""kind": "finite-number""#, r#""kind": "finite_number""#),
+        (r#""mode": "persistent""#, r#""mode": "persistent_""#),
+        (r#""mode": "persistent""#, r#""mode": "Persistent""#),
+        (r#""type": "finite-number""#, r#""type": "finite_number""#),
         (
             r#""confirmation": "host-before-invoke""#,
             r#""confirmation": "HostBeforeInvoke""#,
@@ -411,4 +440,97 @@ fn a_non_object_document_is_rejected() {
             "{text} must be rejected, got {error}"
         );
     }
+}
+
+#[test]
+fn a_string_list_default_lowers_as_a_typed_list() {
+    let json = COMPLETE.replace(
+        r#""id": "token", "label": "Token", "type": "secret-reference", "required": false, "restart": "none" }"#,
+        r#""id": "token", "label": "Token", "type": "secret-reference", "required": false, "default": {"env": "API_TOKEN"}, "restart": "none" }, {"id": "tags", "label": "Tags", "type": "string-list", "required": false, "default": ["alpha", "beta"], "restart": "none" }"#,
+    );
+    let manifest = parsed(&json);
+    let config = manifest
+        .config()
+        .unwrap_or_else(|| panic!("config must be present"));
+    let token = config
+        .fields()
+        .iter()
+        .find(|field| field.id().as_str() == "token")
+        .unwrap_or_else(|| panic!("token must be present"));
+    match token.default() {
+        Some(crate::domain::TypedValue::SecretRef(reference)) => {
+            assert_eq!(reference.env.env(), "API_TOKEN");
+        }
+        other => panic!("expected a SecretRef default, got {other:?}"),
+    }
+    let tags = config
+        .fields()
+        .iter()
+        .find(|field| field.id().as_str() == "tags")
+        .unwrap_or_else(|| panic!("tags must be present"));
+    match tags.default() {
+        Some(crate::domain::TypedValue::List(values)) => {
+            assert_eq!(values.len(), 2);
+        }
+        other => panic!("expected a List default, got {other:?}"),
+    }
+}
+
+#[test]
+fn package_config_defaults_use_the_declared_field_types() {
+    let json = COMPLETE
+        .replace(
+            r#"{ "id": "token", "label": "Token", "type": "secret-reference", "required": false, "restart": "none" }"#,
+            r#"{ "id": "token", "label": "Token", "type": "secret-reference", "required": false, "restart": "none" }, { "id": "tags", "label": "Tags", "type": "string-list", "required": false, "restart": "none" }"#,
+        )
+        .replace(
+            r#""config": { "depth": 3 }"#,
+            r#""config": { "depth": 3, "token": {"env": "API_TOKEN"}, "tags": ["alpha", "beta"] }"#,
+        );
+    let manifest = parsed(&json);
+    let defaults = manifest
+        .defaults()
+        .unwrap_or_else(|| panic!("defaults must be present"));
+    assert!(matches!(
+        defaults
+            .config
+            .iter()
+            .find(|(id, _)| id.as_str() == "token")
+            .map(|(_, value)| value),
+        Some(crate::domain::TypedValue::SecretRef(_))
+    ));
+    assert!(matches!(
+        defaults
+            .config
+            .iter()
+            .find(|(id, _)| id.as_str() == "tags")
+            .map(|(_, value)| value),
+        Some(crate::domain::TypedValue::List(values)) if values.len() == 2
+    ));
+}
+
+#[test]
+fn a_wrong_type_default_is_rejected_by_the_reader() {
+    let json = COMPLETE.replace(
+        "\"default\": 2,\n        \"min\": 1",
+        "\"default\": \"not-a-number\",\n        \"min\": 1",
+    );
+    let error = rejected(&json);
+    assert!(
+        matches!(error, ManifestReadError::Declaration { .. }),
+        "a wrong-type default must be rejected, got {error}"
+    );
+}
+
+#[test]
+fn a_legacy_field_key_is_rejected() {
+    let json = COMPLETE.replace(
+        "\"max\": 10,\n        \"restart\": \"provider\"",
+        "\"max\": 10,\n        \"minimum\": 1,\n        \"restart\": \"provider\"",
+    );
+    let error = rejected(&json);
+    assert!(
+        matches!(error, ManifestReadError::UnknownField { .. }),
+        "a legacy key like 'minimum' must be rejected, got {error}"
+    );
 }

@@ -11,19 +11,86 @@
 use crate::domain::action_registry::ActionId;
 use crate::domain::agent_definition::AgentTypeId;
 use crate::domain::input_context::ContextId;
+use crate::domain::plugin::FieldKind;
 use crate::domain::{Id, ThemeId};
 use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 use crate::messages::settings::{RecoveryChoice, SettingsSection};
 use crate::persistence::diagnostic::{CfgCode, Severity};
 use crate::persistence::settings_document::PublishedSettings;
-use crate::persistence::{SettingsEdit, SyntaxPath};
+use crate::persistence::{PluginConfigEditValue, SettingsEdit, SyntaxPath};
 use crate::workbench::ScreenId;
 
 use super::agent_types_editor::{AgentAvailability, AgentIntent, project_agent_types};
 use super::keys_editor_project::{KeyIntent, project_keys};
 use super::screens_editor::{CompositionStatus, ScreenIntent, project_screens};
-use super::settings_types::{CaptureMode, DraftStatus, SettingsDraft, SettingsState};
+use super::settings_types::{
+    CaptureMode, DraftStatus, PluginConfigChange, PluginConfigMigrationState, SettingsDraft,
+    SettingsState,
+};
 
+/// Value-free Settings projection of the pre-save plugin migration lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginConfigMigrationView {
+    /// A provisional provider is transforming one exact source config.
+    Running { owner: String },
+    /// A validated proposal waits for explicit approval or cancellation.
+    Preview {
+        owner: String,
+        changes: Vec<String>,
+        notes: Vec<String>,
+    },
+    /// Migration failed without writing the draft.
+    Failed { owner: String, detail: String },
+}
+
+/// Project migration state without exposing source or target config values.
+#[must_use]
+pub fn plugin_config_migration_view(settings: &SettingsState) -> Option<PluginConfigMigrationView> {
+    match &settings.plugin_config_migration {
+        PluginConfigMigrationState::Idle => None,
+        PluginConfigMigrationState::Running(request) => Some(PluginConfigMigrationView::Running {
+            owner: request.owner.as_str().to_owned(),
+        }),
+        PluginConfigMigrationState::Preview(preview) => Some(PluginConfigMigrationView::Preview {
+            owner: preview.request.owner.as_str().to_owned(),
+            changes: preview
+                .diff
+                .iter()
+                .map(|row| {
+                    let change = match row.change {
+                        PluginConfigChange::Added => "added",
+                        PluginConfigChange::Removed => "removed",
+                        PluginConfigChange::Changed => "changed",
+                    };
+                    format!("{}: {change}", row.path)
+                })
+                .collect(),
+            notes: preview
+                .notes
+                .iter()
+                .map(|note| safe_provider_note(note))
+                .collect(),
+        }),
+        PluginConfigMigrationState::Failed { owner, detail } => {
+            Some(PluginConfigMigrationView::Failed {
+                owner: owner.as_str().to_owned(),
+                detail: detail.clone(),
+            })
+        }
+    }
+}
+
+fn safe_provider_note(note: &str) -> String {
+    note.chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
+}
 /// What one detail row lets the user do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsRowKind {
@@ -91,6 +158,21 @@ pub enum SettingsRowKind {
         /// Why the binding is read-only, when it is.
         protected: Option<String>,
     },
+    /// One generated field from an active selected package's config schema.
+    PluginConfig {
+        /// The selected package owner.
+        plugin: Id,
+        /// The declared field identity.
+        field: Id,
+        /// The declared field kind.
+        kind: FieldKind,
+        /// The current display value used to seed a scalar editor.
+        value: String,
+        /// The current boolean value, for in-place toggles.
+        boolean: Option<bool>,
+        /// The enum choices, in manifest order.
+        choices: Vec<String>,
+    },
 }
 
 /// What activating one row asks the reducer to do.
@@ -122,6 +204,17 @@ pub enum SettingsActivation {
     OpenLayout {
         /// The screen whose layout is edited.
         screen_id: Id,
+    },
+    /// Open the Settings-owned editor for one generated package property.
+    OpenPluginConfig {
+        /// The selected package owner.
+        plugin: Id,
+        /// The declared field identity.
+        field: Id,
+        /// The declared field kind.
+        kind: FieldKind,
+        /// The current value rendered as editable text.
+        value: String,
     },
 }
 
@@ -178,6 +271,14 @@ impl SettingsRow {
                 action: action.clone(),
                 mode: CaptureMode::Replace,
             }),
+            SettingsRowKind::PluginConfig {
+                plugin,
+                field,
+                kind,
+                value,
+                boolean,
+                choices,
+            } => plugin_config_activation(plugin, field, *kind, value, *boolean, choices),
             SettingsRowKind::ScreenMember { .. }
             | SettingsRowKind::KeyBinding { .. }
             | SettingsRowKind::Theme { .. }
@@ -210,6 +311,14 @@ impl SettingsRow {
                     enabled: !enabled,
                 },
             ))),
+            SettingsRowKind::PluginConfig {
+                plugin,
+                field,
+                kind,
+                value,
+                boolean,
+                choices,
+            } => plugin_config_activation(plugin, field, *kind, value, *boolean, choices),
             SettingsRowKind::ScreenMember { .. }
             | SettingsRowKind::Theme { .. }
             | SettingsRowKind::Screen { .. }
@@ -253,6 +362,12 @@ impl SettingsRow {
                 context: context.clone(),
                 action: action.clone(),
             }))),
+            SettingsRowKind::PluginConfig { plugin, field, .. } => Some(SettingsActivation::Edit(
+                SettingsEdit::Reset(SyntaxPath::PluginConfig {
+                    plugin: plugin.clone(),
+                    field: field.clone(),
+                }),
+            )),
             SettingsRowKind::ScreenMember { .. }
             | SettingsRowKind::KeyBinding { .. }
             | SettingsRowKind::Fact
@@ -328,12 +443,14 @@ fn toggle_activation(path: &SyntaxPath, value: bool) -> Option<SettingsActivatio
             }))
         }
         // Every remaining leaf holds something other than a boolean, so a
-        // toggle row can never name one.
+        // toggle row can never name one. Plugin config leaves are edited
+        // through their own generated controls, not through the generic toggle.
         SyntaxPath::Theme
         | SyntaxPath::InitialScreen
         | SyntaxPath::EnabledScreens
         | SyntaxPath::ScreenOrder
         | SyntaxPath::PluginVersion(_)
+        | SyntaxPath::PluginConfig { .. }
         | SyntaxPath::LayoutOverride(_)
         | SyntaxPath::Keymap { .. } => None,
     }
@@ -460,33 +577,36 @@ fn published(state: &SettingsState) -> PublishedSettings {
 fn plugin_rows(state: &SettingsState) -> Vec<SettingsRow> {
     let published = published(state);
     let trusted = |id: &str| crate::persistence::plugin_inventory::package_trusted(&published, id);
-    crate::state::plugins_editor::project_plugins(&state.plugins, &trusted)
-        .into_iter()
-        .map(|row| SettingsRow {
-            label: row.label,
-            value: format!(
-                "{} {}{}",
-                if row.enabled { "[x]" } else { "[ ]" },
-                row.status,
-                row.detail
-                    .map(|detail| format!(" — {detail}"))
-                    .unwrap_or_default()
-            ),
-            kind: crate::domain::Id::parse(&row.id).map_or(SettingsRowKind::Fact, |owner| {
-                if row.selectable {
-                    SettingsRowKind::Toggle {
-                        path: SyntaxPath::PluginEnabled(owner),
-                        value: row.enabled,
+    let mut rows: Vec<SettingsRow> =
+        crate::state::plugins_editor::project_plugins(&state.plugins, &trusted)
+            .into_iter()
+            .map(|row| SettingsRow {
+                label: row.label,
+                value: format!(
+                    "{} {}{}",
+                    if row.enabled { "[x]" } else { "[ ]" },
+                    row.status,
+                    row.detail
+                        .map(|detail| format!(" — {detail}"))
+                        .unwrap_or_default()
+                ),
+                kind: crate::domain::Id::parse(&row.id).map_or(SettingsRowKind::Fact, |owner| {
+                    if row.selectable {
+                        SettingsRowKind::Toggle {
+                            path: SyntaxPath::PluginEnabled(owner),
+                            value: row.enabled,
+                        }
+                    } else {
+                        SettingsRowKind::Fact
                     }
-                } else {
-                    // A package that cannot be selected has nothing to toggle,
-                    // so its row reports rather than invites an edit.
-                    SettingsRowKind::Fact
-                }
-            }),
-        })
-        .collect()
+                }),
+            })
+            .collect();
+    append_plugin_config_rows(state, &published, &mut rows);
+    rows
 }
+
+include!("settings_plugin_rows.rs");
 
 fn agent_type_rows(state: &SettingsState) -> Vec<SettingsRow> {
     project_agent_types(&state.agent_types, &published(state))

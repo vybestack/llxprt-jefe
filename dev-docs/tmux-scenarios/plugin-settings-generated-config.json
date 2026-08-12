@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "name": "plugin-settings-generated-config",
+  "platform": "macos",
+  "terminal": { "cols": 100, "rows": 30 },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      { "path": "config", "mode": 448 },
+      { "path": "work", "mode": 448 },
+      { "path": "config/plugins", "mode": 493 },
+      { "path": "config/plugins/installed", "mode": 493 },
+      { "path": "config/plugins/installed/vendor.config", "mode": 493 },
+      { "path": "config/plugins/installed/vendor.config/2.0.0", "mode": 493 }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"2.0.0\"\n\n[plugins.\"vendor.config\".config]\ndepth = 2\ntoken = { env = \"GITHUB_TOKEN\" }\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.config/2.0.0/plugin.json",
+        "content": {
+          "utf8": "{\"manifest_schema\":1,\"id\":\"vendor.config\",\"version\":\"2.0.0\",\"display_name\":\"Configured Plugin\",\"host_api\":{\"minimum\":\"1.0.0\",\"maximum\":\"1.0.0\"},\"protocol\":1,\"provider\":{\"mode\":\"none\",\"binaries\":{}},\"config\":{\"schema_version\":2,\"fields\":[{\"id\":\"depth\",\"label\":\"Depth\",\"description\":\"History depth\",\"type\":\"integer\",\"required\":true,\"default\":2,\"min\":1,\"max\":10,\"restart\":\"provider\"},{\"id\":\"token\",\"label\":\"Token\",\"type\":\"secret-reference\",\"required\":false,\"restart\":\"none\"}]},\"actions\":[],\"panels\":[],\"routes\":[],\"screens\":[]}\n"
+        },
+        "mode": 420
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "work" },
+    { "op": "wait", "source": "frame", "literal": "Repositories", "timeout_ms": 20000 },
+    { "op": "key", "key": ",", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": "Plugins", "timeout_ms": 20000 },
+    { "op": "key", "key": "j", "modifiers": [] },
+    { "op": "key", "key": "j", "modifiers": [] },
+    { "op": "key", "key": "j", "modifiers": [] },
+    { "op": "key", "key": "j", "modifiers": [] },
+    { "op": "key", "key": "j", "modifiers": [] },
+    { "op": "wait", "source": "frame", "literal": ">>Plugins", "timeout_ms": 20000 },
+    { "op": "key", "key": "tab", "modifiers": [] },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Configured Plugin 2.0.0",
+        "vendor.config / Depth: 2 — History depth",
+        "History depth; required; default 2; min 1",
+        "vendor.config / Token: GITHUB_TOKEN (set)",
+        "restart none"
+      ],
+      "absent": ["secret-value", "token-bytes"]
+    },
+    { "op": "key", "key": "q", "modifiers": ["control"] },
+    { "op": "finish" }
+  ],
+  "secrets": []
+}

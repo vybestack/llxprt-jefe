@@ -198,7 +198,11 @@ pub fn typed_to_json(value: &TypedValue) -> Value {
             }
             Value::Object(object)
         }
-        TypedValue::SecretRef(value) => Value::String(value.id.to_string()),
+        TypedValue::SecretRef(value) => {
+            let mut reference = serde_json::Map::new();
+            reference.insert("env".to_owned(), Value::String(value.env.env().to_owned()));
+            Value::Object(reference)
+        }
     }
 }
 

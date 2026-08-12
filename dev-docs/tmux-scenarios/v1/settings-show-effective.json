@@ -10,7 +10,7 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n\n[appearance]\ntheme = \"green-screen\"\noverride_agent_theme = true\n\n[agents.\"core.llxprt\"]\nenabled = true\nrepository_defaults = { profile = \"review\", credential = { secret_ref = \"github.token\" } }\n\n[agents.\"future.agent\"]\nenabled = true\nrepository_defaults = { credential = \"dormant-private\" }\n"
+          "utf8": "settings_schema = 2\n\n[appearance]\ntheme = \"green-screen\"\noverride_agent_theme = true\n\n[agents.\"core.llxprt\"]\nenabled = true\nrepository_defaults = { profile = \"review\", credential = { env = \"GITHUB_TOKEN\" } }\n\n[agents.\"future.agent\"]\nenabled = true\nrepository_defaults = { credential = \"dormant-private\" }\n"
         },
         "mode": 384
       }
@@ -46,14 +46,14 @@
     {
       "op": "assert-frame",
       "contains": ["settings_schema = 2", "core.llxprt", "credential = \"<redacted>\"", "# provenance", "<dormant-redacted>"],
-      "absent": ["github.token", "dormant-private", "provider must not run", "LLxprt Jefe", "tmux"]
+      "absent": ["GITHUB_TOKEN", "dormant-private", "provider must not run", "LLxprt Jefe", "tmux"]
     },
     {
       "op": "assert-file",
       "file": {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n\n[appearance]\ntheme = \"green-screen\"\noverride_agent_theme = true\n\n[agents.\"core.llxprt\"]\nenabled = true\nrepository_defaults = { profile = \"review\", credential = { secret_ref = \"github.token\" } }\n\n[agents.\"future.agent\"]\nenabled = true\nrepository_defaults = { credential = \"dormant-private\" }\n"
+          "utf8": "settings_schema = 2\n\n[appearance]\ntheme = \"green-screen\"\noverride_agent_theme = true\n\n[agents.\"core.llxprt\"]\nenabled = true\nrepository_defaults = { profile = \"review\", credential = { env = \"GITHUB_TOKEN\" } }\n\n[agents.\"future.agent\"]\nenabled = true\nrepository_defaults = { credential = \"dormant-private\" }\n"
         }
       }
     },

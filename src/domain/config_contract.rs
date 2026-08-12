@@ -210,8 +210,8 @@ impl_string_value!(CanonicalDateTime, ConfigContractError::InvalidDateTime);
 /// Reference to secret material owned outside persisted configuration values.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SecretRef {
-    /// Identifier resolved only at a secret-owning boundary.
-    pub id: Id,
+    /// Environment name resolved only at the owning Configure boundary.
+    pub env: crate::domain::plugin::SecretReference,
 }
 
 /// Closed recursive configuration value.

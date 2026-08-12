@@ -107,6 +107,10 @@ pub fn handle_fullscreen_mouse(
 ) {
     let shift_held = mouse_event.modifiers.contains(iocraft::KeyModifiers::SHIFT);
     mouse_click.write().observe(&mouse_event);
+    if route_provider_panel_mouse(ctx, app_state, &mouse_event) {
+        mouse_click.write().clear();
+        return;
+    }
     let (terminal_active, mouse_reporting_active) = terminal_target_info(ctx, app_state);
     let overlay_active = app_state.read().shell_overlay_active();
     if terminal_active
@@ -153,6 +157,45 @@ pub fn handle_fullscreen_mouse(
         _ => {}
     }
 }
+/// Route supported provider-panel mouse input through the frame projection.
+///
+/// Unsupported buttons, releases, drags, and coordinates outside a provider
+/// panel pass through unchanged.
+fn route_provider_panel_mouse(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) -> bool {
+    use crate::app_input::ProviderPanelMouseAction;
+    use crossterm::event::{MouseButton, MouseEventKind};
+    let action = match mouse_event.kind {
+        MouseEventKind::Down(MouseButton::Left) => ProviderPanelMouseAction::Click,
+        MouseEventKind::ScrollUp => ProviderPanelMouseAction::ScrollUp,
+        MouseEventKind::ScrollDown => ProviderPanelMouseAction::ScrollDown,
+        _ => return false,
+    };
+    let Some(ctx) = ctx else {
+        return false;
+    };
+    let shared_ctx = Some(ctx.clone());
+    crate::app_input::apply_provider_panel_mouse(
+        app_state,
+        &shared_ctx,
+        mouse_event.column,
+        mouse_event.row,
+        action,
+    )
+}
+
+#[cfg(test)]
+fn set_provider_panel_focus(state: &mut AppState, col: u16, row: u16) {
+    if let Some(layout) = &state.resolved_layout
+        && let Some(panel) = layout.panel_at(col, row)
+    {
+        state.nav.current_mut().panel_focus = panel.id;
+    }
+}
+
 fn is_left_button(kind: crossterm::event::MouseEventKind) -> bool {
     matches!(
         kind,
@@ -708,8 +751,9 @@ fn resolve_app_selection_point(
     );
     Some(SelectionPoint::new(pane, line, c))
 }
-fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let (mode_error, filter_open) = match state.screen() {
+fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> Option<ScreenLayout> {
+    let screen = state.compiled_screen()?;
+    let (mode_error, filter_open) = match screen {
         ScreenId::Issues => (
             jefe::layout::issues_banner_visible(
                 state.issues_state.error.as_deref(),
@@ -731,11 +775,11 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
         | ScreenId::Terminals
         | ScreenId::Settings => (false, false),
     };
-    let error_visible = (state.error_message.is_some()
-        && !matches!(state.screen(), ScreenId::Errors))
-        || mode_error;
-    ScreenLayout::new(cols, rows, state.screen(), error_visible, filter_open)
-        .with_overlay(active_overlay_for(state))
+    let error_visible = (state.error_message.is_some() && screen != ScreenId::Errors) || mode_error;
+    Some(
+        ScreenLayout::new(cols, rows, screen, error_visible, filter_open)
+            .with_overlay(active_overlay_for(state)),
+    )
 }
 /// Whether a blocking modal is open (Finding G).
 ///
@@ -821,7 +865,7 @@ fn resolve_pane(
     rows: u16,
     terminal_input_enabled: bool,
 ) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
-    let layout = screen_layout_for(state, cols, rows);
+    let layout = screen_layout_for(state, cols, rows)?;
     pane_at(
         col,
         row,

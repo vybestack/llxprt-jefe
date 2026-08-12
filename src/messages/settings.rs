@@ -5,10 +5,12 @@
 //! parse: an edit already names the leaf it writes and holds that leaf's type,
 //! and a completion already says which revision it answers for.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::domain::ThemeId;
 use crate::domain::keymap::Chord;
+use crate::domain::plugin::surface::ConfigSchema;
+use crate::domain::{CanonicalSemver, Id, ThemeId, TypedMap};
 use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::state::agent_types_editor::AgentIntent;
@@ -52,8 +54,24 @@ pub struct SettingsSource {
     pub active_theme: ThemeId,
     /// Every theme the manager can resolve, in list order.
     pub themes: Vec<ThemeChoice>,
+    /// Config declarations from the exact package versions selected at startup.
+    pub plugin_configs: BTreeMap<Id, SelectedPluginConfig>,
+    /// Config declarations for every installed package version, in inventory
+    /// precedence order, used to validate an explicit target version before save.
+    pub installed_plugin_configs: BTreeMap<Id, Vec<SelectedPluginConfig>>,
     /// The facts the read-only rows report.
     pub environment: SettingsEnvironment,
+}
+
+/// One selected package version's immutable config declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectedPluginConfig {
+    /// The selected package version that owns this declaration.
+    pub version: CanonicalSemver,
+    /// The manifest's validated config schema.
+    pub schema: ConfigSchema,
+    /// Whether this version has an executable provider that can migrate config.
+    pub can_migrate: bool,
 }
 
 /// Which section of the Settings screen the detail pane shows.
@@ -161,6 +179,19 @@ pub enum LayoutMessage {
     ResetOverride,
 }
 
+/// Input handled by the Settings-owned generated plugin property editor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginConfigMessage {
+    /// Insert one character.
+    TypeChar(char),
+    /// Delete the final character.
+    Backspace,
+    /// Parse, validate, and apply the declared typed value.
+    Apply,
+    /// Close without changing the draft.
+    Cancel,
+}
+
 /// Settings-shell messages.
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
@@ -206,6 +237,20 @@ pub enum SettingsMessage {
     CaptureCancelled,
     /// Move, edit, or apply the open layout tree editor.
     Layout(LayoutMessage),
+    /// Edit the open generated plugin property.
+    PluginConfig(PluginConfigMessage),
+    /// Accept a provisional provider's fully correlated migration proposal.
+    MigrationCompleted {
+        draft_token: u64,
+        target_config: TypedMap,
+        notes: Vec<String>,
+    },
+    /// Report a provisional migration failure without changing the draft or disk.
+    MigrationFailed { draft_token: u64, detail: String },
+    /// Explicitly approve the visible migration proposal.
+    ApproveMigration,
+    /// Cancel the visible migration proposal and retain the prior draft and disk.
+    CancelMigration,
     /// Make the draft authoritative.
     Save,
     /// Make the draft authoritative and then leave the screen.
@@ -259,6 +304,11 @@ impl SettingsMessage {
             Self::CapturedChord(_) => "SettingsCapturedChord",
             Self::CaptureCancelled => "SettingsCaptureCancelled",
             Self::Layout(_) => "SettingsLayout",
+            Self::PluginConfig(_) => "SettingsPluginConfig",
+            Self::MigrationCompleted { .. } => "SettingsMigrationCompleted",
+            Self::MigrationFailed { .. } => "SettingsMigrationFailed",
+            Self::ApproveMigration => "SettingsApproveMigration",
+            Self::CancelMigration => "SettingsCancelMigration",
             Self::Save => "SettingsSave",
             Self::SaveAndExit => "SettingsSaveAndExit",
             Self::Discard => "SettingsDiscard",

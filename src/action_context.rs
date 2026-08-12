@@ -38,27 +38,34 @@ pub fn derive_action_context(
         );
     }
     if let Some(modal) = modal_context(&state.modal) {
-        return modal_stack(state.screen(), modal);
+        return modal_stack(state.compiled_screen(), modal);
     }
-    match state.screen() {
-        ScreenId::Dashboard if input_mode == InputMode::DashboardSearch => action_context(
+    match state.compiled_screen() {
+        Some(ScreenId::Dashboard) if input_mode == InputMode::DashboardSearch => action_context(
             &["dashboard.search", "dashboard.pre-mode", "global"],
             false,
             DispatchScope::FullS4,
         ),
-        ScreenId::Dashboard if input_mode == InputMode::Normal => dashboard_context(state),
-        ScreenId::Repositories if input_mode == InputMode::Normal => full_s3(&["split", "global"]),
-        ScreenId::Errors if input_mode == InputMode::Normal => full_s3(&["errors", "global"]),
-        ScreenId::Terminals if input_mode == InputMode::Normal => {
+        Some(ScreenId::Dashboard) if input_mode == InputMode::Normal => dashboard_context(state),
+        Some(ScreenId::Repositories) if input_mode == InputMode::Normal => {
+            full_s3(&["split", "global"])
+        }
+        Some(ScreenId::Errors) if input_mode == InputMode::Normal => full_s3(&["errors", "global"]),
+        Some(ScreenId::Terminals) if input_mode == InputMode::Normal => {
             full_s3(&["terminal-manager", "global"])
         }
-        ScreenId::Settings if input_mode == InputMode::Normal => full_s3(&["settings", "global"]),
-        ScreenId::Issues => issues_context(state),
-        ScreenId::PullRequests => prs_context(state),
-        ScreenId::Actions => actions_context(state),
-        ScreenId::Dashboard => pre_mode(&["dashboard", "global"]),
-        ScreenId::Repositories => pre_mode(&["split", "global"]),
-        ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings => pre_mode(&["global"]),
+        Some(ScreenId::Settings) if input_mode == InputMode::Normal => {
+            full_s3(&["settings", "global"])
+        }
+        Some(ScreenId::Issues) => issues_context(state),
+        Some(ScreenId::PullRequests) => prs_context(state),
+        Some(ScreenId::Actions) => actions_context(state),
+        Some(ScreenId::Dashboard) => pre_mode(&["dashboard", "global"]),
+        Some(ScreenId::Repositories) => pre_mode(&["split", "global"]),
+        Some(ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings) => pre_mode(&["global"]),
+        // Lowered package and custom screens share the protected host Back
+        // action while panel-specific semantic input remains descriptor-driven.
+        None => full_s3(&["workbench", "global"]),
     }
 }
 
@@ -88,10 +95,10 @@ fn modal_context(modal: &ModalState) -> Option<&'static str> {
     }
 }
 
-fn modal_stack(screen: ScreenId, modal: &str) -> Result<ActionContext, ContextStackError> {
+fn modal_stack(screen: Option<ScreenId>, modal: &str) -> Result<ActionContext, ContextStackError> {
     if matches!(
         screen,
-        ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions
+        Some(ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions)
     ) {
         return action_context(
             &[modal, "dashboard.pre-mode", "global"],

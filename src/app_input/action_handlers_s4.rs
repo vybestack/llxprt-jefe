@@ -20,14 +20,21 @@ pub(super) fn execution_for(
     if state.modal != jefe::state::ModalState::None {
         return modal_execution(handler, chord);
     }
-    match state.screen() {
-        ScreenId::Issues => issues_execution(handler, chord, state, page),
-        ScreenId::PullRequests => prs_execution(handler, chord, state, page),
-        ScreenId::Actions => actions_execution(handler, chord, state, page),
-        ScreenId::Dashboard if state.dashboard_search.input_focused => {
+    match state.compiled_screen() {
+        Some(ScreenId::Issues) => issues_execution(handler, chord, state, page),
+        Some(ScreenId::PullRequests) => prs_execution(handler, chord, state, page),
+        Some(ScreenId::Actions) => actions_execution(handler, chord, state, page),
+        Some(ScreenId::Dashboard) if state.dashboard_search.input_focused => {
             dashboard_search_execution(handler, state)
         }
-        _ => None,
+        Some(
+            ScreenId::Dashboard
+            | ScreenId::Repositories
+            | ScreenId::Errors
+            | ScreenId::Terminals
+            | ScreenId::Settings,
+        )
+        | None => None,
     }
 }
 

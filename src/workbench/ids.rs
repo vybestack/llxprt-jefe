@@ -242,6 +242,17 @@ plain_id! {
     PanelTypeId
 }
 plain_id! {
+    /// Identity of one screen lowered from a selected plugin package's
+    /// descriptor file.
+    ///
+    /// Unlike [`CustomScreenId`], a package screen's identity is owner-qualified
+    /// by the declaring package (e.g. `vendor.pkg.review`) rather than confined
+    /// to the `local.` namespace.  Ownership is enforced by manifest validation
+    /// before the identity reaches the lowerer, so the plain grammar check
+    /// here is sufficient.
+    PluginScreenId
+}
+plain_id! {
     /// Identity of one typed port within a panel.
     PortId
 }
@@ -395,6 +406,8 @@ pub enum ScreenIdentity {
     Compiled(ScreenId),
     /// A screen lowered from a user definition file.
     Custom(CustomScreenId),
+    /// A screen lowered from a selected plugin package's descriptor file.
+    Package(PluginScreenId),
 }
 
 impl ScreenIdentity {
@@ -404,6 +417,7 @@ impl ScreenIdentity {
         match self {
             Self::Compiled(id) => id.as_str(),
             Self::Custom(id) => id.as_str(),
+            Self::Package(id) => id.as_str(),
         }
     }
 
@@ -412,7 +426,7 @@ impl ScreenIdentity {
     pub const fn compiled(self) -> Option<ScreenId> {
         match self {
             Self::Compiled(id) => Some(id),
-            Self::Custom(_) => None,
+            Self::Custom(_) | Self::Package(_) => None,
         }
     }
 
@@ -425,6 +439,7 @@ impl ScreenIdentity {
         match self {
             Self::Compiled(id) => id.check(),
             Self::Custom(id) => CustomScreenId::parse(id.as_str()).map(|_| ()),
+            Self::Package(id) => id.check(),
         }
     }
 }
@@ -432,6 +447,25 @@ impl ScreenIdentity {
 impl From<ScreenId> for ScreenIdentity {
     fn from(id: ScreenId) -> Self {
         Self::Compiled(id)
+    }
+}
+
+/// A compiled screen is equal to the identity that names it.
+///
+/// This lets a caller compare the open identity against a compiled screen
+/// directly (`state.screen() == ScreenId::Issues`). A lowered package or custom
+/// screen is never equal to any compiled screen, so the comparison is honest:
+/// "are we on the compiled Issues screen?" is `false` for every other identity.
+impl PartialEq<ScreenId> for ScreenIdentity {
+    fn eq(&self, other: &ScreenId) -> bool {
+        matches!(self, Self::Compiled(id) if *id == *other)
+    }
+}
+
+/// A compiled screen is equal to the identity that names it (reflexive arm).
+impl PartialEq<ScreenIdentity> for ScreenId {
+    fn eq(&self, other: &ScreenIdentity) -> bool {
+        other == self
     }
 }
 

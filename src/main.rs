@@ -45,6 +45,16 @@ struct AppContext {
     config_isolated: bool,
     persistence: jefe::persistence::FilePersistenceManager,
     published_settings: jefe::persistence::settings_document::PublishedSettings,
+    plugin_configs: std::collections::BTreeMap<
+        jefe::domain::Id,
+        jefe::messages::settings::SelectedPluginConfig,
+    >,
+    installed_plugin_configs: std::collections::BTreeMap<
+        jefe::domain::Id,
+        Vec<jefe::messages::settings::SelectedPluginConfig>,
+    >,
+    plugin_packages: Vec<jefe::persistence::plugin_inventory::InstalledPackage>,
+    provider_containment: jefe::runtime::provider::Containment,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
     /// `None` when the local JSP host could not start. Observation is
@@ -425,7 +435,54 @@ fn start_jsp_host(state_path: &std::path::Path) -> Option<jefe::jsp_host::JspHos
     }
 }
 
+type PluginConfigCatalog =
+    std::collections::BTreeMap<jefe::domain::Id, jefe::messages::settings::SelectedPluginConfig>;
+type InstalledPluginConfigCatalog = std::collections::BTreeMap<
+    jefe::domain::Id,
+    Vec<jefe::messages::settings::SelectedPluginConfig>,
+>;
+
+fn plugin_config_catalogs(
+    startup: &jefe::startup::StartupPersistence,
+) -> (PluginConfigCatalog, InstalledPluginConfigCatalog) {
+    let packages = &startup.plugin_packages;
+    let selected =
+        jefe::persistence::plugin_inventory::configured_packages(packages, &startup.settings)
+            .into_iter()
+            .filter_map(|package| {
+                package.manifest().config().map(|schema| {
+                    (
+                        package.coordinate().id().owner_id().clone(),
+                        jefe::messages::settings::SelectedPluginConfig {
+                            version: package.coordinate().version().clone(),
+                            schema: schema.clone(),
+                            can_migrate: package.manifest().provider().mode()
+                                != jefe::domain::plugin::ProviderMode::None,
+                        },
+                    )
+                })
+            })
+            .collect();
+    let mut installed = std::collections::BTreeMap::new();
+    for package in packages {
+        let Some(schema) = package.manifest().config() else {
+            continue;
+        };
+        installed
+            .entry(package.coordinate().id().owner_id().clone())
+            .or_insert_with(Vec::new)
+            .push(jefe::messages::settings::SelectedPluginConfig {
+                version: package.coordinate().version().clone(),
+                schema: schema.clone(),
+                can_migrate: package.manifest().provider().mode()
+                    != jefe::domain::plugin::ProviderMode::None,
+            });
+    }
+    (selected, installed)
+}
+
 fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersistence) {
+    let (plugin_configs, installed_plugin_configs) = plugin_config_catalogs(&startup);
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
         state_path: startup.paths.state.path.clone(),
@@ -467,6 +524,7 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
         &keymap_snapshot,
         &startup_paths,
     );
+    let migration_containment = provider_containment(&startup_paths);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         keymap_snapshot: Some(keymap_snapshot),
@@ -475,6 +533,10 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
         config_isolated: cli_args.config_dir.is_some(),
         persistence,
         published_settings,
+        plugin_configs,
+        installed_plugin_configs,
+        plugin_packages,
+        provider_containment: migration_containment,
         theme_manager,
         runtime,
         jsp_host,
@@ -503,7 +565,11 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
 /// Warnings name definitions that were preserved on disk and left out of the
 /// registry, which is not a reason to refuse to start.
 fn publish_screen_registry_or_exit(startup: &jefe::startup::StartupPersistence) {
-    match jefe::startup_screens::compose_and_publish(&startup.paths, &startup.settings) {
+    match jefe::startup_screens::compose_and_publish(
+        &startup.paths,
+        &startup.plugin_packages,
+        &startup.settings,
+    ) {
         Ok(warnings) => {
             for warning in warnings {
                 write_optional_diagnostic(Some(format!(

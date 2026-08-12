@@ -1,6 +1,6 @@
 use crate::domain::RepositoryId;
 
-use super::{AppState, InlineState, IssueFocus, ModalState, PaneFocus, PrFocus, ScreenId};
+use super::{AppState, InlineState, IssueFocus, ModalState, PaneFocus, PrFocus, ScreenIdentity};
 
 #[derive(Clone, Copy)]
 enum BlockingInteraction {
@@ -34,7 +34,7 @@ impl InteractionFlags {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct IssueListSendContext {
-    screen: ScreenId,
+    screen: ScreenIdentity,
     modal: ModalState,
     pane_focus: PaneFocus,
     focus: IssueFocus,
@@ -46,7 +46,7 @@ pub(super) struct IssueListSendContext {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct PrListSendContext {
-    screen: ScreenId,
+    screen: ScreenIdentity,
     modal: ModalState,
     pane_focus: PaneFocus,
     focus: PrFocus,
@@ -58,7 +58,7 @@ pub(super) struct PrListSendContext {
 
 impl IssueListSendContext {
     fn accepts_list_send(&self) -> bool {
-        self.screen == ScreenId::Issues
+        self.screen == super::ScreenId::Issues
             && self.modal == ModalState::None
             && self.focus == IssueFocus::IssueList
             && self.inline_state == InlineState::None
@@ -68,7 +68,7 @@ impl IssueListSendContext {
 
 impl PrListSendContext {
     fn accepts_list_send(&self) -> bool {
-        self.screen == ScreenId::PullRequests
+        self.screen == super::ScreenId::PullRequests
             && self.modal == ModalState::None
             && self.focus == PrFocus::PrList
             && self.inline_state == InlineState::None

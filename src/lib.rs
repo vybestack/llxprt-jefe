@@ -59,6 +59,7 @@ pub mod pr_diff_content;
 mod pr_diff_content_tests;
 /// Pure selected-agent Preview projection.
 pub mod preview_view;
+pub mod provider_panel_view;
 pub mod recovery;
 /// Run-boundary diagnostics: run-start/run-end records and unclean-run detection.
 pub mod run_diagnostics;
@@ -84,6 +85,8 @@ pub mod startup_screens;
 pub mod state;
 /// Shared nine-level agent status precedence (extracted from preview_view, #626).
 pub mod status_precedence;
+#[cfg(test)]
+mod test_support;
 /// Pure multiline text-box viewport projection (iocraft-free).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14

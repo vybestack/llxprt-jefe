@@ -329,7 +329,9 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
 
             // Bottom keybind bar
             KeybindBar(
-                screen: state.map_or(ScreenId::Dashboard, crate::state::AppState::screen),
+                screen: state.map_or(ScreenId::Dashboard, |s| {
+                    s.compiled_screen().unwrap_or(ScreenId::Dashboard)
+                }),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: terminal_focused,
                 shell_overlay_active: shell_overlay_active,

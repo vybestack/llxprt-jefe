@@ -472,22 +472,28 @@ fn cw10_14_a_secret_echoed_in_a_refresh_resource_ref_is_redacted() {
 }
 
 #[test]
-fn cw10_14_a_secret_echoed_in_a_replace_panel_snapshot_is_redacted() {
+fn cw10_14_a_secret_echoed_in_a_legacy_replace_panel_outcome_is_rejected_and_redacted() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-panel");
-    assert!(matches!(result.outcome, OneShotOutcome::Completed(_)));
-    assert_secret_redacted_across_surfaces(&result, "replace-panel snapshot");
+    assert!(matches!(
+        result.outcome,
+        OneShotOutcome::Failed(SupervisorFailure::Protocol(_))
+    ));
+    assert_secret_redacted_across_surfaces(&result, "legacy replace-panel outcome");
     assert!(result.process_reaped);
 }
 
 #[test]
-fn cw10_14_a_secret_echoed_in_a_migrated_config_is_redacted() {
+fn cw10_14_a_secret_echoed_in_a_legacy_migrated_config_outcome_is_rejected_and_redacted() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let result = run_secret_scenario(&scene, "secret-migrated");
-    assert!(matches!(result.outcome, OneShotOutcome::Completed(_)));
-    assert_secret_redacted_across_surfaces(&result, "migrated-config");
+    assert!(matches!(
+        result.outcome,
+        OneShotOutcome::Failed(SupervisorFailure::Protocol(_))
+    ));
+    assert_secret_redacted_across_surfaces(&result, "legacy migrated-config outcome");
     assert!(result.process_reaped);
 }
 

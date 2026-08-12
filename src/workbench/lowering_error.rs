@@ -87,10 +87,9 @@ impl std::fmt::Display for LoweringError {
         match self {
             Self::Interning(error) => write!(formatter, "{error}"),
             Self::Identifier { field, reason } => write!(formatter, "{field}: {reason}"),
-            Self::IdentityMismatch { expected } => write!(
-                formatter,
-                "screen identity must be {expected:?} to match its file name"
-            ),
+            Self::IdentityMismatch { expected } => {
+                write!(formatter, "declared screen identity must be {expected:?}")
+            }
             Self::PanelType(error) => write!(formatter, "{error}"),
             Self::UnknownBinding { field, declared } => write!(
                 formatter,

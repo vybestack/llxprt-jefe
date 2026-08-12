@@ -64,6 +64,10 @@ mod compose_fixtures;
 mod compose_tests;
 
 #[cfg(test)]
+#[path = "compose_package_tests.rs"]
+mod compose_package_tests;
+
+#[cfg(test)]
 #[path = "relationship_fixtures.rs"]
 mod relationship_fixtures;
 
@@ -183,7 +187,9 @@ pub fn screen_descriptor(id: ScreenId) -> Result<&'static ScreenDescriptor, Regi
 
 pub use activation::{ActivationField, ActivationKind, ScreenBinding};
 pub use allocate::LayoutError;
-pub use compose::{CompositionRefused, ScreenComposition, compose_screens};
+pub use compose::{
+    CompositionRefused, ScreenComposition, compose_screens, compose_screens_with_packages,
+};
 pub use config::panel_insets;
 pub use descriptor::{
     Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
@@ -194,14 +200,14 @@ pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
     CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId, ID_BYTE_LIMIT, IdError,
     MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
-    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN,
-    MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, PortId, RouteId, ScreenId, ScreenIdentity,
-    ScreenInstanceId, VersionedTypeId,
+    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN, PanelId,
+    PanelTypeId, PluginScreenId, PortId, RouteId, ScreenId, ScreenIdentity, ScreenInstanceId,
+    VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use lowering_error::LoweringError;
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
-pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, resolve_panel_type};
+pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, find_panel_type, resolve_panel_type};
 pub use relationship_propagation::{
     PortUpdate, PortValue, PropagationAbort, RelationshipState, RelationshipTransition,
     SourceIntent, propagate,
@@ -220,13 +226,14 @@ pub use route::{
 };
 pub use screen_file::{ScreenFile, parse_screen_file};
 pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
-pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_screen};
+pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_package_screen, lower_screen};
 pub use screens::{
     ACTIONS_LIST_PANEL, ERRORS_LIST_PANEL, ISSUES_LIST_PANEL, PTY_PANEL_TYPE,
-    PULL_REQUESTS_LIST_PANEL, REPOSITORIES_PANEL, RegistryError, SELECTION_PORT,
-    SETTINGS_AGENT_TYPES_PANEL, SETTINGS_APPEARANCE_PANEL, SETTINGS_DIAGNOSTICS_PANEL,
-    SETTINGS_GENERAL_PANEL, SETTINGS_KEYS_PANEL, SETTINGS_PLUGINS_PANEL, SETTINGS_SCREENS_PANEL,
-    SETTINGS_SECTIONS_PANEL, SUBJECT_PORT, ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens,
-    initial_focus, master_detail_edge, route_of,
+    PULL_REQUESTS_LIST_PANEL, PackagePanelBinding, REPOSITORIES_PANEL, RegistryError,
+    SELECTION_PORT, SETTINGS_AGENT_TYPES_PANEL, SETTINGS_APPEARANCE_PANEL,
+    SETTINGS_DIAGNOSTICS_PANEL, SETTINGS_GENERAL_PANEL, SETTINGS_KEYS_PANEL,
+    SETTINGS_PLUGINS_PANEL, SETTINGS_SCREENS_PANEL, SETTINGS_SECTIONS_PANEL, SUBJECT_PORT,
+    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, master_detail_edge,
+    route_of,
 };
 pub use validate::{DescriptorError, validate_descriptor};

@@ -103,6 +103,12 @@ impl AppState {
                 mode,
             } => self.begin_chord_capture(context, action, mode),
             SettingsActivation::OpenLayout { screen_id } => self.open_layout_editor(&screen_id),
+            SettingsActivation::OpenPluginConfig {
+                plugin,
+                field,
+                kind,
+                value,
+            } => self.open_plugin_config_editor(plugin, field, kind, value),
         }
     }
 

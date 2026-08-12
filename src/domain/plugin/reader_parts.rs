@@ -15,26 +15,29 @@ use super::manifest::PluginDefaults;
 use super::provider::{Provider, ProviderMode};
 use super::reader::{
     ManifestReadError, array, closed_object, declaration_error, optional, read_bool, read_enum,
-    read_enum_array, read_id, read_string, read_u32, read_with, require,
+    read_enum_array, read_id, read_string, read_u32, read_u64, read_with, require,
 };
 use super::surface::{
-    ConfigSchema, EventKind, ModelKind, Panel, PanelDraft, Port, Route, RouteDraft,
-    ScreenContribution,
+    ConfigSchema, EventKind, EventSchemaEntry, ModelKind, Panel, PanelDraft, Port, Route,
+    RouteDraft, ScreenContribution,
 };
-use super::values::{HostTriple, RelativePath};
-use crate::domain::Id;
+use super::values::{HostTriple, RelativePath, SecretReference};
 use crate::domain::bounded_json::BoundedJson;
+use crate::domain::{Id, SecretRef, TypedValue};
 
 const PROVIDER_KEYS: [&str; 2] = ["mode", "binaries"];
 const CONFIG_KEYS: [&str; 2] = ["schema_version", "fields"];
-const FIELD_KEYS: [&str; 9] = [
+const FIELD_KEYS: [&str; 12] = [
     "id",
-    "kind",
+    "label",
+    "description",
+    "type",
     "required",
     "default",
-    "minimum",
-    "maximum",
+    "min",
+    "max",
     "choices",
+    "unique",
     "visible_when",
     "restart",
 ];
@@ -51,11 +54,12 @@ const ACTION_KEYS: [&str; 11] = [
     "handler",
     "allowed_outcomes",
 ];
-const PANEL_KEYS: [&str; 5] = ["id", "model_kinds", "event_kinds", "handler", "ports"];
+const PANEL_KEYS: [&str; 5] = ["id", "model_kinds", "event_schema", "handler", "ports"];
 const PORT_KEYS: [&str; 1] = ["id"];
 const ROUTE_KEYS: [&str; 3] = ["id", "activation_fields", "target_screen"];
 const SCREEN_KEYS: [&str; 2] = ["path", "screen_ids"];
 const DEFAULTS_KEYS: [&str; 3] = ["actions_enabled", "screens_enabled", "config"];
+const EVENT_SCHEMA_ENTRY_KEYS: [&str; 2] = ["kind", "arguments"];
 
 /// Read the provider declaration and its host-triple binary map.
 pub(super) fn read_provider(value: &BoundedJson) -> Result<Provider, ManifestReadError> {
@@ -105,7 +109,7 @@ fn closed_binaries(
 /// Read the configuration schema.
 pub(super) fn read_config_schema(value: &BoundedJson) -> Result<ConfigSchema, ManifestReadError> {
     let members = closed_object(value, "config", &CONFIG_KEYS)?;
-    let version = read_u32(members, "config", "schema_version")?;
+    let version = read_u64(members, "config", "schema_version")?;
     let fields = array(
         require(members, "config", "fields")?,
         "config.fields",
@@ -120,19 +124,42 @@ pub(super) fn read_config_schema(value: &BoundedJson) -> Result<ConfigSchema, Ma
 /// Read one field declaration.
 fn read_field(value: &BoundedJson, path: &str) -> Result<Field, ManifestReadError> {
     let members = closed_object(value, path, &FIELD_KEYS)?;
-    let kind = read_enum(members, path, "kind", FieldKind::from_wire)?;
+    let kind = read_enum(members, path, "type", FieldKind::from_wire)?;
     let choices = optional(members, "choices")
         .map(|entry| read_scalars(entry, &format!("{path}.choices"), FIELD_CHOICE_LIMIT))
         .transpose()?
         .unwrap_or_default();
     let draft = FieldDraft {
         id: read_id(members, path, "id")?,
+        label: read_string(members, path, "label")?.to_owned(),
+        description: optional(members, "description")
+            .map(|entry| {
+                entry
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| ManifestReadError::TypeMismatch {
+                        path: format!("{path}.description"),
+                        expected: "string",
+                    })
+            })
+            .transpose()?,
         kind,
         required: read_bool(members, path, "required")?,
-        default: read_scalar_option(members, path, "default")?,
-        minimum: read_scalar_option(members, path, "minimum")?,
-        maximum: read_scalar_option(members, path, "maximum")?,
+        default: read_default_value(members, path, "default", kind)?,
+        min: read_scalar_option(members, path, "min")?,
+        max: read_scalar_option(members, path, "max")?,
         choices,
+        unique: optional(members, "unique")
+            .map(|entry| {
+                entry
+                    .as_bool()
+                    .ok_or_else(|| ManifestReadError::TypeMismatch {
+                        path: format!("{path}.unique"),
+                        expected: "boolean",
+                    })
+            })
+            .transpose()?
+            .unwrap_or(false),
         visible_when: optional(members, "visible_when")
             .map(|_| read_id(members, path, "visible_when"))
             .transpose()?,
@@ -150,6 +177,69 @@ fn read_scalar_option(
     optional(members, key)
         .map(|entry| scalar(entry, &format!("{path}.{key}")))
         .transpose()
+}
+
+/// Read an optional field default as a closed typed value.
+///
+/// The kind guides interpretation: a `string-list` default is a JSON array of
+/// strings, and a `secret-reference` default is a `{"env":"NAME"}` object.
+/// Other kinds read as scalars mapped onto their typed-value variant. The
+/// domain field validator (`Field::parse`) enforces the final kind match, so
+/// the reader only needs to produce the right value shape.
+fn read_default_value(
+    members: &[(String, BoundedJson)],
+    path: &str,
+    key: &str,
+    kind: FieldKind,
+) -> Result<Option<TypedValue>, ManifestReadError> {
+    optional(members, key)
+        .map(|entry| default_typed_value(entry, &format!("{path}.{key}"), kind))
+        .transpose()
+}
+
+/// Lower one JSON value onto a typed default value.
+fn default_typed_value(
+    value: &BoundedJson,
+    path: &str,
+    kind: FieldKind,
+) -> Result<TypedValue, ManifestReadError> {
+    match (kind, value) {
+        (FieldKind::StringList, BoundedJson::Array(elements)) => {
+            let values = elements
+                .iter()
+                .map(|element| {
+                    element
+                        .as_str()
+                        .map(|text| TypedValue::String(text.to_owned()))
+                        .ok_or_else(|| ManifestReadError::TypeMismatch {
+                            path: format!("{path}[]"),
+                            expected: "string",
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(TypedValue::List(values))
+        }
+        (FieldKind::SecretReference, BoundedJson::Object(_)) => {
+            let secret_members = closed_object(value, path, &["env"])?;
+            let env = read_string(secret_members, path, "env")?;
+            let reference =
+                SecretReference::parse(env).map_err(|error| ManifestReadError::InvalidValue {
+                    path: format!("{path}.env"),
+                    reason: error.to_string(),
+                })?;
+            Ok(TypedValue::SecretRef(SecretRef { env: reference }))
+        }
+        (_, BoundedJson::Bool(flag)) => Ok(TypedValue::Bool(*flag)),
+        (_, BoundedJson::Int(number)) => Ok(TypedValue::Integer(*number)),
+        (_, BoundedJson::Number(decimal)) => Ok(TypedValue::Decimal(decimal.clone())),
+        (_, BoundedJson::Str(text)) => Ok(TypedValue::String(text.clone())),
+        (_, BoundedJson::Null | BoundedJson::Array(_) | BoundedJson::Object(_)) => {
+            Err(ManifestReadError::TypeMismatch {
+                path: path.to_owned(),
+                expected: "scalar default value",
+            })
+        }
+    }
 }
 
 /// Read an array of scalars.
@@ -228,12 +318,14 @@ pub(super) fn read_panel(value: &BoundedJson) -> Result<Panel, ManifestReadError
             ModelKind::ALL.len(),
             ModelKind::from_wire,
         )?,
-        event_kinds: read_enum_array(
-            require(members, path, "event_kinds")?,
-            "panels.event_kinds",
+        event_schema: array(
+            require(members, path, "event_schema")?,
+            "panels.event_schema",
             EventKind::ALL.len(),
-            EventKind::from_wire,
-        )?,
+        )?
+        .iter()
+        .map(|entry| read_event_schema_entry(entry, "panels.event_schema"))
+        .collect::<Result<Vec<_>, _>>()?,
         handler: read_id(members, path, "handler")?,
         ports: array(
             require(members, path, "ports")?,
@@ -245,6 +337,24 @@ pub(super) fn read_panel(value: &BoundedJson) -> Result<Panel, ManifestReadError
         .collect::<Result<Vec<_>, _>>()?,
     };
     Panel::parse(draft).map_err(declaration_error(path))
+}
+
+/// Read one event-schema entry: `{kind, arguments}`.
+fn read_event_schema_entry(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<EventSchemaEntry, ManifestReadError> {
+    let members = closed_object(value, path, &EVENT_SCHEMA_ENTRY_KEYS)?;
+    let kind = read_enum(members, path, "kind", EventKind::from_wire)?;
+    let arguments = array(
+        require(members, path, "arguments")?,
+        &format!("{path}.arguments"),
+        CONFIG_FIELD_LIMIT,
+    )?
+    .iter()
+    .map(|entry| read_field(entry, &format!("{path}.arguments")))
+    .collect::<Result<Vec<_>, _>>()?;
+    Ok(EventSchemaEntry::new(kind, arguments))
 }
 
 /// Read one port declaration.
@@ -286,7 +396,10 @@ pub(super) fn read_screen(value: &BoundedJson) -> Result<ScreenContribution, Man
 }
 
 /// Read the package defaults.
-pub(super) fn read_defaults(value: &BoundedJson) -> Result<PluginDefaults, ManifestReadError> {
+pub(super) fn read_defaults(
+    value: &BoundedJson,
+    schema: Option<&ConfigSchema>,
+) -> Result<PluginDefaults, ManifestReadError> {
     let path = "defaults";
     let members = closed_object(value, path, &DEFAULTS_KEYS)?;
     let list = |key: &str, limit: usize| match optional(members, key) {
@@ -294,7 +407,7 @@ pub(super) fn read_defaults(value: &BoundedJson) -> Result<PluginDefaults, Manif
         None => Ok(Vec::new()),
     };
     let config = match optional(members, "config") {
-        Some(entry) => read_config_defaults(entry)?,
+        Some(entry) => read_config_defaults(entry, schema)?,
         None => Vec::new(),
     };
     Ok(PluginDefaults {
@@ -305,7 +418,10 @@ pub(super) fn read_defaults(value: &BoundedJson) -> Result<PluginDefaults, Manif
 }
 
 /// Read the default configuration object as validated `(field, value)` pairs.
-fn read_config_defaults(value: &BoundedJson) -> Result<Vec<(Id, Scalar)>, ManifestReadError> {
+fn read_config_defaults(
+    value: &BoundedJson,
+    schema: Option<&ConfigSchema>,
+) -> Result<Vec<(Id, TypedValue)>, ManifestReadError> {
     let members = value
         .as_object()
         .ok_or_else(|| ManifestReadError::TypeMismatch {
@@ -319,7 +435,18 @@ fn read_config_defaults(value: &BoundedJson) -> Result<Vec<(Id, Scalar)>, Manife
                 path: "defaults.config".to_owned(),
                 reason: error.to_string(),
             })?;
-            Ok((id, scalar(entry, &format!("defaults.config.{key}"))?))
+            let Some(field) = schema
+                .and_then(|candidate| candidate.fields().iter().find(|field| field.id() == &id))
+            else {
+                return Err(ManifestReadError::InvalidValue {
+                    path: format!("defaults.config.{key}"),
+                    reason: "field is not declared by the configuration schema".to_owned(),
+                });
+            };
+            Ok((
+                id,
+                default_typed_value(entry, &format!("defaults.config.{key}"), field.kind())?,
+            ))
         })
         .collect()
 }

@@ -5,8 +5,13 @@ mod action_handlers;
 pub use action_availability::refresh_action_availability;
 mod provider_dispatch;
 pub use provider_dispatch::schedule_provider_effects;
+mod provider_panel_input;
 pub use provider_dispatch::{
     ProviderSurfaceControl, dispatch_provider_surface_control, invoke_provider_action,
+};
+pub use provider_panel_input::apply_raw_key as apply_provider_panel_raw_key;
+pub use provider_panel_input::{
+    ProviderPanelMouseAction, apply_mouse as apply_provider_panel_mouse,
 };
 #[cfg(test)]
 #[path = "action_handlers_tests.rs"]
@@ -15,7 +20,11 @@ mod agent_chooser_entries;
 mod dashboard_search;
 mod filter_controls;
 mod issues;
-pub use settings::{handle_capture_key, handle_dirty_guard_key, handle_layout_key};
+pub use settings::write_pending;
+pub use settings::{
+    handle_capture_key, handle_dirty_guard_key, handle_layout_key, handle_plugin_config_key,
+    handle_plugin_config_migration_key,
+};
 mod issues_comments_dispatch;
 mod issues_dispatch;
 mod issues_filter;
@@ -139,7 +148,8 @@ pub fn resolve_test_registry_event(
     else {
         return None;
     };
-    let page_items = dashboard_page_item_count(state, state.screen(), terminal_cols, terminal_rows);
+    let page_items =
+        dashboard_page_item_count(state, state.compiled_screen(), terminal_cols, terminal_rows);
     action_handlers::event_for_test(handler, resolved.chord, state, page_items)
 }
 

@@ -30,6 +30,7 @@ pub const CONFIRMATION_TTL_SECONDS: u64 = 300;
 pub struct ActionPolicy {
     confirmation: ActionConfirmation,
     allowed_outcomes: Vec<ActionOutcome>,
+    declared_routes: Vec<Id>,
     destructive: bool,
 }
 
@@ -44,8 +45,22 @@ impl ActionPolicy {
         Self {
             confirmation,
             allowed_outcomes,
+            declared_routes: Vec::new(),
             destructive,
         }
+    }
+
+    /// Bind the package's immutable owner-scoped route declarations.
+    #[must_use]
+    pub fn with_declared_routes(mut self, declared_routes: Vec<Id>) -> Self {
+        self.declared_routes = declared_routes;
+        self
+    }
+
+    /// Whether the invoking package declared this exact route.
+    #[must_use]
+    pub fn allows_route(&self, route: &Id) -> bool {
+        self.declared_routes.contains(route)
     }
 
     /// The declared confirmation mode.
@@ -355,9 +370,6 @@ pub enum ProviderRequestError {
     PolicyViolation,
     /// The terminal outcome was not declared by the action (PLG-E502).
     UndeclaredOutcome,
-    /// The terminal outcome kind is not supported in this workbench slice
-    /// (panel/config-migration outcomes, PLG-E502).
-    UnsupportedOutcome,
 }
 
 impl std::fmt::Display for ProviderRequestError {
@@ -389,9 +401,6 @@ impl std::fmt::Display for ProviderRequestError {
             Self::UndeclaredOutcome => {
                 formatter.write_str("provider outcome was not declared by the action (PLG-E502)")
             }
-            Self::UnsupportedOutcome => formatter.write_str(
-                "provider outcome kind is not supported in this workbench slice (PLG-E502)",
-            ),
         }
     }
 }

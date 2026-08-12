@@ -15,8 +15,7 @@ use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
 use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
 use crate::workbench::{
-    PanelId, PanelState, Rect, ResolvedLayout, ScreenId, ScreenInstanceId, resolve_layout,
-    screen_descriptor,
+    PanelId, PanelState, Rect, ResolvedLayout, ScreenId, resolve_layout, screen_registry,
 };
 
 /// Resolve the active screen's geometry for a terminal size.
@@ -27,16 +26,21 @@ use crate::workbench::{
 /// falls back to no geometry is far harder to diagnose than one that says why.
 #[must_use]
 pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Option<ResolvedLayout> {
-    let descriptor = match screen_descriptor(state.screen()) {
-        Ok(descriptor) => descriptor,
+    let screen = state.screen();
+    let registry = match screen_registry() {
+        Ok(registry) => registry,
         Err(error) => {
-            tracing::error!(screen = %state.screen(), %error, "no compiled descriptor for the active screen");
+            tracing::error!(screen = %screen, %error, "screen registry is unavailable");
             return None;
         }
     };
+    let Some(descriptor) = registry.get_identity(screen) else {
+        tracing::error!(screen = %screen, "no descriptor for the active screen");
+        return None;
+    };
     let outer = screen_rect(term_cols, term_rows);
     let panel_state = hidden_panels(state);
-    match resolve_layout(descriptor, ScreenInstanceId::next(), outer, &panel_state) {
+    match resolve_layout(descriptor, state.nav.current().id, outer, &panel_state) {
         Ok(layout) => Some(layout),
         Err(error) => {
             tracing::error!(screen = %state.screen(), %error, ?outer, "layout resolution failed");
@@ -80,7 +84,13 @@ fn hidden_panels(state: &AppState) -> PanelState {
 /// identity produced here is declared by the screen it names.
 pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
     let mut hidden = Vec::new();
-    match state.screen() {
+    let Some(screen) = state.compiled_screen() else {
+        // A lowered package or custom screen declares its own panels; the
+        // built-in hidden-panel rules serve compiled screens only, so nothing
+        // is hidden here for an open screen.
+        return hidden;
+    };
+    match screen {
         ScreenId::Dashboard => {
             if !state.dashboard_search_active() && !state.dashboard_search.input_focused {
                 hidden.push(PanelId::from_static("search"));

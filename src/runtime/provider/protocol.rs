@@ -38,15 +38,23 @@ pub use crate::domain::{Id, TypedMap};
 
 // Identifiers and validated strings.
 pub use super::identifiers::{
-    Direction, EnvName, EnvNameError, MessageKind, RequestId, RequestIdError, RequestOrigin,
+    Direction, EnvName, EnvNameError, INITIAL_PROCESS_GENERATION, MessageKind, RequestId,
+    RequestIdError, RequestOrigin,
 };
 
 // Closed envelope and payload DTOs.
 pub use super::dto::{
     CancelPayload, Capability, ConfigurePayload, Continuation, ErrorPayload, FieldError,
-    HelloAckPayload, HelloPayload, InvokeActionPayload, InvokeContext, MigratedConfig, Outcome,
-    PanelSnapshot, ParsedMessage, ProgressPayload, ProviderMessage, ReadyPayload, Severity,
-    ShutdownPayload, ShutdownReason,
+    HelloAckPayload, HelloPayload, InvokeActionPayload, InvokeContext, Outcome, ParsedMessage,
+    ProgressPayload, ProviderMessage, ReadyPayload, Severity, ShutdownPayload, ShutdownReason,
+};
+
+// Closed panel model and direct panel/migration DTOs (issue #391).
+pub use super::panel_model::{
+    ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
+    DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError, HostLocal,
+    ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody, PanelEvent,
+    PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow, StatusRowState,
 };
 
 // Pure validators.

@@ -1,7 +1,7 @@
 use super::{
     WheelDirection, active_overlay_for, gesture_event_kind, is_blocking_modal_open,
     is_event_over_terminal_pane, is_wheel_event, next_wheel_scroll_offset, resolve_pane,
-    wheel_to_terminal_scroll_event,
+    set_provider_panel_focus, wheel_to_terminal_scroll_event,
 };
 use crossterm::event::{KeyModifiers, MouseButton, MouseEventKind};
 use jefe::domain::{Agent, AgentId, AgentTypeId, Repository, RepositoryId};
@@ -949,3 +949,8 @@ fn non_detail_pane_has_no_wrap_projection() {
         "IssueList has no wrap projection"
     );
 }
+
+// ── Provider panel mouse routing ─────────────────────────────────────────
+
+#[path = "mouse_routing_provider_tests.rs"]
+mod provider_panel_mouse_tests;

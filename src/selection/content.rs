@@ -408,17 +408,25 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 /// captures it (issue #223).
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
     let actions_focus = (state.screen() == ScreenId::Actions).then_some(state.actions_state.focus);
-    let hints = state
-        .action_registry_snapshot
-        .as_ref()
-        .map_or_else(String::new, |snapshot| {
-            crate::ui::components::keybind_bar::keybind_hints_for(
-                snapshot,
-                state.screen(),
-                false,
-                actions_focus,
-            )
-        });
+    // The keybind bar projects built-in hints for a compiled screen. A lowered
+    // package or custom screen has no built-in footer projection yet, so it
+    // renders no hints here rather than borrowing another screen's bar.
+    let hints = match state.compiled_screen() {
+        Some(screen) => {
+            state
+                .action_registry_snapshot
+                .as_ref()
+                .map_or_else(String::new, |snapshot| {
+                    crate::ui::components::keybind_bar::keybind_hints_for(
+                        snapshot,
+                        screen,
+                        false,
+                        actions_focus,
+                    )
+                })
+        }
+        None => String::new(),
+    };
     let identity = crate::process_identity_label(std::process::id(), crate::GIT_COMMIT);
     // The rendered bar uses SpaceBetween so the identity sits on the far
     // right. For the flat selection text, append it with a separator so the

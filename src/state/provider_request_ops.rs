@@ -253,9 +253,6 @@ fn provider_host_outcome(outcome: Outcome) -> Option<ProviderHostOutcome> {
                 message,
             }))
         }
-        Outcome::ReplacePanel { .. }
-        | Outcome::RequestHostConfirmation { .. }
-        | Outcome::ClosePanel { .. }
-        | Outcome::MigratedConfig { .. } => None,
+        Outcome::RequestHostConfirmation { .. } => None,
     }
 }

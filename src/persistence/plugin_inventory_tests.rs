@@ -58,6 +58,103 @@ fn coordinates(inventory: &PluginInventory) -> Vec<String> {
         .collect()
 }
 
+fn published_settings(
+    inventory: &PluginInventory,
+    source: &[u8],
+) -> crate::persistence::settings_document::PublishedSettings {
+    let catalog = crate::config_owners::owner_catalog_with_packages(inventory.packages())
+        .unwrap_or_else(|error| panic!("owner catalog must compose: {error}"));
+    crate::persistence::settings_document::SettingsDocument::parse(source)
+        .unwrap_or_else(|error| panic!("settings must parse: {error:?}"))
+        .publish(&catalog)
+        .unwrap_or_else(|diagnostics| panic!("settings must publish: {diagnostics:?}"))
+}
+
+#[test]
+fn selected_packages_use_only_the_enabled_exact_settings_version() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.pkg", "1.0.0");
+    write_package(&root, "vendor.pkg", "2.0.0");
+    write_package(&root, "other.pkg", "3.0.0");
+    let inventory = scan(&[user_root(&root)]);
+    let settings = published_settings(
+        &inventory,
+        br#"settings_schema = 2
+
+[plugins."vendor.pkg"]
+enabled = true
+version = "1.0.0"
+
+[plugins."other.pkg"]
+enabled = false
+version = "3.0.0"
+"#,
+    );
+
+    let selected: Vec<String> = selected_packages(inventory.packages(), &settings)
+        .into_iter()
+        .map(|package| package.coordinate().to_string())
+        .collect();
+
+    assert_eq!(selected, vec!["vendor.pkg@1.0.0"]);
+}
+
+#[test]
+fn configured_packages_retain_the_exact_disabled_source_version() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.pkg", "1.0.0");
+    write_package(&root, "vendor.pkg", "2.0.0");
+    let inventory = scan(&[user_root(&root)]);
+    let settings = published_settings(
+        &inventory,
+        br#"settings_schema = 2
+
+[plugins."vendor.pkg"]
+enabled = false
+version = "1.0.0"
+"#,
+    );
+
+    let configured: Vec<String> = configured_packages(inventory.packages(), &settings)
+        .into_iter()
+        .map(|package| package.coordinate().to_string())
+        .collect();
+
+    assert_eq!(configured, vec!["vendor.pkg@1.0.0"]);
+    assert!(selected_packages(inventory.packages(), &settings).is_empty());
+}
+
+#[test]
+fn selected_packages_default_to_highest_precedence_installed_version() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("root");
+    write_package(&root, "vendor.pkg", "1.0.0");
+    write_package(&root, "vendor.pkg", "2.0.0-rc.1");
+    write_package(&root, "vendor.pkg", "2.0.0");
+    let inventory = scan(&[user_root(&root)]);
+    let settings = published_settings(
+        &inventory,
+        br#"settings_schema = 2
+
+[plugins."vendor.pkg"]
+enabled = true
+"#,
+    );
+
+    let selected = selected_packages(inventory.packages(), &settings);
+
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].coordinate().to_string(), "vendor.pkg@2.0.0");
+}
+
 #[test]
 fn lists_every_physical_version_in_exact_root_order() {
     let Ok(temp) = tempfile::tempdir() else {

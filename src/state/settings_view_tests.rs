@@ -4,10 +4,12 @@
 
 use std::path::PathBuf;
 
-use crate::domain::ThemeId;
+use crate::domain::plugin::{ConfigSchema, Field, FieldDraft, FieldKind, RestartScope};
+use crate::domain::{CanonicalSemver, Id, ThemeId};
 use crate::messages::NavDir;
 use crate::messages::settings::{
-    SettingsEnvironment, SettingsMessage, SettingsSection, SettingsSource, ThemeChoice,
+    PluginConfigMessage, SelectedPluginConfig, SettingsEnvironment, SettingsMessage,
+    SettingsSection, SettingsSource, ThemeChoice,
 };
 use crate::persistence::{SettingsEdit, SettingsSaveOutcome};
 use crate::workbench::ScreenId;
@@ -37,6 +39,8 @@ fn source(bytes: Option<&[u8]>) -> SettingsSource {
                 name: "Dracula".to_owned(),
             },
         ],
+        plugin_configs: std::collections::BTreeMap::new(),
+        installed_plugin_configs: std::collections::BTreeMap::new(),
         environment: SettingsEnvironment {
             settings_path: PathBuf::from("/tmp/jefe/settings.toml"),
             state_path: PathBuf::from("/tmp/jefe/state.json"),
@@ -45,12 +49,219 @@ fn source(bytes: Option<&[u8]>) -> SettingsSource {
         },
     }
 }
+fn selected_required_string() -> (Id, SelectedPluginConfig) {
+    let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner fixture: {error}"));
+    let field = Field::parse(FieldDraft {
+        id: Id::parse("endpoint").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Endpoint".to_owned(),
+        description: Some("Service endpoint".to_owned()),
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::Provider,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let schema = ConfigSchema::parse(1, vec![field])
+        .unwrap_or_else(|error| panic!("schema fixture: {error}"));
+    let version =
+        CanonicalSemver::parse("1.0.0").unwrap_or_else(|error| panic!("version fixture: {error}"));
+    (
+        owner,
+        SelectedPluginConfig {
+            version,
+            schema,
+            can_migrate: true,
+        },
+    )
+}
 
 /// A state with Settings open over `bytes`.
 fn opened(bytes: Option<&[u8]>) -> AppState {
     let mut state = AppState::default();
     state.reduce_settings(SettingsMessage::Open(Box::new(source(bytes))));
     state
+}
+#[test]
+fn active_selected_plugin_config_projects_generated_row_and_adjacent_error() {
+    let bytes =
+        b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n";
+    let mut input = source(Some(bytes));
+    let (owner, selected) = selected_required_string();
+    input.plugin_configs.insert(owner.clone(), selected.clone());
+    input.installed_plugin_configs.insert(owner, vec![selected]);
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(input)));
+    state.settings_state.section = SettingsSection::Plugins;
+
+    let rows = settings_view::detail_rows(&state.settings_state);
+    let generated = rows
+        .iter()
+        .find(|row| row.label == "vendor.config / Endpoint")
+        .unwrap_or_else(|| panic!("selected package schema projects its field"));
+    assert!(generated.value.contains("<unset>"));
+    assert!(generated.value.contains("error: required"));
+    assert!(
+        generated.activation().is_some(),
+        "generated fields are editable"
+    );
+}
+
+#[test]
+fn changing_package_version_projects_the_exact_installed_target_schema() {
+    let bytes = b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = \"https://example.test\"\n";
+    let mut input = source(Some(bytes));
+    let (owner, source) = selected_required_string();
+    let target_field = Field::parse(FieldDraft {
+        id: Id::parse("region").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Region".to_owned(),
+        description: None,
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::Provider,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let target = SelectedPluginConfig {
+        version: CanonicalSemver::parse("2.0.0")
+            .unwrap_or_else(|error| panic!("version fixture: {error}")),
+        schema: ConfigSchema::parse(2, vec![target_field])
+            .unwrap_or_else(|error| panic!("schema fixture: {error}")),
+        can_migrate: true,
+    };
+    input.plugin_configs.insert(owner.clone(), source.clone());
+    input
+        .installed_plugin_configs
+        .insert(owner.clone(), vec![target.clone(), source]);
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(input)));
+    state.settings_state.section = SettingsSection::Plugins;
+
+    state.reduce_settings(SettingsMessage::Edit(SettingsEdit::PluginVersion {
+        plugin: owner,
+        version: target.version,
+    }));
+
+    let rows = settings_view::detail_rows(&state.settings_state);
+    assert!(
+        rows.iter().any(|row| row.label == "vendor.config / Region"),
+        "the draft-selected target schema owns generated fields"
+    );
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row.label == "vendor.config / Endpoint"),
+        "the startup-selected source schema no longer owns the draft"
+    );
+}
+
+#[test]
+fn generated_string_field_edits_through_the_settings_owned_editor() {
+    let bytes =
+        b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n";
+    let mut input = source(Some(bytes));
+    let (owner, selected) = selected_required_string();
+    input.plugin_configs.insert(owner.clone(), selected.clone());
+    input.installed_plugin_configs.insert(owner, vec![selected]);
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(input)));
+    state.settings_state.section = SettingsSection::Plugins;
+    state.settings_state.focus = SettingsFocus::Detail;
+    let rows = settings_view::detail_rows(&state.settings_state);
+    state.settings_state.selected_row = rows
+        .iter()
+        .position(|row| row.label == "vendor.config / Endpoint")
+        .unwrap_or_else(|| panic!("generated endpoint row"));
+
+    state.reduce_settings(SettingsMessage::Activate);
+    for character in "https://example.test".chars() {
+        state.reduce_settings(SettingsMessage::PluginConfig(
+            PluginConfigMessage::TypeChar(character),
+        ));
+    }
+    state.reduce_settings(SettingsMessage::PluginConfig(PluginConfigMessage::Apply));
+
+    let candidate = state
+        .settings_state
+        .draft
+        .as_ref()
+        .unwrap_or_else(|| panic!("settings draft"))
+        .candidate();
+    let valid = candidate
+        .valid()
+        .unwrap_or_else(|| panic!("edited config candidate is valid"));
+    let text = std::str::from_utf8(valid.bytes())
+        .unwrap_or_else(|error| panic!("candidate utf8: {error}"));
+    assert!(
+        text.contains("\"endpoint\" = \"https://example.test\""),
+        "candidate was:\n{text}"
+    );
+    assert!(state.settings_state.plugin_config_editor.is_none());
+}
+
+#[test]
+fn hidden_generated_plugin_config_fields_are_omitted() {
+    let bytes = b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nshow = false\n";
+    let show = Field::parse(FieldDraft {
+        id: Id::parse("show").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Show".to_owned(),
+        description: None,
+        kind: FieldKind::Boolean,
+        required: false,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::None,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let detail = Field::parse(FieldDraft {
+        id: Id::parse("detail").unwrap_or_else(|error| panic!("field fixture: {error}")),
+        label: "Detail".to_owned(),
+        description: None,
+        kind: FieldKind::String,
+        required: false,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: Some(show.id().clone()),
+        restart: RestartScope::None,
+    })
+    .unwrap_or_else(|error| panic!("field declaration fixture: {error}"));
+    let schema = ConfigSchema::parse(1, vec![show, detail])
+        .unwrap_or_else(|error| panic!("schema fixture: {error}"));
+    let mut input = source(Some(bytes));
+    let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner: {error}"));
+    let version =
+        CanonicalSemver::parse("1.0.0").unwrap_or_else(|error| panic!("version: {error}"));
+    let selected = SelectedPluginConfig {
+        version,
+        schema,
+        can_migrate: true,
+    };
+    input.plugin_configs.insert(owner.clone(), selected.clone());
+    input.installed_plugin_configs.insert(owner, vec![selected]);
+    let mut state = AppState::default();
+    state.reduce_settings(SettingsMessage::Open(Box::new(input)));
+    state.settings_state.section = SettingsSection::Plugins;
+    assert!(
+        !settings_view::detail_rows(&state.settings_state)
+            .iter()
+            .any(|row| row.label.ends_with(" / Detail"))
+    );
 }
 
 fn apply(state: &mut AppState, message: SettingsMessage) {
@@ -487,4 +698,47 @@ fn no_draft_preview_or_selection_reaches_the_durable_projection() {
             "the durable document must not carry {token}: {encoded}"
         );
     }
+}
+
+#[test]
+fn migration_preview_notes_are_control_safe_and_value_free() {
+    let owner = Id::parse("vendor.config").unwrap_or_else(|error| panic!("owner fixture: {error}"));
+    let version =
+        CanonicalSemver::parse("2.0.0").unwrap_or_else(|error| panic!("version fixture: {error}"));
+    let settings = super::settings_types::SettingsState {
+        plugin_config_migration: super::settings_types::PluginConfigMigrationState::Preview(
+            super::settings_types::PluginConfigMigrationPreview {
+                request: super::settings_types::PluginConfigMigration {
+                    owner,
+                    source_package_version: CanonicalSemver::parse("1.0.0")
+                        .unwrap_or_else(|error| panic!("version fixture: {error}")),
+                    target_package_version: version,
+                    from_schema_version: 1,
+                    to_schema_version: 2,
+                    source_config: crate::domain::TypedMap::new(),
+                    draft_token: super::navigation_dirty::DraftToken::next(),
+                    exit_after_save: false,
+                },
+                target_config: crate::domain::TypedMap::new(),
+                notes: vec!["line one\n\u{1b}[31mline two".to_owned()],
+                diff: vec![super::settings_types::PluginConfigDiffRow {
+                    path: "/plugins/vendor.config/config/region".to_owned(),
+                    change: super::settings_types::PluginConfigChange::Changed,
+                }],
+            },
+        ),
+        ..super::settings_types::SettingsState::default()
+    };
+
+    let Some(settings_view::PluginConfigMigrationView::Preview { changes, notes, .. }) =
+        settings_view::plugin_config_migration_view(&settings)
+    else {
+        panic!("preview state projects a migration view");
+    };
+    assert_eq!(
+        changes,
+        vec!["/plugins/vendor.config/config/region: changed"]
+    );
+    assert_eq!(notes, vec!["line one  [31mline two"]);
+    assert!(!notes[0].contains('\u{1b}'));
 }

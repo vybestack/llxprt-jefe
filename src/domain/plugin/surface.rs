@@ -155,6 +155,33 @@ impl Port {
     }
 }
 
+/// One entry in a panel's event schema: an event kind and its argument fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventSchemaEntry {
+    kind: EventKind,
+    arguments: Vec<Field>,
+}
+
+impl EventSchemaEntry {
+    /// Construct an event schema entry.
+    #[must_use]
+    pub fn new(kind: EventKind, arguments: Vec<Field>) -> Self {
+        Self { kind, arguments }
+    }
+
+    /// The declared event kind.
+    #[must_use]
+    pub const fn kind(&self) -> EventKind {
+        self.kind
+    }
+
+    /// The argument fields this event carries.
+    #[must_use]
+    pub fn arguments(&self) -> &[Field] {
+        &self.arguments
+    }
+}
+
 /// An unvalidated panel declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PanelDraft {
@@ -162,8 +189,8 @@ pub struct PanelDraft {
     pub id: Id,
     /// Model shapes the panel renders.
     pub model_kinds: Vec<ModelKind>,
-    /// Events the panel accepts.
-    pub event_kinds: Vec<EventKind>,
+    /// Declared events and their argument schemas.
+    pub event_schema: Vec<EventSchemaEntry>,
     /// Provider-side handler name.
     pub handler: Id,
     /// Data channels the panel exposes.
@@ -181,8 +208,8 @@ impl Panel {
     ///
     /// # Errors
     ///
-    /// Returns [`PanelError`] when no model kind is declared, a kind or port
-    /// repeats, or the port bound is exceeded.
+    /// Returns [`PanelError`] when no model kind is declared, a kind or event
+    /// kind repeats, or the port bound is exceeded.
     pub fn parse(draft: PanelDraft) -> Result<Self, PanelError> {
         if draft.model_kinds.len() < PANEL_MODEL_KIND_MINIMUM {
             return Err(PanelError::NoModelKinds);
@@ -194,11 +221,25 @@ impl Panel {
                 });
             }
         }
-        for (index, kind) in draft.event_kinds.iter().enumerate() {
-            if draft.event_kinds[..index].contains(kind) {
+        for (index, entry) in draft.event_schema.iter().enumerate() {
+            if draft.event_schema[..index]
+                .iter()
+                .any(|earlier| earlier.kind() == entry.kind())
+            {
                 return Err(PanelError::DuplicateEventKind {
-                    kind: kind.as_wire().to_owned(),
+                    kind: entry.kind().as_wire().to_owned(),
                 });
+            }
+            for (argument_index, argument) in entry.arguments().iter().enumerate() {
+                if entry.arguments()[..argument_index]
+                    .iter()
+                    .any(|earlier| earlier.id() == argument.id())
+                {
+                    return Err(PanelError::DuplicateEventArgument {
+                        kind: entry.kind().as_wire().to_owned(),
+                        id: argument.id().as_str().to_owned(),
+                    });
+                }
             }
         }
         if draft.ports.len() > PANEL_PORT_LIMIT {
@@ -231,10 +272,10 @@ impl Panel {
         &self.draft.model_kinds
     }
 
-    /// Events the panel accepts.
+    /// Declared events and their argument schemas.
     #[must_use]
-    pub fn event_kinds(&self) -> &[EventKind] {
-        &self.draft.event_kinds
+    pub fn event_schema(&self) -> &[EventSchemaEntry] {
+        &self.draft.event_schema
     }
 
     /// The provider-side handler name.
@@ -259,6 +300,8 @@ pub enum PanelError {
     DuplicateModelKind { kind: String },
     /// The same event kind was declared twice.
     DuplicateEventKind { kind: String },
+    /// Two arguments on one event share an identifier.
+    DuplicateEventArgument { kind: String, id: String },
     /// More than [`PANEL_PORT_LIMIT`] ports.
     TooManyPorts { len: usize },
     /// Two ports share an identifier.
@@ -276,6 +319,12 @@ impl fmt::Display for PanelError {
             }
             Self::DuplicateEventKind { kind } => {
                 write!(formatter, "event kind {kind:?} is declared twice")
+            }
+            Self::DuplicateEventArgument { kind, id } => {
+                write!(
+                    formatter,
+                    "event kind {kind:?} declares argument {id:?} twice"
+                )
             }
             Self::TooManyPorts { len } => {
                 write!(
@@ -456,7 +505,7 @@ impl std::error::Error for ScreenContributionError {}
 /// A package's configuration schema.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigSchema {
-    schema_version: u32,
+    schema_version: u64,
     fields: Vec<Field>,
 }
 
@@ -469,7 +518,7 @@ impl ConfigSchema {
     /// [`CONFIG_SCHEMA_VERSION_MINIMUM`], the field bound is exceeded, a field
     /// identifier repeats, a `visible_when` reference names no sibling, or the
     /// visibility graph contains a cycle.
-    pub fn parse(schema_version: u32, fields: Vec<Field>) -> Result<Self, ConfigSchemaError> {
+    pub fn parse(schema_version: u64, fields: Vec<Field>) -> Result<Self, ConfigSchemaError> {
         if schema_version < CONFIG_SCHEMA_VERSION_MINIMUM {
             return Err(ConfigSchemaError::VersionTooLow {
                 version: schema_version,
@@ -488,7 +537,7 @@ impl ConfigSchema {
 
     /// The declared schema version.
     #[must_use]
-    pub const fn schema_version(&self) -> u32 {
+    pub const fn schema_version(&self) -> u64 {
         self.schema_version
     }
 
@@ -555,7 +604,7 @@ fn check_visibility(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigSchemaError {
     /// The schema version is below the minimum.
-    VersionTooLow { version: u32 },
+    VersionTooLow { version: u64 },
     /// More than [`CONFIG_FIELD_LIMIT`] fields.
     TooManyFields { len: usize },
     /// Two fields share an identifier.

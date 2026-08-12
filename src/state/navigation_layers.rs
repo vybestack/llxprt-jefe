@@ -87,13 +87,13 @@ impl AppState {
     /// may still be holding a chooser or a half-typed filter, and that must not
     /// change what Back does on the screen they are actually looking at.
     fn chooser_open(&self) -> bool {
-        match self.screen() {
-            ScreenId::Issues => {
+        match self.compiled_screen() {
+            Some(ScreenId::Issues) => {
                 self.issues_state.agent_chooser.is_some()
                     || self.issues_state.property_editor.is_some()
                     || self.issues_state.close_reason_chooser.is_some()
             }
-            ScreenId::PullRequests => {
+            Some(ScreenId::PullRequests) => {
                 self.prs_state.agent_chooser.is_some()
                     || self.prs_state.property_editor.is_some()
                     || self.prs_state.merge_chooser.is_some()
@@ -104,33 +104,35 @@ impl AppState {
 
     /// Text is being composed or edited in place.
     fn editor_open(&self) -> bool {
-        match self.screen() {
-            ScreenId::Issues => {
+        match self.compiled_screen() {
+            Some(ScreenId::Issues) => {
                 self.issues_state.inline_state != InlineState::None
                     || self.issues_state.new_issue_form.is_some()
             }
-            ScreenId::PullRequests => self.prs_state.inline_state != InlineState::None,
+            Some(ScreenId::PullRequests) => self.prs_state.inline_state != InlineState::None,
             _ => false,
         }
     }
 
     /// A search input holds the keys.
     fn search_focused(&self) -> bool {
-        match self.screen() {
-            ScreenId::Issues => self.issues_state.search_input_focused,
-            ScreenId::PullRequests => self.prs_state.search_input_focused,
-            ScreenId::Actions => self.actions_state.ui.search_input_focused,
-            ScreenId::Dashboard | ScreenId::Repositories => self.dashboard_search.input_focused,
+        match self.compiled_screen() {
+            Some(ScreenId::Issues) => self.issues_state.search_input_focused,
+            Some(ScreenId::PullRequests) => self.prs_state.search_input_focused,
+            Some(ScreenId::Actions) => self.actions_state.ui.search_input_focused,
+            Some(ScreenId::Dashboard | ScreenId::Repositories) => {
+                self.dashboard_search.input_focused
+            }
             _ => false,
         }
     }
 
     /// Filter controls are open.
     fn filter_open(&self) -> bool {
-        match self.screen() {
-            ScreenId::Issues => self.issues_state.filter_ui.controls_open,
-            ScreenId::PullRequests => self.prs_state.filter_ui.controls_open,
-            ScreenId::Actions => self.actions_state.ui.filter_ui_open,
+        match self.compiled_screen() {
+            Some(ScreenId::Issues) => self.issues_state.filter_ui.controls_open,
+            Some(ScreenId::PullRequests) => self.prs_state.filter_ui.controls_open,
+            Some(ScreenId::Actions) => self.actions_state.ui.filter_ui_open,
             _ => false,
         }
     }
@@ -153,22 +155,27 @@ impl AppState {
 
     /// A detail panel is focused, which Back returns from before leaving.
     fn detail_panel_focused(&self) -> bool {
-        match self.screen() {
-            ScreenId::Issues => {
+        match self.compiled_screen() {
+            Some(ScreenId::Issues) => {
                 self.issues_state.issue_focus == super::types::IssueFocus::IssueDetail
             }
-            ScreenId::PullRequests => matches!(
+            Some(ScreenId::PullRequests) => matches!(
                 self.prs_state.pr_focus,
                 super::types::PrFocus::PrDetail | super::types::PrFocus::PrChanges
             ),
-            ScreenId::Actions => self.actions_state.focus == super::types::ActionsFocus::Detail,
+            Some(ScreenId::Actions) => {
+                self.actions_state.focus == super::types::ActionsFocus::Detail
+            }
             // Settings unwinds its detail focus through its own reducer, so
             // Back leaves the screen rather than stepping back a pane.
-            ScreenId::Dashboard
-            | ScreenId::Repositories
-            | ScreenId::Errors
-            | ScreenId::Terminals
-            | ScreenId::Settings => false,
+            Some(
+                ScreenId::Dashboard
+                | ScreenId::Repositories
+                | ScreenId::Errors
+                | ScreenId::Terminals
+                | ScreenId::Settings,
+            )
+            | None => false,
         }
     }
 }

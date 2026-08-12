@@ -74,6 +74,12 @@ pub fn read_manifest(input: &[u8]) -> Result<Manifest, ManifestReadError> {
         "host_api",
         &HOST_API_KEYS,
     )?;
+    let config = optional(members, "config")
+        .map(super::reader_parts::read_config_schema)
+        .transpose()?;
+    let defaults = optional(members, "defaults")
+        .map(|value| super::reader_parts::read_defaults(value, config.as_ref()))
+        .transpose()?;
     let draft = ManifestDraft {
         manifest_schema: read_u32(members, "manifest", "manifest_schema")?,
         id: read_with(members, "manifest", "id", PluginId::parse)?,
@@ -83,9 +89,7 @@ pub fn read_manifest(input: &[u8]) -> Result<Manifest, ManifestReadError> {
         host_api_maximum: read_with(host_api, "host_api", "maximum", CanonicalSemver::parse)?,
         protocol: read_u32(members, "manifest", "protocol")?,
         provider: super::reader_parts::read_provider(require(members, "manifest", "provider")?)?,
-        config: optional(members, "config")
-            .map(super::reader_parts::read_config_schema)
-            .transpose()?,
+        config,
         actions: read_each(
             members,
             "actions",
@@ -110,9 +114,7 @@ pub fn read_manifest(input: &[u8]) -> Result<Manifest, ManifestReadError> {
             SCREEN_CONTRIBUTION_LIMIT,
             super::reader_parts::read_screen,
         )?,
-        defaults: optional(members, "defaults")
-            .map(super::reader_parts::read_defaults)
-            .transpose()?,
+        defaults,
     };
     Manifest::parse(draft).map_err(ManifestReadError::Manifest)
 }
@@ -191,7 +193,7 @@ pub(super) fn read_bool(
         })
 }
 
-/// Read a required non-negative integer member.
+/// Read a required non-negative integer member as `u32`.
 pub(super) fn read_u32(
     members: &[(String, BoundedJson)],
     path: &str,
@@ -207,6 +209,25 @@ pub(super) fn read_u32(
     u32::try_from(raw).map_err(|_| ManifestReadError::InvalidValue {
         path: format!("{path}.{key}"),
         reason: format!("{raw} is outside the unsigned 32-bit range"),
+    })
+}
+
+/// Read a required non-negative integer member as `u64`.
+pub(super) fn read_u64(
+    members: &[(String, BoundedJson)],
+    path: &str,
+    key: &str,
+) -> Result<u64, ManifestReadError> {
+    let raw =
+        require(members, path, key)?
+            .as_int()
+            .ok_or_else(|| ManifestReadError::TypeMismatch {
+                path: format!("{path}.{key}"),
+                expected: "integer",
+            })?;
+    u64::try_from(raw).map_err(|_| ManifestReadError::InvalidValue {
+        path: format!("{path}.{key}"),
+        reason: format!("{raw} is outside the unsigned 64-bit range"),
     })
 }
 

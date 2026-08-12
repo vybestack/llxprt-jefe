@@ -18,9 +18,12 @@ use crate::persistence::diagnostic::Diagnostic;
 #[path = "startup_screens_tests.rs"]
 mod startup_screens_tests;
 use crate::persistence::paths::ResolvedPaths;
+use crate::persistence::plugin_inventory::InstalledPackage;
 use crate::persistence::screen_files::{DefinitionsUnreadable, discover};
 use crate::persistence::settings_document::PublishedSettings;
-use crate::workbench::compose::{CompositionRefused, ScreenComposition, compose_screens};
+use crate::workbench::compose::{
+    CompositionRefused, ScreenComposition, compose_screens_with_packages,
+};
 use crate::workbench::screens::{RegistryError, builtin_screens};
 use crate::workbench::{RegistryAlreadyPublished, publish_screen_registry};
 
@@ -86,11 +89,12 @@ impl std::error::Error for ScreenStartupError {
 /// definitions directory cannot be read, or an enabled definition is unusable.
 pub fn compose(
     paths: &ResolvedPaths,
+    packages: &[InstalledPackage],
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, ScreenStartupError> {
     let compiled = builtin_screens().map_err(ScreenStartupError::Compiled)?;
     let candidates = discover(&paths.definitions).map_err(ScreenStartupError::Definitions)?;
-    compose_screens(&compiled, &candidates, settings)
+    compose_screens_with_packages(&compiled, &candidates, packages, settings)
         .map_err(|refusal| ScreenStartupError::Refused(Box::new(refusal)))
 }
 
@@ -105,9 +109,10 @@ pub fn compose(
 /// registry was already published. Nothing is published in any of those cases.
 pub fn compose_and_publish(
     paths: &ResolvedPaths,
+    packages: &[InstalledPackage],
     settings: &PublishedSettings,
 ) -> Result<Vec<Diagnostic>, ScreenStartupError> {
-    let composition = compose(paths, settings)?;
+    let composition = compose(paths, packages, settings)?;
     publish_screen_registry(composition.registry).map_err(ScreenStartupError::AlreadyPublished)?;
     Ok(composition.warnings)
 }

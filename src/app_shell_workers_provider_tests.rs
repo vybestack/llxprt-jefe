@@ -10,7 +10,7 @@ use jefe::runtime::provider::protocol::ProgressPayload;
 
 use super::{
     ActiveSession, SessionStart, TerminalSource, drain_session_progress, fill_session_slots,
-    forward_exact_cancels,
+    forward_exact_cancels, migration_cleanup_failure_detail,
 };
 
 fn id(value: &str) -> Id {
@@ -190,4 +190,14 @@ fn progress_from_concurrent_sessions_keeps_identity_and_dispatch_order() {
             (2, 1, "second-1".to_owned()),
         ]
     );
+}
+
+#[test]
+fn migration_cleanup_failure_keeps_settings_unchanged_with_a_typed_reason() {
+    let detail =
+        migration_cleanup_failure_detail(&jefe::runtime::provider::CleanupFailure::NotReaped);
+
+    assert!(detail.starts_with("PLG-E503 "));
+    assert!(detail.contains("process was not reaped"));
+    assert!(detail.ends_with("settings remain unchanged"));
 }

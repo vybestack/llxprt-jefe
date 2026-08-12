@@ -62,6 +62,8 @@ mod post_mutation_refresh_tests;
 mod pr_lifecycle_events;
 mod preferences_ops;
 mod property_edit;
+/// Pure deterministic provider-panel lifecycle reducer (issue #391).
+pub mod provider_panels;
 /// Provider request reducer data model (issue #390 CW-10, Slice B).
 mod provider_request_model;
 /// Provider request reducer handlers (issue #390 CW-10, Slice B).
@@ -129,6 +131,9 @@ mod navigation_layers_tests;
 /// How the rest of the reducer asks to change screen (issue #386).
 mod navigation_ops;
 #[cfg(test)]
+#[path = "navigation_package_tests.rs"]
+mod navigation_package_tests;
+#[cfg(test)]
 #[path = "navigation_tests.rs"]
 mod navigation_tests;
 /// The single Back-precedence resolution (issue #386).
@@ -143,6 +148,10 @@ mod navigation_vertical;
 mod persistence_effect_tests;
 /// Durable-save staging and persistence completion handling.
 pub mod persistence_ops;
+/// Pure projection of generated plugin config into Settings rows.
+///
+/// Issue #391, CW11-06/CW11-07.
+pub mod plugin_config_view;
 /// Pure projection of the Screens/Layout editor into rows (issue #388).
 pub mod plugins_editor;
 pub mod screens_editor;
@@ -403,6 +412,15 @@ impl AppState {
         self.reduce_message(message);
         let effects = std::mem::take(&mut self.pending_effects.staged);
         transition::Transition::new(self, effects)
+    }
+
+    /// Drain effects staged by a reducer action invoked from an edge composition funnel.
+    ///
+    /// Callers must execute or explicitly reject every returned effect after
+    /// releasing state access; pure reducer sites must use `apply_message`.
+    #[must_use]
+    pub fn take_staged_effects(&mut self) -> Vec<crate::domain::effects::IssuedEffect> {
+        std::mem::take(&mut self.pending_effects.staged)
     }
 
     fn reduce_message(&mut self, message: AppMessage) {

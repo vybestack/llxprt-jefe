@@ -16,8 +16,9 @@ use std::path::{Component, Path, PathBuf};
 use crate::domain::action_registry::ActionId;
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::Chord;
+use crate::domain::plugin::SecretReference;
 use crate::domain::sha256::Sha256;
-use crate::domain::{CanonicalSemver, Id, OwnerCatalog, ThemeId};
+use crate::domain::{CanonicalDecimal, CanonicalSemver, Id, OwnerCatalog, ThemeId};
 use crate::workbench::descriptor::LayoutNode;
 
 use super::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
@@ -88,6 +89,16 @@ pub enum SyntaxPath {
     PluginEnabled(Id),
     /// `plugins.<id>.version` — the exact installed version selected.
     PluginVersion(Id),
+    /// `plugins.<id>.config.<field>` — one generated plugin config leaf
+    /// (issue #391, CW11-06/07). The value type is decided by the selected
+    /// package's immutable [`ConfigSchema`]; this leaf only patches the bytes
+    /// losslessly, it does not re-declare the field grammar.
+    PluginConfig {
+        /// The package owner this config belongs to.
+        plugin: Id,
+        /// The declared config field identifier.
+        field: Id,
+    },
     /// `workbench.layout_overrides.<id>` — one screen's whole layout tree.
     LayoutOverride(Id),
     /// `keymap.<context>.<action>` — one action's whole chord list.
@@ -126,6 +137,9 @@ impl SyntaxPath {
             Self::AgentEnabled(agent) => vec!["agents", agent.as_str(), "enabled"],
             Self::PluginEnabled(plugin) => vec!["plugins", plugin.as_str(), "enabled"],
             Self::PluginVersion(plugin) => vec!["plugins", plugin.as_str(), "version"],
+            Self::PluginConfig { plugin, field } => {
+                vec!["plugins", plugin.as_str(), "config", field.as_str()]
+            }
             Self::LayoutOverride(screen) => {
                 vec!["workbench", "layout_overrides", screen.as_str()]
             }
@@ -163,6 +177,7 @@ impl SyntaxPath {
             | Self::AgentEnabled(_)
             | Self::PluginEnabled(_)
             | Self::PluginVersion(_)
+            | Self::PluginConfig { .. }
             | Self::LayoutOverride(_)
             | Self::Keymap { .. } => true,
         }
@@ -188,6 +203,9 @@ impl SyntaxPath {
             Self::PluginEnabled(plugin) | Self::PluginVersion(plugin) => {
                 format!("[plugins.{}]", quoted_key(plugin.as_str()))
             }
+            Self::PluginConfig { plugin, .. } => {
+                format!("[plugins.{}.config]", quoted_key(plugin.as_str()))
+            }
             Self::LayoutOverride(_) => "[workbench.layout_overrides]".to_owned(),
             Self::Keymap { context, .. } => {
                 format!("[keymap.{}]", quoted_key(context.as_str()))
@@ -205,6 +223,7 @@ impl SyntaxPath {
             Self::ScreenOrder => "screen_order".to_owned(),
             Self::AgentEnabled(_) | Self::PluginEnabled(_) => "enabled".to_owned(),
             Self::PluginVersion(_) => "version".to_owned(),
+            Self::PluginConfig { field, .. } => quoted_key(field.as_str()),
             Self::LayoutOverride(screen) => quoted_key(screen.as_str()),
             Self::Keymap { action, .. } => quoted_key(action.as_str()),
         }
@@ -218,6 +237,20 @@ impl SyntaxPath {
 /// than a nested table whose name happens to be the namespace.
 fn quoted_key(value: &str) -> String {
     toml::Value::String(value.to_owned()).to_string()
+}
+
+/// One closed plugin-config value that can be rendered losslessly to TOML.
+///
+/// Field kinds that share a wire representation (string, enum, and path) use
+/// `String`; declaration validation remains the schema authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginConfigEditValue {
+    Boolean(bool),
+    String(String),
+    Integer(i64),
+    FiniteNumber(CanonicalDecimal),
+    StringList(Vec<String>),
+    SecretReference(SecretReference),
 }
 
 /// One closed lossless edit applied to a complete settings candidate.
@@ -261,6 +294,15 @@ pub enum SettingsEdit {
         /// The exact version, including any build metadata.
         version: CanonicalSemver,
     },
+    /// Write one generated plugin config leaf (issue #391, CW11-06/07).
+    PluginConfig {
+        /// The package owner this config belongs to.
+        plugin: Id,
+        /// The declared config field identifier.
+        field: Id,
+        /// A value whose TOML representation is total and lossless.
+        value: PluginConfigEditValue,
+    },
     /// Replace one screen's whole layout tree.
     ///
     /// The tree is boxed because a layout is far larger than every other edit,
@@ -297,6 +339,10 @@ impl SettingsEdit {
             Self::AgentEnabled { agent, .. } => SyntaxPath::AgentEnabled(agent.clone()),
             Self::PluginEnabled { plugin, .. } => SyntaxPath::PluginEnabled(plugin.clone()),
             Self::PluginVersion { plugin, .. } => SyntaxPath::PluginVersion(plugin.clone()),
+            Self::PluginConfig { plugin, field, .. } => SyntaxPath::PluginConfig {
+                plugin: plugin.clone(),
+                field: field.clone(),
+            },
             Self::ReplaceLayout { screen, .. } => SyntaxPath::LayoutOverride(screen.clone()),
             Self::Keymap {
                 context, action, ..
@@ -321,6 +367,7 @@ impl SettingsEdit {
                 Some(enabled.to_string().into_bytes())
             }
             Self::PluginVersion { version, .. } => Some(toml_string(version.as_str())),
+            Self::PluginConfig { value, .. } => Some(typed_value_to_toml(value)),
             Self::ReplaceLayout { layout, .. } => Some(super::settings_layout::render(layout)),
             Self::Keymap { chords, .. } => {
                 Some(toml_string_array(chords.iter().map(ToString::to_string)))
@@ -351,7 +398,35 @@ where
     .into_bytes()
 }
 
-/// A complete, validated settings document candidate.
+/// Render one typed plugin config value to its TOML spelling.
+///
+/// This is the reverse of the publishing boundary's `toml_to_typed`: every
+/// field type that a selected package's `ConfigSchema` can declare maps to
+/// exactly one TOML form. A secret reference is always the inline
+/// `{ env = "NAME" }` table, never the resolved bytes (CW11-08).
+fn typed_value_to_toml(value: &PluginConfigEditValue) -> Vec<u8> {
+    match value {
+        PluginConfigEditValue::Boolean(flag) => flag.to_string().into_bytes(),
+        PluginConfigEditValue::String(text) => toml_string(text),
+        PluginConfigEditValue::Integer(number) => number.to_string().into_bytes(),
+        PluginConfigEditValue::FiniteNumber(number) => {
+            let text = number.as_str();
+            if text.contains('.') {
+                text.as_bytes().to_vec()
+            } else {
+                format!("{text}.0").into_bytes()
+            }
+        }
+        PluginConfigEditValue::StringList(values) => {
+            toml_string_array(values.iter().map(String::as_str))
+        }
+        PluginConfigEditValue::SecretReference(reference) => format!(
+            "{{ env = {} }}",
+            toml::Value::String(reference.env().to_owned())
+        )
+        .into_bytes(),
+    }
+}
 #[derive(Debug, Clone)]
 pub struct SettingsCandidate {
     bytes: Vec<u8>,

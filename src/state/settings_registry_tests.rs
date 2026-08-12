@@ -43,6 +43,8 @@ fn source(bytes: &[u8]) -> SettingsSource {
             id: theme("green-screen"),
             name: "Green Screen".to_owned(),
         }],
+        plugin_configs: std::collections::BTreeMap::new(),
+        installed_plugin_configs: std::collections::BTreeMap::new(),
         environment: SettingsEnvironment {
             settings_path: PathBuf::from("/tmp/jefe/settings.toml"),
             state_path: PathBuf::from("/tmp/jefe/state.json"),

@@ -617,6 +617,59 @@ unsandboxed as the operator's own OS user. The recovery state for a broken
 selected package states the process count explicitly, because the point of that
 state is that nothing ran.
 
+## Generated Plugin Configuration
+
+The Plugins section generates configuration rows from the immutable manifest of
+the exact installed package version selected by the Settings draft. It does not
+scan packages or choose a version independently. Boolean, string, integer,
+finite-number, enum, path, string-list, and secret-reference declarations use
+the existing Settings draft, editor, dirty guard, and expected-hash writer.
+
+The pure projection owns visibility and display decisions. It shows labels,
+descriptions, defaults, inclusive bounds, enum choices, list uniqueness, and
+restart metadata; invalid active values have an adjacent diagnostic and also
+contribute to the Save-blocking summary. A hidden row is omitted. Required
+fields are required only while visible, but a present hidden value must remain
+typed and valid. Configuration owned by an absent or disabled package is dormant:
+its exact bytes remain in the lossless document and the absent owner does not
+validate it.
+
+Secret-reference controls display only the environment-variable name and whether
+that variable is set. The durable and draft value is exactly an environment
+reference; resolved secret bytes never enter a projection, editor seed,
+diagnostic, effective-settings view, export, migration preview, or panel model.
+
+## Host-Rendered Provider Panels
+
+A package screen is rendered from the same published `ScreenRegistry` and
+`ResolvedLayout` as a compiled screen. Each package panel binding records the
+exact selected package owner and manifest declaration; the UI never infers an
+owner from an identifier. Provider snapshots are data only. The host exclusively
+owns iocraft elements, focus, selection repair, scrolling, wrapping, form drafts,
+confirmation, links, theme, accessibility, mouse/key translation, Back, and the
+small-terminal presentation.
+
+The closed host primitives are list, detail, form, status, progress, empty, and
+error. Activating and unavailable panels render explicit text rather than an
+empty rectangle. A failed panel may retain the last complete accepted model, but
+it is marked literally `stale`. A candidate snapshot is projected only after the
+panel reducer has accepted the entire model; a rejected candidate never appears
+partially.
+
+Input becomes one closed semantic event only after the host validates the live
+screen/panel instance, process and panel generations, accepted revision,
+manifest event declaration, referenced item/field/action/token, argument schema,
+and enabled affordance. Invalid, stale, undeclared, or disabled input emits zero
+provider and host effects. Providers never receive raw keys, mouse events,
+iocraft objects, focus or scroll instructions, or arbitrary host effects.
+
+Panel lifecycle follows navigation. Enter declares and activates; pushing another
+screen suspends; Back disposes the departed screen and resumes the retained panel
+with a fresh activation generation; replacement disposes with a replace reason.
+Only bounded host-local focus/scroll/selection/form state survives suspension.
+Panel models, lifecycle, revisions, generations, and host-local state are never
+persisted.
+
 ## Keybind Footer Convention
 
 The bottom `KeybindBar` (`src/ui/components/keybind_bar.rs`) shows

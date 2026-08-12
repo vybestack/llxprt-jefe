@@ -25,17 +25,22 @@ use std::collections::BTreeSet;
 
 use crate::domain::Id;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
-use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
+use crate::persistence::plugin_inventory::{InstalledPackage, selected_packages};
+use crate::persistence::screen_files::{
+    ScreenFileCandidate, ScreenFileRejection, read_package_screen,
+};
 use crate::persistence::settings_document::PublishedSettings;
 
+use super::config::{CHROME_TOP, insets_config};
 use super::descriptor::{LayoutNode, ScreenDescriptor};
 use super::diagnostics::ScreenDiagnostic;
+use super::geometry::Insets;
 use super::ids::CUSTOM_SCREEN_NAMESPACE;
 use super::lowering_error::LoweringError;
 use super::screen_file::parse_screen_file;
 use super::screen_file_bounds::ScreenSyntaxError;
-use super::screen_lowering::lower_screen;
-use super::screens::{RegistryError, ScreenRegistry};
+use super::screen_lowering::{lower_package_screen, lower_screen};
+use super::screens::{PackagePanelBinding, RegistryError, ScreenRegistry};
 use super::validate::validate_descriptor;
 
 /// A published screen registry and the warnings composing it produced.
@@ -70,15 +75,8 @@ impl std::error::Error for CompositionRefused {}
 
 /// Compose compiled screens with every enabled definition, as settings ask.
 ///
-/// `settings.workbench.enabled_screens` decides which definitions contribute: a
-/// definition whose `local.<member>` identity is absent from it is dormant.
-/// `layout_overrides` then replaces the layout of any screen it names, and
-/// `screen_order` decides the order the registry publishes them in.
-///
-/// A layout override is the one input here that a user can only correct from
-/// inside the program, so an override the descriptor validator refuses is a
-/// warning and the compiled layout stands. Refusing to start would leave them
-/// unable to reach the screen that edits it.
+/// Delegates to [`compose_screens_with_packages`] with no package sources, so
+/// the composition path that does not involve plugins is unchanged.
 ///
 /// # Errors
 ///
@@ -87,6 +85,35 @@ impl std::error::Error for CompositionRefused {}
 pub fn compose_screens(
     compiled: &ScreenRegistry,
     candidates: &[ScreenFileCandidate],
+    settings: &PublishedSettings,
+) -> Result<ScreenComposition, CompositionRefused> {
+    compose_screens_with_packages(compiled, candidates, &[], settings)
+}
+
+/// Compose compiled screens with enabled definitions **and** selected package
+/// screens, as settings ask.
+///
+/// Selected packages are resolved by [`selected_packages`], which consults the
+/// same `PublishedSettings` that decides user-definition activation.  Each
+/// selected package's manifest-declared screen files are loaded from the package
+/// directory using the existing bounded, symlink-safe reader, parsed through the
+/// sole screen-file parser, and lowered through the sole lowerer.  A package
+/// screen may resolve only panel types its own manifest declared, so no dynamic
+/// panel ids enter the global built-in registry.
+///
+/// Composition is transactional: if any selected package screen is malformed,
+/// missing, mismatched, or duplicates another screen identity, the whole
+/// candidate registry is refused and prior authority is retained.  Unselected
+/// package versions contribute nothing.
+///
+/// # Errors
+///
+/// Returns [`CompositionRefused`] when any enabled definition or selected
+/// package screen cannot be parsed, lowered, or composed.
+pub fn compose_screens_with_packages(
+    compiled: &ScreenRegistry,
+    candidates: &[ScreenFileCandidate],
+    packages: &[InstalledPackage],
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, CompositionRefused> {
     let enabled: BTreeSet<Id> = settings.workbench.enabled_screens.iter().cloned().collect();
@@ -99,11 +126,121 @@ pub fn compose_screens(
         };
         screens.push(lowered);
     }
+    let mut panel_bindings = Vec::new();
+    compose_package_screens(packages, settings, &mut screens, &mut panel_bindings)?;
     apply_layout_overrides(&mut screens, settings, &mut warnings);
     order_screens(&mut screens, &settings.workbench.screen_order);
-    let registry = ScreenRegistry::new(screens)
-        .map_err(|error| registry_refusal(&error, candidates_root(candidates)))?;
+    let root = composition_root(candidates, packages, settings);
+    let registry = ScreenRegistry::with_panel_bindings(screens, panel_bindings)
+        .map_err(|error| registry_refusal(&error, root))?;
     Ok(ScreenComposition { registry, warnings })
+}
+
+/// Load, parse, and lower every screen each selected package contributes.
+///
+/// Each selected package's manifest-declared screen files are read from the
+/// package directory, parsed, and lowered.  The lowered descriptors are appended
+/// to `screens`.  Any failure — an unreadable file, a syntax error, a lowering
+/// error, or an identity that does not match the manifest — refuses the whole
+/// composition.
+fn compose_package_screens(
+    packages: &[InstalledPackage],
+    settings: &PublishedSettings,
+    screens: &mut Vec<ScreenDescriptor>,
+    panel_bindings: &mut Vec<PackagePanelBinding>,
+) -> Result<(), CompositionRefused> {
+    for package in selected_packages(packages, settings) {
+        let manifest = package.manifest();
+        let allowed: Vec<&str> = manifest
+            .panels()
+            .iter()
+            .map(|panel| panel.id().as_str())
+            .collect();
+        for contribution in manifest.screens() {
+            let file_path = package.directory().join(contribution.path().as_str());
+            let path = DiagnosticPath::new(file_path.to_string_lossy());
+            let text = read_package_screen(package.directory(), contribution.path())
+                .map_err(|rejection| CandidateFailure::Unreadable(rejection).refuse(&path))?;
+            let file = parse_screen_file(&text)
+                .map_err(|error| CandidateFailure::Syntax(error).refuse(&path))?;
+            let declared = file.id.get_ref();
+            let expected = contribution
+                .screen_ids()
+                .iter()
+                .find(|id| id.as_str() == declared.as_str());
+            let Some(expected) = expected else {
+                let expected = contribution
+                    .screen_ids()
+                    .iter()
+                    .map(Id::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" or ");
+                return Err(CandidateFailure::Lowering(LoweringError::IdentityMismatch {
+                    expected,
+                })
+                .refuse(&path));
+            };
+            let mut lowered = lower_package_screen(&file, expected.as_str(), &allowed, &file_path)
+                .map_err(|error| CandidateFailure::Lowering(error).refuse(&path))?;
+            apply_package_panel_chrome(&mut lowered.descriptor, &path)?;
+            for panel in &lowered.descriptor.panels {
+                let declaration = manifest
+                    .panels()
+                    .iter()
+                    .find(|candidate| candidate.id().as_str() == panel.panel_type.as_str());
+                if let Some(declaration) = declaration {
+                    let action_authority = package_action_authority(manifest, expected, &path)?;
+                    panel_bindings.push(PackagePanelBinding {
+                        screen: lowered.descriptor.id,
+                        panel: panel.id,
+                        owner: manifest.id().owner_id().clone(),
+                        panel_type: declaration.id().clone(),
+                        model_kinds: declaration.model_kinds().to_vec(),
+                        event_schema: declaration.event_schema().to_vec(),
+                        action_authority,
+                    });
+                }
+            }
+            screens.push(lowered.descriptor);
+        }
+    }
+    Ok(())
+}
+
+fn apply_package_panel_chrome(
+    descriptor: &mut ScreenDescriptor,
+    path: &DiagnosticPath,
+) -> Result<(), CompositionRefused> {
+    let panel_config = insets_config(Insets::new(1, 1, 1, 1)).ok_or_else(|| {
+        CandidateFailure::Lowering(LoweringError::ConfigKey {
+            key: CHROME_TOP.to_owned(),
+        })
+        .refuse(path)
+    })?;
+    descriptor
+        .panels
+        .iter_mut()
+        .for_each(|panel| panel.config.clone_from(&panel_config));
+    Ok(())
+}
+
+fn package_action_authority(
+    manifest: &crate::domain::plugin::Manifest,
+    screen: &Id,
+    path: &DiagnosticPath,
+) -> Result<Vec<crate::domain::action_registry::ActionId>, CompositionRefused> {
+    manifest
+        .actions()
+        .iter()
+        .filter(|action| action.contexts().contains(screen))
+        .map(|action| crate::domain::action_registry::ActionId::parse(action.id().as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            CandidateFailure::Lowering(LoweringError::IdentityMismatch {
+                expected: error.to_string(),
+            })
+            .refuse(path)
+        })
 }
 
 /// Replace the layout of every screen settings override, or say why not.
@@ -314,13 +451,25 @@ fn registry_refusal(error: &RegistryError, root: DiagnosticPath) -> CompositionR
     }
 }
 
-/// The directory the candidates came from, for registry-level diagnostics.
-fn candidates_root(candidates: &[ScreenFileCandidate]) -> DiagnosticPath {
-    candidates
+/// The directory the registry-level diagnostic is attributed to.
+///
+/// When user-definition candidates exist, the definitions directory is used;
+/// otherwise, the first selected package's root stands in.  Either way, a
+/// duplicate-identity or overflow refusal names the directory the conflicting
+/// screens came from.
+fn composition_root(
+    candidates: &[ScreenFileCandidate],
+    packages: &[InstalledPackage],
+    settings: &PublishedSettings,
+) -> DiagnosticPath {
+    if let Some(root) = candidates
         .first()
         .and_then(|candidate| candidate.path.parent())
-        .map_or_else(
-            || DiagnosticPath::new("definitions"),
-            |root| DiagnosticPath::new(root.to_string_lossy()),
-        )
+    {
+        return DiagnosticPath::new(root.to_string_lossy());
+    }
+    selected_packages(packages, settings).first().map_or_else(
+        || DiagnosticPath::new("definitions"),
+        |package| DiagnosticPath::new(package.root().to_string_lossy()),
+    )
 }

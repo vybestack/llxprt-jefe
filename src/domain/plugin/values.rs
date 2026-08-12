@@ -7,6 +7,8 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use super::limits::{PACKAGE_PATH_BYTE_LIMIT, PACKAGE_PATH_DEPTH_LIMIT, SECRET_ENV_BYTE_LIMIT};
 
 /// The host triple this executable was built for.
@@ -233,8 +235,18 @@ impl std::error::Error for HostTripleError {}
 /// The manifest names the variable; it never carries the value. Nothing in this
 /// type reads the environment, so a manifest cannot leak a secret by being
 /// parsed, rendered, or logged.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct SecretReference(String);
+
+impl<'de> Deserialize<'de> for SecretReference {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value).map_err(serde::de::Error::custom)
+    }
+}
 
 impl SecretReference {
     /// Parse and validate an environment-variable name.

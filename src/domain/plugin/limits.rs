@@ -66,7 +66,7 @@ pub const SCREEN_ID_LIMIT: usize = 32;
 pub const CONFIG_FIELD_LIMIT: usize = 128;
 
 /// Lowest accepted configuration schema version.
-pub const CONFIG_SCHEMA_VERSION_MINIMUM: u32 = 1;
+pub const CONFIG_SCHEMA_VERSION_MINIMUM: u64 = 1;
 
 /// The only manifest schema this executable reads.
 pub const MANIFEST_SCHEMA: u32 = 1;

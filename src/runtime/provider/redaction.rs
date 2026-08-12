@@ -20,6 +20,10 @@ use crate::domain::{TypedMap, TypedValue};
 use super::dto;
 use super::environment::Redactor;
 use super::error::ProviderError;
+use super::panel_model::{
+    Affordance, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError,
+    ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
+};
 use super::supervisor::{CleanupFailure, OneShotOutcome, SupervisorFailure};
 
 /// Redact every resolved secret value out of a typed map (recursive).
@@ -42,6 +46,141 @@ pub(super) fn redact_typed_value(value: TypedValue, redactor: &Redactor) -> Type
         TypedValue::Map(inner) => TypedValue::Map(redact_typed_map(inner, redactor)),
         other => other,
     }
+}
+
+/// Redact every provider-authored observation surface in a panel snapshot.
+///
+/// Returns `None` when a field declaration cannot be rebuilt after redaction.
+/// Callers must fail the provider closed rather than deliver the original
+/// snapshot, because preserving a secret-bearing declaration is never safe.
+pub(super) fn redact_panel_snapshot(
+    snapshot: PanelSnapshot,
+    redactor: &Redactor,
+) -> Option<PanelSnapshot> {
+    if redactor.is_empty() {
+        return Some(snapshot);
+    }
+    let action_affordances = snapshot
+        .action_affordances
+        .into_iter()
+        .map(|affordance| redact_affordance(affordance, redactor))
+        .collect();
+    Some(PanelSnapshot {
+        model_schema: snapshot.model_schema,
+        panel_instance_id: snapshot.panel_instance_id,
+        generation: snapshot.generation,
+        revision: snapshot.revision,
+        kind: snapshot.kind,
+        title: redact_text(snapshot.title, redactor),
+        description: snapshot
+            .description
+            .map(|description| redact_text(description, redactor)),
+        loading: snapshot.loading,
+        action_affordances,
+        body: redact_panel_body(snapshot.body, redactor)?,
+    })
+}
+
+fn redact_affordance(affordance: Affordance, redactor: &Redactor) -> Affordance {
+    Affordance {
+        id: affordance.id,
+        label: redact_text(affordance.label, redactor),
+        action_id: affordance.action_id,
+        arguments: affordance
+            .arguments
+            .map(|arguments| redact_typed_map(arguments, redactor)),
+        enabled: affordance.enabled,
+        unavailable_reason: affordance
+            .unavailable_reason
+            .map(|reason| redact_text(reason, redactor)),
+    }
+}
+
+fn redact_panel_body(body: PanelBody, redactor: &Redactor) -> Option<PanelBody> {
+    Some(match body {
+        PanelBody::List(body) => PanelBody::List(ListBody {
+            items: body
+                .items
+                .into_iter()
+                .map(|item| ListItem {
+                    id: item.id,
+                    label: redact_text(item.label, redactor),
+                    description: item.description.map(|text| redact_text(text, redactor)),
+                    status: item.status.map(|text| redact_text(text, redactor)),
+                    actions: item.actions,
+                })
+                .collect(),
+            selected_id: body.selected_id,
+            next_page_token: body
+                .next_page_token
+                .map(|token| redact_text(token, redactor)),
+        }),
+        PanelBody::Detail(body) => PanelBody::Detail(DetailBody {
+            document: redact_text(body.document, redactor),
+            metadata: body
+                .metadata
+                .into_iter()
+                .map(|metadata| DetailMetadata {
+                    label: redact_text(metadata.label, redactor),
+                    value: redact_text(metadata.value, redactor),
+                })
+                .collect(),
+            actions: body.actions,
+        }),
+        PanelBody::Form(body) => PanelBody::Form(redact_form_body(body, redactor)?),
+        PanelBody::Status(body) => PanelBody::Status(StatusBody {
+            rows: body
+                .rows
+                .into_iter()
+                .map(|row| StatusRow {
+                    label: redact_text(row.label, redactor),
+                    value: redact_text(row.value, redactor),
+                    state: row.state,
+                })
+                .collect(),
+        }),
+        PanelBody::Progress(body) => PanelBody::Progress(ProgressBody {
+            message: redact_text(body.message, redactor),
+            completed: body.completed,
+            total: body.total,
+            cancellable: body.cancellable,
+        }),
+        PanelBody::Empty(body) => PanelBody::Empty(EmptyBody {
+            message: redact_text(body.message, redactor),
+            action: body.action,
+        }),
+        PanelBody::Error(body) => PanelBody::Error(ErrorBody {
+            code: redact_text(body.code, redactor),
+            message: redact_text(body.message, redactor),
+            retryable: body.retryable,
+            retry_action: body.retry_action,
+        }),
+    })
+}
+
+fn redact_form_body(body: FormBody, redactor: &Redactor) -> Option<FormBody> {
+    let fields = body
+        .fields
+        .into_iter()
+        .map(|field| redact_field(field, redactor))
+        .collect::<Option<Vec<_>>>()?;
+    Some(FormBody {
+        fields,
+        values: redact_typed_map(body.values, redactor),
+        field_errors: body
+            .field_errors
+            .into_iter()
+            .map(|error| FormFieldError {
+                field_id: error.field_id,
+                message: redact_text(error.message, redactor),
+            })
+            .collect(),
+        submit_action: body.submit_action,
+    })
+}
+
+fn redact_text(text: String, redactor: &Redactor) -> String {
+    redactor.redact(&text).into_owned()
 }
 
 /// Redact every resolved secret value out of a one-shot terminal outcome.
@@ -86,13 +225,6 @@ pub(super) fn redact_outcome(outcome: dto::Outcome, redactor: &Redactor) -> dto:
             severity,
             message: redactor.redact(&message).into_owned(),
         },
-        dto::Outcome::ReplacePanel {
-            panel_instance_id,
-            snapshot,
-        } => dto::Outcome::ReplacePanel {
-            panel_instance_id,
-            snapshot: dto::PanelSnapshot(redact_typed_map(snapshot.0, redactor)),
-        },
         dto::Outcome::RequestHostConfirmation {
             confirmation_id,
             title,
@@ -110,12 +242,6 @@ pub(super) fn redact_outcome(outcome: dto::Outcome, redactor: &Redactor) -> dto:
                 .into_iter()
                 .filter_map(|field| redact_field(field, redactor))
                 .collect(),
-        },
-        dto::Outcome::ClosePanel { panel_instance_id } => {
-            dto::Outcome::ClosePanel { panel_instance_id }
-        }
-        dto::Outcome::MigratedConfig { migration } => dto::Outcome::MigratedConfig {
-            migration: dto::MigratedConfig(redact_typed_map(migration.0, redactor)),
         },
     }
 }
@@ -264,22 +390,25 @@ fn redact_bounded_json_error(error: BoundedJsonError, redactor: &Redactor) -> Bo
 pub(super) fn redact_field(field: Field, redactor: &Redactor) -> Option<Field> {
     let draft = FieldDraft {
         id: field.id().clone(),
+        label: field.label().to_owned(),
+        description: field.description().map(str::to_owned),
         kind: field.kind(),
         required: field.required(),
         default: field
             .default()
+            .map(|value| redact_typed_value(value.clone(), redactor)),
+        min: field
+            .min()
             .map(|scalar| redact_scalar(scalar.clone(), redactor)),
-        minimum: field
-            .minimum()
-            .map(|scalar| redact_scalar(scalar.clone(), redactor)),
-        maximum: field
-            .maximum()
+        max: field
+            .max()
             .map(|scalar| redact_scalar(scalar.clone(), redactor)),
         choices: field
             .choices()
             .iter()
             .map(|scalar| redact_scalar(scalar.clone(), redactor))
             .collect(),
+        unique: field.unique(),
         visible_when: field.visible_when().cloned(),
         restart: field.restart(),
     };

@@ -13,7 +13,7 @@ use crate::agent_candidate::CandidateResolution;
 
 use super::action_registry::ActionAvailability;
 use super::agent_definition::{AgentDefinition, Availability};
-use super::{AgentId, Id, StateV2, TypedMap};
+use super::{AgentId, Id, StateV2, TypedMap, TypedValue};
 
 /// Maximum ordered effects (including completion-produced follow-ups) that
 /// one committed transition may carry.
@@ -349,6 +349,37 @@ pub enum ProviderNoticeSeverity {
     Warning,
 }
 
+/// Host-local panel state carried across a suspend/resume effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPanelHostLocal {
+    pub focus_target: Option<Id>,
+    pub scroll_offset: u32,
+    pub selected_id: Option<Id>,
+    pub form_draft: Option<TypedMap>,
+}
+
+/// Why the host deactivates a provider panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderPanelDeactivateReason {
+    Suspend,
+    Dispose,
+    Replace,
+}
+
+/// Closed semantic event delivered to a provider panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderPanelEvent {
+    Selected { id: Id },
+    Activated { id: Id },
+    Action { id: Id, arguments: TypedMap },
+    FieldChanged { field_id: Id, value: TypedValue },
+    Submit { values: TypedMap },
+    PageRequested { token: String },
+    Retry,
+    Cancel,
+    LinkSelected { link_id: Id },
+}
+
 /// Provider/package availability operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderEffect {
@@ -371,6 +402,31 @@ pub enum ProviderEffect {
         key: ProviderRequestKey,
         outcome: ProviderHostOutcome,
     },
+    /// Activate one manifest-bound panel through its persistent provider.
+    ActivatePanel {
+        owner: Id,
+        panel_instance_id: u64,
+        screen_instance_id: u64,
+        panel_type: Id,
+        activation: TypedMap,
+        prior_host_local: Option<ProviderPanelHostLocal>,
+        panel_generation: u64,
+    },
+    /// Deactivate one live panel through its exact persistent owner.
+    DeactivatePanel {
+        owner: Id,
+        panel_instance_id: u64,
+        panel_generation: u64,
+        reason: ProviderPanelDeactivateReason,
+    },
+    /// Deliver one validated semantic event to a live panel.
+    PanelEvent {
+        owner: Id,
+        panel_instance_id: u64,
+        panel_generation: u64,
+        revision: u64,
+        event: ProviderPanelEvent,
+    },
 }
 
 /// Provider completion payloads.
@@ -389,6 +445,10 @@ pub enum ProviderResponse {
     /// A cancel was sent to an in-flight request (CW-10 Slice B).
     Cancelled {
         key: ProviderRequestKey,
+    },
+    /// A panel command was accepted by the owning persistent session.
+    PanelCommandSent {
+        panel_instance_id: u64,
     },
     /// A validated provider outcome was applied by the host adapter.
     OutcomeApplied {

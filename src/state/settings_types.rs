@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::domain::sha256::Sha256;
+use crate::domain::{CanonicalSemver, Id};
 use crate::messages::settings::{SettingsEnvironment, SettingsSection, ThemeChoice};
 use crate::persistence::diagnostic::{CfgCode, Diagnostic};
 use crate::persistence::migration::SettingsMigration;
@@ -21,6 +22,56 @@ use crate::persistence::{SettingsCandidate, SettingsEdit, SyntaxPath};
 use crate::theme::ThemePreviewToken;
 
 use super::navigation_dirty::{DirtyChoice, DraftToken};
+
+/// One exact selected-package config migration required before Settings may save.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginConfigMigration {
+    pub owner: crate::domain::Id,
+    pub source_package_version: crate::domain::CanonicalSemver,
+    pub target_package_version: crate::domain::CanonicalSemver,
+    pub from_schema_version: u64,
+    pub to_schema_version: u64,
+    pub source_config: crate::domain::TypedMap,
+    pub draft_token: DraftToken,
+    pub exit_after_save: bool,
+}
+
+/// One redacted, path-sorted change in a provider migration proposal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginConfigDiffRow {
+    pub path: String,
+    pub change: PluginConfigChange,
+}
+
+/// How one config path changes without exposing either value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginConfigChange {
+    Added,
+    Removed,
+    Changed,
+}
+
+/// A validated migration proposal waiting for explicit approval.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginConfigMigrationPreview {
+    pub request: PluginConfigMigration,
+    pub target_config: crate::domain::TypedMap,
+    pub notes: Vec<String>,
+    pub diff: Vec<PluginConfigDiffRow>,
+}
+
+/// Settings-owned pre-save migration lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum PluginConfigMigrationState {
+    #[default]
+    Idle,
+    Running(PluginConfigMigration),
+    Preview(PluginConfigMigrationPreview),
+    Failed {
+        owner: crate::domain::Id,
+        detail: String,
+    },
+}
 
 /// How far a draft has got.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -382,6 +433,21 @@ pub enum SettingsFocus {
     Detail,
 }
 
+/// Settings-owned text editor for one generated plugin config field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginConfigEditorState {
+    /// The selected package owner.
+    pub plugin: crate::domain::Id,
+    /// The declared field identity.
+    pub field: crate::domain::Id,
+    /// The declared field kind used for total typed parsing on Apply.
+    pub kind: crate::domain::plugin::FieldKind,
+    /// The editable value. String-list fields use comma-separated entries.
+    pub text: String,
+    /// Adjacent parse refusal, when Apply could not construct the declared type.
+    pub error: Option<&'static str>,
+}
+
 /// The Settings screen's runtime state.
 #[derive(Debug, Clone, Default)]
 pub struct SettingsState {
@@ -431,6 +497,17 @@ pub struct SettingsState {
     /// underneath the screen cannot make the list move while the operator is
     /// choosing from it.
     pub plugins: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
+    /// Config declarations from the exact package versions selected at startup.
+    pub plugin_configs: std::collections::BTreeMap<
+        crate::domain::Id,
+        crate::messages::settings::SelectedPluginConfig,
+    >,
+    /// Config declarations for every installed version, in inventory precedence
+    /// order, so a draft target is validated before it can be saved.
+    pub installed_plugin_configs: std::collections::BTreeMap<
+        crate::domain::Id,
+        Vec<crate::messages::settings::SelectedPluginConfig>,
+    >,
     /// The action registry snapshot the Keys rows project from.
     pub actions: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
     /// The binding a chord capture is waiting for, while one is waiting.
@@ -440,6 +517,12 @@ pub struct SettingsState {
     pub capture: Option<ChordCapture>,
     /// The layout tree editor, while it is open.
     pub layout_editor: Option<super::layout_editor::LayoutEditorState>,
+    /// The generated plugin property editor, while it is open.
+    pub plugin_config_editor: Option<PluginConfigEditorState>,
+    /// Pre-save provider config migration, never persisted.
+    /// Approved target versions already applied to this in-memory draft.
+    pub approved_plugin_migrations: BTreeMap<Id, CanonicalSemver>,
+    pub plugin_config_migration: PluginConfigMigrationState,
     /// The selected recovery choice, when a recovery is offered.
     pub recovery_row: usize,
     /// The newest revision this session has scheduled a save for.

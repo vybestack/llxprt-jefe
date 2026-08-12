@@ -26,12 +26,12 @@ use super::descriptor::{
     PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor,
 };
 use super::ids::{
-    CustomScreenId, IdError, PanelId, PortId, RouteId, ScreenIdentity, VersionedTypeId,
-    check_identifier,
+    CUSTOM_SCREEN_NAMESPACE, CustomScreenId, IdError, PanelId, PanelTypeId, PluginScreenId, PortId,
+    RouteId, ScreenIdentity, VersionedTypeId, check_identifier,
 };
 use super::intern::intern;
 use super::lowering_error::LoweringError;
-use super::panel_types::resolve_panel_type;
+use super::panel_types::{DEFINABLE_PANEL_TYPES, find_panel_type};
 use super::screen_file::{PanelFile, PortDirectionFile, PortFile, ScreenFile, span_of};
 use super::screen_lowering_layout::{lower_layout, lower_relationships};
 use super::screen_lowering_values::{
@@ -75,22 +75,78 @@ pub fn lower_screen(
     member: &str,
     path: &Path,
 ) -> Result<LoweredScreen, LoweringError> {
-    let expected = format!("local.{member}");
-    if file.id.get_ref() != &expected {
-        return Err(LoweringError::IdentityMismatch { expected });
-    }
+    let expected = format!("{CUSTOM_SCREEN_NAMESPACE}{member}");
     let id =
         CustomScreenId::parse(intern(&expected)?).map_err(|reason| LoweringError::Identifier {
             field: "id",
             reason,
         })?;
+    lower_with(
+        file,
+        &expected,
+        ScreenIdentity::Custom(id),
+        &DEFINABLE_PANEL_TYPES,
+        path,
+    )
+}
+
+/// Lower one parsed package screen definition into an internal descriptor.
+///
+/// `expected_id` is the manifest-declared owner-qualified screen identity this
+/// file must declare.  `allowed_panels` is the set of panel-type identifiers
+/// the declaring manifest exposes, so a package screen may resolve only panel
+/// types that package declared — without adding dynamic panel ids to the global
+/// built-in registry.
+///
+/// # Errors
+///
+/// Returns the first rule the definition broke, classified so composition can
+/// pair it with the right configuration diagnostic.
+pub fn lower_package_screen(
+    file: &ScreenFile,
+    expected_id: &str,
+    allowed_panels: &[&str],
+    path: &Path,
+) -> Result<LoweredScreen, LoweringError> {
+    let id = PluginScreenId::parse(intern(expected_id)?).map_err(|reason| {
+        LoweringError::Identifier {
+            field: "id",
+            reason,
+        }
+    })?;
+    lower_with(
+        file,
+        expected_id,
+        ScreenIdentity::Package(id),
+        allowed_panels,
+        path,
+    )
+}
+
+/// Shared lowering core for user definitions and package screens.
+///
+/// The identity check, panel resolution, layout, relationships, activation, and
+/// bindings are identical for both sources; only the expected identity string,
+/// the `ScreenIdentity` variant, and the allowed panel-type set differ.
+fn lower_with(
+    file: &ScreenFile,
+    expected_id: &str,
+    identity: ScreenIdentity,
+    allowed_panels: &[&str],
+    path: &Path,
+) -> Result<LoweredScreen, LoweringError> {
+    if file.id.get_ref() != expected_id {
+        return Err(LoweringError::IdentityMismatch {
+            expected: expected_id.to_owned(),
+        });
+    }
     let panels = file
         .panels
         .iter()
-        .map(|panel| lower_panel(panel.get_ref()))
+        .map(|panel| lower_panel(panel.get_ref(), allowed_panels))
         .collect::<Result<Vec<_>, _>>()?;
     let descriptor = ScreenDescriptor {
-        id: ScreenIdentity::Custom(id),
+        id: identity,
         title: file.title.clone(),
         route: parse_id("route", &file.route, RouteId::parse)?,
         initial_focus: parse_id("initial_focus", &file.initial_focus, PanelId::parse)?,
@@ -145,10 +201,11 @@ fn check_declared(value: &str) -> Result<(), IdError> {
     }
 }
 
-fn lower_panel(panel: &PanelFile) -> Result<PanelDescriptor, LoweringError> {
+fn lower_panel(panel: &PanelFile, allowed: &[&str]) -> Result<PanelDescriptor, LoweringError> {
+    find_panel_type(&panel.panel_type, allowed)?;
     Ok(PanelDescriptor {
         id: parse_id("panels.id", &panel.id, PanelId::parse)?,
-        panel_type: resolve_panel_type(&panel.panel_type)?,
+        panel_type: parse_id("panels.type", &panel.panel_type, PanelTypeId::parse)?,
         config: lower_config(&panel.config)?,
         focusable: panel.focusable,
         required: panel.required,

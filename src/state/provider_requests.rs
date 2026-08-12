@@ -53,10 +53,11 @@ struct ConfirmationFields<'a> {
 
 /// Validate one outcome against the immutable action policy.
 ///
-/// Panel and config-migration outcomes are always rejected in CW-10. Other
-/// outcome kinds are checked against the declared allowed outcomes. The
+/// Outcome kinds are checked against the declared allowed outcomes. The
 /// `RequestHostConfirmation` outcome additionally requires the action to have
-/// declared `ProviderContinuation` and a matching destructive flag.
+/// declared `ProviderContinuation` and a matching destructive flag. Panel and
+/// config-migration messages use their dedicated issue #391 message bodies and
+/// never reach this action-outcome validator.
 fn validate_outcome(policy: &ActionPolicy, outcome: &Outcome) -> Result<(), ProviderRequestError> {
     match outcome {
         Outcome::RequestHostConfirmation { destructive, .. } => {
@@ -68,9 +69,6 @@ fn validate_outcome(policy: &ActionPolicy, outcome: &Outcome) -> Result<(), Prov
             }
             Ok(())
         }
-        Outcome::ReplacePanel { .. }
-        | Outcome::ClosePanel { .. }
-        | Outcome::MigratedConfig { .. } => Err(ProviderRequestError::UnsupportedOutcome),
         Outcome::Navigate { .. } => {
             if policy.allows(ActionOutcome::NavigateDeclaredRoute) {
                 Ok(())
@@ -312,18 +310,18 @@ impl ProviderRequestState {
     /// path: it validates that the action declared `ProviderContinuation`,
     /// declared `RequestHostConfirmation`, and that the destructive flag
     /// matches the policy, then persists the exact title/body/confirm label/
-    /// schema plus owner/action/context/generation for UI. Panel and
-    /// config-migration outcomes are rejected in CW-10. Other outcome kinds
+    /// schema plus owner/action/context/generation for UI. Other outcome kinds
     /// are validated against the declared allowed outcomes. Navigation and
-    /// refresh details may be revalidated by the later host adapter.
+    /// refresh details may be revalidated by the later host adapter. Panel and
+    /// config-migration messages use dedicated message bodies and never reach
+    /// this action-outcome reducer.
     ///
     /// # Errors
     ///
     /// Returns [`ProviderRequestError::UnknownGeneration`],
     /// [`ProviderRequestError::PostTerminal`],
-    /// [`ProviderRequestError::PolicyViolation`],
-    /// [`ProviderRequestError::UndeclaredOutcome`], or
-    /// [`ProviderRequestError::UnsupportedOutcome`].
+    /// [`ProviderRequestError::PolicyViolation`], or
+    /// [`ProviderRequestError::UndeclaredOutcome`].
     pub fn record_outcome(
         &mut self,
         key: &ProviderRequestKey,

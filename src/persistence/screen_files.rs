@@ -202,11 +202,45 @@ fn candidate_member(path: &Path) -> Option<String> {
     }
 }
 
+/// Read one manifest-declared package screen without traversing a symbolic-link
+/// component.
+///
+/// The manifest path has already passed [`crate::domain::plugin::RelativePath`]
+/// validation. Walking those validated components here keeps the file physically
+/// beneath the selected package directory; the final bounded read then performs
+/// the same file-identity check used for user definitions.
+///
+/// # Errors
+///
+/// Returns [`ScreenFileRejection`] when a component is missing, unreadable, a
+/// symbolic link, has the wrong file type, or the final bytes violate a bound.
+pub(crate) fn read_package_screen(
+    package_directory: &Path,
+    relative: &crate::domain::plugin::RelativePath,
+) -> Result<String, ScreenFileRejection> {
+    let mut path = package_directory.to_path_buf();
+    let last_index = relative.components().len().saturating_sub(1);
+    for (index, component) in relative.components().iter().enumerate() {
+        path.push(component);
+        let metadata = std::fs::symlink_metadata(&path).map_err(unreadable_file)?;
+        let expected_type = if index == last_index {
+            metadata.is_file()
+        } else {
+            metadata.is_dir()
+        };
+        if metadata.file_type().is_symlink() || !expected_type {
+            return Err(ScreenFileRejection::Replaced);
+        }
+    }
+    read_bounded(&path)
+}
+
 /// Read at most [`FILE_LIMIT`] bytes of UTF-8 text from an already-named path.
-pub(super) fn read_bounded(path: &Path) -> Result<String, ScreenFileRejection> {
+pub(crate) fn read_bounded(path: &Path) -> Result<String, ScreenFileRejection> {
     // The path is bounded before it is opened, because it travels into every
     // diagnostic this file produces and a diagnostic nobody can read is not a
     // diagnostic.
+
     let encoded = path.as_os_str().as_encoded_bytes().len();
     if encoded > PATH_LIMIT {
         return Err(ScreenFileRejection::PathTooLong { bytes: encoded });

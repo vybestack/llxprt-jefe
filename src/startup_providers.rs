@@ -16,7 +16,7 @@
 
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::domain::plugin::HostTriple;
-use crate::persistence::plugin_inventory::{InstalledPackage, package_trusted};
+use crate::persistence::plugin_inventory::InstalledPackage;
 use crate::persistence::settings_document::PublishedSettings;
 use crate::runtime::provider::environment::ProcessHostEnv;
 use crate::runtime::provider::persistent::{PersistentStartup, PersistentStartupResult};
@@ -54,10 +54,8 @@ pub struct ProviderPublication {
 #[must_use]
 pub fn publish_providers(request: &ProviderPublicationRequest<'_>) -> ProviderPublication {
     ensure_containment(&request.containment);
-    let trusted = |id: &str| package_trusted(request.settings, id);
     let mut composition = compose(&CompositionRequest {
         packages: request.packages,
-        trusted: &trusted,
         settings: request.settings,
         host: HostTriple::current(),
         containment: request.containment.clone(),

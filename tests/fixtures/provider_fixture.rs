@@ -39,6 +39,8 @@
 //! - `persistent-invoke-hang`: like `persistent-invoke` but each
 //!   `invoke-action` emits one progress and never a terminal (cancel/timeout
 //!   evidence).
+//! - `persistent-timeout-then-terminal`: emit a terminal just after the host's
+//!   invocation timeout (late-output generation-retirement evidence).
 //! - `persistent-invoke-then-crash`: after the first `invoke-action` emits one
 //!   progress then exits 1 (post-Ready crash during invocation evidence).
 //! - `persistent-hello-hang`: read `hello` then hang (hello-ack timeout).
@@ -123,6 +125,10 @@ fn run() -> Result<(), u8> {
         r#"{"provider_name":"fixture","protocol":1}"#,
     ));
 
+    if mode.starts_with("migration-") {
+        return run_migration(&mode, generation);
+    }
+
     let configure_line = next_line()?;
     if mode == "record" {
         record_observations(record_dir.as_deref(), &configure_line);
@@ -156,8 +162,69 @@ fn run() -> Result<(), u8> {
     }
 
     let _shutdown = next_line()?;
+
     emit_ack_scenario(&mode, generation)?;
     Ok(())
+}
+
+fn run_migration(mode: &str, generation: u64) -> Result<(), u8> {
+    if mode == "migration-timeout" {
+        hang_forever();
+    }
+    if mode == "migration-eof" {
+        return Ok(());
+    }
+    let request = next_line()?;
+    if mode == "migration-malformed" {
+        emit("{not-json");
+        return Ok(());
+    }
+    let parsed: Value = serde_json::from_str(&request).map_err(|_| 2)?;
+    let request_id = parsed.get("request_id").and_then(Value::as_str).ok_or(2)?;
+    let payload = parsed.get("payload").and_then(Value::as_object).ok_or(2)?;
+    let mut response = serde_json::json!({
+        "from_version": payload.get("from_version").ok_or(2)?,
+        "to_version": payload.get("to_version").ok_or(2)?,
+        "config": payload.get("config").ok_or(2)?,
+        "draft_token": payload.get("draft_token").ok_or(2)?,
+        "target_config": payload.get("config").ok_or(2)?,
+        "notes": ["fixture migration"]
+    });
+    update_migration_response(mode, &mut response);
+    let response_id = if mode == "migration-wrong-request" {
+        "h-999999"
+    } else {
+        request_id
+    };
+    let response_generation = if mode == "migration-wrong-generation" {
+        generation.saturating_add(1)
+    } else {
+        generation
+    };
+    emit(&frame_with_request(
+        "migrated-config",
+        response_id,
+        response_generation,
+        &response.to_string(),
+    ));
+    let shutdown = next_line()?;
+    if frame_type(&shutdown).as_deref() != Some("shutdown") {
+        return Err(2);
+    }
+    emit(&frame("shutdown-ack", generation, "{}"));
+    Ok(())
+}
+
+fn update_migration_response(mode: &str, response: &mut Value) {
+    match mode {
+        "migration-wrong-source-version" => response["from_version"] = serde_json::json!(99),
+        "migration-wrong-target-version" => response["to_version"] = serde_json::json!(99),
+        "migration-wrong-source-config" => {
+            response["config"] = serde_json::json!({"unexpected": true});
+        }
+        "migration-wrong-draft-token" => response["draft_token"] = serde_json::json!(99),
+        _ => {}
+    }
 }
 
 /// Read one trimmed JSONL line from stdin (EOF or read error fails the run).
@@ -329,6 +396,12 @@ fn emit(line: &str) {
     let _ = stdout.flush();
 }
 
+fn frame_with_request(kind: &str, request_id: &str, generation: u64, payload: &str) -> String {
+    format!(
+        "{{\"protocol\":1,\"type\":\"{kind}\",\"request_id\":\"{request_id}\",\"generation\":{generation},\"payload\":{payload}}}"
+    )
+}
+
 fn frame(kind: &str, generation: u64, payload: &str) -> String {
     format!(
         "{{\"protocol\":1,\"type\":\"{kind}\",\"request_id\":\"p-000001\",\"generation\":{generation},\"payload\":{payload}}}"
@@ -358,7 +431,7 @@ fn secret_typed_map(secret: Option<&str>) -> String {
 fn secret_field(secret: Option<&str>) -> String {
     let value = secret.unwrap_or("");
     format!(
-        r#"{{"id":"vendor.pkg.token","kind":"string","required":false,"default":{json},"restart":"none"}}"#,
+        r#"{{"id":"vendor.pkg.token","label":"Token","type":"string","required":false,"default":{json},"restart":"none"}}"#,
         json = json_string(value)
     )
 }
@@ -571,14 +644,16 @@ fn persistent_ready_loop(mode: &str, generation: u64, plugin_id: &str) -> Result
     loop {
         let line = next_line()?;
         match frame_type(&line).as_deref() {
-            Some("invoke-action") => emit_persistent_invocation(mode, generation),
+            Some("invoke-action") => {
+                emit_persistent_invocation(mode, generation, record_dir.as_deref(), plugin_id);
+            }
             Some("cancel") => {
                 record_cancel_received(record_dir.as_deref(), plugin_id);
                 if mode == "persistent-cancel-then-terminal" {
                     emit(&frame(
                         "outcome",
                         generation,
-                        r#"{\"kind\":\"navigate\",\"route_id\":\"r.home\",\"activation\":{}}"#,
+                        r#"{"kind":"navigate","route_id":"r.home","activation":{}}"#,
                     ));
                 }
             }
@@ -616,10 +691,24 @@ fn frame_type(line: &str) -> Option<String> {
 /// repeated-invocation path). `persistent-invoke-hang` emits one progress and
 /// never a terminal (cancel/timeout evidence). `persistent-invoke-then-crash`
 /// emits one progress then exits 1 (post-Ready crash during invocation).
-fn emit_persistent_invocation(mode: &str, generation: u64) {
+fn emit_persistent_invocation(
+    mode: &str,
+    generation: u64,
+    record_dir: Option<&str>,
+    plugin_id: &str,
+) {
     match mode {
         "persistent-invoke-hang" | "persistent-cancel-then-terminal" => {
             emit(&progress_frame(generation, 1));
+        }
+        "persistent-timeout-then-terminal" => {
+            emit(&progress_frame(generation, 1));
+            wait_for_late_terminal_signal(record_dir, plugin_id);
+            emit(&frame(
+                "outcome",
+                generation,
+                r#"{"kind":"navigate","route_id":"r.late","activation":{}}"#,
+            ));
         }
         "persistent-invoke-then-crash" => {
             emit(&progress_frame(generation, 1));
@@ -635,6 +724,21 @@ fn emit_persistent_invocation(mode: &str, generation: u64) {
                 r#"{"kind":"navigate","route_id":"r.home","activation":{}}"#,
             ));
         }
+    }
+}
+
+/// Wait for the host harness to confirm that its invocation timeout terminal
+/// has been published before emitting the deliberately late provider terminal.
+/// The bound prevents a standalone fixture process from waiting forever.
+fn wait_for_late_terminal_signal(dir: Option<&str>, plugin_id: &str) {
+    let marker =
+        dir.map(|dir| std::path::Path::new(dir).join(format!("{plugin_id}.emit-late-terminal")));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if marker.as_ref().is_some_and(|path| path.exists()) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 

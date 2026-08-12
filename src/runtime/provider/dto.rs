@@ -179,13 +179,11 @@ pub enum Capability {
     Actions,
     /// The provider contributes panels.
     Panels,
-    /// The provider contributes configuration migration.
-    ConfigMigration,
 }
 
 impl Capability {
     /// Every capability, in declaration order.
-    pub const ALL: [Self; 3] = [Self::Actions, Self::Panels, Self::ConfigMigration];
+    pub const ALL: [Self; 2] = [Self::Actions, Self::Panels];
 
     /// The wire name.
     #[must_use]
@@ -193,7 +191,6 @@ impl Capability {
         match self {
             Self::Actions => "actions",
             Self::Panels => "panels",
-            Self::ConfigMigration => "config-migration",
         }
     }
 
@@ -279,15 +276,12 @@ impl ShutdownReason {
     }
 }
 
-/// A closed panel snapshot (CW-11 refines its shape).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PanelSnapshot(pub TypedMap);
-
-/// A closed migrated-config result (CW-11 refines its shape).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MigratedConfig(pub TypedMap);
-
-/// The seven-kind outcome a provider may return.
+/// The four-kind outcome a provider may return for a one-shot action.
+///
+/// Panel snapshots, panel lifecycle, and configuration migration are no longer
+/// carried as outcomes: they are direct, typed messages (issue #391). The
+/// `ReplacePanel`, `ClosePanel`, and `MigratedConfig` placeholders have been
+/// removed; the panel/migration paths are the sole paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// Navigate to a declared route.
@@ -309,13 +303,6 @@ pub enum Outcome {
         /// Notice text.
         message: String,
     },
-    /// Replace an owned panel.
-    ReplacePanel {
-        /// The owned panel instance id.
-        panel_instance_id: Id,
-        /// The replacement snapshot.
-        snapshot: PanelSnapshot,
-    },
     /// Ask the host to confirm a continuation.
     RequestHostConfirmation {
         /// The single-use confirmation id.
@@ -331,16 +318,6 @@ pub enum Outcome {
         /// Fields to collect on confirmation.
         continuation_schema: Vec<Field>,
     },
-    /// Close an owned panel.
-    ClosePanel {
-        /// The owned panel instance id.
-        panel_instance_id: Id,
-    },
-    /// Report a migrated configuration.
-    MigratedConfig {
-        /// The migration result.
-        migration: MigratedConfig,
-    },
 }
 
 /// The fully parsed message.
@@ -350,6 +327,8 @@ pub struct ParsedMessage {
     pub request_id: RequestId,
     /// The fixed positive generation.
     pub generation: u64,
+    /// Exact UTF-8 source bytes occupied by the payload JSON value.
+    pub payload_byte_count: usize,
     /// The typed message body.
     pub message: ProviderMessage,
 }
@@ -362,7 +341,7 @@ impl ParsedMessage {
     }
 }
 
-/// The eleven closed message bodies.
+/// The seventeen closed message bodies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderMessage {
     /// `hello`.
@@ -387,6 +366,18 @@ pub enum ProviderMessage {
     Shutdown(ShutdownPayload),
     /// `shutdown-ack`.
     ShutdownAck,
+    /// `activate-panel` (issue #391).
+    ActivatePanel(super::panel_model::ActivatePanelPayload),
+    /// `deactivate-panel` (issue #391).
+    DeactivatePanel(super::panel_model::DeactivatePanelPayload),
+    /// `panel-event` (issue #391).
+    PanelEvent(super::panel_model::PanelEventPayload),
+    /// `panel-snapshot` (issue #391).
+    PanelSnapshot(super::panel_model::PanelSnapshot),
+    /// `migrate-config` (issue #391).
+    MigrateConfig(super::panel_model::MigrateConfigPayload),
+    /// `migrated-config` (issue #391).
+    MigratedConfig(super::panel_model::MigratedConfigPayload),
 }
 
 impl ProviderMessage {
@@ -405,6 +396,12 @@ impl ProviderMessage {
             Self::Error(_) => MessageKind::Error,
             Self::Shutdown(_) => MessageKind::Shutdown,
             Self::ShutdownAck => MessageKind::ShutdownAck,
+            Self::ActivatePanel(_) => MessageKind::ActivatePanel,
+            Self::DeactivatePanel(_) => MessageKind::DeactivatePanel,
+            Self::PanelEvent(_) => MessageKind::PanelEvent,
+            Self::PanelSnapshot(_) => MessageKind::PanelSnapshot,
+            Self::MigrateConfig(_) => MessageKind::MigrateConfig,
+            Self::MigratedConfig(_) => MessageKind::MigratedConfig,
         }
     }
 }

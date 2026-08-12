@@ -304,7 +304,7 @@ open = ["g", "d"]
 [plugins."vendor.plugin"]
 enabled = true
 version = "1.2.3"
-config = { retries = 3, credential = { secret_ref = "github.token" } }
+config = { retries = 3, credential = { env = "GITHUB_TOKEN" } }
 "#;
     let Ok(document) = SettingsDocument::parse(source) else {
         panic!("settings fixture must parse");
@@ -316,6 +316,23 @@ config = { retries = 3, credential = { secret_ref = "github.token" } }
     assert_eq!(published.workbench.enabled_screens.len(), 1);
     assert_eq!(published.keymap.len(), 1);
     assert_eq!(published.plugins.len(), 1);
+    let credential = published
+        .plugins
+        .get(
+            &crate::domain::Id::parse("vendor.plugin")
+                .unwrap_or_else(|error| panic!("plugin id fixture must parse: {error}")),
+        )
+        .and_then(|plugin| {
+            plugin.values.get(
+                &crate::domain::Id::parse("credential")
+                    .unwrap_or_else(|error| panic!("credential id fixture must parse: {error}")),
+            )
+        });
+    assert!(matches!(
+        credential,
+        Some(crate::domain::TypedValue::SecretRef(reference))
+            if reference.env.env() == "GITHUB_TOKEN"
+    ));
 
     let unknown = b"settings_schema = 2\n[unknown]\nvalue = true\n";
     let Ok(document) = SettingsDocument::parse(unknown) else {
@@ -326,6 +343,42 @@ config = { retries = 3, credential = { secret_ref = "github.token" } }
         .err()
         .unwrap_or_else(|| panic!("unknown root must fail"));
     assert_eq!(diagnostics[0].code, CfgCode::E005);
+}
+
+#[test]
+fn publisher_rejects_legacy_secret_reference_key() {
+    let catalog = screen_plugin_catalog();
+    let source = br#"settings_schema = 2
+[plugins."vendor.plugin"]
+enabled = true
+version = "1.2.3"
+config = { credential = { secret_ref = "github.token" } }
+"#;
+    let document = SettingsDocument::parse(source)
+        .unwrap_or_else(|error| panic!("settings fixture must parse: {error:?}"));
+    let diagnostics = document
+        .publish(&catalog)
+        .err()
+        .unwrap_or_else(|| panic!("legacy secret reference must fail"));
+    assert_eq!(diagnostics[0].code, CfgCode::E003);
+}
+
+#[test]
+fn publisher_rejects_invalid_secret_environment_name() {
+    let catalog = screen_plugin_catalog();
+    let source = br#"settings_schema = 2
+[plugins."vendor.plugin"]
+enabled = true
+version = "1.2.3"
+config = { credential = { env = "github-token" } }
+"#;
+    let document = SettingsDocument::parse(source)
+        .unwrap_or_else(|error| panic!("settings fixture must parse: {error:?}"));
+    let diagnostics = document
+        .publish(&catalog)
+        .err()
+        .unwrap_or_else(|| panic!("invalid environment name must fail"));
+    assert_eq!(diagnostics[0].code, CfgCode::E003);
 }
 
 #[test]

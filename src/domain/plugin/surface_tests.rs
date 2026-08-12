@@ -15,12 +15,15 @@ fn id(value: &str) -> Id {
 fn field(name: &str) -> Field {
     Field::parse(FieldDraft {
         id: id(name),
+        label: name.to_owned(),
+        description: None,
         kind: FieldKind::String,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: Vec::new(),
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })
@@ -35,7 +38,7 @@ fn panel_draft() -> PanelDraft {
     PanelDraft {
         id: id("vendor.pkg.list"),
         model_kinds: vec![ModelKind::List],
-        event_kinds: Vec::new(),
+        event_schema: Vec::new(),
         handler: id("render"),
         ports: Vec::new(),
     }
@@ -73,7 +76,10 @@ fn a_panel_must_declare_at_least_one_model_kind() {
 fn a_panel_may_declare_every_model_and_event_kind_once() {
     let mut candidate = panel_draft();
     candidate.model_kinds = ModelKind::ALL.to_vec();
-    candidate.event_kinds = EventKind::ALL.to_vec();
+    candidate.event_schema = EventKind::ALL
+        .into_iter()
+        .map(|kind| EventSchemaEntry::new(kind, Vec::new()))
+        .collect();
     assert!(Panel::parse(candidate).is_ok());
 }
 
@@ -89,11 +95,45 @@ fn a_panel_rejects_a_repeated_model_or_event_kind() {
     );
 
     let mut events = panel_draft();
-    events.event_kinds = vec![EventKind::Submit, EventKind::Submit];
+    events.event_schema = vec![
+        EventSchemaEntry::new(EventKind::Submit, Vec::new()),
+        EventSchemaEntry::new(EventKind::Submit, Vec::new()),
+    ];
     assert_eq!(
         Panel::parse(events).err(),
         Some(PanelError::DuplicateEventKind {
             kind: "submit".to_owned()
+        })
+    );
+}
+
+#[test]
+fn an_event_schema_entry_carries_typed_arguments() {
+    let arg = field("action.target");
+    let entry = EventSchemaEntry::new(EventKind::Action, vec![arg]);
+    let mut candidate = panel_draft();
+    candidate.event_schema = vec![entry];
+    let panel = Panel::parse(candidate).unwrap_or_else(|error| panic!("must parse: {error}"));
+    let schema = panel.event_schema();
+    assert_eq!(schema.len(), 1);
+    assert_eq!(schema[0].kind(), EventKind::Action);
+    assert_eq!(schema[0].arguments().len(), 1);
+}
+
+#[test]
+fn an_event_schema_rejects_duplicate_argument_field_ids() {
+    let duplicate = field("action.target");
+    let mut candidate = panel_draft();
+    candidate.event_schema = vec![EventSchemaEntry::new(
+        EventKind::Action,
+        vec![duplicate.clone(), duplicate],
+    )];
+
+    assert_eq!(
+        Panel::parse(candidate).err(),
+        Some(PanelError::DuplicateEventArgument {
+            kind: "action".to_owned(),
+            id: "action.target".to_owned(),
         })
     );
 }
@@ -219,6 +259,15 @@ fn a_config_schema_version_must_be_at_least_one() {
 }
 
 #[test]
+fn a_config_schema_version_is_a_positive_u64() {
+    // A value beyond u32::MAX must be accepted end-to-end.
+    let large: u64 = u64::from(u32::MAX) + 1;
+    let schema = ConfigSchema::parse(large, Vec::new())
+        .unwrap_or_else(|error| panic!("u64 schema version must parse: {error}"));
+    assert_eq!(schema.schema_version(), large);
+}
+
+#[test]
 fn config_fields_accept_their_limit_and_reject_one_more() {
     let at_limit: Vec<Field> = (0..CONFIG_FIELD_LIMIT)
         .map(|index| field(&format!("f{index}")))
@@ -250,12 +299,15 @@ fn a_config_schema_rejects_a_duplicate_field_id() {
 fn a_config_schema_rejects_a_visibility_reference_it_cannot_resolve() {
     let mut gated = FieldDraft {
         id: id("child"),
+        label: "Child".to_owned(),
+        description: None,
         kind: FieldKind::Boolean,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: Vec::new(),
+        unique: false,
         visible_when: Some(id("absent")),
         restart: RestartScope::None,
     };
@@ -278,12 +330,15 @@ fn a_config_schema_rejects_a_visibility_cycle() {
     let make = |name: &str, gate: &str| {
         Field::parse(FieldDraft {
             id: id(name),
+            label: name.to_owned(),
+            description: None,
             kind: FieldKind::Boolean,
             required: false,
             default: None,
-            minimum: None,
-            maximum: None,
+            min: None,
+            max: None,
             choices: Vec::new(),
+            unique: false,
             visible_when: Some(id(gate)),
             restart: RestartScope::None,
         })

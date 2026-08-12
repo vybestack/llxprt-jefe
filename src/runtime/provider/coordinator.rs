@@ -419,6 +419,50 @@ impl ProviderCoordinator {
             .invoke(&descriptor.plugin_id, request_id, payload, timeout)?)
     }
 
+    /// Queue a panel activation on the exact owning persistent provider.
+    pub fn activate_panel(
+        &self,
+        owner: &Id,
+        payload: crate::runtime::provider::panel_model::ActivatePanelPayload,
+    ) -> Result<(), PersistentDispatchError> {
+        let request_id =
+            RequestId::new_host(self.next_request_counter()).map_err(RequestBuildError::from)?;
+        self.sessions.activate_panel(owner, request_id, payload)?;
+        Ok(())
+    }
+
+    /// Queue a panel deactivation on the exact owning persistent provider.
+    pub fn deactivate_panel(
+        &self,
+        owner: &Id,
+        payload: crate::runtime::provider::panel_model::DeactivatePanelPayload,
+    ) -> Result<(), PersistentDispatchError> {
+        let request_id =
+            RequestId::new_host(self.next_request_counter()).map_err(RequestBuildError::from)?;
+        self.sessions.deactivate_panel(owner, request_id, payload)?;
+        Ok(())
+    }
+
+    /// Queue one validated semantic panel event on the exact persistent owner.
+    pub fn panel_event(
+        &self,
+        owner: &Id,
+        payload: crate::runtime::provider::panel_model::PanelEventPayload,
+    ) -> Result<(), PersistentDispatchError> {
+        let request_id =
+            RequestId::new_host(self.next_request_counter()).map_err(RequestBuildError::from)?;
+        self.sessions.panel_event(owner, request_id, payload)?;
+        Ok(())
+    }
+
+    /// Drain all asynchronous panel snapshots currently delivered by providers.
+    #[must_use]
+    pub fn drain_panel_deliveries(
+        &self,
+    ) -> Vec<crate::runtime::provider::persistent_session::PanelDelivery> {
+        self.sessions.drain_panel_deliveries()
+    }
+
     /// Shut down every persistent candidate and reap the process trees.
     /// Idempotent. Must be called before host exit.
     pub fn shutdown(&mut self) {

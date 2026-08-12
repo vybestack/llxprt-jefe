@@ -351,6 +351,61 @@ const SPECS: &[Spec] = &[
         H::DashboardGrabStart,
         [" "]
     ),
+    spec!(protected "workbench", "workbench.back", H::WorkbenchBack, ["Esc"]),
+    spec!(
+        "workbench",
+        "workbench.panel-previous",
+        H::ProviderPanelPrevious,
+        ["Up"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-next",
+        H::ProviderPanelNext,
+        ["Down"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-activate",
+        H::ProviderPanelActivate,
+        ["Enter"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-retry",
+        H::ProviderPanelRetry,
+        ["r"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-cancel",
+        H::ProviderPanelCancel,
+        ["c"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-action",
+        H::ProviderPanelAction,
+        ["a"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-submit",
+        H::ProviderPanelSubmit,
+        ["s"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-page-next",
+        H::ProviderPanelPageNext,
+        ["n"]
+    ),
+    spec!(
+        "workbench",
+        "workbench.panel-link-select",
+        H::ProviderPanelLinkSelect,
+        ["l"]
+    ),
     spec!(protected "split", "split.back", H::ExitSplit, ["Esc"]),
     spec!(
         "split",

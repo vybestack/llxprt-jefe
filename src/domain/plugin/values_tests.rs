@@ -165,3 +165,18 @@ fn a_secret_reference_never_renders_a_value() {
         .unwrap_or_else(|error| panic!("must parse: {error}"));
     assert_eq!(secret.to_string(), "GITHUB_TOKEN");
 }
+
+#[test]
+fn secret_reference_deserialization_preserves_validation() {
+    let valid: Result<SecretReference, _> = serde_json::from_str("\"GITHUB_TOKEN\"");
+    let Ok(valid) = valid else {
+        panic!("valid environment reference must deserialize");
+    };
+    assert_eq!(valid.env(), "GITHUB_TOKEN");
+
+    let invalid: Result<SecretReference, _> = serde_json::from_str("\"lowercase-token\"");
+    assert!(
+        invalid.is_err(),
+        "deserialization must not bypass validation"
+    );
+}

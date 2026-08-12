@@ -9,6 +9,18 @@ use super::protocol::{
     parse_message,
 };
 
+#[test]
+fn parsed_message_preserves_exact_payload_source_bytes() {
+    let frame = b"{\"protocol\":1,\"type\":\"ready\",\"request_id\":\"p-000001\",\"generation\":1,\"payload\": { \"capabilities\" : [] }}\n";
+    let parsed = parse_message(frame, Direction::ProviderToHost)
+        .unwrap_or_else(|error| panic!("frame parses: {error}"));
+
+    assert_eq!(
+        parsed.payload_byte_count,
+        br#"{ "capabilities" : [] }"#.len()
+    );
+}
+
 /// Build one LF-terminated envelope line from its scalar parts.
 fn envelope(ty: &str, request_id: &str, generation: u64, payload: &str) -> Vec<u8> {
     format!(
@@ -223,7 +235,7 @@ fn request_host_confirmation_continuation_schema_parses_fields() {
         "outcome",
         "p-000020",
         1,
-        r#"{"kind":"request-host-confirmation","confirmation_id":"conf.1","title":"Confirm","body":"Proceed?","confirm_label":"OK","destructive":true,"continuation_schema":[{"id":"force","kind":"boolean","required":false,"restart":"none"}]}"#,
+        r#"{"kind":"request-host-confirmation","confirmation_id":"conf.1","title":"Confirm","body":"Proceed?","confirm_label":"OK","destructive":true,"continuation_schema":[{"id":"force","label":"Force","type":"boolean","required":false,"restart":"none"}]}"#,
     );
     let parsed = parsed(&bytes, Direction::ProviderToHost);
     let ProviderMessage::Outcome(Outcome::RequestHostConfirmation {
@@ -250,16 +262,8 @@ fn an_unknown_outcome_kind_is_rejected() {
 }
 
 #[test]
-fn each_of_the_seven_outcome_kinds_parses() {
-    let kinds = [
-        "navigate",
-        "refresh",
-        "notice",
-        "replace-panel",
-        "request-host-confirmation",
-        "close-panel",
-        "migrated-config",
-    ];
+fn each_outcome_kind_parses() {
+    let kinds = ["navigate", "refresh", "notice", "request-host-confirmation"];
     for (index, kind) in kinds.iter().enumerate() {
         let payload = outcome_payload(kind);
         let bytes = envelope("outcome", &format!("p-{index:06}"), 1, &payload);
@@ -683,14 +687,6 @@ fn empty_map() -> super::protocol::TypedMap {
     super::protocol::TypedMap::new()
 }
 
-fn empty_snapshot() -> super::protocol::PanelSnapshot {
-    super::protocol::PanelSnapshot(empty_map())
-}
-
-fn empty_migration() -> super::protocol::MigratedConfig {
-    super::protocol::MigratedConfig(empty_map())
-}
-
 fn id(value: &str) -> super::protocol::Id {
     super::protocol::Id::parse(value)
         .unwrap_or_else(|error| panic!("fixture id must parse: {error}"))
@@ -701,12 +697,7 @@ fn outcome_payload(kind: &str) -> String {
         "navigate" => r#"{"kind":"navigate","route_id":"workbench","activation":{}}"#.to_owned(),
         "refresh" => r#"{"kind":"refresh","resource_ref":{}}"#.to_owned(),
         "notice" => r#"{"kind":"notice","severity":"info","message":"hi"}"#.to_owned(),
-        "replace-panel" => {
-            r#"{"kind":"replace-panel","panel_instance_id":"panel.1","snapshot":{}}"#.to_owned()
-        }
         "request-host-confirmation" => r#"{"kind":"request-host-confirmation","confirmation_id":"conf.1","title":"Confirm","body":"Proceed?","confirm_label":"OK","destructive":true,"continuation_schema":[]}"#.to_owned(),
-        "close-panel" => r#"{"kind":"close-panel","panel_instance_id":"panel.1"}"#.to_owned(),
-        "migrated-config" => r#"{"kind":"migrated-config","migration":{}}"#.to_owned(),
         other => panic!("no outcome fixture for {other:?}"),
     }
 }
@@ -725,10 +716,6 @@ fn expected_outcome(kind: &str) -> Outcome {
             severity: Severity::Info,
             message: "hi".to_owned(),
         },
-        "replace-panel" => Outcome::ReplacePanel {
-            panel_instance_id: id("panel.1"),
-            snapshot: empty_snapshot(),
-        },
         "request-host-confirmation" => Outcome::RequestHostConfirmation {
             confirmation_id: id("conf.1"),
             title: "Confirm".to_owned(),
@@ -736,12 +723,6 @@ fn expected_outcome(kind: &str) -> Outcome {
             confirm_label: "OK".to_owned(),
             destructive: true,
             continuation_schema: Vec::new(),
-        },
-        "close-panel" => Outcome::ClosePanel {
-            panel_instance_id: id("panel.1"),
-        },
-        "migrated-config" => Outcome::MigratedConfig {
-            migration: empty_migration(),
         },
         other => panic!("no outcome fixture for {other:?}"),
     }

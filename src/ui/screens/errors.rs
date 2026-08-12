@@ -249,7 +249,9 @@ pub fn ErrorsScreen(props: &ErrorsScreenProps) -> impl Into<AnyElement<'static>>
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen: state.map_or(ScreenId::Errors, crate::state::AppState::screen),
+                screen: state.map_or(ScreenId::Errors, |s| {
+                    s.compiled_screen().unwrap_or(ScreenId::Errors)
+                }),
                 action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
                 terminal_focused: false,
                 actions_focus: None,

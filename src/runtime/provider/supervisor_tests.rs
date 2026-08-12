@@ -12,14 +12,21 @@ use super::drains::{FinalStdoutOutcome, StdoutEvent, final_stdout_drain};
 use super::dto;
 use super::environment::{REDACTION_PLACEHOLDER, Redactor};
 use super::error::{self, ProviderError};
-use super::redaction::{redact_error_payload, redact_field, redact_outcome};
+use super::redaction::{redact_error_payload, redact_field, redact_outcome, redact_panel_snapshot};
 #[cfg(unix)]
 use super::supervisor::signal_cleanup_evidence;
 use super::supervisor::{
     CleanupFailure, OneShotOutcome, SupervisorBounds, SupervisorFailure, compose_cleanup_failure,
 };
-use crate::domain::Id;
+use crate::domain::action_registry::ActionId;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, Scalar};
+use crate::domain::{Id, TypedMap, TypedValue};
+
+use super::panel_model::{
+    Affordance, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError,
+    ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
+    StatusRowState,
+};
 
 #[test]
 fn production_bounds_are_exact() {
@@ -74,6 +81,112 @@ fn a_redactor_scrubs_secret_strings_in_an_error_payload() {
     let redacted = redact_error_payload(payload, &redactor);
     assert!(!redacted.message.contains(secret));
     assert!(!redacted.field_errors[0].message.contains(secret));
+}
+
+fn panel_fixture_id(text: &str) -> Id {
+    Id::parse(text).unwrap_or_else(|error| panic!("id fixture {text:?}: {error}"))
+}
+
+fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
+    vec![
+        PanelBody::List(ListBody {
+            items: vec![ListItem {
+                id: panel_fixture_id("item"),
+                label: format!("label {secret}"),
+                description: Some(format!("description {secret}")),
+                status: Some(format!("status {secret}")),
+                actions: Vec::new(),
+            }],
+            selected_id: Some(panel_fixture_id("item")),
+            next_page_token: Some(format!("page {secret}")),
+        }),
+        PanelBody::Detail(DetailBody {
+            document: format!("document {secret}"),
+            metadata: vec![DetailMetadata {
+                label: format!("metadata label {secret}"),
+                value: format!("metadata value {secret}"),
+            }],
+            actions: Vec::new(),
+        }),
+        PanelBody::Form(FormBody {
+            fields: Vec::new(),
+            values: TypedMap::from([(
+                panel_fixture_id("value"),
+                TypedValue::String(format!("form value {secret}")),
+            )]),
+            field_errors: vec![FormFieldError {
+                field_id: panel_fixture_id("value"),
+                message: format!("form error {secret}"),
+            }],
+            submit_action: action.clone(),
+        }),
+        PanelBody::Status(StatusBody {
+            rows: vec![StatusRow {
+                label: format!("status label {secret}"),
+                value: format!("status value {secret}"),
+                state: StatusRowState::Warning,
+            }],
+        }),
+        PanelBody::Progress(ProgressBody {
+            message: format!("progress {secret}"),
+            completed: Some(1),
+            total: Some(2),
+            cancellable: true,
+        }),
+        PanelBody::Empty(EmptyBody {
+            message: format!("empty {secret}"),
+            action: None,
+        }),
+        PanelBody::Error(ErrorBody {
+            code: format!("code {secret}"),
+            message: format!("error {secret}"),
+            retryable: true,
+            retry_action: None,
+        }),
+    ]
+}
+
+#[test]
+fn panel_snapshot_redaction_covers_every_provider_authored_body_surface() {
+    let secret = "SUPER_SECRET_VALUE";
+    let redactor = Redactor::new(vec![secret.to_owned()]);
+    let action =
+        ActionId::parse("vendor.action").unwrap_or_else(|error| panic!("action fixture: {error}"));
+    let bodies = secret_panel_bodies(secret, &action);
+
+    for body in bodies {
+        let snapshot = PanelSnapshot {
+            model_schema: 1,
+            panel_instance_id: 1,
+            generation: 1,
+            revision: 1,
+            kind: body.kind(),
+            title: format!("title {secret}"),
+            description: Some(format!("snapshot description {secret}")),
+            loading: false,
+            action_affordances: vec![Affordance {
+                id: panel_fixture_id("affordance"),
+                label: format!("affordance label {secret}"),
+                action_id: action.clone(),
+                arguments: Some(TypedMap::from([(
+                    panel_fixture_id("argument"),
+                    TypedValue::String(format!("argument {secret}")),
+                )])),
+                enabled: false,
+                unavailable_reason: Some(format!("reason {secret}")),
+            }],
+            body,
+        };
+        let Some(redacted) = redact_panel_snapshot(snapshot, &redactor) else {
+            panic!("valid snapshot remains representable after redaction");
+        };
+        let rendered = format!("{redacted:?}");
+        assert!(
+            !rendered.contains(secret),
+            "panel secret leaked: {rendered}"
+        );
+        assert!(rendered.contains(REDACTION_PLACEHOLDER), "{rendered}");
+    }
 }
 
 #[test]
@@ -182,15 +295,18 @@ fn redact_field_with_duplicate_secret_choices_omits_the_field_and_leaks_nothing(
     // conflict.
     let field = Field::parse(FieldDraft {
         id: Id::parse("vendor.pkg.choice").unwrap_or_else(|error| panic!("field id: {error:?}")),
+        label: "Choice".to_owned(),
+        description: None,
         kind: FieldKind::Enum,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: vec![
             Scalar::Text(secret_a.to_owned()),
             Scalar::Text(secret_b.to_owned()),
         ],
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })
@@ -220,12 +336,15 @@ fn redact_field_with_one_secret_choice_rebuilds_cleanly() {
     let redactor = Redactor::new(vec![secret.to_owned()]);
     let field = Field::parse(FieldDraft {
         id: Id::parse("vendor.pkg.solo").unwrap_or_else(|error| panic!("field id: {error:?}")),
+        label: "Solo".to_owned(),
+        description: None,
         kind: FieldKind::Enum,
         required: false,
         default: None,
-        minimum: None,
-        maximum: None,
+        min: None,
+        max: None,
         choices: vec![Scalar::Text(format!("only-{secret}"))],
+        unique: false,
         visible_when: None,
         restart: RestartScope::None,
     })

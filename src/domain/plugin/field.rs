@@ -14,7 +14,10 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use super::limits::FIELD_CHOICE_LIMIT;
-use crate::domain::{CanonicalDecimal, Id};
+use crate::domain::{CanonicalDecimal, Id, TypedValue};
+
+/// Maximum UTF-8 byte length of a plugin path value.
+pub const PATH_VALUE_BYTE_LIMIT: usize = 4_096;
 
 /// A scalar declared by a field: its default, a bound, or an enum choice.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +40,7 @@ impl Scalar {
     /// collapse large `i64` bounds onto each other. So `9.5` is below `10.5`
     /// even though it sorts after it lexically, and two `i64` values that
     /// differ only in their low bits still compare as different.
-    fn numeric_cmp(&self, other: &Self) -> Option<Ordering> {
+    pub(crate) fn numeric_cmp(&self, other: &Self) -> Option<Ordering> {
         let left = self.numeric_text()?;
         let right = other.numeric_text()?;
         Some(decimal_cmp(&left, &right))
@@ -52,17 +55,19 @@ impl Scalar {
         }
     }
 
-    /// Whether this scalar is a legal value for `kind`.
-    fn matches(&self, kind: FieldKind) -> bool {
+    /// Whether this scalar is a legal bound for `kind`.
+    ///
+    /// Numeric kinds accept numeric bounds; [`FieldKind::String`] and
+    /// [`FieldKind::StringList`] accept integer length bounds.
+    fn matches_bound(&self, kind: FieldKind) -> bool {
         match kind {
-            FieldKind::Boolean => matches!(self, Self::Bool(_)),
-            FieldKind::Integer => matches!(self, Self::Integer(_)),
-            FieldKind::FiniteNumber => matches!(self, Self::Integer(_) | Self::Decimal(_)),
-            FieldKind::String | FieldKind::Enum | FieldKind::Path | FieldKind::StringList => {
-                matches!(self, Self::Text(_))
+            FieldKind::Integer | FieldKind::String | FieldKind::StringList => {
+                matches!(self, Self::Integer(_))
             }
-            // A secret is never a literal, so no scalar is a legal value.
-            FieldKind::SecretReference => false,
+            FieldKind::FiniteNumber => matches!(self, Self::Integer(_) | Self::Decimal(_)),
+            FieldKind::Boolean | FieldKind::Enum | FieldKind::Path | FieldKind::SecretReference => {
+                false
+            }
         }
     }
 }
@@ -174,6 +179,18 @@ impl FieldKind {
     pub const fn is_numeric(self) -> bool {
         matches!(self, Self::Integer | Self::FiniteNumber)
     }
+
+    /// Whether this kind may declare inclusive bounds.
+    ///
+    /// Numeric kinds carry value bounds; [`Self::String`] and
+    /// [`Self::StringList`] carry integer length bounds.
+    #[must_use]
+    pub const fn allows_bounds(self) -> bool {
+        matches!(
+            self,
+            Self::Integer | Self::FiniteNumber | Self::String | Self::StringList
+        )
+    }
 }
 
 /// What must restart before a changed value takes effect.
@@ -215,18 +232,24 @@ impl RestartScope {
 pub struct FieldDraft {
     /// Field identifier, unique within its owner.
     pub id: Id,
+    /// Operator-facing label.
+    pub label: String,
+    /// Longer description, if any.
+    pub description: Option<String>,
     /// What the field holds.
     pub kind: FieldKind,
     /// Whether a value must be supplied.
     pub required: bool,
     /// Default value, if any.
-    pub default: Option<Scalar>,
-    /// Inclusive lower bound, numeric kinds only.
-    pub minimum: Option<Scalar>,
-    /// Inclusive upper bound, numeric kinds only.
-    pub maximum: Option<Scalar>,
+    pub default: Option<TypedValue>,
+    /// Inclusive lower bound (numeric value or string/list length).
+    pub min: Option<Scalar>,
+    /// Inclusive upper bound (numeric value or string/list length).
+    pub max: Option<Scalar>,
     /// Choices, enum kind only.
     pub choices: Vec<Scalar>,
+    /// Whether list entries must be distinct (`string-list` only).
+    pub unique: bool,
     /// Sibling field whose value gates this field's visibility.
     pub visible_when: Option<Id>,
     /// What must restart for a change to take effect.
@@ -244,11 +267,16 @@ impl Field {
     ///
     /// # Errors
     ///
-    /// Returns [`FieldError`] when choices, bounds, or the default are
-    /// inconsistent with the declared kind or with each other.
+    /// Returns [`FieldError`] when the label is blank, choices, bounds, or the
+    /// default are inconsistent with the declared kind or with each other, or
+    /// `unique` is declared on a non-list kind.
     pub fn parse(draft: FieldDraft) -> Result<Self, FieldError> {
+        if draft.label.trim().is_empty() {
+            return Err(FieldError::BlankLabel);
+        }
         validate_choices(&draft)?;
         validate_bounds(&draft)?;
+        validate_unique(&draft)?;
         validate_default(&draft)?;
         if draft.visible_when.as_ref() == Some(&draft.id) {
             return Err(FieldError::SelfVisibility);
@@ -260,6 +288,18 @@ impl Field {
     #[must_use]
     pub const fn id(&self) -> &Id {
         &self.draft.id
+    }
+
+    /// The operator-facing label.
+    #[must_use]
+    pub fn label(&self) -> &str {
+        &self.draft.label
+    }
+
+    /// The longer description, if any.
+    #[must_use]
+    pub fn description(&self) -> Option<&str> {
+        self.draft.description.as_deref()
     }
 
     /// What the field holds.
@@ -276,26 +316,32 @@ impl Field {
 
     /// The declared default, if any.
     #[must_use]
-    pub const fn default(&self) -> Option<&Scalar> {
+    pub const fn default(&self) -> Option<&TypedValue> {
         self.draft.default.as_ref()
     }
 
     /// The declared inclusive lower bound, if any.
     #[must_use]
-    pub const fn minimum(&self) -> Option<&Scalar> {
-        self.draft.minimum.as_ref()
+    pub const fn min(&self) -> Option<&Scalar> {
+        self.draft.min.as_ref()
     }
 
     /// The declared inclusive upper bound, if any.
     #[must_use]
-    pub const fn maximum(&self) -> Option<&Scalar> {
-        self.draft.maximum.as_ref()
+    pub const fn max(&self) -> Option<&Scalar> {
+        self.draft.max.as_ref()
     }
 
     /// The declared choices, empty for every kind but `enum`.
     #[must_use]
     pub fn choices(&self) -> &[Scalar] {
         &self.draft.choices
+    }
+
+    /// Whether list entries must be distinct.
+    #[must_use]
+    pub const fn unique(&self) -> bool {
+        self.draft.unique
     }
 
     /// The sibling that gates this field's visibility, if any.
@@ -336,20 +382,27 @@ fn validate_choices(draft: &FieldDraft) -> Result<(), FieldError> {
 }
 
 fn validate_bounds(draft: &FieldDraft) -> Result<(), FieldError> {
-    let declared = draft.minimum.as_ref().or(draft.maximum.as_ref());
-    if declared.is_some() && !draft.kind.is_numeric() {
-        return Err(FieldError::BoundsOnNonNumeric);
+    let declared = draft.min.as_ref().or(draft.max.as_ref());
+    if declared.is_some() && !draft.kind.allows_bounds() {
+        return Err(FieldError::BoundsOnUnsupportedKind);
     }
-    for bound in [&draft.minimum, &draft.maximum].into_iter().flatten() {
-        if !bound.matches(draft.kind) {
+    for bound in [&draft.min, &draft.max].into_iter().flatten() {
+        if !bound.matches_bound(draft.kind) {
             return Err(FieldError::BoundKindMismatch);
         }
     }
-    if let (Some(minimum), Some(maximum)) = (&draft.minimum, &draft.maximum)
-        && minimum.numeric_cmp(maximum) != Some(Ordering::Less)
-        && minimum.numeric_cmp(maximum) != Some(Ordering::Equal)
+    if let (Some(min), Some(max)) = (&draft.min, &draft.max)
+        && min.numeric_cmp(max) == Some(Ordering::Greater)
     {
         return Err(FieldError::InvertedBounds);
+    }
+    Ok(())
+}
+
+/// `unique` is legal only for `string-list`.
+fn validate_unique(draft: &FieldDraft) -> Result<(), FieldError> {
+    if draft.unique && draft.kind != FieldKind::StringList {
+        return Err(FieldError::UniqueOnNonList);
     }
     Ok(())
 }
@@ -358,32 +411,120 @@ fn validate_default(draft: &FieldDraft) -> Result<(), FieldError> {
     let Some(default) = &draft.default else {
         return Ok(());
     };
-    if draft.kind == FieldKind::SecretReference {
-        return Err(FieldError::SecretDefault);
-    }
-    if !default.matches(draft.kind) {
+    if !typed_value_matches_kind(draft.kind, default) {
         return Err(FieldError::DefaultKindMismatch);
     }
-    if draft.kind == FieldKind::Enum && !draft.choices.contains(default) {
-        return Err(FieldError::DefaultNotAChoice);
-    }
-    let below = draft
-        .minimum
-        .as_ref()
-        .is_some_and(|minimum| default.numeric_cmp(minimum) == Some(Ordering::Less));
-    let above = draft
-        .maximum
-        .as_ref()
-        .is_some_and(|maximum| default.numeric_cmp(maximum) == Some(Ordering::Greater));
-    if below || above {
+    if draft.kind == FieldKind::Path
+        && matches!(default, TypedValue::String(value) if value.len() > PATH_VALUE_BYTE_LIMIT)
+    {
         return Err(FieldError::DefaultOutOfBounds);
     }
-    Ok(())
+    if draft.unique
+        && let TypedValue::List(values) = default
+        && values
+            .iter()
+            .enumerate()
+            .any(|(index, value)| values[..index].contains(value))
+    {
+        return Err(FieldError::DuplicateDefaultEntry);
+    }
+    if draft.kind == FieldKind::Enum && !enum_choice_matches(draft, default) {
+        return Err(FieldError::DefaultNotAChoice);
+    }
+    if default_within_bounds(draft, default) {
+        return Ok(());
+    }
+    Err(FieldError::DefaultOutOfBounds)
+}
+
+/// Whether a [`TypedValue`] is a legal value for `kind`.
+///
+/// Each kind accepts exactly one closed typed-value variant, so a wrong-type
+/// default is caught at parse time rather than by the runtime validator. A
+/// secret-reference default is a reference (`SecretRef`), never a literal
+/// value.
+fn typed_value_matches_kind(kind: FieldKind, value: &TypedValue) -> bool {
+    match (kind, value) {
+        (FieldKind::Boolean, TypedValue::Bool(_))
+        | (FieldKind::String | FieldKind::Enum | FieldKind::Path, TypedValue::String(_))
+        | (FieldKind::Integer, TypedValue::Integer(_))
+        | (FieldKind::FiniteNumber, TypedValue::Integer(_) | TypedValue::Decimal(_))
+        | (FieldKind::SecretReference, TypedValue::SecretRef(_)) => true,
+        (FieldKind::StringList, TypedValue::List(values)) => values
+            .iter()
+            .all(|value| matches!(value, TypedValue::String(_))),
+        _ => false,
+    }
+}
+
+/// Whether an enum default string is one of the declared text choices.
+fn enum_choice_matches(draft: &FieldDraft, default: &TypedValue) -> bool {
+    let TypedValue::String(text) = default else {
+        return false;
+    };
+    draft
+        .choices
+        .iter()
+        .any(|choice| matches!(choice, Scalar::Text(choice_text) if choice_text == text))
+}
+
+/// Whether the default lies within its declared inclusive bounds.
+///
+/// Numeric defaults compare by value. String defaults compare their UTF-8 byte
+/// length against integer length bounds. List defaults compare their item count
+/// against integer length bounds.
+fn default_within_bounds(draft: &FieldDraft, default: &TypedValue) -> bool {
+    match draft.kind {
+        FieldKind::Integer | FieldKind::FiniteNumber => {
+            let scalar = match default {
+                TypedValue::Integer(value) => Scalar::Integer(*value),
+                TypedValue::Decimal(value) => Scalar::Decimal(value.clone()),
+                _ => return false,
+            };
+            let below = draft
+                .min
+                .as_ref()
+                .is_some_and(|min| scalar.numeric_cmp(min) == Some(Ordering::Less));
+            let above = draft
+                .max
+                .as_ref()
+                .is_some_and(|max| scalar.numeric_cmp(max) == Some(Ordering::Greater));
+            !below && !above
+        }
+        FieldKind::String => {
+            let TypedValue::String(text) = default else {
+                return false;
+            };
+            length_within_bounds(draft, i64::try_from(text.len()).unwrap_or(i64::MAX))
+        }
+        FieldKind::StringList => {
+            let TypedValue::List(values) = default else {
+                return false;
+            };
+            length_within_bounds(draft, i64::try_from(values.len()).unwrap_or(i64::MAX))
+        }
+        _ => true,
+    }
+}
+
+/// Whether a measured length falls within integer length bounds.
+fn length_within_bounds(draft: &FieldDraft, length: i64) -> bool {
+    let below = draft
+        .min
+        .as_ref()
+        .is_some_and(|min| matches!(min, Scalar::Integer(bound) if length < *bound));
+    let above = draft
+        .max
+        .as_ref()
+        .is_some_and(|max| matches!(max, Scalar::Integer(bound) if length > *bound));
+    !below && !above
 }
 
 /// Why a field declaration is invalid.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldError {
+    /// The label is empty or only whitespace.
+    BlankLabel,
     /// An `enum` field declared no choices.
     EnumWithoutChoices,
     /// A non-`enum` field declared choices.
@@ -392,20 +533,22 @@ pub enum FieldError {
     TooManyChoices { len: usize },
     /// The same choice was declared twice.
     DuplicateChoice,
-    /// A non-numeric field declared a bound.
-    BoundsOnNonNumeric,
+    /// A kind that does not support bounds declared one.
+    BoundsOnUnsupportedKind,
     /// A bound's type does not match the field kind.
     BoundKindMismatch,
     /// The minimum exceeds the maximum.
     InvertedBounds,
+    /// `unique` was declared on a non-`string-list` kind.
+    UniqueOnNonList,
     /// The default's type does not match the field kind.
     DefaultKindMismatch,
     /// An `enum` default is not one of its choices.
     DefaultNotAChoice,
+    /// A unique string-list default contains a repeated entry.
+    DuplicateDefaultEntry,
     /// The default falls outside the declared bounds.
     DefaultOutOfBounds,
-    /// A secret-reference field declared a literal default.
-    SecretDefault,
     /// A field referenced itself for visibility.
     SelfVisibility,
 }
@@ -413,6 +556,7 @@ pub enum FieldError {
 impl fmt::Display for FieldError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::BlankLabel => formatter.write_str("a field label may not be blank"),
             Self::EnumWithoutChoices => formatter.write_str("an enum field declares no choices"),
             Self::ChoicesOnNonEnum => formatter.write_str("only an enum field may declare choices"),
             Self::TooManyChoices { len } => {
@@ -422,22 +566,24 @@ impl fmt::Display for FieldError {
                 )
             }
             Self::DuplicateChoice => formatter.write_str("a choice is declared twice"),
-            Self::BoundsOnNonNumeric => {
-                formatter.write_str("only a numeric field may declare bounds")
-            }
+            Self::BoundsOnUnsupportedKind => formatter
+                .write_str("only a numeric, string, or string-list field may declare bounds"),
             Self::BoundKindMismatch => formatter.write_str("a bound does not match the field kind"),
             Self::InvertedBounds => formatter.write_str("the minimum exceeds the maximum"),
+            Self::UniqueOnNonList => {
+                formatter.write_str("only a string-list field may declare unique entries")
+            }
             Self::DefaultKindMismatch => {
                 formatter.write_str("the default does not match the field kind")
             }
             Self::DefaultNotAChoice => {
                 formatter.write_str("the default is not one of the declared choices")
             }
+            Self::DuplicateDefaultEntry => {
+                formatter.write_str("a unique string-list default contains a duplicate")
+            }
             Self::DefaultOutOfBounds => {
                 formatter.write_str("the default falls outside the declared bounds")
-            }
-            Self::SecretDefault => {
-                formatter.write_str("a secret reference may not declare a literal default")
             }
             Self::SelfVisibility => formatter.write_str("a field may not gate its own visibility"),
         }

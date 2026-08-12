@@ -488,7 +488,7 @@ pub(super) fn unexpected_kind(
 }
 
 /// The shutdown-ack never arrived within the bound.
-fn ack_missing() -> error::ProviderError {
+pub(super) fn ack_missing() -> error::ProviderError {
     error::ProviderError::InvalidValue {
         path: "shutdown-ack".to_owned(),
         reason: "no shutdown-ack within the bound".to_owned(),
@@ -496,7 +496,7 @@ fn ack_missing() -> error::ProviderError {
 }
 
 /// stdout reached EOF before the shutdown-ack arrived.
-fn ack_eof() -> error::ProviderError {
+pub(super) fn ack_eof() -> error::ProviderError {
     error::ProviderError::OutOfOrder {
         phase: super::protocol::LifecyclePhase::AwaitShutdownAck
             .as_str()
