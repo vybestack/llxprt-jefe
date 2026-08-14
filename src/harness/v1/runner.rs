@@ -27,8 +27,10 @@ use super::workspace::Workspace;
 
 /// Resize acknowledgement shares the wait contract's upper bound.
 const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
-/// Bound how long input waits for the application to emit a redraw.
+/// Bound how long ordinary input waits for the application to emit a redraw.
 const INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// Keep adjacent escape-key steps inside terminal escape-sequence windows.
+const ESCAPE_INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(25);
 /// Require fresh PTY output to settle before injecting the next schema step.
 const INPUT_QUIET_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -343,17 +345,22 @@ impl RunState<'_> {
 
     fn send_key(&mut self, key: &str, modifiers: &[Modifier]) -> Result<(), HarnessError> {
         let bytes = keys::encode("key", key, modifiers)?;
-        self.write_input(&bytes)
+        let ack_timeout = if key == "escape" {
+            ESCAPE_INPUT_ACK_TIMEOUT
+        } else {
+            INPUT_ACK_TIMEOUT
+        };
+        self.write_input(&bytes, ack_timeout)
     }
 
     fn send_text(&mut self, text: &str) -> Result<(), HarnessError> {
-        self.write_input(text.as_bytes())
+        self.write_input(text.as_bytes(), INPUT_ACK_TIMEOUT)
     }
 
-    fn write_input(&mut self, bytes: &[u8]) -> Result<(), HarnessError> {
+    fn write_input(&mut self, bytes: &[u8], ack_timeout: Duration) -> Result<(), HarnessError> {
         let generation = self.session_mut()?.generation();
         self.session_mut()?.write_bytes(bytes)?;
-        let deadline = Instant::now() + INPUT_ACK_TIMEOUT;
+        let deadline = Instant::now() + ack_timeout;
         let mut observed_generation = generation;
         let mut last_output = None;
         loop {

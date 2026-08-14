@@ -2878,7 +2878,7 @@
     },
     {
       "path": "src/harness/v1/runner.rs",
-      "sha256": "58311663dced961d80a8b7b27ae43650d2b9901dd0716efabdee6790e9eafb14",
+      "sha256": "ac721636fca5acf22960dcdd18893cc7e1d769601e815ea7d9bfa780f4eb6e82",
       "mode": "100644",
       "criteria": [
         "CW00B-03",
