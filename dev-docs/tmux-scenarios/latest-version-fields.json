@@ -47,6 +47,18 @@
       "timeout_ms": 15000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Code Puppy  Installed, enabled",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt  Installed, enabled",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "n",
       "modifiers": ["shift"]
@@ -285,6 +297,17 @@
     {
       "op": "key",
       "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Agent    [core.code-puppy]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "space",
       "modifiers": []
     },
     {
