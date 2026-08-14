@@ -14,11 +14,18 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "dev-docs/testing/scenario-execution-manifest.json"
-ISSUE493_PATH = "dev-docs/tmux-scenarios/v1/issue493-server-loss.json"
-ISSUE493_UNIX_REASON = (
-    "issue493 exercises Windows psmux shared-server loss; Unix runtimes reconcile "
-    "individual sessions and cannot produce ServerLost"
+NATIVE_WINDOWS_UNIX_REASON = (
+    "scenario exercises native Windows behavior owned by the psmux lifecycle gate; "
+    "Unix tmux execution does not preserve its platform intent"
 )
+NATIVE_WINDOWS_SCENARIO_PATHS = {
+    "dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json",
+    "dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json",
+    "dev-docs/tmux-scenarios/v1/issue493-server-loss.json",
+    "dev-docs/tmux-scenarios/windows-local-repository-prep.json",
+    "dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json",
+    "dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json",
+}
 INSTALL_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
@@ -310,14 +317,14 @@ def validate_manifest(manifest: object) -> list[dict]:
                     raise RuntimeError(f"{entry['path']}: required {platform} has a reason")
             elif not isinstance(platform_entry.get("reason"), str) or not platform_entry["reason"]:
                 raise RuntimeError(f"{entry['path']}: unsupported {platform} needs a reason")
-        windows_owned_issue493 = (
-            entry["path"] == ISSUE493_PATH
+        windows_owned_scenario = (
+            entry["path"] in NATIVE_WINDOWS_SCENARIO_PATHS
             and required_count == 0
             and entry["ci_job"] == "windows_native"
-            and platforms["linux"].get("reason") == ISSUE493_UNIX_REASON
-            and platforms["macos"].get("reason") == ISSUE493_UNIX_REASON
+            and platforms["linux"].get("reason") == NATIVE_WINDOWS_UNIX_REASON
+            and platforms["macos"].get("reason") == NATIVE_WINDOWS_UNIX_REASON
         )
-        if required_count != 1 and not windows_owned_issue493:
+        if required_count != 1 and not windows_owned_scenario:
             raise RuntimeError(f"{entry['path']}: exactly one platform must be required")
         if type(entry["timeout_ms"]) is not int or entry["timeout_ms"] <= 0:
             raise RuntimeError(f"{entry['path']}: timeout must be a positive integer")

@@ -14,8 +14,16 @@ const MANIFEST_PATH: &str = "dev-docs/testing/scenario-execution-manifest.json";
 const OWNER_EVIDENCE_PATH: &str = "dev-docs/testing/scenario-owner-evidence.json";
 const SCENARIO_ROOT: &str = "dev-docs/tmux-scenarios";
 const WINDOWS_REASON: &str = "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY";
+const NATIVE_WINDOWS_UNIX_REASON: &str = "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent";
 const ISSUE493_PATH: &str = "dev-docs/tmux-scenarios/v1/issue493-server-loss.json";
-const ISSUE493_UNIX_REASON: &str = "issue493 exercises Windows psmux shared-server loss; Unix runtimes reconcile individual sessions and cannot produce ServerLost";
+const NATIVE_WINDOWS_SCENARIO_PATHS: [&str; 6] = [
+    "dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json",
+    "dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json",
+    "dev-docs/tmux-scenarios/v1/issue493-server-loss.json",
+    "dev-docs/tmux-scenarios/windows-local-repository-prep.json",
+    "dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json",
+    "dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json",
+];
 const CRITERIA: [&str; 8] = [
     "CW00B-01", "CW00B-02", "CW00B-03", "CW00B-04", "CW00B-05", "CW00B-06", "CW00B-07", "CW00B-08",
 ];
@@ -278,7 +286,7 @@ fn validate_entry(entry: &ScenarioEntry, workflow: &str, errors: &mut Vec<String
         ));
     }
     if let Some(scenario) = scenario {
-        let expected_job = if entry.path == ISSUE493_PATH {
+        let expected_job = if NATIVE_WINDOWS_SCENARIO_PATHS.contains(&entry.path.as_str()) {
             "windows_native"
         } else {
             match scenario.platform {
@@ -345,10 +353,10 @@ fn validate_platforms(entry: &ScenarioEntry, declared: Option<&str>, errors: &mu
         .filter(|(_, value)| value.disposition == "required")
         .map(|(name, _)| name.as_str())
         .collect();
-    if entry.path == ISSUE493_PATH {
+    if NATIVE_WINDOWS_SCENARIO_PATHS.contains(&entry.path.as_str()) {
         if !required.is_empty()
-            || entry.platforms["linux"].reason.as_deref() != Some(ISSUE493_UNIX_REASON)
-            || entry.platforms["macos"].reason.as_deref() != Some(ISSUE493_UNIX_REASON)
+            || entry.platforms["linux"].reason.as_deref() != Some(NATIVE_WINDOWS_UNIX_REASON)
+            || entry.platforms["macos"].reason.as_deref() != Some(NATIVE_WINDOWS_UNIX_REASON)
             || entry.ci_job != "windows_native"
         {
             errors.push(format!(
@@ -576,7 +584,11 @@ fn validate_owned_scenario(entry: &ScenarioEntry, owned: &OwnedScenario, errors:
         .iter()
         .find(|(_, disposition)| disposition.disposition == "required")
         .map(|(name, _)| name.as_str())
-        .or_else(|| (entry.path == ISSUE493_PATH).then_some("windows"));
+        .or_else(|| {
+            NATIVE_WINDOWS_SCENARIO_PATHS
+                .contains(&entry.path.as_str())
+                .then_some("windows")
+        });
     if platform != Some(owned.platform.as_str())
         || owned.ci_job != entry.ci_job
         || owned.criteria != entry.criteria

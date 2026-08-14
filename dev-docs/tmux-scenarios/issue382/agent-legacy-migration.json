@@ -13,7 +13,7 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n[[repositories]]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"${workspace}/repo\"\n"
+          "utf8": "settings_schema = 2\n"
         },
         "mode": 384
       },

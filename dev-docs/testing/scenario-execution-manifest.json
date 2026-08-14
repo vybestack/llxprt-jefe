@@ -2466,18 +2466,19 @@
       ],
       "platforms": {
         "linux": {
-          "disposition": "required"
+          "disposition": "unsupported",
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "macos": {
           "disposition": "unsupported",
-          "reason": "scenario declares platform linux"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "windows": {
           "disposition": "unsupported",
           "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
         }
       },
-      "ci_job": "tui_scenarios_linux",
+      "ci_job": "windows_native",
       "command": {
         "binary": "tmux_scenario",
         "installs": [
@@ -2522,18 +2523,19 @@
       ],
       "platforms": {
         "linux": {
-          "disposition": "required"
+          "disposition": "unsupported",
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "macos": {
           "disposition": "unsupported",
-          "reason": "scenario declares platform linux"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "windows": {
           "disposition": "unsupported",
           "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
         }
       },
-      "ci_job": "tui_scenarios_linux",
+      "ci_job": "windows_native",
       "command": {
         "binary": "tmux_scenario",
         "installs": [
@@ -7822,11 +7824,11 @@
       "platforms": {
         "linux": {
           "disposition": "unsupported",
-          "reason": "issue493 exercises Windows psmux shared-server loss; Unix runtimes reconcile individual sessions and cannot produce ServerLost"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "macos": {
           "disposition": "unsupported",
-          "reason": "issue493 exercises Windows psmux shared-server loss; Unix runtimes reconcile individual sessions and cannot produce ServerLost"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "windows": {
           "disposition": "unsupported",
@@ -9387,18 +9389,19 @@
       ],
       "platforms": {
         "linux": {
-          "disposition": "required"
+          "disposition": "unsupported",
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "macos": {
           "disposition": "unsupported",
-          "reason": "scenario declares platform linux"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "windows": {
           "disposition": "unsupported",
           "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
         }
       },
-      "ci_job": "tui_scenarios_linux",
+      "ci_job": "windows_native",
       "command": {
         "binary": "tmux_scenario",
         "installs": [
@@ -9445,18 +9448,19 @@
       ],
       "platforms": {
         "linux": {
-          "disposition": "required"
+          "disposition": "unsupported",
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "macos": {
           "disposition": "unsupported",
-          "reason": "scenario declares platform linux"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "windows": {
           "disposition": "unsupported",
           "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
         }
       },
-      "ci_job": "tui_scenarios_linux",
+      "ci_job": "windows_native",
       "command": {
         "binary": "tmux_scenario",
         "installs": [
@@ -9620,18 +9624,19 @@
       ],
       "platforms": {
         "linux": {
-          "disposition": "required"
+          "disposition": "unsupported",
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "macos": {
           "disposition": "unsupported",
-          "reason": "scenario declares platform linux"
+          "reason": "scenario exercises native Windows behavior owned by the psmux lifecycle gate; Unix tmux execution does not preserve its platform intent"
         },
         "windows": {
           "disposition": "unsupported",
           "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
         }
       },
-      "ci_job": "tui_scenarios_linux",
+      "ci_job": "windows_native",
       "command": {
         "binary": "tmux_scenario",
         "installs": [

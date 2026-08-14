@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "c3127d41771b7dd58e5e034e096b1598a59a1500a68a3b1da9aa1cfecdc0deb8",
+  "scenario_manifest_sha256": "1b53a057f518979475943e9507d33fb4a73bfdfdb6406b10326a5871c192e1bd",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -231,7 +231,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-fresh-issue.json",
-      "sha256": "cfb8c1e58dbcf7b4d7774c7bc5d6fb7849cd4d3138c1ba84cc8c434885a5f485",
+      "sha256": "564db3b45c60f9f0ff9d798c42f9ba7fd7a1cb1255c141b29a3b6bb953eb68d3",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -243,7 +243,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-fresh-pr.json",
-      "sha256": "8c6c2076841c54b4e72b94db1730ae04b8a7b42458c8d0fa023b37d7eacb9431",
+      "sha256": "c4c87bf6897e5d27d41db6bc327633817d30b493863ebae721095c72b0e37169",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -267,7 +267,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-legacy-migration.json",
-      "sha256": "4f02664b1ca7dc8ae97b8e250ea6e197e97779308294e972c860c13886a15e07",
+      "sha256": "2255b2ba609eb39c320695d10eb7d7f34e4a54ddf64db742eeac621631e4acc0",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -279,7 +279,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-local-operation-matrix.json",
-      "sha256": "6b363ff0a9fe8d0d5c44809bb6d4514b34bc17f6046c0b6c48eebb5792b1757d",
+      "sha256": "7d17010131ed033a41103ed91f85636d439de6074a759409bee502b448e56bd9",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -291,7 +291,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-no-product-branches.json",
-      "sha256": "ffb3006085d7080ecbf81f64770aa99d3bf675e5ba520da26465b045aabefc24",
+      "sha256": "606639094c4dfe6cb8bb68d71d67c0e155b044d9e0e22cef7b2047104465ab2c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -303,7 +303,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-probe-negative.json",
-      "sha256": "bb8853214ea876fff9134ca220cee006c7a7d544da367e91035ba98d44e07436",
+      "sha256": "203ddd7248393dd4c037113fe91e74e025fdf57893d0800a172355661fb370e0",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -315,7 +315,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-probe-parser.json",
-      "sha256": "88c997f07ac3fac2e44a38137ca43b48f057da6357dc3aa8bd63d5611091ff32",
+      "sha256": "43d941183868010324449fea617ffb846d047b59b0d5bab4316533be58921709",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -327,7 +327,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-remote-operation-matrix.json",
-      "sha256": "32ab79de4e56efa64799011268ec4374ab5c34562b3e0e6494ea6725c79fbf44",
+      "sha256": "6b793e2d66736926a030a81b51cfd267f4e73d3be48e953d1514aade35ec55de",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -339,7 +339,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-resolver-order.json",
-      "sha256": "ca5098d94d1d2b5c9a6e643bc427d18200afbcf40548ba014b4ba7a156815341",
+      "sha256": "e66045deb8ccb644a61c4fcb41b43654b80f1ae94f5e0224ab7d563166b35bf3",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -351,7 +351,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-sandbox-preflight.json",
-      "sha256": "6405708e669f8206390bf3b933784a33647a937f4b9a0c56e4c765996a539bfd",
+      "sha256": "15dabaa39144ef2b2c5f4c6811f1aa0965a9467f11d2228412c101331019d2f7",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -363,7 +363,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-stale-generation.json",
-      "sha256": "57424014e53fab50bd05fa2d0fb11b0b577e865e826a303369c55a7ae6dc1eb0",
+      "sha256": "6a34785e1408d5355af0760bf8c51ce515a0a6bcc93caeb6c4a1338d9869ab71",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -387,7 +387,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-terminal-compatibility.json",
-      "sha256": "5f20b4fa806da6836d70b718f529c82e087173a6bbc0cf3bff97d01b72cb81c7",
+      "sha256": "33c1f190df25404f25f5309aa1a0e04e8f6b2d1e5a9ee3b0b18ce36039f67eaa",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -413,7 +413,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue382/agent-version-selector.json",
-      "sha256": "78d4f7325362c3927bc50431be03fcdadf8f6630bc9dbe3548fde3db417b3430",
+      "sha256": "cae7289c49b4bd9ddb74df61b0cb0338e826b27afce939bfd42068aef1a85d3d",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -455,8 +455,8 @@
         "CW00B-02",
         "CW00B-04"
       ],
-      "platform": "linux",
-      "ci_job": "tui_scenarios_linux",
+      "platform": "windows",
+      "ci_job": "windows_native",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
@@ -467,8 +467,8 @@
         "CW00B-02",
         "CW00B-04"
       ],
-      "platform": "linux",
-      "ci_job": "tui_scenarios_linux",
+      "platform": "windows",
+      "ci_job": "windows_native",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
@@ -1850,8 +1850,8 @@
         "CW00B-02",
         "CW00B-04"
       ],
-      "platform": "linux",
-      "ci_job": "tui_scenarios_linux",
+      "platform": "windows",
+      "ci_job": "windows_native",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-local-repository-prep.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
@@ -1862,8 +1862,8 @@
         "CW00B-02",
         "CW00B-04"
       ],
-      "platform": "linux",
-      "ci_job": "tui_scenarios_linux",
+      "platform": "windows",
+      "ci_job": "windows_native",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
@@ -1898,8 +1898,8 @@
         "CW00B-02",
         "CW00B-04"
       ],
-      "platform": "linux",
-      "ci_job": "tui_scenarios_linux",
+      "platform": "windows",
+      "ci_job": "windows_native",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     }
   ],
@@ -1935,7 +1935,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "c3127d41771b7dd58e5e034e096b1598a59a1500a68a3b1da9aa1cfecdc0deb8",
+      "sha256": "1b53a057f518979475943e9507d33fb4a73bfdfdb6406b10326a5871c192e1bd",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2343,7 +2343,7 @@
     },
     {
       "path": "scripts/run-scenario-manifest.py",
-      "sha256": "e4aaee86f8f08004645dc750e76f042648286f08994e5969283032df57516c4f",
+      "sha256": "40e62d69bd5630477bd7091d1214511770a696eee87573748ccd625f3f1bc1cf",
       "mode": "100755",
       "criteria": [
         "CW00B-01",
@@ -2546,7 +2546,7 @@
     },
     {
       "path": "tests/scenario_manifest.rs",
-      "sha256": "34d3f4dfb8055ba334ae06295ece67fe331f01df9c20cbc20f347d8135a35fe6",
+      "sha256": "0a7f1834026d81e405f9b360a16d970b415615d1cd29447b82d7c37a64c1c8c5",
       "mode": "100644",
       "criteria": [
         "CW00B-01",

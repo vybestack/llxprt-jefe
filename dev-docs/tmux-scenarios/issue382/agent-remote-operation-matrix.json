@@ -22,7 +22,14 @@
       {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n[repositories.repo]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"/srv/project\"\nremote = { enabled = true, login_user = \"dev\", host = \"example.com\", port = 22, run_as_user = \"runner\" }\n"
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"location\": {\n        \"remote_target\": \"3:dev11:example.com4:22226:runner12:/srv/project\"\n      },\n      \"display_name\": \"Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
         },
         "mode": 384
       }
