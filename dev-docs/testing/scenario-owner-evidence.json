@@ -76,7 +76,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/code-puppy-version-fields.json",
-      "sha256": "f7a4c99952fadb4725a363c402ad7453e7733436206cd20ce525a7c57c22019e",
+      "sha256": "c34ee18ef0b3f8a565cb97f35c5575e65f8e2671d310c3224ced1296e3897db0",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2546,7 +2546,7 @@
     },
     {
       "path": "tests/scenario_manifest.rs",
-      "sha256": "d8d8a038fe211f56a5f50a8c93ce07a2431d4bf09a0824d083d5aae9601df749",
+      "sha256": "34d3f4dfb8055ba334ae06295ece67fe331f01df9c20cbc20f347d8135a35fe6",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2878,7 +2878,7 @@
     },
     {
       "path": "src/harness/v1/runner.rs",
-      "sha256": "ac721636fca5acf22960dcdd18893cc7e1d769601e815ea7d9bfa780f4eb6e82",
+      "sha256": "af34d08b31dd7e4a8c627914512dc30f36e56c45ab086de3630f5be866101271",
       "mode": "100644",
       "criteria": [
         "CW00B-03",

@@ -31,6 +31,8 @@ const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(500);
 /// Keep adjacent escape-key steps inside terminal escape-sequence windows.
 const ESCAPE_INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(25);
+/// Let the PTY reader drain output emitted immediately before child exit.
+const EXIT_OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
 /// Require fresh PTY output to settle before injecting the next schema step.
 const INPUT_QUIET_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -93,6 +95,7 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
         session: None,
         app_socket: None,
         app_environment: None,
+        app_exit_observed_at: None,
         capture_names: Vec::new(),
         report: Report::new(&scenario.name, &root),
         signal_cleanup,
@@ -136,6 +139,8 @@ struct RunState<'a> {
     app_socket: Option<std::path::PathBuf>,
     /// Exact hermetic launch environment used again for owned-server cleanup.
     app_environment: Option<BTreeMap<String, String>>,
+    /// First observation of direct-child exit while the PTY reader drains.
+    app_exit_observed_at: Option<Instant>,
     capture_names: Vec<String>,
     report: Report,
     signal_cleanup: SignalCleanupGuard,
@@ -242,7 +247,13 @@ impl RunState<'_> {
     }
 
     fn unexpected_app_exit(&mut self) -> Option<HarnessError> {
-        let exit = self.session.as_mut()?.try_exit()?;
+        let session = self.session.as_mut()?;
+        let exit = session.try_exit()?;
+        let now = Instant::now();
+        let observed_at = *self.app_exit_observed_at.get_or_insert(now);
+        if session.is_alive() && now.duration_since(observed_at) < EXIT_OUTPUT_DRAIN_TIMEOUT {
+            return None;
+        }
         self.report.app_exit = Some(AppExit {
             exit_code: exit.exit_code,
         });
@@ -288,6 +299,7 @@ impl RunState<'_> {
         let session =
             PtySession::launch(&resolved, &environment, &cwd_abs, self.scenario.terminal)?;
         self.session = Some(session);
+        self.app_exit_observed_at = None;
         Ok(())
     }
 

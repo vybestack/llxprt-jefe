@@ -177,6 +177,14 @@ fn owner_evidence_matches_the_active_manifest() {
 }
 
 #[test]
+fn owner_hashes_normalize_checkout_line_endings() {
+    assert_eq!(
+        text_sha256(b"alpha\nbeta\n"),
+        text_sha256(b"alpha\r\nbeta\r\n")
+    );
+}
+
+#[test]
 fn ci_executes_and_accounts_for_every_deterministic_scenario_shard() {
     let workflow = read_repo_text(".github/workflows/ci.yml");
     for required in [
@@ -515,7 +523,7 @@ fn validate_owner_evidence(
     }
     let manifest_bytes = std::fs::read(repo_path(MANIFEST_PATH))
         .unwrap_or_else(|err| panic!("read {MANIFEST_PATH}: {err}"));
-    if evidence.scenario_manifest_sha256 != Sha256::digest(&manifest_bytes).to_string() {
+    if evidence.scenario_manifest_sha256 != text_sha256(&manifest_bytes) {
         errors.push("owner evidence manifest hash differs".to_string());
     }
     if evidence.scenarios.len() != manifest.scenarios.len() {
@@ -559,7 +567,7 @@ fn validate_owned_scenario(entry: &ScenarioEntry, owned: &OwnedScenario, errors:
     }
     let scenario_bytes = std::fs::read(repo_path(&entry.path))
         .unwrap_or_else(|err| panic!("read {}: {err}", entry.path));
-    if owned.sha256 != Sha256::digest(&scenario_bytes).to_string() {
+    if owned.sha256 != text_sha256(&scenario_bytes) {
         errors.push(format!("{} owner hash differs", entry.path));
     }
     validate_file_mode(&entry.path, &owned.mode, errors);
@@ -804,7 +812,7 @@ fn validate_current_path(path: &str, sha256: &str, mode: &str, errors: &mut Vec<
             return;
         }
     };
-    if sha256 != Sha256::digest(&bytes).to_string() {
+    if sha256 != text_sha256(&bytes) {
         errors.push(format!("{path} owner hash differs"));
     }
     validate_file_mode(path, mode, errors);
@@ -897,6 +905,19 @@ fn load_manifest() -> ExecutionManifest {
     serde_json::from_str(&text).unwrap_or_else(|err| panic!("parse {MANIFEST_PATH}: {err}"))
 }
 
+fn text_sha256(bytes: &[u8]) -> String {
+    let mut canonical = Vec::with_capacity(bytes.len());
+    let mut offset = 0;
+    while let Some(position) = bytes[offset..].windows(2).position(|pair| pair == b"\r\n") {
+        let newline = offset + position;
+        canonical.extend_from_slice(&bytes[offset..newline]);
+        canonical.push(b'\n');
+        offset = newline + 2;
+    }
+    canonical.extend_from_slice(&bytes[offset..]);
+    Sha256::digest(&canonical).to_string()
+}
+
 fn shipped_scenario_paths() -> Vec<String> {
     let root = repo_path(SCENARIO_ROOT);
     let mut paths = Vec::new();
@@ -905,10 +926,14 @@ fn shipped_scenario_paths() -> Vec<String> {
     paths
         .into_iter()
         .map(|path| {
-            path.strip_prefix(repo_path(""))
-                .unwrap_or_else(|err| panic!("strip repository prefix: {err}"))
-                .to_string_lossy()
-                .into_owned()
+            let relative = path
+                .strip_prefix(repo_path(""))
+                .unwrap_or_else(|err| panic!("strip repository prefix: {err}"));
+            relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
         })
         .collect()
 }
