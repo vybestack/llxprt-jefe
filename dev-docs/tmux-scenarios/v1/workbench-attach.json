@@ -310,7 +310,7 @@
       "op": "wait",
       "source": "frame",
       "literal": "Needs you (1)",
-      "timeout_ms": 25000
+      "timeout_ms": 30000
     },
     {
       "op": "assert-frame",

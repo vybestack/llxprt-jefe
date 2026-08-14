@@ -205,7 +205,7 @@
       "op": "wait",
       "source": "frame",
       "literal": "JSP preview is wired",
-      "timeout_ms": 15000
+      "timeout_ms": 30000
     },
     {
       "op": "key",

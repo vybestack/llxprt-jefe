@@ -1784,7 +1784,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/v1/workbench-attach.json",
-      "sha256": "7a95e9bd50f6c6ad40598f979a226ce81f74ae3c75b29ea2029e18331b9ef208",
+      "sha256": "34d257244485aeca9c8f0d3ae211a74d6a46b5268e81da41eb3f67f32e775080",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1808,7 +1808,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/v1/workbench-cards.json",
-      "sha256": "9e5a1139645090a656e4557ccc64d1922a8c96e246e09c63dd6216e1c18d9d61",
+      "sha256": "cc8d7ab6c95dbfeb4b9a918b71b87cd9a22ca54cd89c6b508e6bc768df64f811",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2878,7 +2878,7 @@
     },
     {
       "path": "src/harness/v1/runner.rs",
-      "sha256": "af34d08b31dd7e4a8c627914512dc30f36e56c45ab086de3630f5be866101271",
+      "sha256": "874fea42c00c3978c9f507fac461e55124ccd9183aadbd24d34de5b18f36ee5e",
       "mode": "100644",
       "criteria": [
         "CW00B-03",

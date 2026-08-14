@@ -165,9 +165,10 @@ impl RunState<'_> {
 
     fn execute(&mut self) -> Option<HarnessError> {
         for (index, step) in self.scenario.steps.iter().enumerate() {
+            let next_step = self.scenario.steps.get(index + 1);
             let mut result = match self.signal_cleanup.interruption() {
                 Some(err) => Err(err),
-                None => self.execute_step(step),
+                None => self.execute_step(step, next_step),
             };
             if result.is_ok()
                 && let Some(err) = self.signal_cleanup.interruption()
@@ -203,7 +204,7 @@ impl RunState<'_> {
         None
     }
 
-    fn execute_step(&mut self, step: &Step) -> Result<(), HarnessError> {
+    fn execute_step(&mut self, step: &Step, next_step: Option<&Step>) -> Result<(), HarnessError> {
         match step {
             Step::Write { file } => self.workspace.write_file(file),
             Step::Mkdir { dir } => self.workspace.mkdir(dir),
@@ -224,7 +225,14 @@ impl RunState<'_> {
                 Ok(())
             }
             Step::Launch { argv, env, cwd } => self.launch(argv, env, cwd),
-            Step::Key { key, modifiers } => self.send_key(key, modifiers),
+            Step::Key { key, modifiers } => {
+                let escape_sequence_continues = key == "escape"
+                    && matches!(
+                        next_step,
+                        Some(Step::Key { key, .. }) if key == "escape"
+                    );
+                self.send_key(key, modifiers, escape_sequence_continues)
+            }
             Step::Text { text } => self.send_text(text),
             Step::Resize { size } => self.resize(*size),
             Step::Wait {
@@ -355,9 +363,14 @@ impl RunState<'_> {
         Ok(())
     }
 
-    fn send_key(&mut self, key: &str, modifiers: &[Modifier]) -> Result<(), HarnessError> {
+    fn send_key(
+        &mut self,
+        key: &str,
+        modifiers: &[Modifier],
+        escape_sequence_continues: bool,
+    ) -> Result<(), HarnessError> {
         let bytes = keys::encode("key", key, modifiers)?;
-        let ack_timeout = if key == "escape" {
+        let ack_timeout = if escape_sequence_continues {
             ESCAPE_INPUT_ACK_TIMEOUT
         } else {
             INPUT_ACK_TIMEOUT
