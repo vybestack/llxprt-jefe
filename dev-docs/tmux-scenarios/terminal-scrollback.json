@@ -149,9 +149,32 @@
       "modifiers": []
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "fixture-repo-alpha▏",
+      "timeout_ms": 12000
+    },
+    {
       "op": "key",
       "key": "backtab",
       "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Description      [▏]",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [▏]",
+      "timeout_ms": 12000
     },
     {
       "op": "text",

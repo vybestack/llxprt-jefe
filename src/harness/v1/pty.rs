@@ -79,6 +79,7 @@ impl EventListener for HarnessListener {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProcessExit {
     pub exit_code: Option<u32>,
+    pub harness_signalled: bool,
 }
 
 /// A live PTY session holding the app-under-test.
@@ -93,6 +94,7 @@ pub struct PtySession {
     size: Size,
     stopped: bool,
     exit: Option<ProcessExit>,
+    termination_signal_sent: bool,
     /// Group id captured at launch; still valid for signaling after reaping.
     group: Option<i32>,
 }
@@ -181,6 +183,7 @@ impl PtySession {
             size,
             stopped: false,
             exit: None,
+            termination_signal_sent: false,
             group,
         }
     }
@@ -282,6 +285,7 @@ impl PtySession {
         if let Ok(Some(status)) = self.child.try_wait() {
             self.exit = Some(ProcessExit {
                 exit_code: Some(status.exit_code()),
+                harness_signalled: self.termination_signal_sent,
             });
         }
         self.exit
@@ -328,6 +332,9 @@ impl PtySession {
         // chose instead of the signal-derived status it would report if the
         // TERM landed first. Group cleanup below still runs unchanged.
         self.await_self_exit();
+        if self.exit.is_none() {
+            self.termination_signal_sent = true;
+        }
         if let Some(pgid) = group {
             let _ = signal_group(pgid, "-TERM");
         }
@@ -398,7 +405,10 @@ impl PtySession {
                 return Ok(exit);
             }
             if group_dead && !self.is_alive() {
-                return Ok(Some(exit.unwrap_or(ProcessExit { exit_code: None })));
+                return Ok(Some(exit.unwrap_or(ProcessExit {
+                    exit_code: None,
+                    harness_signalled: self.termination_signal_sent,
+                })));
             }
             if Instant::now() >= deadline {
                 return Ok(None);

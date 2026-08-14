@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "9d1aa30458342eec6257ec039110a1796f44133219016e54b1008a411c0ceefc",
+  "scenario_manifest_sha256": "c3127d41771b7dd58e5e034e096b1598a59a1500a68a3b1da9aa1cfecdc0deb8",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -1303,7 +1303,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/terminal-scrollback.json",
-      "sha256": "e54b1924e12c2adbebc33cf0032cafe670b2b864367b81558c04808af85bffb2",
+      "sha256": "a025babbe9c007f695cb82d31486de2843dee71f3dce973b5baf6a88038ff39c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1935,7 +1935,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "9d1aa30458342eec6257ec039110a1796f44133219016e54b1008a411c0ceefc",
+      "sha256": "c3127d41771b7dd58e5e034e096b1598a59a1500a68a3b1da9aa1cfecdc0deb8",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2524,7 +2524,7 @@
     },
     {
       "path": "tests/harness_v1.rs",
-      "sha256": "ccc01a7db15adacbe7d483e35fb6f69cc4a7e3810a4e07c33c81cfbaaab36c85",
+      "sha256": "4eccf6b771474850e9a6181e1a4257712ffeef2948b8738e3d9f83d97960e5d6",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2834,7 +2834,7 @@
     },
     {
       "path": "src/harness/v1/pty.rs",
-      "sha256": "bf066c7a85b218a16e235e8eb5f87ba2012a7c74fa692b885414a5cb8d0fff70",
+      "sha256": "afab5566f55b352b9d4da524a83936d84f1755c02002c88fcc43c6af50dffe98",
       "mode": "100644",
       "criteria": [
         "CW00B-03",
@@ -2878,7 +2878,7 @@
     },
     {
       "path": "src/harness/v1/runner.rs",
-      "sha256": "0a92ad8ff30669aabac8ea3835a271c0399c364c982791ba4d12a6632763e068",
+      "sha256": "a45626b69aabe1e10f6b97511890ef50541b39754b3debba17f7233c4cd712e7",
       "mode": "100644",
       "criteria": [
         "CW00B-03",

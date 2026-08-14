@@ -27,9 +27,10 @@ use super::workspace::Workspace;
 
 /// Resize acknowledgement shares the wait contract's upper bound.
 const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
-/// Preserve predecessor input pacing so the application consumes each event
-/// before the next schema step is injected into the PTY.
-const INPUT_SETTLE_INTERVAL: Duration = Duration::from_millis(25);
+/// Bound how long input waits for the application to emit a redraw.
+const INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// Require fresh PTY output to settle before injecting the next schema step.
+const INPUT_QUIET_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The outcome of a run: the report plus the overall error, if any.
 #[derive(Debug)]
@@ -350,13 +351,41 @@ impl RunState<'_> {
     }
 
     fn write_input(&mut self, bytes: &[u8]) -> Result<(), HarnessError> {
+        let generation = self.session_mut()?.generation();
         self.session_mut()?.write_bytes(bytes)?;
-        std::thread::sleep(INPUT_SETTLE_INTERVAL);
-        Ok(())
+        let deadline = Instant::now() + INPUT_ACK_TIMEOUT;
+        let mut observed_generation = generation;
+        let mut last_output = None;
+        loop {
+            if let Some(err) = self.signal_cleanup.interruption() {
+                return Err(err);
+            }
+            let now = Instant::now();
+            let current_generation = self.session_mut()?.generation();
+            if current_generation != observed_generation {
+                observed_generation = current_generation;
+                last_output = Some(now);
+            }
+            if last_output.is_some_and(|last| now.duration_since(last) >= INPUT_QUIET_INTERVAL)
+                || now >= deadline
+            {
+                return Ok(());
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
     }
 
     fn resize(&mut self, size: Size) -> Result<(), HarnessError> {
         let session = self.session_mut()?;
+        if session.size() == size {
+            let frame = Frame {
+                cols: size.cols,
+                rows: size.rows,
+                lines: session.frame_lines()?,
+            };
+            self.report.push_frame(frame);
+            return Ok(());
+        }
         let generation = session.generation();
         session.resize(size)?;
         // Acknowledge only after the app emits fresh output following resize.
@@ -528,6 +557,7 @@ impl RunState<'_> {
         let cleanup = self.reap_app_socket();
         if let Some(code) = exit.exit_code
             && code != 0
+            && !exit.harness_signalled
         {
             let suffix = cleanup
                 .err()

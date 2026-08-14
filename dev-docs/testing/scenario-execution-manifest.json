@@ -6769,7 +6769,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 78,
+        "steps_total": 82,
         "operations": [
           "assert-frame",
           "finish",

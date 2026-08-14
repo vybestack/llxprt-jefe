@@ -197,6 +197,49 @@ fn resize_waits_for_exact_dimension_frame() {
 }
 
 #[test]
+fn resize_to_current_dimensions_is_an_acknowledged_no_op() {
+    let json = probe_scenario(
+        current_platform(),
+        r#"{"op":"wait","source":"frame","literal":"PROBE READY 100x30","timeout_ms":10000},
+           {"op":"resize","size":{"cols":100,"rows":30}},
+           {"op":"assert-frame","contains":["PROBE READY 100x30"],"absent":[]},
+           {"op":"finish"}"#,
+        "[]",
+    );
+    let outcome = run_scenario(&json);
+    assert!(
+        outcome.error.is_none(),
+        "no-op resize should pass: {:?}",
+        outcome.error
+    );
+    assert_eq!(outcome.report.status, "passed");
+    cleanup(&outcome);
+}
+
+#[test]
+fn finish_accepts_harness_controlled_termination() {
+    let json = format!(
+        r#"{{"schema":1,"name":"harness-termination","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],"files":[],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["/bin/sh","-c","trap 'exit 1' TERM; printf 'READY\\r\\n'; while read line; do :; done"],"env":[],"cwd":"work"}},
+                {{"op":"wait","source":"frame","literal":"READY","timeout_ms":10000}},
+                {{"op":"finish"}}
+            ],"secrets":[]}}"#,
+        current_platform()
+    );
+    let outcome = run_scenario(&json);
+    assert!(
+        outcome.error.is_none(),
+        "harness-induced exit must not become an application failure: {:?}",
+        outcome.error
+    );
+    assert_eq!(outcome.report.status, "passed");
+    cleanup(&outcome);
+}
+
+#[test]
 fn restart_preserves_durable_files_and_replaces_process() {
     let json = probe_scenario(
         current_platform(),
