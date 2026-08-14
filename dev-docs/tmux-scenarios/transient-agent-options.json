@@ -307,7 +307,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -402,7 +402,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {

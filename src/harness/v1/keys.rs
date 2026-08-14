@@ -18,6 +18,11 @@ pub fn encode(field: &str, key: &str, modifiers: &[Modifier]) -> Result<Vec<u8>,
     let control = modifiers.contains(&Modifier::Control);
     let shift = modifiers.contains(&Modifier::Shift);
     let mut bytes = encode_base(field, key, control, shift)?;
+    if alt && key == "enter" {
+        // A direct PTY has no tmux process to disambiguate ESC+CR. CSI-u
+        // preserves the Alt modifier as one terminal event.
+        return Ok(b"\x1b[13;3u".to_vec());
+    }
     if alt {
         let mut prefixed = vec![0x1b];
         prefixed.append(&mut bytes);
@@ -139,7 +144,7 @@ mod tests {
         assert_eq!(alt, vec![0x1b, b'x']);
         let alt_named = encode("f", "enter", &[Modifier::Alt])
             .unwrap_or_else(|err| panic!("should encode: {err}"));
-        assert_eq!(alt_named, vec![0x1b, b'\r']);
+        assert_eq!(alt_named, b"\x1b[13;3u");
     }
 
     #[test]

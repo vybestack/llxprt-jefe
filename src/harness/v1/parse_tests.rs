@@ -276,6 +276,31 @@ fn configured_file_cannot_be_a_fixture_ancestor() {
     }
 }
 
+fn assert_reserved_workspace_paths() {
+    let duplicate = minimal_with_steps(&format!("[{LAUNCH}]")).replace(
+        "\"dirs\":[]",
+        r#""dirs":[{"path":"a","mode":448},{"path":"a","mode":493}]"#,
+    );
+    let error = parse(&duplicate)
+        .err()
+        .unwrap_or_else(|| panic!("duplicate workspace path must fail"));
+    assert_eq!(error.code(), HarCode::E001);
+
+    let reserved = minimal_with_steps(&format!("[{LAUNCH}]"))
+        .replace("\"dirs\":[]", r#""dirs":[{"path":"bin","mode":448}]"#);
+    let error = parse(&reserved)
+        .err()
+        .unwrap_or_else(|| panic!("implicit directory collision must fail"));
+    assert_eq!(error.code(), HarCode::E001);
+    assert!(error.to_string().contains("reserved environment directory"));
+
+    let fixture = minimal_with_steps(&format!("[{LAUNCH}]")).replace(
+        r#""files":[]"#,
+        r#""files":[{"path":"bin/tool","content":{"utf8":"fixture"},"mode":448}]"#,
+    );
+    parse(&fixture).unwrap_or_else(|error| panic!("implicit child is valid: {error}"));
+}
+
 #[test]
 fn semantic_rules_enforced() {
     // Terminal op without any launch.
@@ -305,15 +330,8 @@ fn semantic_rules_enforced() {
     let twice = minimal_with_steps(&format!("[{LAUNCH},{LAUNCH}]"));
     let err = parse(&twice).err().unwrap_or_else(|| panic!("must fail"));
     assert_eq!(err.code(), HarCode::E001);
-    // Duplicate workspace paths.
-    let dup_paths = minimal_with_steps(&format!("[{LAUNCH}]")).replace(
-        "\"dirs\":[]",
-        r#""dirs":[{"path":"a","mode":448},{"path":"a","mode":493}]"#,
-    );
-    let err = parse(&dup_paths)
-        .err()
-        .unwrap_or_else(|| panic!("must fail"));
-    assert_eq!(err.code(), HarCode::E001);
+    assert_reserved_workspace_paths();
+
     // Duplicate workspace env names.
     let dup_env = minimal_with_steps(&format!("[{LAUNCH}]")).replace(
         "\"env\":[]",

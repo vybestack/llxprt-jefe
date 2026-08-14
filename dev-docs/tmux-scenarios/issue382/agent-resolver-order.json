@@ -2,21 +2,27 @@
   "schema": 1,
   "name": "agent-resolver-order",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "repo/.llxprt/bin", "mode": 493 },
-      { "path": "repo", "mode": 493 },
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 }
-    ],
-    "files": [
       {
-        "path": "bin/claude",
-        "content": { "utf8": "#!/bin/sh\necho path-claude\n" },
+        "path": "repo/.llxprt/bin",
         "mode": 493
       },
+      {
+        "path": "repo",
+        "mode": 493
+      },
+      {
+        "path": "config",
+        "mode": 448
+      }
+    ],
+    "files": [
       {
         "path": "config/settings.toml",
         "content": {
@@ -26,7 +32,10 @@
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+      {
+        "name": "HARNESS_ISSUE382_PROBE_MODE",
+        "value": "resolver"
+      }
     ]
   },
   "steps": [
@@ -56,15 +65,36 @@
         "spawn_child_hang": false
       }
     },
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-capture",
       "capture": {
         "name": "repo-llxprt",
         "invocation": 1,
-        "argv": ["repo/.llxprt/bin/llxprt"],
+        "argv": [
+          "repo/.llxprt/bin/llxprt"
+        ],
         "env": [],
         "cwd": "${workspace}/repo",
         "stdout": "repo-local-llxprt\n",
@@ -73,10 +103,19 @@
     },
     {
       "op": "assert-frame",
-      "contains": ["LLxprt", "Installed", "enabled"],
-      "absent": ["Not found", "error"]
+      "contains": [
+        "LLxprt",
+        "Installed",
+        "enabled"
+      ],
+      "absent": [
+        "Not found",
+        "error"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

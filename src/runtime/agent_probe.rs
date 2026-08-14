@@ -613,7 +613,10 @@ impl ProbeFailure {
                 "produced malformed framing".to_string()
             }
             Self::Evidence(ProbeEvidenceError::IdentityMismatch) => {
-                "reported an unrecognized identity".to_string()
+                return Availability::InstalledIncompatible {
+                    reason: phase.describe("reported an identity mismatch"),
+                    generation,
+                };
             }
         };
         probe_error(ProbeErrorCode::Agte202, phase.describe(&detail), generation)
@@ -626,7 +629,8 @@ mod tests {
     use std::path::Path;
     use std::time::Duration;
 
-    use super::{AgentWrapperKind, command_for_path};
+    use super::{AgentWrapperKind, ProbeEvidenceError, ProbeFailure, ProbePhase, command_for_path};
+    use crate::domain::agent_definition::Availability;
 
     #[test]
     fn wrapper_commands_preserve_fixed_argv_elements() {
@@ -668,6 +672,24 @@ mod tests {
         );
         assert_eq!(powershell_args[4], path.as_os_str());
         assert_eq!(powershell_args[5..], argv);
+    }
+
+    #[test]
+    fn identity_mismatch_is_installed_incompatible() {
+        let phase = ProbePhase::start(
+            "identity",
+            Path::new("/fixture/code-puppy"),
+            Duration::from_secs(1),
+        );
+
+        let availability = ProbeFailure::Evidence(ProbeEvidenceError::IdentityMismatch)
+            .into_availability(&phase, 7);
+
+        assert!(matches!(
+            availability,
+            Availability::InstalledIncompatible { generation: 7, ref reason }
+                if reason.contains("identity mismatch")
+        ));
     }
 
     #[test]

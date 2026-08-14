@@ -49,7 +49,9 @@
     {
       "op": "key",
       "key": "n",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -280,7 +282,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -291,7 +293,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [code_puppy]",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -313,7 +315,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [\u258f]",
+      "literal": "Default Version  [▏]",
       "timeout_ms": 15000
     },
     {
@@ -354,7 +356,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [0.0.361\u258f]",
+      "literal": "Default Version  [0.0.361▏]",
       "timeout_ms": 15000
     },
     {
@@ -382,7 +384,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -484,7 +486,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.0.361\u258f]",
+      "literal": "Version          [0.0.361▏]",
       "timeout_ms": 15000
     },
     {
@@ -510,7 +512,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.0.361-rc1\u258f]",
+      "literal": "Version          [0.0.361-rc1▏]",
       "timeout_ms": 15000
     },
     {
@@ -526,7 +528,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -537,7 +539,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [LLxprt]",
+      "literal": "Agent Runtime    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -566,7 +568,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [\u258f]",
+      "literal": "Version          [▏]",
       "timeout_ms": 15000
     },
     {
@@ -587,7 +589,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -609,7 +611,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.0.361-rc1\u258f]",
+      "literal": "Version          [0.0.361-rc1▏]",
       "timeout_ms": 15000
     },
     {

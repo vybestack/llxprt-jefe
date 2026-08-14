@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +31,27 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"fixture-repo\",\n      \"name\": \"LLxprt Jefe\",\n      \"slug\": \"llxprt-jefe\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"vybestack/llxprt-jefe\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-audit.log",
+        "content": {
+          "utf8": ""
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-state",
+        "content": {
+          "utf8": "open\n"
         },
         "mode": 384
       }
@@ -37,7 +66,16 @@
         "--config",
         "${workspace}/config"
       ],
-      "env": [],
+      "env": [
+        {
+          "name": "HARNESS_GH_AUDIT",
+          "value": "${workspace}/private/gh-audit.log"
+        },
+        {
+          "name": "HARNESS_GH_STATE",
+          "value": "${workspace}/private/gh-state"
+        }
+      ],
       "cwd": "work"
     },
     {
@@ -58,11 +96,10 @@
       "timeout_ms": 15000
     },
     {
-      "op": "assert-frame",
-      "contains": [
-        "L labels"
-      ],
-      "absent": []
+      "op": "wait",
+      "source": "frame",
+      "literal": "#353",
+      "timeout_ms": 15000
     },
     {
       "op": "key",
@@ -70,9 +107,30 @@
       "modifiers": []
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Description",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "l",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Labels",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Edit Labels"
+      ],
+      "absent": []
     },
     {
       "op": "key",
@@ -92,7 +150,9 @@
     {
       "op": "key",
       "key": "t",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "key",
@@ -113,6 +173,31 @@
       "op": "key",
       "key": "q",
       "modifiers": []
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.pr-search",
+        "content": {
+          "utf8": ""
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.labels-list",
+        "content": {
+          "utf8": ""
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "finish"

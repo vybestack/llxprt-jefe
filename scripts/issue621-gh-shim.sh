@@ -6,25 +6,22 @@ AUDIT_FILE="${JEFE_GH_AUDIT:?JEFE_GH_AUDIT is required}"
 record() {
   local disposition="$1"
   local operation="$2"
-  local argument
-  local escaped
-  local record_text
-  shift 2
-  printf -v record_text '%s %s -- gh ' "$disposition" "$operation"
-  for argument in "$@"; do
-    printf -v escaped '%q' "$argument"
-    record_text+="$escaped "
-  done
-  printf '%s\n' "$record_text" >>"$AUDIT_FILE"
+  printf '%s %s\n' "$disposition" "$operation" >>"$AUDIT_FILE"
 }
 
 accept() {
   local operation="$1"
   shift
-  record ACCEPTED "$operation" "$@"
+  if [[ "$operation" == "auth-status" ]]; then
+    : > "${AUDIT_FILE}.auth-status"
+    return
+  fi
+  : > "${AUDIT_FILE}.accepted-${operation}"
+  record ACCEPTED "$operation"
 }
 
 reject() {
+  : > "${AUDIT_FILE}.rejected"
   record REJECTED unexpected "$@"
   printf 'issue621 gh shim: rejected unexpected argv\n' >&2
   exit 64

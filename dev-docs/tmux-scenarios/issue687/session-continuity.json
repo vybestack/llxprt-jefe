@@ -2,24 +2,38 @@
   "schema": 1,
   "name": "issue687-session-continuity",
   "platform": "macos",
-  "terminal": { "cols": 110, "rows": 32 },
+  "terminal": {
+    "cols": 110,
+    "rows": 32
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "config", "mode": 448 },
-      { "path": "work", "mode": 448 },
-      { "path": "sockets", "mode": 448 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      },
+      {
+        "path": "sockets",
+        "mode": 448
+      }
     ],
     "files": [
       {
         "path": "config/settings.toml",
-        "content": { "utf8": "settings_schema = 2\n" },
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
         "mode": 384
       },
       {
         "path": "work/prove-continuity.sh",
         "content": {
-          "utf8": "#!/bin/sh\nset -eu\nroot=$1\nexport JEFE_SOCKET_DIR=\"$root/sockets\"\nsocket_for() {\n  output=$(\"$1\" doctor --config \"$root/config\" 2>&1 || true)\n  while IFS= read -r line; do\n    case \"$line\" in\n      *\"private socket isolation at \"*)\n        rest=${line#*private socket isolation at }\n        printf '%s\\n' \"${rest%%;*}\"\n        return 0\n        ;;\n    esac\n  done <<EOF\n$output\nEOF\n  return 1\n}\nbinary=$(command -v jefe)\nsocket=$(socket_for \"$binary\")\ntest -n \"$socket\"\ncleanup() { tmux -f /dev/null -S \"$socket\" kill-server >/dev/null 2>&1 || true; }\ntrap cleanup EXIT INT TERM\ntmux -f /dev/null -S \"$socket\" new-session -d -s issue687-continuity 'sleep 60'\ncp \"$binary\" \"$root/jefe-rebuilt\"\nchmod 755 \"$root/jefe-rebuilt\"\nrestarted_socket=$(socket_for \"$root/jefe-rebuilt\")\ntest \"$socket\" = \"$restarted_socket\"\ntmux -f /dev/null -S \"$restarted_socket\" has-session -t issue687-continuity\nprintf 'SAME CONFIG RE-ADOPTED SESSION\\n'\n"
+          "utf8": "#!/bin/sh\nset -eu\nroot=$1\nexport JEFE_SOCKET_DIR=\"$root/sockets\"\nsocket_for() {\n  output=$(\"$1\" doctor --config \"$root/config\" 2>&1 || true)\n  while IFS= read -r line; do\n    case \"$line\" in\n      *\"private socket isolation at \"*)\n        rest=${line#*private socket isolation at }\n        printf '%s\\n' \"${rest%%;*}\"\n        return 0\n        ;;\n    esac\n  done <<EOF\n$output\nEOF\n  return 1\n}\nbinary=$(command -v jefe)\nsocket=$(socket_for \"$binary\")\ntest -n \"$socket\"\ncleanup() { tmux -f /dev/null -S \"$socket\" kill-server >/dev/null 2>&1 || true; }\ntrap cleanup EXIT INT TERM\ntmux -f /dev/null -S \"$socket\" new-session -d -s issue687-continuity '/bin/sleep 60'\n/bin/cp \"$binary\" \"$root/jefe-rebuilt\"\n/bin/chmod 755 \"$root/jefe-rebuilt\"\nrestarted_socket=$(socket_for \"$root/jefe-rebuilt\")\ntest \"$socket\" = \"$restarted_socket\"\ntmux -f /dev/null -S \"$restarted_socket\" has-session -t issue687-continuity\nprintf 'SAME CONFIG RE-ADOPTED SESSION\\n'\n"
         },
         "mode": 493
       }
@@ -29,7 +43,11 @@
   "steps": [
     {
       "op": "launch",
-      "argv": ["/bin/sh", "${workspace}/work/prove-continuity.sh", "${workspace}"],
+      "argv": [
+        "/bin/sh",
+        "${workspace}/work/prove-continuity.sh",
+        "${workspace}"
+      ],
       "env": [],
       "cwd": "work"
     },
@@ -39,7 +57,9 @@
       "literal": "SAME CONFIG RE-ADOPTED SESSION",
       "timeout_ms": 20000
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

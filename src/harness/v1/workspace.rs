@@ -16,7 +16,7 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
-use super::contract::{DirSpec, FileSpec, RelPath, WorkspaceSpec};
+use super::contract::{DirSpec, ENV_DIRS, FileSpec, RelPath, WorkspaceSpec};
 use super::error::HarnessError;
 use super::limits::MAX_BYTES;
 
@@ -28,16 +28,6 @@ const O_DIRECTORY: i32 = 0x0010_0000;
 const O_NOFOLLOW: i32 = 0o400_000;
 #[cfg(target_os = "linux")]
 const O_DIRECTORY: i32 = 0o200_000;
-
-/// Directories the deterministic environment roots in the workspace.
-pub const ENV_DIRS: &[&str] = &[
-    "home",
-    "tmp",
-    "bin",
-    "jefe-config",
-    "jefe-state",
-    "jefe-plugins",
-];
 
 /// Physical identity of a filesystem object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,10 +369,22 @@ fn unique_root() -> Result<PathBuf, HarnessError> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|err| HarnessError::process(format!("clock error: {err}")))?
         .as_nanos();
-    Ok(std::env::temp_dir().join(format!(
+    Ok(temporary_root().join(format!(
         "jefe-harness-{}-{sequence}-{nanos:x}",
         std::process::id()
     )))
+}
+
+#[cfg(target_os = "macos")]
+fn temporary_root() -> PathBuf {
+    // macOS's per-user temp directory is too long for a config-derived tmux
+    // socket. `/tmp` is the stable short namespace used by Unix socket clients.
+    PathBuf::from("/tmp")
+}
+
+#[cfg(target_os = "linux")]
+fn temporary_root() -> PathBuf {
+    std::env::temp_dir()
 }
 
 #[cfg(test)]

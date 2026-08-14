@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/fixture-repo-alpha",
+        "mode": 448
+      },
+      {
+        "path": "work/fixture-repo-beta",
+        "mode": 448
       }
     ],
     "files": [
@@ -48,6 +56,131 @@
     },
     {
       "op": "key",
+      "key": "n",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "text",
+      "text": "Alpha Repository"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "fixture-repo-alpha"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "1 repos | 0/0 running",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [core.code-puppy]",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Alpha Agent"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-agent-ready",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
       "key": "f12",
       "modifiers": []
     },
@@ -56,9 +189,223 @@
       "text": "for i in $(seq 1 60); do printf 'line %d\\n' $i; done\n"
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "line 60",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 100,
+        "rows": 24
+      }
+    },
+    {
       "op": "key",
       "key": "pageup",
       "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "pageup",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "follow",
+      "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
@@ -66,12 +413,6 @@
         "line 1"
       ],
       "absent": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "follow",
-      "timeout_ms": 15000
     },
     {
       "op": "key",

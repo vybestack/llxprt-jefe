@@ -158,3 +158,49 @@ fn s4_workspace_handlers_produce_source_specific_events() {
         HandlerExecution::Event(AppEvent::ActionsExpandJob)
     ));
 }
+
+#[test]
+fn dashboard_activation_respects_repository_focus_when_no_agents_exist() {
+    let definition = jefe::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("shipped definitions must not be empty"));
+    let repository_id = jefe::domain::RepositoryId("repo-empty".to_string());
+    let mut state = AppState {
+        repositories: vec![jefe::domain::Repository::new(
+            repository_id.clone(),
+            definition.id.clone(),
+            jefe::domain::TypedMap::new(),
+            "Empty repository".to_string(),
+            "repo-empty".to_string(),
+            std::path::PathBuf::from("/tmp/repo-empty"),
+        )],
+        selected_repository_index: Some(0),
+        pane_focus: jefe::state::PaneFocus::Repositories,
+        agent_type_availability: vec![
+            jefe::agent_status_view::AgentAvailabilityObservation::not_found(&definition, true, 1),
+        ],
+        ..AppState::default()
+    };
+
+    assert!(matches!(
+        execution_for(
+            HandlerKey::ActivateDashboardSelection,
+            chord("Enter"),
+            &state,
+            PageItemCount::new(1),
+        ),
+        HandlerExecution::Event(AppEvent::OpenEditRepository(id)) if id == repository_id
+    ));
+
+    state.pane_focus = jefe::state::PaneFocus::Agents;
+    assert!(matches!(
+        execution_for(
+            HandlerKey::ActivateDashboardSelection,
+            chord("Enter"),
+            &state,
+            PageItemCount::new(1),
+        ),
+        HandlerExecution::Event(AppEvent::OpenAgentTypeForm(id)) if id == definition.id
+    ));
+}

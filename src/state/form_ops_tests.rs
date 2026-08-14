@@ -64,6 +64,36 @@ fn open_new_agent_copies_repository_code_puppy_model() {
 }
 
 #[test]
+fn open_new_agent_keeps_repository_version_on_its_runtime() {
+    let mut repo = seed_repository();
+    repo.default_type_id = crate::domain::shipped_agent_type(1);
+    crate::domain::canonical_values::insert_json(
+        &mut repo.default_values,
+        "version_selector",
+        serde_json::Value::String("0.9.0".to_owned()),
+    )
+    .unwrap_or_else(|error| panic!("valid version fixture: {error}"));
+    let mut state = AppState {
+        repositories: vec![repo],
+        available_agent_type_ids: vec![
+            crate::domain::shipped_agent_type(3),
+            crate::domain::shipped_agent_type(1),
+        ],
+        ..AppState::default()
+    };
+
+    state = state
+        .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
+        .committed_pure();
+
+    let ModalState::NewAgent { fields, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.code_puppy_version, "0.9.0");
+    assert_eq!(fields.llxprt_version, "");
+}
+
+#[test]
 fn open_new_agent_defaults_to_repo_kind_when_installed() {
     let mut repo = seed_repository();
     repo.default_type_id = crate::domain::shipped_agent_type(1);

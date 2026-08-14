@@ -2,20 +2,23 @@
   "schema": 1,
   "name": "agent-remote-operation-matrix",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
-      {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
-        "mode": 493
-      },
       {
         "path": "config/settings.toml",
         "content": {
@@ -25,8 +28,10 @@
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
-      { "name": "TERM", "value": "xterm-256color" }
+      {
+        "name": "TERM",
+        "value": "xterm-256color"
+      }
     ]
   },
   "steps": [
@@ -43,15 +48,41 @@
         "spawn_child_hang": false
       }
     },
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
-      "contains": ["LLxprt", "Remote"],
-      "absent": ["error"]
+      "contains": [
+        "LLxprt",
+        "Remote"
+      ],
+      "absent": [
+        "error"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

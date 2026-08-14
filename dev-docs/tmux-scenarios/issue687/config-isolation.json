@@ -2,30 +2,49 @@
   "schema": 1,
   "name": "issue687-config-isolation",
   "platform": "macos",
-  "terminal": { "cols": 110, "rows": 32 },
+  "terminal": {
+    "cols": 110,
+    "rows": 32
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "config-a", "mode": 448 },
-      { "path": "config-b", "mode": 448 },
-      { "path": "work", "mode": 448 },
-      { "path": "sockets", "mode": 448 }
+      {
+        "path": "config-a",
+        "mode": 448
+      },
+      {
+        "path": "config-b",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      },
+      {
+        "path": "sockets",
+        "mode": 448
+      }
     ],
     "files": [
       {
         "path": "config-a/settings.toml",
-        "content": { "utf8": "settings_schema = 2\n" },
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
         "mode": 384
       },
       {
         "path": "config-b/settings.toml",
-        "content": { "utf8": "settings_schema = 2\n" },
+        "content": {
+          "utf8": "settings_schema = 2\n"
+        },
         "mode": 384
       },
       {
         "path": "work/prove-isolation.sh",
         "content": {
-          "utf8": "#!/bin/sh\nset -eu\nroot=$1\nexport JEFE_SOCKET_DIR=\"$root/sockets\"\nsocket_for() {\n  output=$(jefe doctor --config \"$1\" 2>&1 || true)\n  while IFS= read -r line; do\n    case \"$line\" in\n      *\"private socket isolation at \"*)\n        rest=${line#*private socket isolation at }\n        printf '%s\\n' \"${rest%%;*}\"\n        return 0\n        ;;\n    esac\n  done <<EOF\n$output\nEOF\n  return 1\n}\nsocket_a=$(socket_for \"$root/config-a\")\nsocket_b=$(socket_for \"$root/config-b\")\ntest -n \"$socket_a\"\ntest -n \"$socket_b\"\ntest \"$socket_a\" != \"$socket_b\"\ncleanup() { tmux -f /dev/null -S \"$socket_a\" kill-server >/dev/null 2>&1 || true; tmux -f /dev/null -S \"$socket_b\" kill-server >/dev/null 2>&1 || true; }\ntrap cleanup EXIT INT TERM\ntmux -f /dev/null -S \"$socket_a\" new-session -d -s issue687-isolation 'sleep 60'\ntmux -f /dev/null -S \"$socket_a\" has-session -t issue687-isolation\nif tmux -f /dev/null -S \"$socket_b\" has-session -t issue687-isolation >/dev/null 2>&1; then\n  printf 'CONFIG B SAW CONFIG A SESSION\\n' >&2\n  exit 1\nfi\nprintf 'DIFFERENT CONFIG CANNOT SEE SESSION\\n'\n"
+          "utf8": "#!/bin/sh\nset -eu\nroot=$1\nexport JEFE_SOCKET_DIR=\"$root/sockets\"\nsocket_for() {\n  output=$(jefe doctor --config \"$1\" 2>&1 || true)\n  while IFS= read -r line; do\n    case \"$line\" in\n      *\"private socket isolation at \"*)\n        rest=${line#*private socket isolation at }\n        printf '%s\\n' \"${rest%%;*}\"\n        return 0\n        ;;\n    esac\n  done <<EOF\n$output\nEOF\n  return 1\n}\nsocket_a=$(socket_for \"$root/config-a\")\nsocket_b=$(socket_for \"$root/config-b\")\ntest -n \"$socket_a\"\ntest -n \"$socket_b\"\ntest \"$socket_a\" != \"$socket_b\"\ncleanup() { tmux -f /dev/null -S \"$socket_a\" kill-server >/dev/null 2>&1 || true; tmux -f /dev/null -S \"$socket_b\" kill-server >/dev/null 2>&1 || true; }\ntrap cleanup EXIT INT TERM\ntmux -f /dev/null -S \"$socket_a\" new-session -d -s issue687-isolation '/bin/sleep 60'\ntmux -f /dev/null -S \"$socket_a\" has-session -t issue687-isolation\nif tmux -f /dev/null -S \"$socket_b\" has-session -t issue687-isolation >/dev/null 2>&1; then\n  printf 'CONFIG B SAW CONFIG A SESSION\\n' >&2\n  exit 1\nfi\nprintf 'DIFFERENT CONFIG CANNOT SEE SESSION\\n'\n"
         },
         "mode": 493
       }
@@ -35,7 +54,11 @@
   "steps": [
     {
       "op": "launch",
-      "argv": ["/bin/sh", "${workspace}/work/prove-isolation.sh", "${workspace}"],
+      "argv": [
+        "/bin/sh",
+        "${workspace}/work/prove-isolation.sh",
+        "${workspace}"
+      ],
       "env": [],
       "cwd": "work"
     },
@@ -45,7 +68,9 @@
       "literal": "DIFFERENT CONFIG CANNOT SEE SESSION",
       "timeout_ms": 20000
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

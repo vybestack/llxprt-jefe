@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +31,27 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"fixture-repo\",\n      \"name\": \"LLxprt Jefe\",\n      \"slug\": \"llxprt-jefe\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"vybestack/llxprt-jefe\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-audit.log",
+        "content": {
+          "utf8": ""
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-state",
+        "content": {
+          "utf8": "open\n"
         },
         "mode": 384
       }
@@ -37,7 +66,16 @@
         "--config",
         "${workspace}/config"
       ],
-      "env": [],
+      "env": [
+        {
+          "name": "HARNESS_GH_AUDIT",
+          "value": "${workspace}/private/gh-audit.log"
+        },
+        {
+          "name": "HARNESS_GH_STATE",
+          "value": "${workspace}/private/gh-state"
+        }
+      ],
       "cwd": "work"
     },
     {
@@ -66,7 +104,9 @@
     {
       "op": "key",
       "key": "c",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -131,6 +171,12 @@
       "modifiers": []
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#352 Contextual allocation fixture",
+      "timeout_ms": 15000
+    },
+    {
       "op": "assert-frame",
       "contains": [],
       "absent": [
@@ -143,6 +189,17 @@
       "modifiers": []
     },
     {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
       "op": "assert-frame",
       "contains": [],
       "absent": [
@@ -153,6 +210,22 @@
       "op": "key",
       "key": "q",
       "modifiers": []
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log",
+        "content": {
+          "utf8": "ACCEPTED issue-search\n"
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "finish"

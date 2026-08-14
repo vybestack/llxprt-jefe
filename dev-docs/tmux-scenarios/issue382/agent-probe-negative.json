@@ -2,25 +2,23 @@
   "schema": 1,
   "name": "agent-probe-negative",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
-      {
-        "path": "bin/codex",
-        "content": { "utf8": "#!/bin/sh\n# emits invalid UTF-8 then exits nonzero\nprintf '\\xff\\xfe\\xff\\xff\\n'\nexit 1\n" },
-        "mode": 493
-      },
-      {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\n# trailing garbage after the identity JSON\nprintf '{\"identity\":\"0.10\"}GARBAGE\\n'\n" },
-        "mode": 493
-      },
       {
         "path": "config/settings.toml",
         "content": {
@@ -30,20 +28,55 @@
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
+      {
+        "name": "HARNESS_ISSUE382_PROBE_MODE",
+        "value": "negative"
+      }
     ]
   },
   "steps": [
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "AGT-E202", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "Reprobe", "timeout_ms": 15000 },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "AGT-E202",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Reprobe",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
-      "contains": ["Probe error", "AGT-E202", "Reprobe"],
-      "absent": ["enabled"]
+      "contains": [
+        "Probe error",
+        "AGT-E202",
+        "Reprobe"
+      ],
+      "absent": [
+        "enabled"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

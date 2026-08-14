@@ -14,11 +14,11 @@
         "mode": 448
       },
       {
-        "path": "config/runs",
+        "path": "work",
         "mode": 448
       },
       {
-        "path": "work",
+        "path": "config/runs",
         "mode": 448
       }
     ],
@@ -38,9 +38,9 @@
         "mode": 384
       },
       {
-        "path": "config/runs/run-4000000001.json",
+        "path": "config/runs/run-99999999.json",
         "content": {
-          "utf8": "{\n  \"identity\": { \"pid\": 4000000001, \"started_at\": 1 },\n  \"version\": \"0.0.31\",\n  \"started_unix\": 1700000000,\n  \"last_seen_unix\": 1700000100\n}\n"
+          "utf8": "{\n  \"identity\": {\n    \"pid\": 99999999,\n    \"started_at\": 1\n  },\n  \"version\": \"0.0.31\",\n  \"started_unix\": 1700000000,\n  \"last_seen_unix\": 1700000100\n}\n"
         },
         "mode": 384
       }
@@ -55,7 +55,12 @@
         "--config",
         "${workspace}/config"
       ],
-      "env": [],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        }
+      ],
       "cwd": "work"
     },
     {
@@ -67,13 +72,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Previous jefe run (pid 4000000001)",
+      "literal": "Previous jefe run (pid 99999999)",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Previous jefe run (pid 4000000001)",
+        "Previous jefe run (pid 99999999)",
         "ended without a recorded reason"
       ],
       "absent": []

@@ -17,7 +17,7 @@ use crate::state::screens_editor::preview_layout;
 use crate::state::settings_types::DirtyChoiceCursor;
 use crate::state::settings_view::{
     PluginConfigMigrationView, SettingsRow, SettingsRowKind, detail_window,
-    plugin_config_migration_view, recovery_choices, section_rows,
+    plugin_config_migration_view, recovery_choices, section_window,
 };
 use crate::state::{AppState, DraftStatus, SettingsDraft, SettingsFocus, SettingsState};
 use crate::theme::{ResolvedColors, ThemeColors};
@@ -75,7 +75,7 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
             )
             #(dirty_guard_row(props.state.as_ref(), &settings, &rc))
             Box(flex_direction: FlexDirection::Row, flex_grow: 1.0_f32, background_color: rc.bg) {
-                #(section_pane(&settings, &rc))
+                #(section_pane(props.state.as_ref(), &settings, &rc))
                 #(detail_pane(props.state.as_ref(), &settings, &rc))
                 #(layout_pane(&settings, &rc))
             }
@@ -98,9 +98,13 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
 }
 
 /// The section list, with the diagnostics count its title carries.
-fn section_pane(settings: &SettingsState, rc: &ResolvedColors) -> AnyElement<'static> {
+fn section_pane(
+    state: Option<&AppState>,
+    settings: &SettingsState,
+    rc: &ResolvedColors,
+) -> AnyElement<'static> {
     let focused = settings.focus == SettingsFocus::Sections;
-    let rows = section_rows(settings);
+    let rows = section_window(settings, detail_geometry(state, settings).rows).rows;
     element! {
         Box(
             flex_direction: FlexDirection::Column,

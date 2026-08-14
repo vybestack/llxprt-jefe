@@ -27,6 +27,9 @@ pub fn build_new_issue_content(form: Option<&NewIssueFormState>) -> DetailConten
     builder.lines.push("New Issue".to_string());
     if let Some(form) = form {
         push_new_issue_form_rows(&mut builder.lines, form);
+        if let Some(error) = &form.error {
+            builder.lines.push(error.clone());
+        }
     }
     builder.lines.push(String::new());
 

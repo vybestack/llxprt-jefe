@@ -82,32 +82,25 @@ fn a_relative_socket_path_is_not_reaped() {
     assert_eq!(socket_to_reap(&env_with("jefe.sock"), root.path()), None);
 }
 
-/// A workspace-relative socket must still fit the kernel's `sun_path` limit.
-///
-/// This is not theoretical margin. On macOS the temp directory canonicalizes
-/// through `/private`, which costs 57 bytes before the workspace name is even
-/// added, and the workspace name carries a pid, a sequence and a nanosecond
-/// hex stamp. `${workspace}/jefe.sock` measures 107 bytes against a 104-byte
-/// kernel limit and would simply fail to bind; the one-character name the
-/// scenarios use measures 99.
-///
-/// Pinning it here means a future rename of the workspace prefix fails this
-/// test instead of silently breaking the preview scenarios at run time.
+/// A config-derived socket under the workspace must fit the kernel's
+/// `sun_path` limit. The production renderer owns the `sockets/jefe-*.sock`
+/// shape, so the harness must allocate a compact enough run root rather than
+/// replacing the product-derived path in scenarios.
 #[test]
-fn a_workspace_relative_socket_fits_the_unix_socket_path_limit() {
+fn a_config_derived_socket_fits_the_unix_socket_path_limit() {
     /// The same conservative bound `runtime::socket` applies, below the
     /// 104-byte macOS and 108-byte Linux kernel limits.
     const SAFE_LIMIT: usize = 100;
 
     let workspace = crate::harness::v1::workspace::Workspace::allocate()
         .unwrap_or_else(|error| panic!("workspace must allocate: {error}"));
-    let socket = workspace.root().join("s");
+    let socket = workspace.root().join("sockets/jefe-0123456789abcdef.sock");
     let length = socket.as_os_str().len();
 
     assert!(
         length <= SAFE_LIMIT,
-        "a workspace-relative socket must fit the sun_path limit, but {} is {length} bytes; \
-         either the workspace name grew or the socket name did",
+        "a config-derived socket must fit the sun_path limit, but {} is {length} bytes; \
+         the harness workspace root is too long",
         socket.display()
     );
 }

@@ -16,6 +16,10 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/fixture-repo",
+        "mode": 448
       }
     ],
     "files": [
@@ -122,7 +126,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "t/f12 terminal focus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 10000
     },
     {
@@ -244,7 +248,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "t/f12 terminal focus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 10000
     },
     {
@@ -295,7 +299,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "t/f12 terminal focus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 10000
     },
     {

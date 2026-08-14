@@ -165,7 +165,42 @@ fn register_snapshot(bootstrap: &serde_json::Value) {
         std::process::exit(2);
     };
     let waiting = claim_wait_ticket();
-    let snapshot = serde_json::json!({
+    let native_complete = std::env::var_os("JSP_FIXTURE_NATIVE_COMPLETE").is_some();
+    let (todo_text, todo_state, last_reply) = snapshot_content(native_complete);
+    let snapshot = snapshot_value(
+        agent_id,
+        generation,
+        waiting,
+        native_complete,
+        (todo_text, todo_state, last_reply),
+    );
+    let Some(registration_id) = bootstrap["registration_id"].as_str() else {
+        std::process::exit(2);
+    };
+    if let Err(error) = post(endpoint, "register", credential, registration_id, &snapshot) {
+        // Print the safe, credential-free diagnostic before exiting so a
+        // fixture failure is diagnosable in the harness output.
+        write_stderr(&format!("JSP fixture registration failed: {error}\n"));
+        std::process::exit(3);
+    }
+}
+
+fn snapshot_content(native_complete: bool) -> (&'static str, &'static str, &'static str) {
+    if native_complete {
+        ("Native LLxprt todo", "completed", "Native LLxprt JSP reply")
+    } else {
+        ("Implement issue 522", "in_progress", "JSP preview is wired")
+    }
+}
+fn snapshot_value(
+    agent_id: &str,
+    generation: u64,
+    waiting: bool,
+    native_complete: bool,
+    content: (&str, &str, &str),
+) -> serde_json::Value {
+    let (todo_text, todo_state, last_reply) = content;
+    serde_json::json!({
         "schema": 1,
         "kind": "snapshot",
         "agent_id": agent_id,
@@ -185,33 +220,28 @@ fn register_snapshot(bootstrap: &serde_json::Value) {
             "pid": std::process::id(),
             "started_at_ms": 1000
         })),
-        "native_activity": known(activity_value(waiting)),
+        "native_activity": known(activity_value(waiting || native_complete)),
         "current_wait": known(wait_value(waiting)),
-        "current_turn": known(serde_json::json!({"elapsed_ms": 1000})),
+        "current_turn": known(if native_complete {
+            serde_json::Value::Null
+        } else {
+            serde_json::json!({"elapsed_ms": 1000})
+        }),
         "todos": known(serde_json::json!({
             "revision": 1,
-            "items": [{"text": "Implement issue 522", "state": "in_progress"}]
+            "items": [{"text": todo_text, "state": todo_state}]
         })),
         "last_displayed_assistant_message": known(serde_json::json!({
-            "content": "JSP preview is wired",
+            "content": last_reply,
             "committed_ms": 1000
         })),
         "last_created_tool_call": known(serde_json::json!({
             "label": "run_shell",
-            "phase": "executing"
+            "phase": if native_complete { "succeeded" } else { "executing" }
         })),
         "source_terminal_state": known(serde_json::Value::Null),
         "source_error_state": {"provenance": "authoritative", "availability": "unknown"}
-    });
-    let Some(registration_id) = bootstrap["registration_id"].as_str() else {
-        std::process::exit(2);
-    };
-    if let Err(error) = post(endpoint, "register", credential, registration_id, &snapshot) {
-        // Print the safe, credential-free diagnostic before exiting so a
-        // fixture failure is diagnosable in the harness output.
-        write_stderr(&format!("JSP fixture registration failed: {error}\n"));
-        std::process::exit(3);
-    }
+    })
 }
 
 fn known(value: serde_json::Value) -> serde_json::Value {

@@ -618,7 +618,8 @@ fn relaunch_execution(state: &AppState) -> HandlerExecution {
 }
 
 fn activate_execution(state: &AppState) -> HandlerExecution {
-    if state.agents.is_empty()
+    if state.pane_focus == PaneFocus::Agents
+        && state.agents.is_empty()
         && let Some(observation) = state
             .agent_type_availability
             .get(state.selected_agent_type_index)

@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/fixture-repo-alpha",
+        "mode": 448
+      },
+      {
+        "path": "work/fixture-repo-beta",
+        "mode": 448
       }
     ],
     "files": [
@@ -44,7 +52,183 @@
       "op": "wait",
       "source": "frame",
       "literal": "LLxprt Jefe",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Code Puppy  Installed",
       "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f7",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No shells",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F7 shells",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "text",
+      "text": "Alpha Repository"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "fixture-repo-alpha"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "1 repos | 0/0 running",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [core.code-puppy]",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [core.code-puppy]",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [core.code-puppy]",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Runtime    [core.code-puppy]",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Alpha Agent"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-agent-ready",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
     },
     {
       "op": "key",

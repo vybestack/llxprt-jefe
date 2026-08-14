@@ -6,17 +6,23 @@ umask 077
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-CAPTURE_SCRIPT="$SCRIPT_DIR/issue241-capture.sh"
+DRIVER="$SCRIPT_DIR/run-scenario-manifest.py"
+PUBLISHER="$SCRIPT_DIR/publish-first-agent-tutorial.py"
+SCENARIO="dev-docs/tmux-scenarios/first-agent-tutorial.json"
+REPORT_NAME="dev-docs__tmux-scenarios__first-agent-tutorial.json"
 ASSET_DIR="$REPO_ROOT/docs/assets"
 PROVENANCE="$ASSET_DIR/first-agent-tutorial.provenance"
 ASSETS="first-agent-new-repository.svg first-agent-new-agent.svg first-agent-result.svg first-agent-code-puppy.svg first-agent-issues.svg first-agent-issue-send.svg first-agent-pull-request.svg first-agent-pr-merge.svg"
-CONTRACT_PATHS="Cargo.toml Cargo.lock build.rs src dev-docs/tmux-scenarios/first-agent-tutorial.json scripts/issue241-capture.sh scripts/first-agent-tutorial-gh-shim.sh scripts/regenerate-first-agent-tutorial.sh"
+CONTRACT_PATHS="Cargo.toml Cargo.lock build.rs src dev-docs/testing/scenario-execution-manifest.json dev-docs/tmux-scenarios/first-agent-tutorial.json scripts/run-scenario-manifest.py scripts/publish-first-agent-tutorial.py scripts/first-agent-tutorial-*-shim.sh scripts/regenerate-first-agent-tutorial.sh"
+SENTINEL="jefe-first-agent-tutorial-v2"
 
 usage() {
     cat <<'EOF'
 Usage:
   scripts/regenerate-first-agent-tutorial.sh regenerate --root ABSOLUTE_PATH
-  scripts/regenerate-first-agent-tutorial.sh regenerate --root ABSOLUTE_PATH --jefe-bin PATH --harness-bin PATH
+  scripts/regenerate-first-agent-tutorial.sh regenerate --root ABSOLUTE_PATH --tmux-scenario PATH --jefe PATH --probe PATH --jsp-fixture PATH --shim PATH
+  scripts/regenerate-first-agent-tutorial.sh cleanup --dry-run --root ABSOLUTE_PATH
+  scripts/regenerate-first-agent-tutorial.sh cleanup --confirm --root ABSOLUTE_PATH
   scripts/regenerate-first-agent-tutorial.sh check
 
 Without explicit binary paths, regenerate builds all locked workspace binaries.
@@ -39,10 +45,11 @@ manifest_value() {
 }
 
 source_fingerprint() {
-    files=$(git -C "$REPO_ROOT" ls-files -- $CONTRACT_PATHS)
-    [ -n "$files" ] || fail "no tracked first-agent source contract files found"
+    files=$(git -C "$REPO_ROOT" ls-files --cached --others --exclude-standard -- $CONTRACT_PATHS)
+    [ -n "$files" ] || fail "no first-agent source contract files found"
     {
-        printf '%s\n' "$files" | LC_ALL=C sort | while IFS= read -r file; do
+        printf '%s\n' "$files" | LC_ALL=C sort -u | while IFS= read -r file; do
+            [ -f "$REPO_ROOT/$file" ] || continue
             object=$(git -C "$REPO_ROOT" hash-object -- "$file")
             printf '%s  %s\n' "$object" "$file"
         done
@@ -51,23 +58,24 @@ source_fingerprint() {
 
 parse_regenerate() {
     ROOT=
-    JEFE_BIN=
-    HARNESS_BIN=
+    TMUX_SCENARIO=
+    JEFE=
+    PROBE=
+    JSP_FIXTURE=
+    SHIM=
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --root)
-                [ "$#" -ge 2 ] || fail "--root requires a value"
-                ROOT=$2
-                shift 2
-                ;;
-            --jefe-bin)
-                [ "$#" -ge 2 ] || fail "--jefe-bin requires a value"
-                JEFE_BIN=$2
-                shift 2
-                ;;
-            --harness-bin)
-                [ "$#" -ge 2 ] || fail "--harness-bin requires a value"
-                HARNESS_BIN=$2
+            --root|--tmux-scenario|--jefe|--probe|--jsp-fixture|--shim)
+                flag=$1
+                [ "$#" -ge 2 ] || fail "$flag requires a value"
+                case "$flag" in
+                    --root) ROOT=$2 ;;
+                    --tmux-scenario) TMUX_SCENARIO=$2 ;;
+                    --jefe) JEFE=$2 ;;
+                    --probe) PROBE=$2 ;;
+                    --jsp-fixture) JSP_FIXTURE=$2 ;;
+                    --shim) SHIM=$2 ;;
+                esac
                 shift 2
                 ;;
             *) fail "unknown regenerate argument: $1" ;;
@@ -78,35 +86,54 @@ parse_regenerate() {
         /*) ;;
         *) fail "regenerate requires an absolute --root" ;;
     esac
-    if [ -n "$JEFE_BIN" ] || [ -n "$HARNESS_BIN" ]; then
-        [ -n "$JEFE_BIN" ] && [ -n "$HARNESS_BIN" ] || \
-            fail "--jefe-bin and --harness-bin must be provided together"
-    fi
+    [ ! -e "$ROOT" ] && [ ! -L "$ROOT" ] || fail "regenerate root must not already exist: $ROOT"
+    supplied=0
+    for value in "$TMUX_SCENARIO" "$JEFE" "$PROBE" "$JSP_FIXTURE" "$SHIM"; do
+        [ -z "$value" ] || supplied=$((supplied + 1))
+    done
+    [ "$supplied" -eq 0 ] || [ "$supplied" -eq 5 ] || \
+        fail "all explicit binary paths must be provided together"
 }
 
 prepare_binaries() {
-    if [ -z "$JEFE_BIN" ]; then
+    if [ -z "$JEFE" ]; then
         require_tool cargo
         (cd "$REPO_ROOT" && cargo build --workspace --all-features --locked --bins)
-        JEFE_BIN="$REPO_ROOT/target/debug/jefe"
-        HARNESS_BIN="$REPO_ROOT/target/debug/jefe-tmux-harness"
+        TMUX_SCENARIO="$REPO_ROOT/target/debug/tmux_scenario"
+        JEFE="$REPO_ROOT/target/debug/jefe"
+        PROBE="$REPO_ROOT/target/debug/jefe-harness-probe"
+        JSP_FIXTURE="$REPO_ROOT/target/debug/jefe-jsp-llxprt-fixture"
+        SHIM="$REPO_ROOT/target/debug/jefe-capture-shim"
     fi
-    [ -x "$JEFE_BIN" ] || fail "jefe binary not found or not executable: $JEFE_BIN"
-    [ -x "$HARNESS_BIN" ] || fail "harness binary not found or not executable: $HARNESS_BIN"
+    for binary in "$TMUX_SCENARIO" "$JEFE" "$PROBE" "$JSP_FIXTURE" "$SHIM"; do
+        [ -x "$binary" ] || fail "required binary not found or not executable: $binary"
+    done
+}
+
+write_run_manifest() {
+    report=$ROOT/evidence/$REPORT_NAME
+    [ -f "$report" ] || fail "canonical tutorial report is missing: $report"
+    {
+        printf 'format_version=2\n'
+        printf 'jefe_commit=%s\n' "$(git -C "$REPO_ROOT" rev-parse HEAD)"
+        printf 'jefe_version=%s\n' "$($JEFE --version | head -n 1)"
+        printf 'scenario=%s\n' "$SCENARIO"
+        printf 'runner=tmux_scenario\n'
+        printf 'report_sha256=%s\n' "$(git -C "$REPO_ROOT" hash-object -- "$report")"
+    } > "$ROOT/manifest.txt"
 }
 
 write_provenance() {
     manifest=$ROOT/manifest.txt
     [ -d "$ROOT/private" ] && [ ! -L "$ROOT/private" ] || \
-        fail "capture private directory is missing or unsafe: $ROOT/private"
+        fail "publication private directory is missing or unsafe: $ROOT/private"
     source_commit=$(manifest_value jefe_commit "$manifest")
     source_version=$(manifest_value jefe_version "$manifest")
-    [ -n "$source_commit" ] || fail "capture manifest does not record jefe_commit"
-    [ -n "$source_version" ] || fail "capture manifest does not record jefe_version"
+    [ -n "$source_commit" ] || fail "run manifest does not record jefe_commit"
+    [ -n "$source_version" ] || fail "run manifest does not record jefe_version"
     fingerprint=$(source_fingerprint)
-
     {
-        printf 'format_version=1\n'
+        printf 'format_version=2\n'
         printf 'source_commit=%s\n' "$source_commit"
         printf 'source_version=%s\n' "$source_version"
         printf 'source_fingerprint=%s\n' "$fingerprint"
@@ -154,7 +181,6 @@ prepare_promotion() {
     STAGE_DIR=$(mktemp -d "$ASSET_DIR/.first-agent-tutorial.XXXXXX") || \
         fail "cannot create tutorial promotion staging directory"
     mkdir "$STAGE_DIR/new" "$STAGE_DIR/backup"
-
     for asset in $ASSETS; do
         cp "$ROOT/publication/$asset" "$STAGE_DIR/new/$asset"
     done
@@ -175,12 +201,8 @@ restore_publication() {
     restored=1
     for file in $ASSETS first-agent-tutorial.provenance; do
         if [ -f "$STAGE_DIR/backup/$file" ]; then
-            if ! cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file"; then
-                printf 'failed to restore tutorial asset: %s\n' "$file" >&2
-                restored=0
-            fi
+            cp "$STAGE_DIR/backup/$file" "$ASSET_DIR/$file" || restored=0
         elif [ -L "$ASSET_DIR/$file" ] || ! rm -f "$ASSET_DIR/$file"; then
-            printf 'failed to remove newly promoted tutorial asset: %s\n' "$file" >&2
             restored=0
         fi
     done
@@ -207,15 +229,56 @@ promote_publication() {
 regenerate() {
     parse_regenerate "$@"
     require_tool git
-    require_tool sed
-    [ -x "$CAPTURE_SCRIPT" ] || fail "capture script not found or not executable: $CAPTURE_SCRIPT"
+    require_tool python3
+    [ -x "$DRIVER" ] || fail "manifest driver not found or not executable: $DRIVER"
+    [ -x "$PUBLISHER" ] || fail "report publisher not found or not executable: $PUBLISHER"
     prepare_binaries
-    "$CAPTURE_SCRIPT" capture --root "$ROOT" --jefe-bin "$JEFE_BIN" --harness-bin "$HARNESS_BIN"
+    mkdir -m 700 "$ROOT"
+    printf '%s\n' "$SENTINEL" > "$ROOT/.first-agent-tutorial-run"
+    "$DRIVER" \
+        --platform macos \
+        --scenario "$SCENARIO" \
+        --tmux-scenario "$TMUX_SCENARIO" \
+        --jefe "$JEFE" \
+        --probe "$PROBE" \
+        --jsp-fixture "$JSP_FIXTURE" \
+        --shim "$SHIM" \
+        --reports "$ROOT/evidence"
+    "$PUBLISHER" --report "$ROOT/evidence/$REPORT_NAME" --root "$ROOT"
+    write_run_manifest
     validate_publication
     write_provenance
     promote_publication
     printf 'promoted first-agent tutorial assets from %s\n' "$ROOT"
     printf 'verify with: scripts/regenerate-first-agent-tutorial.sh check\n'
+}
+
+validate_cleanup_root() {
+    [ -n "$ROOT" ] || fail "cleanup requires --root"
+    case "$ROOT" in /*) ;; *) fail "cleanup requires an absolute --root" ;; esac
+    [ "$ROOT" != "/" ] && [ "$ROOT" != "$HOME" ] || fail "refusing unsafe cleanup root: $ROOT"
+    [ -d "$ROOT" ] && [ ! -L "$ROOT" ] || fail "cleanup root is missing or unsafe: $ROOT"
+    [ "$(cat "$ROOT/.first-agent-tutorial-run" 2>/dev/null || true)" = "$SENTINEL" ] || \
+        fail "cleanup sentinel is missing or invalid"
+}
+
+cleanup() {
+    mode=
+    ROOT=
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --dry-run|--confirm) [ -z "$mode" ] || fail "choose one cleanup mode"; mode=$1; shift ;;
+            --root) [ "$#" -ge 2 ] || fail "--root requires a value"; ROOT=$2; shift 2 ;;
+            *) fail "unknown cleanup argument: $1" ;;
+        esac
+    done
+    [ -n "$mode" ] || fail "cleanup requires --dry-run or --confirm"
+    validate_cleanup_root
+    if [ "$mode" = "--dry-run" ]; then
+        printf 'would remove owned tutorial run root: %s\n' "$ROOT"
+        return
+    fi
+    find "$ROOT" -depth -delete
 }
 
 check_asset() {
@@ -229,7 +292,6 @@ check_asset() {
 
 check() {
     require_tool git
-    require_tool sed
     require_tool grep
     [ -f "$PROVENANCE" ] && [ ! -L "$PROVENANCE" ] || \
         fail "first-agent tutorial provenance is missing: $PROVENANCE"
@@ -237,9 +299,7 @@ check() {
     [ -n "$expected" ] || fail "provenance does not record source_fingerprint"
     actual=$(source_fingerprint)
     [ "$actual" = "$expected" ] || fail "first-agent tutorial source fingerprint is stale; regenerate the assets"
-    for asset in $ASSETS; do
-        check_asset "$asset"
-    done
+    for asset in $ASSETS; do check_asset "$asset"; done
     printf 'first-agent tutorial assets match recorded provenance\n'
 }
 
@@ -248,6 +308,7 @@ COMMAND=${1-}
 shift
 case "$COMMAND" in
     regenerate) regenerate "$@" ;;
+    cleanup) cleanup "$@" ;;
     check) [ "$#" -eq 0 ] || fail "check does not accept arguments"; check ;;
     -h|--help) usage ;;
     *) usage >&2; fail "unknown command: $COMMAND" ;;

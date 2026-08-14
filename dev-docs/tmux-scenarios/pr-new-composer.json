@@ -88,21 +88,6 @@
       ]
     },
     {
-      "op": "key",
-      "key": "q",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "q",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "q",
-      "modifiers": []
-    },
-    {
       "op": "finish"
     }
   ],

@@ -87,6 +87,23 @@ fn opened(bytes: Option<&[u8]>) -> AppState {
     state
 }
 #[test]
+fn section_window_keeps_the_selected_section_visible_at_reduced_height() {
+    let mut state = opened(Some(SCHEMA_2));
+    state.settings_state.section = SettingsSection::Plugins;
+
+    let window = settings_view::section_window(&state.settings_state, 4);
+
+    assert!(
+        window
+            .rows
+            .iter()
+            .any(|row| row.section == SettingsSection::Plugins)
+    );
+    assert_eq!(window.above, 2);
+    assert_eq!(window.below, 1);
+}
+
+#[test]
 fn active_selected_plugin_config_projects_generated_row_and_adjacent_error() {
     let bytes =
         b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n";

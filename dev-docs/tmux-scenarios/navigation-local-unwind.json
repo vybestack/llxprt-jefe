@@ -65,7 +65,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "State",
+      "literal": "state:[open]",
       "timeout_ms": 15000
     },
     {
@@ -100,7 +100,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

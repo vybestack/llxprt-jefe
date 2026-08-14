@@ -290,7 +290,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -301,7 +301,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [code_puppy]",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -387,7 +387,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -526,7 +526,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -537,7 +537,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [LLxprt]",
+      "literal": "Agent Runtime    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -623,7 +623,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {

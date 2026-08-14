@@ -82,6 +82,10 @@ fn run_fixture(name: &str) -> RunOutcome {
     if name == "llxprt-continue-field.json" {
         installs.push(("gh".to_string(), repo_path("scripts/issue520-gh-shim.sh")));
         installs.push(("git".to_string(), repo_path("scripts/issue520-git-shim.sh")));
+        installs.push((
+            "llxprt".to_string(),
+            repo_path("scripts/issue575-llxprt-shim.sh"),
+        ));
     }
     if matches!(
         name,
@@ -91,6 +95,14 @@ fn run_fixture(name: &str) -> RunOutcome {
             "tmux".to_string(),
             repo_path("scripts/issue520-tmux-shim.sh"),
         ));
+    } else if name == "issue662-unclean-prior-run.json" {
+        installs.push(("tmux".to_string(), host_binary("tmux")));
+    } else {
+        installs.push((
+            "tmux".to_string(),
+            repo_path("scripts/harness-tmux-shim.sh"),
+        ));
+        installs.push(("tmux-real".to_string(), host_binary("tmux")));
     }
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
@@ -169,6 +181,23 @@ fn assert_exit_code(name: &str, outcome: &RunOutcome, expected: u32) {
     );
 }
 
+fn assert_expected_app_failure(name: &str, outcome: &RunOutcome, failed_step: usize) {
+    let error = outcome
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("{name} must report the nonzero application exit"));
+    assert_eq!(error.code(), HarCode::E005);
+    assert_eq!(outcome.report.status, "failed");
+    let step = outcome
+        .report
+        .steps
+        .last()
+        .unwrap_or_else(|| panic!("{name} must report its failed finish step"));
+    assert_eq!((step.index, step.op.as_str()), (failed_step, "finish"));
+    assert_eq!(step.status, "failed");
+    assert_exit_code(name, outcome, 2);
+}
+
 #[test]
 fn schema_all_ops_fixture_passes() {
     let outcome = run_fixture("harness-schema-all-ops.json");
@@ -179,8 +208,7 @@ fn schema_all_ops_fixture_passes() {
 #[test]
 fn issue687_invalid_socket_override_fails_closed() {
     let outcome = run_issue687_scenario("socket-override-fail-closed.json");
-    assert_passed("issue687-socket-override-fail-closed", &outcome);
-    assert_exit_code("issue687-socket-override-fail-closed", &outcome, 2);
+    assert_expected_app_failure("issue687-socket-override-fail-closed", &outcome, 3);
     cleanup(&outcome);
 }
 
@@ -338,8 +366,7 @@ fn settings_edit_fixture_executes_configured_editor_as_argv() {
 #[test]
 fn settings_format_check_fixture_detects_drift_without_writing() {
     let outcome = run_fixture("settings-format-check.json");
-    assert_passed("settings-format-check", &outcome);
-    assert_exit_code("settings-format-check", &outcome, 2);
+    assert_expected_app_failure("settings-format-check", &outcome, 3);
     cleanup(&outcome);
 }
 
@@ -380,8 +407,7 @@ fn pr_delta_review_fixture_covers_optional_changes_drill_down() {
 #[test]
 fn startup_malformed_state_fixture_blocks_before_tui_without_writing() {
     let outcome = run_fixture("startup-malformed-state.json");
-    assert_passed("startup-malformed-state", &outcome);
-    assert_exit_code("startup-malformed-state", &outcome, 2);
+    assert_expected_app_failure("startup-malformed-state", &outcome, 6);
     cleanup(&outcome);
 }
 
@@ -411,8 +437,7 @@ fn custom_screen_inactive_invalid_fixture_warns_and_preserves_the_file() {
 #[test]
 fn custom_screen_active_invalid_fixture_blocks_before_tui_without_writing() {
     let outcome = run_fixture("custom-screen-active-invalid.json");
-    assert_passed("custom-screen-active-invalid", &outcome);
-    assert_exit_code("custom-screen-active-invalid", &outcome, 2);
+    assert_expected_app_failure("custom-screen-active-invalid", &outcome, 4);
     cleanup(&outcome);
 }
 
@@ -572,7 +597,7 @@ fn redaction_fixture_scrubs_secret_from_rendered_report() {
 
 #[test]
 fn limits_fixture_fails_validation_before_any_launch() {
-    let json = load_fixture("harness-limits.json");
+    let json = load_scenario("tests/fixtures/harness_v1/harness-limits.json");
     let err = parse_scenario_v1(json.as_bytes())
         .err()
         .unwrap_or_else(|| panic!("cols over limit must fail validation"));

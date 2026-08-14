@@ -2,13 +2,21 @@
   "schema": 1,
   "name": "agent-version-selector",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
       {
@@ -20,8 +28,10 @@
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
-      { "name": "TERM", "value": "xterm-256color" }
+      {
+        "name": "TERM",
+        "value": "xterm-256color"
+      }
     ]
   },
   "steps": [
@@ -40,14 +50,37 @@
     },
     {
       "op": "launch",
-      "argv": ["jefe", "--config", "${workspace}/config"],
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
       "env": [],
       "cwd": "repo"
     },
-    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "> Claude Code", "timeout_ms": 15000 },
-    { "op": "key", "key": "enter", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "New Agent", "timeout_ms": 15000 },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> Claude Code",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
       "contains": [
@@ -56,9 +89,15 @@
         "Prompt: []",
         "[Create disabled]"
       ],
-      "absent": ["npm exec", "uvx --from", "Package Runner"]
+      "absent": [
+        "npm exec",
+        "uvx --from",
+        "Package Runner"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

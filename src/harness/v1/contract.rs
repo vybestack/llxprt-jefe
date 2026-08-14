@@ -5,6 +5,16 @@
 //! sites stay compiler-checked. Mode values are constrained integers
 //! (448/493 for dirs, 384/420/448/493 for files) validated during parsing.
 
+/// Directories the deterministic environment roots in the workspace.
+pub const ENV_DIRS: &[&str] = &[
+    "home",
+    "tmp",
+    "bin",
+    "jefe-config",
+    "jefe-state",
+    "jefe-plugins",
+];
+
 /// A fully parsed and validated schema-1 scenario.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScenarioV1 {

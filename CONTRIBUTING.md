@@ -67,23 +67,14 @@ cargo build --workspace --all-features --locked
 cargo test --workspace --all-features --locked
 cargo test --features psmux-smoke --test psmux_smoke -- --nocapture
 
-$workspace = (Get-Location).Path
-$config = Join-Path $workspace 'target/windows local/config with spaces'
-$working = Join-Path $workspace 'target/windows local/working with spaces'
-$artifacts = Join-Path $workspace 'target/tmux-harness/windows-local'
-New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
-& (Join-Path $workspace 'target/debug/jefe-tmux-harness.exe') `
-  --scenario (Join-Path $workspace 'dev-docs/tmux-scenarios/startup-quit.json') `
-  --jefe-bin (Join-Path $workspace 'target/debug/jefe.exe') `
-  --config $config `
-  --working-dir $working `
-  --session 'jefe-windows-local' `
-  --out-dir $artifacts
+# Schema-1 scenarios are Unix-PTY evidence and are not executed on Windows.
+# Reproduce the installed-binary psmux lifecycle with the PowerShell commands
+# in the windows_native job in .github/workflows/ci.yml.
 ```
 
-The smoke suite and harness own unique psmux namespaces and only issue
-namespace-scoped cleanup. Failure diagnostics are written beneath
-`target/psmux-smoke` and `target/tmux-harness`.
+The smoke suite and installed lifecycle own unique psmux namespaces and issue
+only namespace-scoped cleanup. Failure diagnostics are written beneath
+`target/psmux-smoke`.
 
 ## Branch and PR conventions
 

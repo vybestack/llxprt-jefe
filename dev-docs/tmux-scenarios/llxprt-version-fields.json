@@ -16,6 +16,10 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +27,13 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo-269\",\n      \"name\": \"repo-269\",\n      \"slug\": \"repo-269\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
         },
         "mode": 384
       }
@@ -49,7 +60,9 @@
     {
       "op": "key",
       "key": "n",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -245,8 +258,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
       "op": "key",
@@ -256,7 +274,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [\u258f]",
+      "literal": "Default Version  [▏]",
       "timeout_ms": 15000
     },
     {
@@ -287,7 +305,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [0.9.0\u258f]",
+      "literal": "Default Version  [0.9.0▏]",
       "timeout_ms": 15000
     },
     {
@@ -406,7 +424,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0\u258f]",
+      "literal": "Version          [0.9.0▏]",
       "timeout_ms": 15000
     },
     {
@@ -432,7 +450,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0-rc1\u258f]",
+      "literal": "Version          [0.9.0-rc1▏]",
       "timeout_ms": 15000
     },
     {
@@ -448,7 +466,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [LLxprt]",
+      "literal": "Agent Runtime    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -459,7 +477,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [code_puppy]",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -483,14 +501,14 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Model            [\u258f]"
+        "Model            [▏]"
       ],
       "absent": []
     },
     {
       "op": "assert-frame",
       "contains": [
-        "YOLO             [ ]  (space toggles)"
+        "YOLO             [x]  (space toggles)"
       ],
       "absent": []
     },
@@ -503,9 +521,11 @@
     },
     {
       "op": "assert-frame",
-      "contains": [],
+      "contains": [
+        "Version          []"
+      ],
       "absent": [
-        "Version          ["
+        "Version          [0.9.0-rc1"
       ]
     },
     {
@@ -521,7 +541,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [LLxprt]",
+      "literal": "Agent Runtime    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -537,13 +557,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0-rc1\u258f]",
+      "literal": "Version          [0.9.0-rc1▏]",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Version          [0.9.0-rc1\u258f]"
+        "Version          [0.9.0-rc1▏]"
       ],
       "absent": []
     },
@@ -592,7 +612,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -603,15 +623,15 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [code_puppy]",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
-      "contains": [],
-      "absent": [
-        "Default Version"
-      ]
+      "contains": [
+        "Default Version  [0.9.0]"
+      ],
+      "absent": []
     },
     {
       "op": "key",
@@ -637,8 +657,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [LLxprt]",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
       "op": "key",
@@ -648,7 +673,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [0.9.0\u258f]",
+      "literal": "Default Version  [0.9.0▏]",
       "timeout_ms": 15000
     },
     {

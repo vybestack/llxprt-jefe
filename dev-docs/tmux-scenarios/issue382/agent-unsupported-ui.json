@@ -2,12 +2,21 @@
   "schema": 1,
   "name": "agent-unsupported-ui",
   "platform": "macos",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
       {
@@ -18,9 +27,7 @@
         "mode": 384
       }
     ],
-    "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" }
-    ]
+    "env": []
   },
   "steps": [
     {
@@ -38,57 +45,189 @@
     },
     {
       "op": "launch",
-      "argv": ["jefe", "--config", "${workspace}/config"],
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
       "env": [],
       "cwd": "repo"
     },
-    { "op": "wait", "source": "frame", "literal": "Claude Code  Installed, enabled", "timeout_ms": 15000 },
-    { "op": "key", "key": "enter", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "New Agent", "timeout_ms": 15000 },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Claude Code  Installed, enabled",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
       "contains": [
         "Claude Code",
-        "> Resume: Unsupported: installed Claude Code lacks required capability `resume`",
-        "Fresh Issue:",
+        "> Resume: Supported",
+        "Fresh Issue: Supported",
         "Remote: Unsupported: Claude remote/setup is not fixture-verified",
-        "Model: []  disabled: installed Claude Code lacks required capability `model`",
-        "Prompt",
-        "[Create disabled]",
+        "Model: []",
+        "Prompt: []",
+        "[Create enabled]",
         "[Back]"
       ],
       "absent": [
-        "[Create enabled]",
-        "Fresh Issue: Unsupported",
+        "lacks required capability",
+        "[Create disabled]",
         "Agent Runtime",
         "Mode Flags",
         "Sandbox Engine"
       ]
     },
-    { "op": "key", "key": "tab", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "> Fresh Issue:", "timeout_ms": 5000 },
-    { "op": "key", "key": "up", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "> Resume: Unsupported", "timeout_ms": 5000 },
-    { "op": "key", "key": "enter", "modifiers": [] },
     {
-      "op": "assert-file",
-      "file": { "path": ".captures/claude/3.json", "exists": false }
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> Remote: Unsupported: Claude remote/setup is not fixture-verified",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
     },
     {
       "op": "assert-file",
-      "file": { "path": "repo/.jefe-unsupported-preparation", "exists": false }
+      "file": {
+        "path": ".captures/claude/3.json",
+        "exists": false
+      }
     },
-    { "op": "resize", "size": { "cols": 54, "rows": 16 } },
-    { "op": "wait", "source": "frame", "literal": "New Agent", "timeout_ms": 5000 },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "repo/.jefe-unsupported-preparation",
+        "exists": false
+      }
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 54,
+        "rows": 16
+      }
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 5000
+    },
     {
       "op": "assert-frame",
-      "contains": ["Claude Code", "Unsupported", "[Create disabled]"],
-      "absent": ["[Create enabled]"]
+      "contains": [
+        "Claude Code",
+        "Unsupported",
+        "[Create enabled]"
+      ],
+      "absent": [
+        "lacks required capability",
+        "[Create disabled]"
+      ]
     },
-    { "op": "key", "key": "escape", "modifiers": [] },
-    { "op": "resize", "size": { "cols": 120, "rows": 36 } },
-    { "op": "wait", "source": "frame", "literal": "> Claude Code", "timeout_ms": 5000 },
-    { "op": "finish" }
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> [Back]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 120,
+        "rows": 36
+      }
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Claude Code  Installed, enabled",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

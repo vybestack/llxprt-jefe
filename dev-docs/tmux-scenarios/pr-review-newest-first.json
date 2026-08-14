@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -25,9 +33,21 @@
           "utf8": "settings_schema = 2\n"
         },
         "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"issue238-repo\",\n      \"name\": \"review-sort-fixture\",\n      \"slug\": \"review-sort-fixture\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"owner/review-sort-fixture\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
       }
     ],
-    "env": []
+    "env": [
+      {
+        "name": "GH_SHIM_AUDIT",
+        "value": "${workspace}/private/gh-audit.log"
+      }
+    ]
   },
   "steps": [
     {
@@ -91,15 +111,36 @@
       "modifiers": []
     },
     {
-      "op": "wait",
-      "source": "frame",
-      "literal": "No terminal attached",
-      "timeout_ms": 15000
-    },
-    {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-pr-search"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-pr-view-detail"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-review-threads"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "finish"

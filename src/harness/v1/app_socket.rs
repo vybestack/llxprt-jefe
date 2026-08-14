@@ -7,7 +7,7 @@
 //! agents inside it, until something kills them by hand.
 //!
 //! The harness cannot reach these through its own cleanup, because
-//! `TmuxDriver::kill_harness_server` and the signal guard both target the
+//! The schema-1 runner and its signal guard both target the
 //! harness's private `-L jefe-harness-<pid>` socket, and the application's
 //! server is somewhere else entirely.
 //!

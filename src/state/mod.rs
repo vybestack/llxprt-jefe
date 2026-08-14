@@ -839,6 +839,8 @@ impl AppState {
             SystemMessage::ClearWarning => {
                 self.warning_message = None;
                 self.provider_notice = None;
+                self.issues_state.draft_notice = None;
+                self.prs_state.draft_notice = None;
             }
             SystemMessage::Quit => {}
             SystemMessage::TransientAgentQueued { queue_position } => {

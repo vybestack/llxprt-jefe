@@ -2,25 +2,23 @@
   "schema": 1,
   "name": "agent-terminal-compatibility",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
-      {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
-        "mode": 493
-      },
-      {
-        "path": "bin/tmux",
-        "content": { "utf8": "#!/bin/sh\n# minimal tmux stub: list or kill sessions without launching a real server\ncase \"$1\" in\n  list-sessions) printf 'agent: 1 windows\\n' ;;\n  kill-session) ;;\n  *) ;;\nesac\nexit 0\n" },
-        "mode": 493
-      },
       {
         "path": "config/settings.toml",
         "content": {
@@ -30,25 +28,79 @@
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
-      { "name": "TERM", "value": "xterm-256color" }
+      {
+        "name": "TERM",
+        "value": "xterm-256color"
+      }
     ]
   },
   "steps": [
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
-    { "op": "key", "key": "enter", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "terminal", "timeout_ms": 15000 },
-    { "op": "resize", "size": { "cols": 100, "rows": 30 } },
-    { "op": "wait", "source": "frame", "literal": "terminal", "timeout_ms": 15000 },
-    { "op": "key", "key": "c", "modifiers": ["control"] },
-    { "op": "key", "key": "f12", "modifiers": [] },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "terminal",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 100,
+        "rows": 30
+      }
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "terminal",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "c",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
     {
       "op": "assert-frame",
-      "contains": ["LLxprt", "terminal"],
-      "absent": ["stopped", "unknown"]
+      "contains": [
+        "LLxprt",
+        "terminal"
+      ],
+      "absent": [
+        "stopped",
+        "unknown"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

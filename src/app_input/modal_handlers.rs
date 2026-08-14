@@ -6,6 +6,7 @@ use tracing::warn;
 
 use jefe::domain::{AgentId, AgentLaunchRequest, SandboxEngine};
 use jefe::runtime::{RuntimeError, RuntimeManager};
+use jefe::state::generated_agent_form::GeneratedAgentFormFocus;
 use jefe::state::{
     AgentFormFocus, AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
 };
@@ -151,6 +152,14 @@ pub(super) fn confirm_focus_is_cancel(modal: &ModalState) -> bool {
     }
 }
 
+pub(super) fn generated_back_is_focused(modal: &ModalState) -> bool {
+    matches!(
+        modal,
+        ModalState::GeneratedAgent { form, .. }
+            if matches!(form.focus(), GeneratedAgentFormFocus::Back)
+    )
+}
+
 fn confirm_delete_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -237,6 +246,11 @@ pub(super) fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedCon
     let dispatch_info = extract_workflow_dispatch_info(app_state);
     if let Some(info) = dispatch_info {
         handle_workflow_dispatch_submit(app_state, ctx, info);
+        return;
+    }
+
+    if generated_back_is_focused(&app_state.read().modal) {
+        close_modal_and_persist(app_state, ctx);
         return;
     }
 

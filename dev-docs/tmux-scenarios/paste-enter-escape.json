@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/fixture-repo-alpha",
+        "mode": 448
+      },
+      {
+        "path": "work/fixture-repo-beta",
+        "mode": 448
       }
     ],
     "files": [
@@ -44,29 +52,109 @@
       "op": "wait",
       "source": "frame",
       "literal": "LLxprt Jefe",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt  Installed",
       "timeout_ms": 15000
     },
     {
       "op": "key",
-      "key": "a",
+      "key": "f7",
       "modifiers": []
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "No terminal attached",
-      "timeout_ms": 15000
+      "literal": "Terminal Manager",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "No shells",
+      "timeout_ms": 12000
     },
     {
       "op": "key",
-      "key": "f12",
+      "key": "escape",
       "modifiers": []
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "F12/t to focus",
-      "timeout_ms": 15000
+      "literal": "F7 shells",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": [
+        "shift"
+      ]
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Repository",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "text",
+      "text": "Alpha Repository"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "fixture-repo-alpha"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "1 repos | 0/0 running",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "n",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "New Agent",
+      "timeout_ms": 12000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "Alpha Agent"
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "issue364-agent-ready",
+      "timeout_ms": 12000
     },
     {
       "op": "key",
@@ -84,6 +172,21 @@
       "modifiers": []
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "^[^[",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "^[^["
+      ],
+      "absent": [
+        "u3"
+      ]
+    },
+    {
       "op": "key",
       "key": "f12",
       "modifiers": []
@@ -91,7 +194,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "F12 to unfocus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 15000
     },
     {
