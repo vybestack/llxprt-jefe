@@ -183,7 +183,7 @@ impl RunState<'_> {
         }
         // A scenario without an explicit finish still tears down the app.
         if self.session.is_some()
-            && let Err(err) = self.finish()
+            && let Err(err) = self.finish(None)
         {
             self.report.steps.push(StepResult {
                 index: self.scenario.steps.len(),
@@ -229,7 +229,7 @@ impl RunState<'_> {
             Step::AssertCapture { capture } => self.assert_capture(capture),
             Step::AssertFile { file } => self.assert_file(file),
             Step::Restart => self.restart(),
-            Step::Finish => self.finish(),
+            Step::Finish { expected_exit_code } => self.finish(*expected_exit_code),
         }
     }
 
@@ -547,7 +547,7 @@ impl RunState<'_> {
     }
 
     /// Finish: graceful stop then escalation, always reaping the group.
-    fn finish(&mut self) -> Result<(), HarnessError> {
+    fn finish(&mut self, expected_exit_code: Option<u32>) -> Result<(), HarnessError> {
         let Some(mut session) = self.session.take() else {
             self.reap_app_socket()?;
             return Ok(());
@@ -555,17 +555,27 @@ impl RunState<'_> {
         let exit = self.stop_session(&mut session)?;
         self.record_exit(exit);
         let cleanup = self.reap_app_socket();
-        if let Some(code) = exit.exit_code
-            && code != 0
-            && !exit.harness_signalled
-        {
+        let exit_failure = match expected_exit_code {
+            Some(expected) if exit.exit_code != Some(expected) => Some(exit.exit_code.map_or_else(
+                || format!("application terminated without expected exit code {expected}"),
+                |code| {
+                    format!(
+                        "application exited with code {code} instead of expected code {expected}"
+                    )
+                },
+            )),
+            None if !exit.harness_signalled => exit
+                .exit_code
+                .filter(|code| *code != 0)
+                .map(|code| format!("application exited with code {code}")),
+            _ => None,
+        };
+        if let Some(message) = exit_failure {
             let suffix = cleanup
                 .err()
                 .map(|err| format!("; {err}"))
                 .unwrap_or_default();
-            return Err(HarnessError::process(format!(
-                "application exited with code {code}{suffix}"
-            )));
+            return Err(HarnessError::process(format!("{message}{suffix}")));
         }
         cleanup
     }

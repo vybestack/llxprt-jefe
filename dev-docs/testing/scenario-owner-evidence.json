@@ -1363,7 +1363,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/v1/config-ambiguity.json",
-      "sha256": "2ed00a363355826ae2f37446edff517abff0d099a8f4bec8ff6a3f3b5a607e8d",
+      "sha256": "d5f6aaf049a0094136002e974d842c5b1aecdd4fa01342d90e78d977b1d29cff",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1946,7 +1946,7 @@
     },
     {
       "path": "dev-docs/testing/tmux-harness.md",
-      "sha256": "c63997bcc23e3abef5fe17ca87f403b4a4cf014631b6a86984b548f76d40c443",
+      "sha256": "9d5c313062094922918f819cce5532cf8acac6b8ce7c1c65dda098025064ed96",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2524,7 +2524,7 @@
     },
     {
       "path": "tests/harness_v1.rs",
-      "sha256": "4eccf6b771474850e9a6181e1a4257712ffeef2948b8738e3d9f83d97960e5d6",
+      "sha256": "49c4b27aced7ef97a8ecf88f48beebdba188873d3ee7a3e61459feae68d924a9",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2675,7 +2675,7 @@
     },
     {
       "path": "src/harness/v1/contract.rs",
-      "sha256": "20af6fc574b0191d15bf0129f5da8bdc9bc788ef8a3ce6a3dc5b51fc6a8f1a33",
+      "sha256": "e7661334a3af7280d00efc2e668a50d50cf21174bc3cbf50ae69c12ee3ba0137",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2810,7 +2810,7 @@
     },
     {
       "path": "src/harness/v1/parse_step.rs",
-      "sha256": "93e2601940b71a8c809c6b2000fd604c82ff30b858d483835197a85fe91947c8",
+      "sha256": "34fbab1cd4587406804a237533efafee96abe86249e5034c3eb492bcb07c785d",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2822,7 +2822,7 @@
     },
     {
       "path": "src/harness/v1/parse_tests.rs",
-      "sha256": "ec777a4808b39e10a5dba891902c7a613aa6ec08f64baa3bc01f1f846331c43b",
+      "sha256": "06e677a7b41ed9dad98b9424ae5a43379286baf8b0ecce23c877fdd4cc9c7880",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2878,7 +2878,7 @@
     },
     {
       "path": "src/harness/v1/runner.rs",
-      "sha256": "a45626b69aabe1e10f6b97511890ef50541b39754b3debba17f7233c4cd712e7",
+      "sha256": "58311663dced961d80a8b7b27ae43650d2b9901dd0716efabdee6790e9eafb14",
       "mode": "100644",
       "criteria": [
         "CW00B-03",
@@ -2889,7 +2889,7 @@
     },
     {
       "path": "src/harness/v1/semantic.rs",
-      "sha256": "1a0d288c9a7ecde0f6537a0d19513cf8291c6d53cfaa87d04cc2f38741180886",
+      "sha256": "f3328a5d850fe23a703fdb9a453993082a921eeecdbff3457a618c16f959e87d",
       "mode": "100644",
       "criteria": [
         "CW00B-01",

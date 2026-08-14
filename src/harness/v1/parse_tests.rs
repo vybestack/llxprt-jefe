@@ -302,6 +302,28 @@ fn assert_reserved_workspace_paths() {
 }
 
 #[test]
+fn finish_accepts_a_bounded_expected_exit_code() {
+    let doc = minimal_with_steps(&format!(
+        r#"[{LAUNCH},{{"op":"finish","expected_exit_code":3}}]"#
+    ));
+    let scenario = parse(&doc).unwrap_or_else(|error| panic!("expected exit code: {error}"));
+    assert!(matches!(
+        scenario.steps.last(),
+        Some(Step::Finish {
+            expected_exit_code: Some(3)
+        })
+    ));
+
+    let out_of_range = minimal_with_steps(&format!(
+        r#"[{LAUNCH},{{"op":"finish","expected_exit_code":4294967296}}]"#
+    ));
+    let error = parse(&out_of_range)
+        .err()
+        .unwrap_or_else(|| panic!("out-of-range expected exit code must fail"));
+    assert_eq!(error.code(), HarCode::E002);
+}
+
+#[test]
 fn semantic_rules_enforced() {
     // Terminal op without any launch.
     let doc = minimal_with_steps(r#"[{"op":"text","text":"x"},{"op":"finish"}]"#);

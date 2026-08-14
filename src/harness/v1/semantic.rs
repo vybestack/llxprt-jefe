@@ -171,7 +171,7 @@ fn check_step(scan: &mut StepScan, index: usize, step: &Step) -> Result<(), Harn
                 )))
             }
         }
-        Step::Finish => {
+        Step::Finish { .. } => {
             scan.finished = true;
             Ok(())
         }

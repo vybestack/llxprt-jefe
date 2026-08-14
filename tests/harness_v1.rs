@@ -579,6 +579,42 @@ fn nonzero_exit_after_observable_output_cannot_finish_green() {
 }
 
 #[test]
+fn declared_nonzero_exit_can_finish_green() {
+    let json = format!(
+        r##"{{"schema":1,"name":"expected-nonzero-child","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],
+                "files":[{{"path":"work/fail.sh","content":{{"utf8":"#!/bin/sh\nprintf 'WROTE\\n'\nexit 17\n"}},"mode":493}}],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["${{workspace}}/work/fail.sh"],"env":[],"cwd":"work"}},
+                {{"op":"wait","source":"stdout","literal":"WROTE","timeout_ms":10000}},
+                {{"op":"finish","expected_exit_code":17}}
+            ],"secrets":[]}}"##,
+        current_platform()
+    );
+    let outcome = run_scenario(&json);
+    assert!(
+        outcome.error.is_none(),
+        "expected nonzero exit: {outcome:?}"
+    );
+    assert_eq!(
+        outcome.report.app_exit.and_then(|exit| exit.exit_code),
+        Some(17)
+    );
+    cleanup(&outcome);
+
+    let mismatch =
+        run_scenario(&json.replace("\"expected_exit_code\":17", "\"expected_exit_code\":3"));
+    let error = mismatch
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("mismatched expected exit code must fail"));
+    assert_eq!(error.code(), HarCode::E005);
+    assert!(error.to_string().contains("instead of expected code 3"));
+    cleanup(&mismatch);
+}
+
+#[test]
 fn owned_app_socket_cleanup_reuses_the_hermetic_launch_environment() {
     let fixture = tempfile::tempdir().unwrap_or_else(|err| panic!("fixture directory: {err}"));
     let tmux = fixture.path().join("tmux");

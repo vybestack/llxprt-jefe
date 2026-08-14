@@ -69,7 +69,7 @@ to.
 | `capture` / `assert-capture` | see `dev-docs/tmux-scenarios/v1/harness-capture.json` | Record and assert a subprocess invocation. |
 | `assert-file` | `{ "op": "assert-file", "file": { "path": "out.txt" } }` | Assert workspace file state. |
 | `restart` | `{ "op": "restart" }` | Relaunch using the original launch step. |
-| `finish` | `{ "op": "finish" }` | End the scenario and tear down. |
+| `finish` | `{ "op": "finish", "expected_exit_code": 3 }` | End the scenario and tear down. Spontaneous nonzero exits fail unless they match the optional expected code. |
 
 `key` names come from one closed canonical table (`enter`, `escape`, `backspace`,
 `backtab`, `space`, `pageup`, `f1`..`f12`, arrow/navigation names, or a single

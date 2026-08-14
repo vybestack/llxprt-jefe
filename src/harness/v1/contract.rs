@@ -178,7 +178,9 @@ pub enum Step {
         file: FileExpectation,
     },
     Restart,
-    Finish,
+    Finish {
+        expected_exit_code: Option<u32>,
+    },
 }
 
 impl Step {
@@ -199,7 +201,7 @@ impl Step {
             Self::AssertCapture { .. } => "assert-capture",
             Self::AssertFile { .. } => "assert-file",
             Self::Restart => "restart",
-            Self::Finish => "finish",
+            Self::Finish { .. } => "finish",
         }
     }
 }

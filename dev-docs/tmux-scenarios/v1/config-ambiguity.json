@@ -55,7 +55,7 @@
         "content": { "utf8": "{\"schema_version\":1}" }
       }
     },
-    { "op": "finish" }
+    { "op": "finish", "expected_exit_code": 3 }
   ],
   "secrets": []
 }
