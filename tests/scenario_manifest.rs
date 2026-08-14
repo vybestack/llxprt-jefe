@@ -21,10 +21,12 @@ const CRITERIA: [&str; 8] = [
 ];
 const ASSERTION_OPS: [&str; 3] = ["assert-frame", "assert-capture", "assert-file"];
 
+#[cfg(unix)]
 trait TestResult<T> {
     fn must(self, context: &str) -> T;
 }
 
+#[cfg(unix)]
 impl<T, E: std::fmt::Display> TestResult<T> for Result<T, E> {
     fn must(self, context: &str) -> T {
         self.unwrap_or_else(|err| panic!("{context}: {err}"))
