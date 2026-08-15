@@ -8,12 +8,17 @@
 
 use super::*;
 use crate::domain::action_registry::{ActionAvailability, ActionId, Availability};
+use crate::domain::effects::{
+    Effect, EffectCompletion, EffectResponse, ProviderEffect, ProviderResponse,
+};
 use crate::domain::plugin::HostTriple;
+use crate::messages::{AppMessage, RepositoryAgentMessage};
 use crate::persistence::paths::{PathProvenance, ResolvedFile, ResolvedPaths};
 use crate::persistence::plugin_inventory::{MANIFEST_FILE_NAME, scan};
 use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
 use crate::runtime::provider::Containment;
 use crate::startup_candidate::{WorkbenchCandidateRequest, build_workbench_candidate};
+use crate::state::transition::TransitionExt;
 use std::sync::Arc;
 
 fn action_id(value: &str) -> ActionId {
@@ -175,6 +180,57 @@ fn persistent_health_failure_makes_the_provider_action_unavailable() {
         .find(|entry| entry.action() == &action_id("vendor.deploy.ship"));
     assert_eq!(
         entry.map(ActionAvailability::availability),
+        Some(&Availability::Unavailable {
+            reason: "provider stopped after ready".to_owned()
+        })
+    );
+}
+
+/// A post-publication crash is committed only as a runtime generation. The
+/// declaration graph and its owning aggregate retain their exact identity.
+#[test]
+fn provider_crash_updates_only_runtime_availability_generation() {
+    let mut initial = provider_state(true);
+    let provider_id = action_id("vendor.deploy.ship");
+    let workbench = Arc::clone(initial.published_workbench());
+    let declarations = initial.action_registry().actions().to_vec();
+    initial.provider_action_health.insert(
+        provider_id.clone(),
+        "provider stopped after ready".to_owned(),
+    );
+
+    let transition = initial.apply_message(AppMessage::RepositoryAgent(
+        RepositoryAgentMessage::ProjectActionAvailability,
+    ));
+    let Ok(transition) = transition else {
+        panic!("crash availability projection must commit: {transition:?}");
+    };
+    let Some(issued) = transition.effects.first() else {
+        panic!("crash availability projection must stage one effect");
+    };
+    let Effect::Provider(ProviderEffect::ProjectActionAvailability { entries }) = &issued.effect
+    else {
+        panic!("crash availability must use the closed provider effect");
+    };
+    let completion = EffectCompletion {
+        correlation: issued.correlation.clone(),
+        result: Ok(EffectResponse::Provider(
+            ProviderResponse::ActionAvailability {
+                entries: entries.clone(),
+            },
+        )),
+    };
+
+    let committed = transition
+        .next_state
+        .apply_message(AppMessage::EffectCompletion(Box::new(completion)))
+        .committed_pure();
+
+    assert!(Arc::ptr_eq(committed.published_workbench(), &workbench));
+    assert_eq!(committed.action_registry().actions(), declarations);
+    assert!(committed.action_availability_generation().is_some());
+    assert_eq!(
+        committed.action_availability(&provider_id),
         Some(&Availability::Unavailable {
             reason: "provider stopped after ready".to_owned()
         })
