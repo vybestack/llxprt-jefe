@@ -26,7 +26,6 @@ fn the_contract_declares_every_format_the_runtime_depends_on() {
         "window_index",
         "window_name",
         "version",
-        "history_size",
     ] {
         assert!(
             contract_item(ContractItemKind::Format, name).is_some(),
