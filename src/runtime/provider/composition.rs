@@ -362,6 +362,47 @@ fn validate_provider_configuration(manifest: &Manifest, config: &TypedMap) -> Re
     ))
 }
 
+/// Resolve one selected package's effective configuration values.
+///
+/// This is the single owner of "what Settings selected for this package,
+/// defaults applied, schema-validated": [`provider_configuration`] and the
+/// workbench candidate's strict validation both read here, so a config that
+/// would compose can never be reported invalid, and vice versa.
+fn resolve_selected_configuration(
+    settings: &PublishedSettings,
+    manifest: &Manifest,
+) -> Result<TypedMap, String> {
+    let user_config = settings
+        .plugins
+        .get(manifest.id().owner_id())
+        .map_or_else(TypedMap::new, |owner| owner.values.clone());
+    let config = match manifest.config() {
+        Some(schema) => crate::domain::plugin_config::effective_values(schema, &user_config),
+        None => user_config,
+    };
+    validate_provider_configuration(manifest, &config)?;
+    Ok(config)
+}
+
+/// Validate a selected package's configuration without composing payloads.
+///
+/// The workbench candidate calls this before any provider process may exist:
+/// an active selected configuration that does not validate against the
+/// package's schema is a static failure of the whole candidate, not an
+/// unavailable action (issue #704, CWR1-02). The reason string is the same
+/// one runtime composition would produce, so the operator sees one diagnosis.
+///
+/// # Errors
+///
+/// Returns the operator-facing reason when the effective values violate the
+/// package's declared schema.
+pub fn validate_selected_configuration(
+    settings: &PublishedSettings,
+    manifest: &Manifest,
+) -> Result<(), String> {
+    resolve_selected_configuration(settings, manifest).map(|_| ())
+}
+
 /// Build one package's selected configuration and bounded environment.
 ///
 /// Secret-reference fields name host environment variables. Their references
@@ -376,15 +417,7 @@ fn provider_configuration(
     manifest: &Manifest,
     binary: &Path,
 ) -> Result<(ProviderEnvironment, ConfigurePayload), String> {
-    let user_config = settings
-        .plugins
-        .get(manifest.id().owner_id())
-        .map_or_else(TypedMap::new, |owner| owner.values.clone());
-    let mut config = match manifest.config() {
-        Some(schema) => crate::domain::plugin_config::effective_values(schema, &user_config),
-        None => user_config,
-    };
-    validate_provider_configuration(manifest, &config)?;
+    let mut config = resolve_selected_configuration(settings, manifest)?;
     let mut configure_secret_sources = BTreeMap::new();
     if let Some(schema) = manifest.config() {
         for field in schema.fields() {

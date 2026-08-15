@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use crate::domain::{Id, TypedMap, TypedValue};
-use crate::persistence::settings_document::{PublishedSettings, PublishedWorkbench};
+use crate::persistence::settings_document::{PublishedSettings, PublishedWorkbenchSettings};
 use crate::workbench::descriptor::LayoutNode;
 use crate::workbench::screens::builtin_screens;
 
@@ -68,7 +68,7 @@ fn two_panel_screen(
         .unwrap_or_else(|| panic!("the Repositories screen"))
 }
 
-fn settings(workbench: PublishedWorkbench) -> PublishedSettings {
+fn settings(workbench: PublishedWorkbenchSettings) -> PublishedSettings {
     PublishedSettings {
         workbench,
         ..PublishedSettings::default()
@@ -88,9 +88,9 @@ fn a_saved_layout_override_is_the_layout_the_registry_publishes() {
     let composed = compose_screens(
         &compiled,
         &[],
-        &settings(PublishedWorkbench {
+        &settings(PublishedWorkbenchSettings {
             layout_overrides: overrides,
-            ..PublishedWorkbench::default()
+            ..PublishedWorkbenchSettings::default()
         }),
     )
     .unwrap_or_else(|refusal| panic!("a valid override composes: {refusal}"));
@@ -155,9 +155,9 @@ fn an_override_the_validator_refuses_warns_and_leaves_the_compiled_layout() {
     let composed = compose_screens(
         &compiled,
         &[],
-        &settings(PublishedWorkbench {
+        &settings(PublishedWorkbenchSettings {
             layout_overrides: overrides,
-            ..PublishedWorkbench::default()
+            ..PublishedWorkbenchSettings::default()
         }),
     )
     .unwrap_or_else(|refusal| panic!("a bad override must not stop startup: {refusal}"));
@@ -189,9 +189,9 @@ fn an_override_naming_no_known_screen_is_reported_rather_than_ignored() {
     let composed = compose_screens(
         &compiled,
         &[],
-        &settings(PublishedWorkbench {
+        &settings(PublishedWorkbenchSettings {
             layout_overrides: overrides,
-            ..PublishedWorkbench::default()
+            ..PublishedWorkbenchSettings::default()
         }),
     )
     .unwrap_or_else(|refusal| panic!("an orphan override must not stop startup: {refusal}"));
@@ -218,9 +218,9 @@ fn a_saved_screen_order_is_the_order_the_registry_publishes() {
     let composed = compose_screens(
         &compiled,
         &[],
-        &settings(PublishedWorkbench {
+        &settings(PublishedWorkbenchSettings {
             screen_order: vec![id(last.as_str())],
-            ..PublishedWorkbench::default()
+            ..PublishedWorkbenchSettings::default()
         }),
     )
     .unwrap_or_else(|refusal| panic!("an order composes: {refusal}"));
@@ -251,9 +251,9 @@ fn an_order_naming_only_some_screens_leaves_the_rest_in_compiled_order() {
     let composed = compose_screens(
         &compiled,
         &[],
-        &settings(PublishedWorkbench {
+        &settings(PublishedWorkbenchSettings {
             screen_order: vec![id(moved.as_str())],
-            ..PublishedWorkbench::default()
+            ..PublishedWorkbenchSettings::default()
         }),
     )
     .unwrap_or_else(|refusal| panic!("a partial order composes: {refusal}"));

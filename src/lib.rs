@@ -60,6 +60,9 @@ mod pr_diff_content_tests;
 /// Pure selected-agent Preview projection.
 pub mod preview_view;
 pub mod provider_panel_view;
+/// The unpublished workbench aggregate composed by the startup candidate
+/// (issue #704).
+pub mod published_workbench;
 pub mod recovery;
 /// Run-boundary diagnostics: run-start/run-end records and unclean-run detection.
 pub mod run_diagnostics;
@@ -77,11 +80,18 @@ pub mod services;
 /// Native-host OpenSSH planning and typed failure classification.
 pub mod ssh;
 pub mod startup;
+/// Process-free workbench candidate construction (issue #704).
+#[path = "startup_candidate.rs"]
+pub mod startup_candidate;
 /// Startup publication of trusted package providers (issue #390 CW-10).
 #[path = "startup_providers.rs"]
 pub mod startup_providers;
 #[path = "startup_screens.rs"]
 pub mod startup_screens;
+/// Exact selected-package resolution for the workbench candidate
+/// (issue #704).
+#[path = "startup_selection.rs"]
+pub mod startup_selection;
 pub mod state;
 /// Shared nine-level agent status precedence (extracted from preview_view, #626).
 pub mod status_precedence;

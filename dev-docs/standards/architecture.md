@@ -232,7 +232,7 @@ as the same internal `ScreenDescriptor`. Ownership of each step is fixed:
 | What the declared bounds are | `workbench::screen_file_bounds`, `workbench::screen_file_shape` | Checked, never clamped; the measured value is reported. |
 | External to internal | `workbench::screen_lowering::lower_screen` | The single crossing. It copies and resolves; it supplies no semantic default. Nothing external survives it. |
 | Which panel types and actions exist | `workbench::panel_types`, `domain::default_action_inventory` | Immutable registries. A definition resolves against them and can never extend them. |
-| Which owners are active | `persistence::settings_publish::PublishedWorkbench::enabled_screens` | Read before lowering; a dormant definition is never lowered. |
+| Which owners are active | `persistence::settings_publish::PublishedWorkbenchSettings::enabled_screens` | Read before lowering; a dormant definition is never lowered. |
 | Composing and refusing | `workbench::compose` | All-or-nothing. One unusable enabled definition refuses the whole candidate registry. |
 | Publishing | `workbench::publish_screen_registry` | Exactly once, at startup, before anything renders. |
 | Requesting all of the above | `startup_screens::compose_and_publish` | The only caller that turns paths plus settings into a published registry. |

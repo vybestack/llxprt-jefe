@@ -119,7 +119,11 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
 /// package directory is not a reason to refuse to start. The scan starts no
 /// process, which is what keeps `jefe config`/`jefe recovery` provider-free
 /// (issue #390 CW10-12).
-fn scan_plugin_inventory(
+///
+/// The workbench candidate calls this same scan (via
+/// [`crate::startup_candidate::scan_inventory`]) so the candidate and its
+/// consumers retain one inventory rather than two that can disagree.
+pub(crate) fn scan_plugin_inventory(
     paths: &ResolvedPaths,
 ) -> crate::persistence::plugin_inventory::PluginInventory {
     use crate::persistence::plugin_inventory::scan;

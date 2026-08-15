@@ -53,7 +53,7 @@ pub use persistent_session::{PersistentInvocation, PersistentInvokeError, Persis
 
 pub use composition::{
     CompositionRequest, Containment, MigrationInputs, ProviderComposition, compose,
-    compose_migration_request,
+    compose_migration_request, validate_selected_configuration,
 };
 pub use coordinator::{ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator};
 pub use environment::ProcessHostEnv;
