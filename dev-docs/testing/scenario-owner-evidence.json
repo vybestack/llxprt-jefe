@@ -2495,7 +2495,7 @@
     },
     {
       "path": "tests/core/windows_ci_signal_contracts.rs",
-      "sha256": "145063c0a28227b07462bf67063d0a93586deee81aead950409bec29f6d80ec9",
+      "sha256": "32261da4c56b15edefb1012c0e3d4253838f8fb0a7d3f584bdcc2d2325c1342a",
       "mode": "100644",
       "criteria": [
         "CW00B-03",

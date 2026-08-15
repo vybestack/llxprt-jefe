@@ -272,7 +272,8 @@ fn windows_native_still_runs_every_native_step() {
     }
     let smoke = step_body(&job, "Run real psmux startup-quit against installed binary");
     for required in [
-        "new-session -d -s $session -c $working $installedJefe",
+        "$launchCommand = \"& '$installedJefe' '--config' '$config'\"",
+        "new-session -d -s $session -c $working $launchCommand",
         "list-sessions -F '#S'",
         "capture-pane",
         "LLxprt Jefe",
