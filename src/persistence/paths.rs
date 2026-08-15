@@ -702,13 +702,19 @@ impl StateImportError {
     }
 }
 
-/// Import one physically distinct state source into an absent selected target.
-///
-/// The source is read and migrated entirely in memory, then the schema-2
-/// candidate is installed through the sole atomic writer authority. The source
-/// remains byte-for-byte unchanged and no schema-1 backup is created because it
-/// is not the selected authority being replaced.
-pub fn import_state_source(source: &Path, target: &Path) -> Result<WriteOutcome, StateImportError> {
+/// Immutable schema-2 state import prepared without changing durable bytes.
+#[derive(Debug)]
+pub struct StateImportPlan {
+    target: PathBuf,
+    draft: DraftBytes,
+    revision: u64,
+}
+
+/// Read, migrate, and serialize one state source without writing its target.
+pub fn plan_state_import_source(
+    source: &Path,
+    target: &Path,
+) -> Result<StateImportPlan, StateImportError> {
     let source_bytes = std::fs::read(source)
         .map_err(|error| import_diagnostic(source, CfgCode::E104, 4, error.to_string()))?;
     let migrated =
@@ -719,14 +725,34 @@ pub fn import_state_source(source: &Path, target: &Path) -> Result<WriteOutcome,
     let draft = migrated
         .to_canonical_json()
         .map_err(|error| import_diagnostic(source, CfgCode::E104, 4, error.to_string()))?;
-    let operation = AtomicWrite {
+    Ok(StateImportPlan {
         target: target.to_path_buf(),
         draft: DraftBytes::new(draft),
-        expected: ExpectedHash::Absent,
         revision: migrated.state().revision,
+    })
+}
+
+/// Atomically install one previously prepared state import.
+pub fn commit_state_import(plan: StateImportPlan) -> Result<WriteOutcome, StateImportError> {
+    let operation = AtomicWrite {
+        target: plan.target,
+        draft: plan.draft,
+        expected: ExpectedHash::Absent,
+        revision: plan.revision,
         backup: BackupPolicy::None,
     };
     super::writer::write(operation, |_| Freshness::Current).map_err(StateImportError::Write)
+}
+
+/// Import one physically distinct state source into an absent selected target.
+///
+/// The source is read and migrated entirely in memory, then the schema-2
+/// candidate is installed through the sole atomic writer authority. The source
+/// remains byte-for-byte unchanged and no schema-1 backup is created because it
+/// is not the selected authority being replaced.
+pub fn import_state_source(source: &Path, target: &Path) -> Result<WriteOutcome, StateImportError> {
+    let plan = plan_state_import_source(source, target)?;
+    commit_state_import(plan)
 }
 
 fn import_diagnostic(

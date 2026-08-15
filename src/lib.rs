@@ -83,6 +83,9 @@ pub mod startup;
 /// Process-free workbench candidate construction (issue #704).
 #[path = "startup_candidate.rs"]
 pub mod startup_candidate;
+/// Atomic workbench publication boundary (issue #704).
+#[path = "startup_commit.rs"]
+pub mod startup_commit;
 /// Startup publication of trusted package providers (issue #390 CW-10).
 #[path = "startup_providers.rs"]
 pub mod startup_providers;

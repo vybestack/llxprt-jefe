@@ -16,7 +16,8 @@ use crate::persistence::keymap_edit::{KeymapDiagnostic, LoadedKeymap, load_bytes
 use crate::persistence::migration::migrate_state;
 use crate::persistence::paths::{
     ImportDecision, InspectedSource, PathError, PhysicalIdentity, ResolvedFile, ResolvedPaths,
-    SourceValidity, decide_import, import_state_source, physical_identity, resolve,
+    SourceValidity, StateImportPlan, decide_import, physical_identity, plan_state_import_source,
+    resolve,
 };
 use crate::persistence::settings_document::{PublishedSettings, SettingsDocument};
 use crate::persistence::writer::ExpectedHash;
@@ -45,6 +46,8 @@ pub struct StartupPersistence {
     /// a second scan could see a different directory than the one the operator
     /// is looking at.
     pub plugin_packages: Vec<crate::persistence::plugin_inventory::InstalledPackage>,
+    pub(crate) inventory: crate::persistence::plugin_inventory::PluginInventory,
+    pub(crate) state_import: Option<StateImportPlan>,
 }
 
 impl StartupPersistence {
@@ -81,7 +84,7 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
             .and_then(crate::runtime::MultiplexerPlan::isolation_for_installation),
     )?;
     report_namespace_drift(&paths.state.path);
-    apply_state_import(&paths.state)?;
+    let state_import = plan_state_import(&paths.state)?;
     // Scanned before settings are published: a package's trust lives under
     // `plugins.<id>`, and an owner the catalog has never heard of publishes as
     // dormant. Reading trust therefore requires knowing which packages are
@@ -94,7 +97,9 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     let plugin_packages = scanned.packages().to_vec();
     let (keymap, settings_document, settings_expected_hash) =
         validate_settings(&paths.settings.path, &plugin_packages)?;
-    validate_state(&paths.state.path)?;
+    if state_import.is_none() {
+        validate_state(&paths.state.path)?;
+    }
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
         state_path: paths.state.path.clone(),
@@ -109,6 +114,8 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
         manager,
         plugin_inventory,
         plugin_packages,
+        inventory: scanned,
+        state_import,
     })
 }
 
@@ -139,15 +146,25 @@ pub(crate) fn scan_plugin_inventory(
     scan(&roots)
 }
 
-fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
+fn plan_state_import(file: &ResolvedFile) -> Result<Option<StateImportPlan>, PathError> {
     let target = existing_identity(&file.path)?;
     let sources = inspect_sources(file)?;
     match decide_import(target.is_some(), target.as_ref(), &sources)? {
-        ImportDecision::Empty => Ok(()),
-        ImportDecision::Import { source } => import_state_source(&source, &file.path)
-            .map(|_| ())
+        ImportDecision::Empty => Ok(None),
+        ImportDecision::Import { source } => plan_state_import_source(&source, &file.path)
+            .map(Some)
             .map_err(|error| import_error(&file.path, &error)),
     }
+}
+
+#[cfg(test)]
+fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
+    let Some(plan) = plan_state_import(file)? else {
+        return Ok(());
+    };
+    crate::persistence::paths::commit_state_import(plan)
+        .map(|_| ())
+        .map_err(|error| import_error(&file.path, &error))
 }
 
 fn existing_identity(path: &Path) -> Result<Option<PhysicalIdentity>, PathError> {

@@ -104,6 +104,12 @@ impl PublishedWorkbench {
         &self.agents
     }
 
+    /// The composed screen declarations and their non-fatal warnings.
+    #[must_use]
+    pub const fn screen_composition(&self) -> &ScreenComposition {
+        &self.screens
+    }
+
     /// The composed, validated screen registry.
     #[must_use]
     pub const fn screen_registry(&self) -> &ScreenRegistry {

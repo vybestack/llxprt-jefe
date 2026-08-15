@@ -113,6 +113,15 @@ pub fn compose_and_publish(
     settings: &PublishedSettings,
 ) -> Result<Vec<Diagnostic>, ScreenStartupError> {
     let composition = compose(paths, packages, settings)?;
+    publish_composed(composition)
+}
+
+/// Publish a screen composition already validated inside the committed
+/// workbench. This temporary bridge disappears when declaration consumers take
+/// the committed aggregate directly.
+pub fn publish_composed(
+    composition: ScreenComposition,
+) -> Result<Vec<Diagnostic>, ScreenStartupError> {
     publish_screen_registry(composition.registry).map_err(ScreenStartupError::AlreadyPublished)?;
     Ok(composition.warnings)
 }

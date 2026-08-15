@@ -319,11 +319,12 @@ fn main() {
         run_doctor_and_exit(cli_args.config_dir.as_deref());
     }
 
-    let startup = build_startup_or_exit(cli_args.config_dir.as_deref());
-    // The screen registry is published before anything renders, so no renderer
-    // can observe it change underneath it.
-    publish_screen_registry_or_exit(&startup);
-    run_tui(cli_args, startup);
+    let mut startup = build_startup_or_exit(cli_args.config_dir.as_deref());
+    let commit = commit_startup_or_exit(&mut startup, cli_args.config_dir.as_deref());
+    // This temporary bridge is post-commit: no renderer can observe a partial
+    // candidate while declaration consumers move to the aggregate in S4.
+    publish_screen_registry_or_exit(&commit.workbench);
+    run_tui(cli_args, startup, commit);
 }
 
 /// Bring logging up once persistence has validated, and record what it opened.
@@ -356,65 +357,6 @@ fn build_runtime(
         runtime.install_jsp_launches(host.coordinator());
     }
     (jsp_host, runtime)
-}
-
-/// Start trusted package providers and fold their actions into the registry.
-///
-/// This is the one place a provider process can start (issue #390 CW-10), which
-/// is what keeps `jefe config` and recovery provider-free. A provider that
-/// cannot run never blocks startup: it publishes its actions as unavailable and
-/// the reason is written once, where the operator will see it.
-fn publish_providers_or_warn(
-    packages: &[jefe::persistence::plugin_inventory::InstalledPackage],
-    settings: &jefe::persistence::settings_document::PublishedSettings,
-    base_snapshot: &jefe::domain::action_registry::ActionRegistrySnapshot,
-    paths: &jefe::persistence::paths::ResolvedPaths,
-) -> (
-    jefe::domain::action_registry::ActionRegistrySnapshot,
-    Option<jefe::runtime::provider::ProviderCoordinator>,
-) {
-    let published = jefe::startup_providers::publish_providers(
-        &jefe::startup_providers::ProviderPublicationRequest {
-            packages,
-            settings,
-            base_snapshot,
-            containment: provider_containment(paths),
-        },
-    );
-    write_optional_diagnostic(published.startup_warning);
-    // Logged unconditionally: "my package action is not in the menu" is the
-    // first thing an operator hits, and the answer is almost always that the
-    // package is not trusted or has no binary for this host. Saying how many
-    // packages were seen, trusted and published turns that into one log line.
-    tracing::info!(
-        installed = packages.len(),
-        published = published.snapshot.provider_actions().count(),
-        runnable = published.coordinator.catalog().len(),
-        "composed package providers"
-    );
-    (published.snapshot, Some(published.coordinator))
-}
-
-/// Where every provider process is contained (issue #390 CW-10, row CW10-14).
-///
-/// A provider never sees the operator's real `HOME` or `TMPDIR`. It gets a
-/// per-host directory beside the state file so a package cannot read or write
-/// anything the host did not hand it, and a fixed `C` locale so its output does
-/// not change with the operator's environment.
-fn provider_containment(
-    paths: &jefe::persistence::paths::ResolvedPaths,
-) -> jefe::runtime::provider::Containment {
-    let root = paths.state.path.parent().map_or_else(
-        || std::path::PathBuf::from("providers"),
-        |parent| parent.join("providers"),
-    );
-    jefe::runtime::provider::Containment {
-        home: root.join("home"),
-        tmpdir: root.join("tmp"),
-        working_dir: root.join("work"),
-        locale: "C".to_owned(),
-        host_api: jefe::VERSION.to_owned(),
-    }
 }
 
 /// Start the local JSP host beside the state file.
@@ -481,7 +423,11 @@ fn plugin_config_catalogs(
     (selected, installed)
 }
 
-fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersistence) {
+fn run_tui(
+    cli_args: jefe::cli::CliArgs,
+    startup: jefe::startup::StartupPersistence,
+    commit: jefe::startup_commit::StartupCommit,
+) {
     let (plugin_configs, installed_plugin_configs) = plugin_config_catalogs(&startup);
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
@@ -489,12 +435,16 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     };
     let themes_dir = startup.paths.themes.clone();
     let keymap_diagnostic = startup.keymap_diagnostic_message();
-    let keymap_snapshot = startup.keymap_snapshot;
     let settings_expected_hash = startup.settings_expected_hash;
-    let published_settings = startup.settings;
-    let plugin_packages = startup.plugin_packages;
     let startup_paths = startup.paths;
     let persistence = startup.manager;
+    let jefe::startup_commit::StartupCommit {
+        workbench,
+        providers,
+    } = commit;
+    let keymap_snapshot = workbench.actions().clone();
+    let published_settings = workbench.settings().clone();
+    let plugin_packages = workbench.inventory().packages().to_vec();
     write_optional_diagnostic(keymap_diagnostic);
     init_startup_diagnostics(cli_args.config_dir.as_deref());
 
@@ -518,13 +468,8 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
     let provider_effect_handle =
         jefe::services::provider_effect_worker::ProviderEffectHandle::new();
-    let (keymap_snapshot, provider_coordinator) = publish_providers_or_warn(
-        &plugin_packages,
-        &published_settings,
-        &keymap_snapshot,
-        &startup_paths,
-    );
-    let migration_containment = provider_containment(&startup_paths);
+    let provider_coordinator = Some(providers);
+    let migration_containment = jefe::startup_commit::provider_containment(&startup_paths);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         keymap_snapshot: Some(keymap_snapshot),
@@ -564,12 +509,27 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
 ///
 /// Warnings name definitions that were preserved on disk and left out of the
 /// registry, which is not a reason to refuse to start.
-fn publish_screen_registry_or_exit(startup: &jefe::startup::StartupPersistence) {
-    match jefe::startup_screens::compose_and_publish(
-        &startup.paths,
-        &startup.plugin_packages,
-        &startup.settings,
-    ) {
+fn commit_startup_or_exit(
+    startup: &mut jefe::startup::StartupPersistence,
+    config_dir: Option<&std::path::Path>,
+) -> jefe::startup_commit::StartupCommit {
+    match jefe::startup_commit::commit_startup(startup) {
+        Ok(commit) => commit,
+        Err(error) => {
+            let stderr = std::io::stderr();
+            let mut handle = stderr.lock();
+            let _ = writeln!(handle, "jefe: {error}");
+            let suffix =
+                config_dir.map_or_else(String::new, |path| format!(" --config {}", path.display()));
+            let _ = writeln!(handle, "jefe config validate{suffix}");
+            let _ = writeln!(handle, "jefe config migrate-state{suffix}");
+            std::process::exit(i32::from(error.exit_code()));
+        }
+    }
+}
+
+fn publish_screen_registry_or_exit(workbench: &jefe::published_workbench::PublishedWorkbench) {
+    match jefe::startup_screens::publish_composed(workbench.screen_composition().clone()) {
         Ok(warnings) => {
             for warning in warnings {
                 write_optional_diagnostic(Some(format!(

@@ -23,3 +23,6 @@ mod transaction_support;
 
 #[path = "issue704/transaction.rs"]
 mod transaction;
+
+#[path = "issue704/commit.rs"]
+mod commit;
