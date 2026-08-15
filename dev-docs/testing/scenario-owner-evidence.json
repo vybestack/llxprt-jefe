@@ -2399,7 +2399,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "f400a58236d3b5d97b4233fc0398ff24fe4092b830d55d5559efc92e7e6ac110",
+      "sha256": "5d4ce85af8bd4a109696f502125f897a3bf18522202dbad969fee7ee4a920496",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

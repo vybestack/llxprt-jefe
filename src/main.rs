@@ -29,7 +29,7 @@ use std::sync::Arc;
 use iocraft::prelude::*;
 use tracing::error;
 
-use jefe::layout::{compute_pty_layout, is_fullscreen_enabled};
+use jefe::layout::is_fullscreen_enabled;
 use jefe::runtime::TmuxRuntimeManager;
 use jefe::theme::FileThemeManager;
 
@@ -360,17 +360,14 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
     true
 }
 
-fn runtime_manager(rows: u16, cols: u16, state_path: &std::path::Path) -> TmuxRuntimeManager {
-    state_path.parent().map_or_else(
-        || TmuxRuntimeManager::new(rows, cols),
-        |parent| {
-            TmuxRuntimeManager::with_session_host_root(
-                rows,
-                cols,
+fn pending_runtime_manager(state_path: &std::path::Path) -> TmuxRuntimeManager {
+    state_path
+        .parent()
+        .map_or_else(TmuxRuntimeManager::pending, |parent| {
+            TmuxRuntimeManager::pending_with_session_host_root(
                 parent.join(jefe::runtime::SESSION_HOST_ROOT_SEGMENT),
             )
-        },
-    )
+        })
 }
 fn init_diagnostics() {
     jefe::logging::init();
@@ -434,18 +431,15 @@ fn init_startup_diagnostics(config_dir: Option<&std::path::Path>) {
     );
 }
 
-/// Build the agent runtime and the optional local JSP host it reports to.
+/// Build the pending agent runtime and the optional local JSP host it reports to.
 ///
-/// The PTY viewport is derived from the dashboard geometry here rather than by
-/// the caller, because the two are one decision: the runtime is sized for the
-/// pane it will draw into.
+/// This boundary intentionally supplies no PTY dimensions. The app shell commits
+/// initial geometry only after resolving the first screen frame.
 fn build_runtime(
     state_path: &std::path::Path,
 ) -> (Option<jefe::jsp_host::JspHostRuntime>, TmuxRuntimeManager) {
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let layout = compute_pty_layout(cols, rows);
     let jsp_host = start_jsp_host(state_path);
-    let mut runtime = runtime_manager(layout.pty_rows, layout.pty_cols, state_path);
+    let mut runtime = pending_runtime_manager(state_path);
     if let Some(host) = &jsp_host {
         runtime.install_jsp_launches(host.coordinator());
     }

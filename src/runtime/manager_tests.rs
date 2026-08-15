@@ -6,6 +6,32 @@ use super::*;
 use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::runtime::stub_manager::StubRuntimeManager;
 
+#[test]
+fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
+    let mut manager = TmuxRuntimeManager::pending();
+
+    assert!(!manager.initial_geometry_configured());
+    assert!(matches!(
+        manager.resize(24, 80),
+        Err(RuntimeError::InitialGeometryUnavailable)
+    ));
+    assert!(matches!(
+        manager.configure_initial_geometry(0, 80),
+        Err(RuntimeError::InvalidInitialGeometry { rows: 0, cols: 80 })
+    ));
+
+    manager
+        .configure_initial_geometry(24, 80)
+        .unwrap_or_else(|error| panic!("first frame must configure runtime: {error}"));
+
+    assert!(manager.initial_geometry_configured());
+    assert_eq!((manager.rows, manager.cols), (24, 80));
+    assert!(matches!(
+        manager.configure_initial_geometry(40, 120),
+        Err(RuntimeError::InitialGeometryAlreadyConfigured)
+    ));
+}
+
 // The `dead_plans` field is private and the real mutating methods
 // (`mark_session_dead`, `kill`) require a live tmux session to exercise
 // end-to-end, which is not unit-test friendly. Instead this test targets

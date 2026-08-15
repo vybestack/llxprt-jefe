@@ -18,6 +18,12 @@ pub enum RuntimeError {
     SessionNotFound(String),
     /// Failed to attach to session.
     AttachFailed(String),
+    /// Runtime use was attempted before the first frame supplied geometry.
+    InitialGeometryUnavailable,
+    /// The first committed frame resolved to a zero-sized PTY viewport.
+    InvalidInitialGeometry { rows: u16, cols: u16 },
+    /// Initial geometry may be committed only once.
+    InitialGeometryAlreadyConfigured,
     /// Failed to spawn session.
     SpawnFailed(String),
     /// A named gate in the launch pipeline refused (issue #544).
@@ -85,6 +91,15 @@ impl std::fmt::Display for RuntimeError {
         match self {
             Self::SessionNotFound(name) => write!(f, "session not found: {name}"),
             Self::AttachFailed(msg) => write!(f, "attach failed: {msg}"),
+            Self::InitialGeometryUnavailable => {
+                write!(f, "runtime geometry is unavailable before the first frame")
+            }
+            Self::InvalidInitialGeometry { rows, cols } => {
+                write!(f, "invalid initial runtime geometry: {cols}x{rows}")
+            }
+            Self::InitialGeometryAlreadyConfigured => {
+                write!(f, "initial runtime geometry is already configured")
+            }
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
             Self::LaunchGateRefused(failure) => write!(f, "{failure}"),
             Self::SessionHostStaging(error) => write!(f, "session host staging failed: {error}"),

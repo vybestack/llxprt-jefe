@@ -153,12 +153,6 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     });
     install_gh_delivery_handler(&ctx, gh_delivery_handler.take());
 
-    // Restore runtime session map from persisted agent statuses exactly once.
-    if !startup_sessions_restored.get() {
-        startup_sessions_restored.set(true);
-        crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
-    }
-
     hooks.use_future({
         let ctx = ctx.clone();
         let mut app_state = app_state;
@@ -492,7 +486,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let _ = render_tick.get();
 
     // Calculate render dimensions.
-    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let terminal_size = crossterm::terminal::size().ok();
+    let (term_cols, term_rows) = terminal_size.unwrap_or((120, 40));
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
     // Resolve this frame's geometry exactly once. Every consumer downstream —
@@ -503,6 +498,26 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let mut snapshot = snapshot;
     snapshot.resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
     let snapshot = snapshot;
+
+    if terminal_size.is_some()
+        && !startup_sessions_restored.get()
+        && let Some((rows, cols)) = jefe::screen_layout::initial_runtime_geometry(&snapshot)
+    {
+        let context = ctx
+            .as_ref()
+            .unwrap_or_else(|| panic!("application context is required for runtime restoration"));
+        {
+            let Ok(mut context) = context.lock() else {
+                panic!("application context lock poisoned during runtime configuration");
+            };
+            context
+                .runtime
+                .configure_initial_geometry(rows, cols)
+                .unwrap_or_else(|error| panic!("initial runtime geometry failed: {error}"));
+        }
+        crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
+        startup_sessions_restored.set(true);
+    }
 
     // Capture scrollback history lines for the terminal pane (issue #198).
     // Only Dashboard mode renders the embedded terminal, so gate the (cloning)

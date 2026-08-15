@@ -133,3 +133,27 @@ fn composition_root_enforces_identity_and_fallible_owner_transfer_before_commit(
     assert!(durable_commit < aggregate_commit);
     assert!(startup.contains("map_err(StartupCommitFailure::ProviderOwner)"));
 }
+
+#[test]
+fn runtime_restore_is_deferred_until_committed_frame_geometry() {
+    let main = include_str!("../../src/main.rs");
+    let shell = include_str!("../../src/app_shell.rs");
+
+    assert!(
+        !main.contains("crossterm::terminal::size()"),
+        "runtime construction must not derive initial PTY dimensions before the first frame"
+    );
+    let observed_size = shell
+        .find("terminal_size.is_some()")
+        .unwrap_or_else(|| panic!("fallback render dimensions must not configure the runtime"));
+    let configure = shell
+        .find("configure_initial_geometry")
+        .unwrap_or_else(|| panic!("first-frame runtime configuration must be present"));
+    let restore = shell
+        .find("restore_runtime_sessions")
+        .unwrap_or_else(|| panic!("runtime restoration must be present"));
+    assert!(
+        observed_size < configure && configure < restore,
+        "runtime restoration must follow observed first-frame geometry configuration"
+    );
+}

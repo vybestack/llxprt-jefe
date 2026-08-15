@@ -281,9 +281,11 @@ pub struct TmuxRuntimeManager {
     /// options are idempotent, but we memoize so the reattach/attach hot paths
     /// do not re-shell out to tmux for a session already remediated (#200).
     pub(super) prefix_enforced: HashSet<String>,
-    /// Terminal dimensions.
+    /// Terminal dimensions, valid only after `initial_geometry_configured`.
     pub(crate) rows: u16,
     pub(crate) cols: u16,
+    /// Whether the first committed frame has supplied nonzero PTY geometry.
+    pub(super) initial_geometry_configured: bool,
     /// Monotonically increasing PTY-output generation counter (issue #198).
     /// Incremented by `take_dirty()`. The history cache compares the stored
     /// generation to decide re-capture.
@@ -332,10 +334,10 @@ pub fn drop_viewer_in_background_pub(viewer: &mut Option<AttachedViewer>) {
 }
 
 impl TmuxRuntimeManager {
-    /// Create a new tmux runtime manager.
+    /// Create a runtime whose initial geometry is already known.
     #[must_use]
     pub fn new(rows: u16, cols: u16) -> Self {
-        Self::build(rows, cols, None)
+        Self::build(rows, cols, true, None)
     }
 
     /// Create a tmux runtime manager that owns an explicit session-host root.
@@ -348,7 +350,7 @@ impl TmuxRuntimeManager {
     /// environment.
     #[must_use]
     pub fn with_session_host_root(rows: u16, cols: u16, session_host_root: PathBuf) -> Self {
-        Self::build(rows, cols, Some(session_host_root))
+        Self::build(rows, cols, true, Some(session_host_root))
     }
 
     /// Return the explicit session-host root this manager owns, if any.
@@ -361,7 +363,12 @@ impl TmuxRuntimeManager {
         self.session_host_root.as_deref()
     }
 
-    fn build(rows: u16, cols: u16, session_host_root: Option<PathBuf>) -> Self {
+    pub(super) fn build(
+        rows: u16,
+        cols: u16,
+        initial_geometry_configured: bool,
+        session_host_root: Option<PathBuf>,
+    ) -> Self {
         Self {
             sessions: HashMap::new(),
             viewer: None,
@@ -371,6 +378,7 @@ impl TmuxRuntimeManager {
             prefix_enforced: HashSet::new(),
             rows,
             cols,
+            initial_geometry_configured,
             output_generation: AtomicU64::new(0),
             history_cache: HistoryCache::default(),
             lifecycle_counter: AtomicU64::new(0),
@@ -382,12 +390,6 @@ impl TmuxRuntimeManager {
     /// Install the production JSP lifecycle authority after the host is ready.
     pub fn install_jsp_launches(&mut self, coordinator: JspLaunchCoordinator) {
         self.jsp_launches = Some(coordinator);
-    }
-
-    /// Update terminal dimensions.
-    pub fn set_size(&mut self, rows: u16, cols: u16) {
-        self.rows = rows;
-        self.cols = cols;
     }
 
     /// Allocate the next lifecycle generation (issue #301 Phase 4).
@@ -522,6 +524,7 @@ impl TmuxRuntimeManager {
         allow_reattach: bool,
         lifecycle_generation: u64,
     ) -> Result<bool, RuntimeError> {
+        self.ensure_initial_geometry()?;
         // Last line of defense: reject a duplicate mapping just before the
         // session is inserted. The public entry points check earlier to fail
         // fast before expensive preflight and credential material is created.
@@ -620,6 +623,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
+        self.ensure_initial_geometry()?;
         self.ensure_not_running(agent_id)?;
         // Preflight the unmodified plan first so an unspawnable agent fails
         // before any credential material is written. The augmented plan is
@@ -656,6 +660,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         launch: &AuthorizedLaunchPlan,
         remote: Option<&RemoteRepositorySettings>,
     ) -> Result<(), RuntimeError> {
+        self.ensure_initial_geometry()?;
         self.ensure_not_running(agent_id)?;
         launch
             .prepare_current(&ProcessSandboxInspector::new())
@@ -686,6 +691,7 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        self.ensure_initial_geometry()?;
         debug!(
             agent_id = %agent_id.0,
             current_attached = ?self.attached_agent_id.as_ref().map(|id| &id.0),
@@ -876,6 +882,7 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn resize(&mut self, rows: u16, cols: u16) -> Result<(), RuntimeError> {
+        self.ensure_initial_geometry()?;
         self.rows = rows;
         self.cols = cols;
 
