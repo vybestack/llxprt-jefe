@@ -503,7 +503,7 @@ jobs:
           $env:JEFE_PSMUX_NAMESPACE = $namespace
           $session = 'installed-smoke'
           try {
-            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace new-session -d -s $session -c $working $installedJefe
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace new-session -d -s $session -c $working $installedJefe --config $config
             if ($LASTEXITCODE -ne 0) { throw "failed to start installed Jefe in psmux" }
             $ready = $false
             for ($attempt = 0; $attempt -lt 60; $attempt++) {
