@@ -233,9 +233,9 @@ as the same internal `ScreenDescriptor`. Ownership of each step is fixed:
 | External to internal | `workbench::screen_lowering::lower_screen` | The single crossing. It copies and resolves; it supplies no semantic default. Nothing external survives it. |
 | Which panel types and actions exist | `workbench::panel_types`, `domain::default_action_inventory` | Immutable registries. A definition resolves against them and can never extend them. |
 | Which owners are active | `persistence::settings_publish::PublishedWorkbenchSettings::enabled_screens` | Read before lowering; a dormant definition is never lowered. |
-| Composing and refusing | `workbench::compose` | All-or-nothing. One unusable enabled definition refuses the whole candidate registry. |
-| Publishing | `workbench::publish_screen_registry` | Exactly once, at startup, before anything renders. |
-| Requesting all of the above | `startup_screens::compose_and_publish` | The only caller that turns paths plus settings into a published registry. |
+| Composing and refusing | `startup_screens::compose`, `workbench::compose` | Pure and all-or-nothing. One unusable enabled definition refuses the whole candidate. |
+| Committing | `startup_commit::commit_startup` | Moves the composed registry into the one immutable `PublishedWorkbench`; no screen-only publication authority exists. |
+| Consuming | `AppState::published_workbench` and explicit aggregate parameters | Rendering, input, navigation, restoration, and Settings projection all read the same committed aggregate identity. |
 
 Three properties are normative:
 
@@ -447,18 +447,22 @@ owner is never the state layer.
 | `runtime/provider/{framing,protocol,dto,...}` | the closed JSONL wire: framing bounds, envelope/payload DTOs, lifecycle order, progress monotonicity | perform I/O, spawn, or hold state |
 | `runtime/provider/composition` | the pure decision of which trusted package contributes which action, its runtime descriptor, and its startup candidate | start a process or read settings |
 | `runtime/provider/supervisor` | one one-shot lifecycle: spawn, pipes, drains, timeouts, staged shutdown, reap | outlive its invocation or expose a handle |
-| `runtime/provider/persistent` | resident candidates and their atomic all-or-nothing publication | auto-restart a candidate |
-| `runtime/provider/coordinator` | the published catalog, the request-id counter, and the persistent supervisor for the session | live in `AppState` |
-| `startup_providers` | the single place a provider process may start | run from `build_persistence` |
+| `runtime/provider/persistent` | privately prepared resident candidates, Configure/Ready handshakes, and exact rollback records | publish declarations or auto-restart a candidate |
+| `startup_transaction` | deterministic required-provider startup as one all-or-nothing transaction | degrade, skip a selected winner, or continue after failure |
+| `PublishedWorkbench` | the immutable provider catalog, selected packages, declarations, and Ready metadata | own a process, session, supervisor, request counter, or health handle |
+| `runtime/provider/coordinator` | the request-id counter and successful persistent supervisor sessions | duplicate any static catalog or Ready publication authority |
 | `state/provider_requests` | handle-free request, progress, terminal and confirmation state | own a process, pipe, timer, or thread |
 | `services/provider_effect_worker` | translating one supervisor result into typed reducer messages | execute on the input or render thread |
 
 Two rules carry most of the weight:
 
-**Provider processes start in exactly one place.** `startup_providers` runs from
-the TUI startup path only. `build_persistence` scans packages but never starts
-one, which is what keeps `jefe config` and recovery provider-free even when a
-selected package declares a provider that would hang.
+**Required provider processes start inside one transaction before publication.**
+`startup_commit::commit_startup` invokes `startup_transaction` only after static
+composition succeeds. Every required provider must complete Configure and Ready
+before one `StartupCommit` is returned. Any failure reaps every recorded
+candidate before typed recovery is exposed and publishes no workbench. Offline
+configuration and recovery never enter this transaction, so they start no
+provider or TUI.
 
 **A provider effect runs only after the transition commits and the state guard
 is released.** Dispatch stages a closed `ProviderEffect`; the background worker

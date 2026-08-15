@@ -48,6 +48,8 @@
 //!   timeout).
 //! - `persistent-crash-after-ack`: `hello-ack` then exit 1 (configure-write /
 //!   ready-eof failure).
+//! - `persistent-exit-before-ready`: receive `configure` then exit 1 before
+//!   `ready` (deterministic Ready-phase failure).
 //! - `persistent-protocol`: `hello-ack` with a drifted generation (protocol
 //!   fault).
 //! - `persistent-undeclared-cap`: `ready` reporting a capability the host did
@@ -616,6 +618,10 @@ fn run_persistent(
     }
 
     let configure_line = next_line()?;
+
+    if mode == "persistent-exit-before-ready" {
+        std::process::exit(1);
+    }
 
     if mode == "persistent-ready-hang" {
         // configure received, but never ready: the host times out awaiting ready.

@@ -492,10 +492,10 @@ fn cwr1_03_protocol_fault_returns_typed_error_with_cleanup() {
 }
 
 #[test]
-fn cwr1_03_crash_after_ack_returns_typed_error_with_cleanup() {
+fn cwr1_03_exit_before_ready_has_exact_phase_cause_and_cleanup() {
     let _budget = process_budget();
     let scene = Scene::new();
-    scene.stage_required("vendor.alpha", "persistent-crash-after-ack");
+    scene.stage_required("vendor.alpha", "persistent-exit-before-ready");
     let workbench = scene.build_workbench(&["vendor.alpha"]);
 
     let result = scene.run_transaction(&workbench);
@@ -505,11 +505,12 @@ fn cwr1_03_crash_after_ack_returns_typed_error_with_cleanup() {
         matches!(
             &failure.failure,
             StartupFailure::Candidate(CandidateFailure {
-                phase: PersistentPhase::Configure | PersistentPhase::Ready,
-                ..
-            })
+                plugin_id,
+                phase: PersistentPhase::Ready,
+                failure: SupervisorFailure::Crashed { exit: None },
+            }) if plugin_id.as_str() == "vendor.alpha"
         ),
-        "expected configure/ready failure, got {:?}",
+        "expected exact Ready-phase exit, got {:?}",
         failure.failure
     );
     assert_all_reaped(&failure.rollback);

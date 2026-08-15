@@ -1,0 +1,775 @@
+{
+  "schema": 1,
+  "issue": 704,
+  "artifacts": [
+    {
+      "path": "dev-docs/standards/architecture.md",
+      "sha256": "bef2ec3e89b7581b82f90e3546c83410f6c2f6aa83ab91e370ef2bc89ae20581",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/standards/persistence-and-runtime.md",
+      "sha256": "1cf717e9281d27512240d95eead199485dba955a918647ce5d2ff4e9a7b96fa1",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/scenario-execution-manifest.json",
+      "sha256": "bf95c6eff0915f1a411155e4dfdaf70d083451419cdb86384c9546134c90af6c",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/scenario-owner-evidence.json",
+      "sha256": "8a9232a1013b9de1d67715ab85ab63781017a6db8f9a14a4aa054e408f05170d",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/atomic-success.json",
+      "sha256": "d3318da2eaa44fde70ab785bc5af4b1ea170db5af51337a577130e6c319c4de0",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/provider-crash.json",
+      "sha256": "e1b59d2456b2d2b87987ce90406728264e374ca5259ec5dd83ac6c4c290dfb77",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-09",
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+      "sha256": "4d578446f0c5f56a8658ac07dfb76c65a52dddcf3e04ce2db455bb38a44bb11b",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-03",
+        "CWR1-07",
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/restart-publication.json",
+      "sha256": "2b2fc4619d5a5f1fe8d78c803dc2617807c6d08064e773cca54a7ad6b143aa5a",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/static-failure.json",
+      "sha256": "bb277a9b5b870b4427a68491a9dcb5a6c8d0d9ed0d5d90eea941b237d5f17641",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-02",
+        "CWR1-07",
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "docs/technical-overview.md",
+      "sha256": "a3444d89f39a3f55e04ac5c28cf53d77083902242df7be188e82fdacbbf49341",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "src/action_projection.rs",
+      "sha256": "f598d975bed8d4e56bb2d757b6e0f0ffd11ef3a1ba02013696dab92764c5e59b",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-08"
+      ]
+    },
+    {
+      "path": "src/app_init.rs",
+      "sha256": "f24dcdfdae13cff729b52b2df852327434890440afbdc06c65160db6c30097fc",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08"
+      ]
+    },
+    {
+      "path": "src/domain/action_registry.rs",
+      "sha256": "fb4ce0f690dd0024e2e64722ce580bfa0ad8de2561dd21c6885d3d334358335a",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-09"
+      ]
+    },
+    {
+      "path": "src/harness/v1/runner.rs",
+      "sha256": "874fea42c00c3978c9f507fac461e55124ccd9183aadbd24d34de5b18f36ee5e",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "src/main.rs",
+      "sha256": "47f2b37eb58b9dba7e4724b5b3200f5cd7c88cf208120333eb252e48a104d683",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-07"
+      ]
+    },
+    {
+      "path": "src/published_workbench.rs",
+      "sha256": "b2fed0f8837cfd1bd79e42415a65ba01522ba07bb52a47dea89d790d3354f2da",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-06",
+        "CWR1-08"
+      ]
+    },
+    {
+      "path": "src/runtime/manager_geometry.rs",
+      "sha256": "f9b7dc4379ebfc097f57b5eff81f9aa0cda9ff81140fd3437623c570c819d415",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "src/startup_candidate.rs",
+      "sha256": "1d9cfd8e83e8102cdd318ba4411584d4c2873be6e72318873b91314eeb2cadb1",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-00",
+        "CWR1-02"
+      ]
+    },
+    {
+      "path": "src/startup_commit.rs",
+      "sha256": "83e7bcfa7765394727dbac1e768525d775bb3e79ff1341733ea4d4d44761a5fa",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-02",
+        "CWR1-05",
+        "CWR1-07"
+      ]
+    },
+    {
+      "path": "src/startup_selection.rs",
+      "sha256": "db192f21634a49aab4cf7cea9a42032773578ec6e488f9a95c1d9b71ba871663",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-00"
+      ]
+    },
+    {
+      "path": "src/startup_transaction.rs",
+      "sha256": "27866ef239ddeb1625179cace74d8aea52956616183680d51ce9f3daeaa4a8ee",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-00",
+        "CWR1-03",
+        "CWR1-04",
+        "CWR1-05"
+      ]
+    },
+    {
+      "path": "src/state/action_availability.rs",
+      "sha256": "5d62804f2c95601eeb7e19dfa00b3e7898385a46da7744599b763d55dfb5bd2f",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-09"
+      ]
+    },
+    {
+      "path": "src/state/types.rs",
+      "sha256": "310c0c2fd0c91ef381e898def685430335b75c9e04dfa89bb059d4e4c6af7678",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-09"
+      ]
+    },
+    {
+      "path": "tests/fixtures/provider_fixture.rs",
+      "sha256": "253b49e28aabae2f52e91c81a0c30c0ccb424d00c683c2614875c81883961426",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-03"
+      ]
+    },
+    {
+      "path": "tests/issue390/persistent_lifecycle.rs",
+      "sha256": "4599b415c5cc22f2d3d9f9591df0e04304c952d2d4901b9df37c9dac9d3c9dea",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-03"
+      ]
+    },
+    {
+      "path": "tests/issue704/commit.rs",
+      "sha256": "fce2784b889f9bb4576520d1f344e72fc3f316ffa4bde84c5ad50e48995770dc",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-04",
+        "CWR1-05",
+        "CWR1-07"
+      ]
+    },
+    {
+      "path": "tests/issue704/consumer_cutover.rs",
+      "sha256": "3404e5f6ad3b61a3800c073c8854ad1b1309c57b621c09beba6563b306798b08",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-09"
+      ]
+    },
+    {
+      "path": "tests/issue704/selection.rs",
+      "sha256": "908f7598ac3ff3c0ff27f7dee1ed110ca28706a03888c17c36994a932c13611d",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-00"
+      ]
+    },
+    {
+      "path": "tests/issue704/static_candidate.rs",
+      "sha256": "c244d72f10e0bfcdb67fb268e5633f5961f27a31a87afb9ff5ff750bc9410b24",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-02"
+      ]
+    },
+    {
+      "path": "tests/issue704/transaction.rs",
+      "sha256": "f4d6e2f3b887094b9d0cf4cbf6f17acffa5c3cf6417d0e738f80058804fda8b8",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-00",
+        "CWR1-03",
+        "CWR1-04",
+        "CWR1-05"
+      ]
+    },
+    {
+      "path": "tests/issue704/transaction_support.rs",
+      "sha256": "866a27de13305d6c3aae0d4257a4a8aab7da5a33b8f521e0449b4106dcc56cab",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-03"
+      ]
+    },
+    {
+      "path": "tests/issue704_owner_evidence.rs",
+      "sha256": "75f49c248d5572cad968ba2e5f8bfef9d73f4b908da713e524dc90e841395bec",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "tests/scenario_manifest.rs",
+      "sha256": "0a7f1834026d81e405f9b360a16d970b415615d1cd29447b82d7c37a64c1c8c5",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "tests/scenario_manifest/driver_tests.rs",
+      "sha256": "aba912ecb29205b4e9ea9170dfe678d435821169463201a7a4c377fe08cc45d2",
+      "mode": "100644",
+      "criteria": [
+        "CWR1-10"
+      ]
+    }
+  ],
+  "criteria": {
+    "CWR1-00": {
+      "paths": [
+        "src/startup_candidate.rs",
+        "src/startup_selection.rs",
+        "src/startup_transaction.rs",
+        "tests/issue704/selection.rs",
+        "tests/issue704/transaction.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        }
+      ]
+    },
+    "CWR1-01": {
+      "paths": [
+        "src/main.rs",
+        "src/published_workbench.rs",
+        "src/startup_commit.rs",
+        "tests/issue704/commit.rs",
+        "tests/issue704/consumer_cutover.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/atomic-success.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR1-02": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "src/startup_candidate.rs",
+        "src/startup_commit.rs",
+        "tests/issue704/static_candidate.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/static-failure.json",
+          "platforms": [
+            "linux"
+          ]
+        }
+      ]
+    },
+    "CWR1-03": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+        "src/startup_transaction.rs",
+        "tests/fixtures/provider_fixture.rs",
+        "tests/issue390/persistent_lifecycle.rs",
+        "tests/issue704/transaction.rs",
+        "tests/issue704/transaction_support.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo check --workspace --all-targets --all-features --locked --target x86_64-pc-windows-msvc",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+          "platforms": [
+            "linux"
+          ]
+        }
+      ]
+    },
+    "CWR1-04": {
+      "paths": [
+        "src/startup_transaction.rs",
+        "tests/issue704/commit.rs",
+        "tests/issue704/transaction.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        }
+      ]
+    },
+    "CWR1-05": {
+      "paths": [
+        "src/startup_commit.rs",
+        "src/startup_transaction.rs",
+        "tests/issue704/commit.rs",
+        "tests/issue704/transaction.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo check --workspace --all-targets --all-features --locked --target x86_64-pc-windows-msvc",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        }
+      ]
+    },
+    "CWR1-06": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue704/atomic-success.json",
+        "dev-docs/tmux-scenarios/issue704/restart-publication.json",
+        "src/app_init.rs",
+        "src/published_workbench.rs",
+        "src/state/types.rs",
+        "tests/issue704/consumer_cutover.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/atomic-success.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/restart-publication.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR1-07": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+        "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "src/main.rs",
+        "src/startup_commit.rs",
+        "tests/issue704/commit.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/static-failure.json",
+          "platforms": [
+            "linux"
+          ]
+        }
+      ]
+    },
+    "CWR1-08": {
+      "paths": [
+        "src/action_projection.rs",
+        "src/app_init.rs",
+        "src/published_workbench.rs",
+        "src/state/types.rs",
+        "tests/issue704/consumer_cutover.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        }
+      ]
+    },
+    "CWR1-09": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue704/provider-crash.json",
+        "src/domain/action_registry.rs",
+        "src/state/action_availability.rs",
+        "src/state/types.rs",
+        "tests/issue704/consumer_cutover.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue390",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo test --locked --all-features --test issue704",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/provider-crash.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR1-10": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/standards/persistence-and-runtime.md",
+        "dev-docs/testing/scenario-execution-manifest.json",
+        "dev-docs/testing/scenario-owner-evidence.json",
+        "dev-docs/tmux-scenarios/issue704/atomic-success.json",
+        "dev-docs/tmux-scenarios/issue704/provider-crash.json",
+        "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+        "dev-docs/tmux-scenarios/issue704/restart-publication.json",
+        "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "docs/technical-overview.md",
+        "src/harness/v1/runner.rs",
+        "src/runtime/manager_geometry.rs",
+        "tests/issue704_owner_evidence.rs",
+        "tests/scenario_manifest.rs",
+        "tests/scenario_manifest/driver_tests.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --locked --all-features --test issue704_owner_evidence",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo test --locked --all-features --test scenario_manifest",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask ci",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        }
+      ]
+    }
+  },
+  "production_symbols": [
+    {
+      "path": "src/startup_selection.rs",
+      "symbol": "pub fn select_exactly(",
+      "criteria": [
+        "CWR1-00"
+      ]
+    },
+    {
+      "path": "src/startup_transaction.rs",
+      "symbol": "pub fn run_provider_transaction",
+      "criteria": [
+        "CWR1-00",
+        "CWR1-03",
+        "CWR1-04",
+        "CWR1-05"
+      ]
+    },
+    {
+      "path": "src/startup_candidate.rs",
+      "symbol": "pub fn build_workbench_candidate",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-02"
+      ]
+    },
+    {
+      "path": "src/published_workbench.rs",
+      "symbol": "pub struct PublishedWorkbench",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-09"
+      ]
+    },
+    {
+      "path": "src/startup_commit.rs",
+      "symbol": "pub struct StartupCommit",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-05",
+        "CWR1-07"
+      ]
+    },
+    {
+      "path": "src/startup_commit.rs",
+      "symbol": "pub fn commit_startup(",
+      "criteria": [
+        "CWR1-02",
+        "CWR1-03"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/coordinator.rs",
+      "symbol": "pub struct ProviderCoordinator",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-06"
+      ]
+    },
+    {
+      "path": "src/app_init.rs",
+      "symbol": "pub fn init_app_state(",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08"
+      ]
+    },
+    {
+      "path": "src/state/types.rs",
+      "symbol": "pub fn action_availability(",
+      "criteria": [
+        "CWR1-09"
+      ]
+    },
+    {
+      "path": "src/harness/v1/runner.rs",
+      "symbol": "pub fn run(",
+      "criteria": [
+        "CWR1-10"
+      ]
+    }
+  ],
+  "deleted_symbols": [
+    {
+      "scope": "src",
+      "symbol": "PUBLISHED_REGISTRY",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-10"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "publish_screen_registry_or_exit",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-10"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "RegistryAlreadyPublished",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-10"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "discard_persistent_contributions",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-03",
+        "CWR1-10"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "publish_availability",
+      "criteria": [
+        "CWR1-08",
+        "CWR1-09",
+        "CWR1-10"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "pub fn screen_descriptor(",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-10"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "pub fn screen_registry(",
+      "criteria": [
+        "CWR1-06",
+        "CWR1-08",
+        "CWR1-10"
+      ]
+    }
+  ],
+  "deleted_paths": [
+    {
+      "path": "src/startup_providers.rs",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-03",
+        "CWR1-10"
+      ]
+    },
+    {
+      "path": "src/startup_providers_tests.rs",
+      "criteria": [
+        "CWR1-01",
+        "CWR1-03",
+        "CWR1-10"
+      ]
+    }
+  ]
+}

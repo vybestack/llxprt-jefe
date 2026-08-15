@@ -115,7 +115,12 @@ fn composition_root_enforces_identity_and_fallible_owner_transfer_before_commit(
     let aggregate = include_str!("../../src/published_workbench.rs");
     let startup = include_str!("../../src/startup_commit.rs");
 
-    assert!(app_init.contains("Arc::ptr_eq(state.published_workbench(), &ctx_guard.workbench)"));
+    assert!(app_init.contains("Arc::ptr_eq(state.published_workbench(), committed)"));
+    assert!(
+        app_init.contains(
+            "assert_and_trace_committed_workbench_identity(&state, &ctx_guard.workbench)"
+        )
+    );
     assert!(!app_init.contains("debug_assert!(std::sync::Arc::ptr_eq"));
     assert!(!app_init.contains("let Some(ctx_arc) = ctx else {\n        return Vec::new();"));
     assert!(!aggregate.contains("#[derive(Debug, Clone)]\npub struct PublishedWorkbench"));

@@ -23,6 +23,7 @@ use self::warnings::{
     surface_durable_read_hold, surface_startup_holds,
 };
 use iocraft::hooks::State as HookState;
+use std::io::Write;
 use tracing::warn;
 
 use jefe::domain::liveness_observation::{
@@ -433,6 +434,35 @@ fn observe_agent_types(
     )
 }
 
+fn assert_and_trace_committed_workbench_identity(
+    state: &AppState,
+    committed: &std::sync::Arc<jefe::published_workbench::PublishedWorkbench>,
+) {
+    let same_workbench_identity = std::sync::Arc::ptr_eq(state.published_workbench(), committed);
+    assert!(
+        same_workbench_identity,
+        "application state and context must share one committed workbench"
+    );
+    tracing::info!(
+        workbench_identity = ?std::sync::Arc::as_ptr(state.published_workbench()),
+        same_workbench_identity,
+        "committed workbench identity reached application state"
+    );
+    if std::env::var_os("JEFE_WORKBENCH_IDENTITY_TRACE").is_some_and(|value| value == "1") {
+        let line = format!(
+            "jefe: committed workbench identity={:?} same_workbench_identity={same_workbench_identity}\n",
+            std::sync::Arc::as_ptr(state.published_workbench())
+        );
+        let mut stderr = std::io::stderr();
+        if let Err(error) = stderr.write_all(line.as_bytes()) {
+            tracing::warn!(
+                %error,
+                "failed to emit requested committed-workbench identity trace"
+            );
+        }
+    }
+}
+
 pub fn init_app_state(
     app_state: &mut HookState<AppState>,
     ctx: &SharedContext,
@@ -445,10 +475,7 @@ pub fn init_app_state(
         panic!("application context lock poisoned during initialization");
     };
     let mut state = app_state.write();
-    assert!(
-        std::sync::Arc::ptr_eq(state.published_workbench(), &ctx_guard.workbench),
-        "application state and context must share one committed workbench"
-    );
+    assert_and_trace_committed_workbench_identity(&state, &ctx_guard.workbench);
     let workbench = std::sync::Arc::clone(state.published_workbench());
     let (persisted, durable_read_held) = resolve_durable_read(
         ctx_guard

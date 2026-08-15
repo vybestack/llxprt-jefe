@@ -366,14 +366,29 @@ fn write_synthetic_report(directory: &Path, entry: &ScenarioEntry) {
         .unwrap_or_else(|| panic!("{} steps must be an array", entry.path));
     let steps: Vec<Value> = operations
         .iter()
+        .take(entry.expect.steps_total)
         .enumerate()
         .map(|(index, step)| {
-            json!({
-                "index": index,
-                "op": step["op"],
-                "status": "passed",
-                "error": Value::Null,
-            })
+            if let Some(failure) = entry
+                .expect
+                .failed_step
+                .as_ref()
+                .filter(|failure| failure.index == index)
+            {
+                json!({
+                    "index": index,
+                    "op": step["op"],
+                    "status": "failed",
+                    "error": failure.error_prefix,
+                })
+            } else {
+                json!({
+                    "index": index,
+                    "op": step["op"],
+                    "status": "passed",
+                    "error": Value::Null,
+                })
+            }
         })
         .collect();
     let captures: Vec<Value> = entry

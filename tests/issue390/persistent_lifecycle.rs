@@ -214,13 +214,13 @@ fn cw10_04_a_protocol_fault_at_hello_ack_fails_and_is_reaped() {
 }
 
 #[test]
-fn cw10_04_a_crash_after_ack_fails_at_configure_or_ready_and_is_reaped() {
+fn cw10_04_an_exit_before_ready_has_exact_phase_and_is_reaped() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let startup = PersistentStartup {
         candidates: vec![scene.candidate(
             "vendor.alpha",
-            "persistent-crash-after-ack",
+            "persistent-exit-before-ready",
             vec![Capability::Actions],
         )],
     };
@@ -230,11 +230,12 @@ fn cw10_04_a_crash_after_ack_fails_at_configure_or_ready_and_is_reaped() {
         matches!(
             &failure.failure,
             StartupFailure::Candidate(CandidateFailure {
-                phase: PersistentPhase::Configure | PersistentPhase::Ready,
-                ..
-            })
+                plugin_id,
+                phase: PersistentPhase::Ready,
+                failure: SupervisorFailure::Crashed { exit: None },
+            }) if plugin_id.as_str() == "vendor.alpha"
         ),
-        "expected configure/ready failure, got {:?}",
+        "expected exact Ready-phase exit, got {:?}",
         failure.failure
     );
     assert_all_reaped(&failure.rollback);

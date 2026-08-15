@@ -489,8 +489,43 @@ nothing is ever overwritten, and there is no update or network command.
 A package is **disabled until explicitly trusted**. Trust records the exact
 version and configuration through the lossless settings writer and states what
 it means: the provider will run unsandboxed as the operator's OS user. Because
-packages are composed while the session builds its registries, trust takes
+packages are composed while the session builds its workbench, trust takes
 effect at the next start.
+
+### Atomic startup authority
+
+Normal startup first composes a private `PublishedWorkbench` candidate from the
+effective Settings, retained package inventory and exact selection, validated
+agents, actions, keys and contexts, screens, panels, controls, schemas, routes,
+relationships, static availability, provider/tool descriptors, and provider
+Ready metadata. The aggregate is data-only and immutable after commit.
+
+Selected persistent providers are required only when their validated package
+contributes nonempty provider configuration or declarations. They start in a
+deterministic private transaction and must all complete Configure and Ready.
+Any static or provider failure reaps all recorded candidate descendants,
+preserves durable bytes, publishes no aggregate, and reports provider-free
+recovery. Selected one-shot and declaration-empty providers start no startup
+process.
+
+Success returns exactly one `StartupCommit`: an `Arc<PublishedWorkbench>` plus a
+`ProviderCoordinator`. The coordinator owns only live process/session,
+supervisor, request-counter, and health handles; it does not duplicate static
+catalogs or Ready publication metadata. The composition root consumes the
+commit before constructing `AppState`, renderer/input services, runtime PTYs,
+or the TUI. Every declaration consumer receives the same aggregate identity.
+Structural Settings or package edits therefore take effect only after restart.
+
+Provider health and action availability are generation-bound runtime overlays.
+They may mark committed declarations unavailable, but cannot mutate, replace,
+or promote the immutable declaration graph. A post-Ready provider crash keeps
+the same aggregate and renders the declared unavailable/error state without a
+fallback selection.
+
+Initial PTY geometry is also post-commit. The runtime remains pending until the
+first observed terminal size has produced a committed resolved frame; that
+frame's nonzero dimensions are then committed once before durable session
+restoration or any spawn/attach/resize operation.
 
 ## Non-Functional Requirements
 

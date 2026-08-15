@@ -437,24 +437,26 @@ No `Child`, pipe, drain thread, timer, or outbound queue is reachable from
 
 ### Where a provider may start
 
-Exactly one place: `startup_providers::publish_providers`, called from the TUI
-startup path. `startup::build_persistence` scans packages but starts nothing, so
-`jefe config` and the recovery commands remain provider-free even when a
-selected package declares a provider that would hang.
+Exactly one place: the private transaction invoked by
+`startup_commit::commit_startup`. `startup::build_persistence` scans and
+validates packages but starts nothing. Static candidate composition also starts
+nothing. Configuration and recovery commands never enter the transaction, so
+they remain provider-free even when the selected provider would hang.
 
 A one-shot provider starts **zero** processes at startup and performs a fresh
 full lifecycle for each invocation, including the second invocation of a
-confirmed continuation. A persistent provider starts only during candidate
-startup, in plugin-id order, and is never restarted automatically.
+confirmed continuation. A required persistent provider starts only in the
+startup transaction, ordered by provider and package identity, and is never
+restarted automatically.
 
 ### Publication is all-or-nothing
 
-Every required persistent candidate must reach `ready` before one atomic
-publication. Any spawn, handshake, timeout, protocol, or capability failure
-reaps every started candidate — including the failing one — and publishes
-nothing. Those actions then appear with a single shared unavailable reason and
-are absent from the runnable catalog, so an operator can see the action exists
-and why it will not run, and cannot invoke it.
+Every required persistent candidate must complete Configure and Ready before
+one `StartupCommit` is returned. Any preparation, spawn, Hello, Configure,
+Ready, EOF, timeout, crash, protocol, or capability failure reaps every recorded
+candidate descendant — including the failing one — before typed recovery is
+observable and publishes nothing. There is no degraded catalog, automatic
+disable, lower-version fallback, or partially runnable declaration set.
 
 ### Bounds
 

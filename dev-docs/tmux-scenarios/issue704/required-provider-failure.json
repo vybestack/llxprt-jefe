@@ -1,0 +1,185 @@
+{
+  "schema": 1,
+  "name": "issue704-required-provider-failure",
+  "platform": "linux",
+  "terminal": {
+    "cols": 100,
+    "rows": 30
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/2.0.0",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/2.0.0/bin",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/2.0.0/screens",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/1.0.0",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/1.0.0/screens",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.panel\"]\nenabled = true\nversion = \"2.0.0\"\n\n[keymap.\"dashboard\"]\n\"vendor.panel.open-review\" = [\"F2\"]\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/2.0.0/plugin.json",
+        "content": {
+          "utf8": "{\n  \"manifest_schema\": 1,\n  \"id\": \"vendor.panel\",\n  \"version\": \"2.0.0\",\n  \"display_name\": \"Panel Fixture\",\n  \"host_api\": { \"minimum\": \"0.0.1\", \"maximum\": \"99.0.0\" },\n  \"protocol\": 1,\n  \"provider\": { \"mode\": \"persistent\", \"binaries\": { \"x86_64-unknown-linux-gnu\": \"bin/provider\" } },\n  \"actions\": [\n    {\n      \"id\": \"vendor.panel.open-review\",\n      \"label\": \"Open package review\",\n      \"description\": \"Open the selected package provider panel\",\n      \"category\": \"vendor.panel\",\n      \"contexts\": [\"dashboard\"],\n      \"arguments\": [],\n      \"timeout_seconds\": 60,\n      \"destructive\": false,\n      \"confirmation\": \"none\",\n      \"handler\": \"open-review\",\n      \"allowed_outcomes\": [\"navigate-declared-route\"]\n    }\n  ],\n  \"panels\": [\n    {\n      \"id\": \"vendor.panel.review-list\",\n      \"model_kinds\": [\"list\", \"detail\"],\n      \"event_schema\": [\n        { \"kind\": \"selected\", \"arguments\": [] },\n        { \"kind\": \"activated\", \"arguments\": [] }\n      ],\n      \"handler\": \"review-list\",\n      \"ports\": [{ \"id\": \"selection\" }]\n    }\n  ],\n  \"routes\": [\n    { \"id\": \"vendor.panel.open\", \"activation_fields\": [], \"target_screen\": \"vendor.panel.review\" }\n  ],\n  \"screens\": [\n    { \"path\": \"screens/main.screen.toml\", \"screen_ids\": [\"vendor.panel.review\"] }\n  ]\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/2.0.0/screens/main.screen.toml",
+        "content": {
+          "utf8": "screen_schema = 1\nid = \"vendor.panel.review\"\ntitle = \"Package Review\"\nroute = \"vendor.panel.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.panel.review-list\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/2.0.0/bin/provider",
+        "content": {
+          "utf8": "#!/bin/sh\nset -eu\nmarker=\"${0%/bin/provider}/provider-exited\"\ntrap 'printf exited > \"$marker\"' EXIT\nread -r hello\nprocess_generation=$(printf '%s\\n' \"$hello\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"hello-ack\\\",\\\"request_id\\\":\\\"p-100001\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"provider_name\\\":\\\"panel-fixture\\\",\\\"protocol\\\":1}}\"\nread -r configure\nexit 23\n"
+        },
+        "mode": 493
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/1.0.0/plugin.json",
+        "content": {
+          "utf8": "{\n  \"manifest_schema\": 1,\n  \"id\": \"vendor.panel\",\n  \"version\": \"1.0.0\",\n  \"display_name\": \"Unselected Panel Fixture\",\n  \"host_api\": { \"minimum\": \"0.0.1\", \"maximum\": \"99.0.0\" },\n  \"protocol\": 1,\n  \"provider\": { \"mode\": \"persistent\", \"binaries\": { \"x86_64-unknown-linux-gnu\": \"bin/provider\" } },\n  \"actions\": [],\n  \"panels\": [{ \"id\": \"vendor.panel.review-list\", \"model_kinds\": [\"list\"], \"event_schema\": [{ \"kind\": \"selected\", \"arguments\": [] }], \"handler\": \"review-list\", \"ports\": [{ \"id\": \"selection\" }] }],\n  \"routes\": [],\n  \"screens\": [{ \"path\": \"screens/main.screen.toml\", \"screen_ids\": [\"vendor.panel.review\"] }]\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.panel/1.0.0/screens/main.screen.toml",
+        "content": {
+          "utf8": "this unselected screen is deliberately invalid\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        },
+        {
+          "name": "JEFE_LOG_FILE",
+          "value": "${workspace}/jefe.log"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "required provider startup failed",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "plugin_id: Id(\"vendor.panel\")",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "phase: Ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "Crashed { exit: None }",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "rollback complete; durable data preserved",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "stdout",
+      "literal": "jefe config validate --config",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "vendor.panel",
+        "Ready",
+        "23",
+        "durable data preserved",
+        "jefe config validate --config"
+      ],
+      "absent": [
+        "LLxprt Jefe",
+        "Repositories",
+        "Agent Types",
+        "Package Review"
+      ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/plugins/installed/vendor.panel/2.0.0/provider-exited",
+        "content": {
+          "utf8": "exited"
+        }
+      }
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}
