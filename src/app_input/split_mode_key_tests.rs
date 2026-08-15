@@ -22,7 +22,7 @@ fn resolved_execution(state: &AppState, event: &KeyEvent) -> HandlerExecution {
 
 #[test]
 fn dashboard_s_emits_enter_split_mode_via_registry() {
-    let state = AppState::default();
+    let state = crate::test_app_state();
     for event in [
         key(KeyCode::Char('s')),
         modified(KeyCode::Char('S'), KeyModifiers::SHIFT),
@@ -36,10 +36,8 @@ fn dashboard_s_emits_enter_split_mode_via_registry() {
 
 #[test]
 fn split_esc_emits_exit_split_mode_via_registry() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
     assert!(matches!(
         resolved_execution(&state, &key(KeyCode::Esc)),
         HandlerExecution::Event(AppEvent::ExitSplitMode)

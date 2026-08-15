@@ -83,7 +83,6 @@ pub struct ProviderComposition {
     availability: Vec<ActionAvailability>,
     catalog: ProviderCatalog,
     persistent_candidates: Vec<PersistentCandidate>,
-    persistent_action_ids: Vec<ActionId>,
 }
 
 impl ProviderComposition {
@@ -114,23 +113,6 @@ impl ProviderComposition {
     #[must_use]
     pub fn into_catalog(self) -> ProviderCatalog {
         self.catalog
-    }
-
-    /// Remove every persistent contribution after atomic startup fails.
-    ///
-    /// Persistent actions are not an unavailable publication: CW10-04 requires
-    /// the failed candidate set to publish no contribution at all. Independent
-    /// one-shot actions remain because they require no startup process.
-    pub fn discard_persistent_contributions(&mut self) {
-        for action_id in &self.persistent_action_ids {
-            self.catalog.remove(action_id);
-        }
-        self.actions
-            .retain(|action| !self.persistent_action_ids.contains(&action.id));
-        self.availability
-            .retain(|entry| !self.persistent_action_ids.contains(entry.action()));
-        self.persistent_candidates.clear();
-        self.persistent_action_ids.clear();
     }
 }
 
@@ -317,9 +299,6 @@ fn publish_available_actions(
             Availability::Available,
         ));
         composition.actions.push(action);
-        if provider.mode == ProviderMode::Persistent {
-            composition.persistent_action_ids.push(action_id.clone());
-        }
         composition.catalog.insert(
             action_id.clone(),
             ProviderActionDescriptor {

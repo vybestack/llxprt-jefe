@@ -629,7 +629,7 @@ mod tests {
     /// the reducer does not re-transition them.
     #[test]
     fn eligible_excludes_already_lost_agents() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.agents.push(fixture_running_agent("a"));
         state.agents.push(fixture_lost_agent("b"));
         let targets = vec![liveness_target("a"), liveness_target("b")];
@@ -643,7 +643,7 @@ mod tests {
     /// Remote targets are never eligible for the local ServerLost path.
     #[test]
     fn eligible_excludes_remote_targets() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.agents.push(fixture_running_agent("a"));
         let mut remote_target = liveness_target("a");
         remote_target.remote = Some(RemoteRepositorySettings::default());
@@ -657,7 +657,7 @@ mod tests {
     /// not eligible, even if their status is `Running`.
     #[test]
     fn eligible_excludes_untracked_running_agents() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.agents.push(fixture_running_agent("a"));
         state.agents.push(fixture_running_agent("b"));
         // Only agent "a" has a tracked target.
@@ -671,7 +671,7 @@ mod tests {
 
     #[test]
     fn binding_match_rejects_stale_session_and_generation() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let mut agent = fixture_running_agent("a");
         agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
             session_name: "jefe-current".into(),
@@ -838,7 +838,7 @@ mod tests {
     /// precisely what let launching agent N+1 strand agents 1..N.
     #[test]
     fn an_agent_whose_worker_is_alive_is_not_eligible_for_server_lost() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.agents.push(fixture_running_agent("alpha"));
         let mut target = liveness_target("alpha");
         // This test process is, by construction, alive, and capturing its
@@ -861,7 +861,7 @@ mod tests {
     /// answer must be `Unknown` rather than "died with the server".
     #[test]
     fn an_agent_without_anchors_reports_an_unknown_worker() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.agents.push(fixture_running_agent("alpha"));
 
         let affected = eligible_for_server_lost(&state, &[liveness_target("alpha")]);

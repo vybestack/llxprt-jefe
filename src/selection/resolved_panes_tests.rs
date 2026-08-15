@@ -13,10 +13,9 @@ use crate::state::{AppState, ScreenId};
 use crate::workbench::{PanelId, ResolvedLayout};
 
 fn state_on(screen: ScreenId) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(screen),
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(screen);
+    state
 }
 
 fn snapshot(screen: ScreenId, cols: u16, rows: u16) -> ResolvedLayout {

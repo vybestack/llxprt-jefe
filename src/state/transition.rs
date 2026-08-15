@@ -34,7 +34,8 @@ pub fn commit_in_place(
     slot: &mut AppState,
     message: crate::messages::AppMessage,
 ) -> Vec<IssuedEffect> {
-    match std::mem::take(slot).apply_message(message) {
+    let placeholder = AppState::new(std::sync::Arc::clone(slot.published_workbench()));
+    match std::mem::replace(slot, placeholder).apply_message(message) {
         Ok(transition) => {
             *slot = transition.next_state;
             transition.effects

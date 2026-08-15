@@ -8,7 +8,6 @@
 //! `super::tests`.
 
 use super::tests::{TestOptionExt, sample_agent, sample_signature};
-use super::*;
 
 use std::path::PathBuf;
 fn tracker_ref(value: &str) -> jefe::domain::GitHubRepoRef {
@@ -78,11 +77,9 @@ fn state_for_issue_agent_chooser_send(
         ..jefe::state::IssuesState::default()
     };
 
-    let mut state = jefe::state::AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = issues_state;
     state.agents.push(agent);
     state.repositories.push(jefe::domain::Repository::new(
         RepositoryId(String::from("repo-1")),
@@ -169,15 +166,13 @@ fn code_puppy_issue_send_carries_kind_and_uses_positional_instruction() {
 fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
     use jefe::input::input_mode_for_state;
 
-    let state = AppState {
-        modal: ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId(String::from("a1")),
-            work_dir: PathBuf::from("/tmp/x"),
-            signature: sample_signature(),
-            payload: jefe::github::SendPayload::default(),
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::ConfirmIssueDirtyCopy {
+        agent_id: AgentId(String::from("a1")),
+        work_dir: PathBuf::from("/tmp/x"),
+        signature: sample_signature(),
+        payload: jefe::github::SendPayload::default(),
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     assert_eq!(
@@ -193,17 +188,15 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
 fn confirm_issue_origin_mismatch_modal_routes_to_confirm_input_mode() {
     use jefe::input::input_mode_for_state;
 
-    let state = AppState {
-        modal: ModalState::ConfirmIssueOriginMismatch {
-            agent_id: AgentId(String::from("a1")),
-            work_dir: PathBuf::from("/tmp/x"),
-            signature: sample_signature(),
-            payload: jefe::github::SendPayload::default(),
-            actual: String::from("other/repo"),
-            expected: String::from("acme/widgets"),
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::ConfirmIssueOriginMismatch {
+        agent_id: AgentId(String::from("a1")),
+        work_dir: PathBuf::from("/tmp/x"),
+        signature: sample_signature(),
+        payload: jefe::github::SendPayload::default(),
+        actual: String::from("other/repo"),
+        expected: String::from("acme/widgets"),
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     assert_eq!(
@@ -222,32 +215,28 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
     use jefe::state::AppEvent;
 
     // Seed non-modal state so we can prove CloseModal leaves it untouched.
-    let seeded = AppState {
-        repositories: vec![jefe::domain::Repository::new(
-            jefe::domain::RepositoryId("r1".to_owned()),
-            jefe::domain::shipped_agent_type(3),
-            jefe::domain::TypedMap::new(),
-            "Repo".to_owned(),
-            "acme/widgets".to_owned(),
-            PathBuf::from("/tmp/repo"),
-        )],
-        nav: crate::state::navigation::NavState::rooted(jefe::state::ScreenId::Issues),
-        ..AppState::default()
+    let mut seeded = crate::test_app_state();
+    seeded.repositories = vec![jefe::domain::Repository::new(
+        jefe::domain::RepositoryId("r1".to_owned()),
+        jefe::domain::shipped_agent_type(3),
+        jefe::domain::TypedMap::new(),
+        "Repo".to_owned(),
+        "acme/widgets".to_owned(),
+        PathBuf::from("/tmp/repo"),
+    )];
+    seeded.nav = crate::state::navigation::NavState::rooted(jefe::state::ScreenId::Issues);
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::ConfirmIssueOriginMismatch {
+        agent_id: AgentId(String::from("a1")),
+        work_dir: PathBuf::from("/tmp/x"),
+        signature: sample_signature(),
+        payload: jefe::github::SendPayload::default(),
+        actual: String::from("other/repo"),
+        expected: String::from("acme/widgets"),
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
-    let state = AppState {
-        modal: ModalState::ConfirmIssueOriginMismatch {
-            agent_id: AgentId(String::from("a1")),
-            work_dir: PathBuf::from("/tmp/x"),
-            signature: sample_signature(),
-            payload: jefe::github::SendPayload::default(),
-            actual: String::from("other/repo"),
-            expected: String::from("acme/widgets"),
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        },
-        repositories: seeded.repositories.clone(),
-        nav: jefe::state::navigation::NavState::rooted(jefe::state::ScreenId::Issues),
-        ..AppState::default()
-    };
+    state.repositories = seeded.repositories.clone();
+    state.nav = jefe::state::navigation::NavState::rooted(jefe::state::ScreenId::Issues);
 
     let next = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(

@@ -27,7 +27,7 @@ fn provider_layout() -> ResolvedLayout {
 }
 
 fn provider_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.nav.current_mut().screen =
         ScreenIdentity::Package(PluginScreenId::from_static("vendor.pkg"));
     state.resolved_layout = Some(provider_layout());

@@ -508,8 +508,6 @@ pub struct SettingsState {
         crate::domain::Id,
         Vec<crate::messages::settings::SelectedPluginConfig>,
     >,
-    /// The action registry snapshot the Keys rows project from.
-    pub actions: Option<crate::domain::action_registry::ActionRegistrySnapshot>,
     /// The binding a chord capture is waiting for, while one is waiting.
     ///
     /// A capture takes exactly the next chord, so what it is for has to be

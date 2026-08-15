@@ -250,7 +250,7 @@ fn cancel_after_terminal_stages_no_cancel_effect_at_app_state() {
     let empty = empty_map();
     let policy = continuation_policy();
 
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let transition = state
         .clone()
         .apply_message(AppMessage::Provider(Box::new(ProviderMessage::Invoke {

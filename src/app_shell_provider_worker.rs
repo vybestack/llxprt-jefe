@@ -434,8 +434,9 @@ fn persistent_unavailable_actions(
             Some((snapshot.plugin_id, reason.to_owned()))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
-    let unavailable = coordinator
-        .catalog()
+    let unavailable = ctx_guard
+        .workbench
+        .provider_catalog()
         .iter()
         .filter_map(|(action_id, descriptor)| {
             failed_plugins
@@ -762,7 +763,12 @@ fn resolve_one_shot(
             reason: UnavailableReason::Protocol,
         };
     };
-    let Some(descriptor) = coordinator.catalog().get(&action_id).cloned() else {
+    let Some(descriptor) = ctx_guard
+        .workbench
+        .provider_catalog()
+        .get(&action_id)
+        .cloned()
+    else {
         return ResolveOutcome::Failed {
             reason: UnavailableReason::Protocol,
         };

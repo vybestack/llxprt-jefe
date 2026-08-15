@@ -255,7 +255,14 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
                 screen: state.map_or(ScreenId::Terminals, |s| {
                     s.compiled_screen().unwrap_or(ScreenId::Terminals)
                 }),
-                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
+                published_workbench: Some(std::sync::Arc::clone(
+                    state
+                        .unwrap_or_else(|| panic!("screen render requires AppState"))
+                        .published_workbench(),
+                )),
+                action_availability: state
+                    .and_then(AppState::action_availability_generation)
+                    .cloned(),
                 terminal_focused: live_shell_active,
                 actions_focus: None,
                 colors: colors.clone(),
@@ -340,7 +347,7 @@ mod tests {
 
     #[test]
     fn build_preview_content_dead_shows_close_only_placeholder() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(Repository::new(
             RepositoryId("r".into()),
             crate::domain::shipped_agent_type(3),

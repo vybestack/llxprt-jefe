@@ -62,17 +62,15 @@ fn transition_accepts_exactly_sixty_four_effects() {
     let effects: Vec<IssuedEffect> = (0..MAX_TRANSITION_EFFECTS as u64)
         .map(issued_wakeup)
         .collect();
-    let transition =
-        Transition::new(AppState::default(), effects).value_or_panic("64 effects must be accepted");
+    let transition = Transition::new(AppState::test_fixture(), effects)
+        .value_or_panic("64 effects must be accepted");
     assert_eq!(transition.effects.len(), MAX_TRANSITION_EFFECTS);
 }
 
 #[test]
 fn transition_rejects_sixty_five_effects_and_returns_the_state() {
-    let state = AppState {
-        hide_idle_repositories: true,
-        ..Default::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.hide_idle_repositories = true;
     let effects: Vec<IssuedEffect> = (0..=MAX_TRANSITION_EFFECTS as u64)
         .map(issued_wakeup)
         .collect();
@@ -88,7 +86,7 @@ fn transition_rejects_sixty_five_effects_and_returns_the_state() {
 
 #[test]
 fn apply_message_returns_a_pure_bounded_transition() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let transition = state
         .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateDown))
         .value_or_panic("navigation must commit");
@@ -100,7 +98,7 @@ fn apply_message_returns_a_pure_bounded_transition() {
 
 #[test]
 fn pending_registration_assigns_unique_correlations_and_bounds_records() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let key = SemanticKey::new(EffectFamily::Timer, "wakeup");
     let first = state
         .register_pending_effect(owner(), key.clone(), wakeup(1), RetryPolicy::Never)
@@ -130,7 +128,7 @@ fn pending_registration_assigns_unique_correlations_and_bounds_records() {
 
 #[test]
 fn exact_completion_applies_once_and_clears_the_pending_record() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let key = SemanticKey::new(EffectFamily::Timer, "wakeup");
     let correlation = state
         .register_pending_effect(owner(), key, wakeup(5), RetryPolicy::Never)
@@ -165,7 +163,7 @@ fn agent(id: &str, status: crate::domain::AgentStatus) -> crate::domain::Agent {
 
 #[test]
 fn kill_agent_commits_dead_state_and_stages_a_kill_session_effect() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state
         .agents
         .push(agent("agent-7", crate::domain::AgentStatus::Running));
@@ -210,7 +208,7 @@ fn kill_agent_commits_dead_state_and_stages_a_kill_session_effect() {
 
 #[test]
 fn exact_runtime_failure_completion_surfaces_a_typed_error_once() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state
         .agents
         .push(agent("agent-7", crate::domain::AgentStatus::Running));
@@ -250,7 +248,8 @@ fn exact_runtime_failure_completion_surfaces_a_typed_error_once() {
     // above that. Assert the precondition rather than letting a future fixture
     // turn this into a flaky comparison.
     assert!(
-        state.sticky_dead_agent_ids.len() <= 1 && state.sticky_empty_repository_ids.len() <= 1,
+        state.sticky_visibility.dead_agents.len() <= 1
+            && state.sticky_visibility.empty_repositories.len() <= 1,
         "debug-equality comparison requires deterministic hash-set ordering"
     );
     let before = format!("{state:?}");
@@ -267,7 +266,7 @@ fn exact_runtime_failure_completion_surfaces_a_typed_error_once() {
 
 #[test]
 fn stale_completion_message_is_a_full_reducer_no_op() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state
         .agents
         .push(agent("agent-7", crate::domain::AgentStatus::Running));
@@ -306,7 +305,7 @@ fn stale_completion_message_is_a_full_reducer_no_op() {
 
 #[test]
 fn stale_completion_leaves_state_byte_equivalent() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let key = SemanticKey::new(EffectFamily::Timer, "wakeup");
     let correlation = state
         .register_pending_effect(owner(), key.clone(), wakeup(9), RetryPolicy::Never)

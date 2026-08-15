@@ -11,10 +11,9 @@ use super::issues_test_fixtures::begin_issue_list_reload;
 use crate::state::transition::TransitionExt;
 
 pub(super) fn dashboard_issues_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    }
+        let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state
 }
 
 /// Helper to create a test issue with the given number.
@@ -48,10 +47,10 @@ pub(super) fn make_test_issue(number: u64) -> Issue {
 /// @requirement REQ-ISS-002
 #[test]
 fn test_keybind_bar_issues_mode() {
-    let dashboard_state = AppState::default();
+    let dashboard_state = AppState::test_fixture();
     assert_eq!(dashboard_state.screen(), ScreenId::Dashboard);
 
-    let issues_state = AppState::default()
+    let issues_state = AppState::test_fixture()
         .apply(AppEvent::EnterIssuesMode)
         .committed_pure();
     assert_eq!(issues_state.screen(), ScreenId::Issues);
@@ -99,7 +98,7 @@ pub(super) fn issue_comments_pending(state: &AppState) -> bool {
 
 /// Helper: create a state already in issues mode with a selected repository.
 pub(super) fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -404,7 +403,7 @@ fn test_key_routing_suppression_comprehensive() {
 
     // Separately verify that all 4 suppressed-key AppEvent equivalents (no direct
     // mapping) don't affect issues mode state: mode stays active, focus unchanged.
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
 

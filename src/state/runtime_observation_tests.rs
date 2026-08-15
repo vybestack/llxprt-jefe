@@ -27,7 +27,7 @@ fn stale_generation_update_and_clear_cannot_replace_current_observation() {
         .lifecycle_generation = 8;
     current.health = crate::domain::observation::ObservationHealth::Stale;
 
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let state = state
         .apply_message(AppMessage::Runtime(RuntimeMessage::ObservationCleared(
             agent_id.clone(),
@@ -62,7 +62,7 @@ fn stale_generation_update_and_clear_cannot_replace_current_observation() {
 #[test]
 fn observation_identity_must_match_ingress_scope() {
     let agent_id = AgentId("other-agent".to_owned());
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let state = state
         .apply_message(AppMessage::Runtime(RuntimeMessage::ObservationUpdated(
             agent_id.clone(),

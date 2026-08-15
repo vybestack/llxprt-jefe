@@ -8,7 +8,7 @@ mod tests {
     use crate::state::{ActionsFocus, ActionsListIdentity, AppState, ModalState, ScreenId};
 
     fn create_test_state() -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let repo = Repository::new(
             RepositoryId("test_repo".to_string()),
             crate::domain::shipped_agent_type(3),

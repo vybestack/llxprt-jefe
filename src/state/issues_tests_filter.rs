@@ -7,10 +7,9 @@ use super::issues_test_fixtures::begin_issue_list_reload;
 use crate::state::transition::TransitionExt;
 
 fn dashboard_issues_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    }
+        let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state
 }
 
 /// Helper: enter issues mode with filter controls open.

@@ -95,6 +95,11 @@ fn running_binding(agent_ref: &Agent, repository: &Repository, session: &str) ->
     }
 }
 
+fn compiled_screens() -> crate::workbench::ScreenRegistry {
+    crate::workbench::builtin_screens()
+        .unwrap_or_else(|error| panic!("compiled screens must build: {error}"))
+}
+
 fn sample_state() -> AppState {
     let repo_a = local_repository("repo-a1", "alpha", "/work/alpha");
     let repo_b = remote_repository("repo-b2");
@@ -105,17 +110,15 @@ fn sample_state() -> AppState {
     dead.status = AgentStatus::Dead;
     let queued = agent("agent-a2", "repo-a1", "waiting", "/work/alpha/wt2");
 
-    let mut state = AppState {
-        repositories: vec![repo_a, repo_b],
-        agents: vec![running, queued, dead],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
-        hide_idle_repositories: true,
-        pane_focus: PaneFocus::Agents,
-        terminal_focused: false,
-        durable_revision: 9,
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo_a, repo_b];
+    state.agents = vec![running, queued, dead];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(1);
+    state.hide_idle_repositories = true;
+    state.pane_focus = PaneFocus::Agents;
+    state.terminal_focused = false;
+    state.durable_revision = 9;
     state.last_selected_agent_by_repo = vec![
         (
             RepositoryId("repo-a1".to_owned()),
@@ -224,8 +227,9 @@ fn the_active_screen_round_trips_through_the_durable_document() {
         let mut state = sample_state();
         state.nav = crate::state::navigation::NavState::rooted(screen);
         let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-        let restored = crate::state::durable_restore::from_durable_state(&projected)
-            .value_or_panic("restore succeeds");
+        let restored =
+            crate::state::durable_restore::from_durable_state(&projected, &compiled_screens())
+                .value_or_panic("restore succeeds");
         assert_eq!(restored.screen, screen, "screen {screen} must round-trip");
     }
 }
@@ -249,8 +253,9 @@ fn a_legacy_variant_name_cannot_reach_the_durable_screen_slot() {
 fn an_unreadable_persisted_screen_value_costs_only_the_screen() {
     let mut projected = to_durable_state(&sample_state()).value_or_panic("projection succeeds");
     projected.selection.screen_id = Id::parse("core.nonesuch").ok();
-    let restored = crate::state::durable_restore::from_durable_state(&projected)
-        .value_or_panic("restore succeeds");
+    let restored =
+        crate::state::durable_restore::from_durable_state(&projected, &compiled_screens())
+            .value_or_panic("restore succeeds");
     assert_eq!(restored.screen, crate::workbench::ScreenId::default());
     assert_eq!(
         restored.repositories.len(),
@@ -263,8 +268,9 @@ fn an_unreadable_persisted_screen_value_costs_only_the_screen() {
 fn a_document_without_a_screen_value_opens_on_the_initial_screen() {
     let mut projected = to_durable_state(&sample_state()).value_or_panic("projection succeeds");
     projected.selection.screen_id = None;
-    let restored = crate::state::durable_restore::from_durable_state(&projected)
-        .value_or_panic("restore succeeds");
+    let restored =
+        crate::state::durable_restore::from_durable_state(&projected, &compiled_screens())
+            .value_or_panic("restore succeeds");
     assert_eq!(restored.screen, crate::workbench::ScreenId::Dashboard);
 }
 
@@ -365,7 +371,8 @@ fn forward_preserves_remote_location_and_dormant_records() {
 fn inverse_restores_runtime_fields_from_projection() {
     let state = sample_state();
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
 
     assert_eq!(restored.revision, 9);
     assert_eq!(restored.repositories.len(), 2);
@@ -403,7 +410,8 @@ fn llxprt_sandbox_values_survive_durable_projection_and_restore() {
     );
 
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
     let restored_values = &restored.agents[0].values;
 
     assert_eq!(
@@ -426,7 +434,8 @@ fn llxprt_sandbox_values_survive_durable_projection_and_restore() {
 fn inverse_restores_remote_settings_including_base_dir() {
     let state = sample_state();
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
 
     let remote_repo = &restored.repositories[1];
     assert!(remote_repo.remote.enabled);
@@ -450,7 +459,8 @@ fn inverse_restores_remote_settings_including_base_dir() {
 fn inverse_synthesizes_status_and_binding_from_last_known() {
     let state = sample_state();
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
 
     let running = &restored.agents[0];
     assert_eq!(running.status, AgentStatus::Running);
@@ -485,7 +495,8 @@ fn inverse_synthesizes_status_and_binding_from_last_known() {
 fn restored_launch_signature_matches_current_projection() {
     let state = sample_state();
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
 
     for agent in &restored.agents {
         let repository = restored
@@ -570,7 +581,8 @@ fn migrated_schema1_launch_signature_matches_current_projection() {
     .value_or_panic("schema-1 fixture serializes");
     let migrated = crate::persistence::migration::migrate_state(&source)
         .value_or_panic("schema-1 fixture migrates");
-    let restored = from_durable_state(migrated.state()).value_or_panic("migration restores");
+    let restored = from_durable_state(migrated.state(), &compiled_screens())
+        .value_or_panic("migration restores");
     let current = current_launch_signature(&restored.agents[0], &restored.repositories[0])
         .value_or_panic("current launch signature projects");
     assert_eq!(
@@ -589,20 +601,19 @@ fn round_trip_is_idempotent_in_canonical_bytes() {
         raw_value: serde_json::json!("legacy"),
     }];
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
 
-    let mut second_state = AppState {
-        repositories: restored.repositories,
-        agents: restored.agents,
-        selected_repository_index: restored.selected_repository_index,
-        selected_agent_index: restored.selected_agent_index,
-        hide_idle_repositories: restored.hide_idle_repositories,
-        pane_focus: restored.pane_focus,
-        terminal_focused: restored.terminal_focused,
-        durable_revision: restored.revision,
-        dormant_records: restored.dormant_records,
-        ..AppState::default()
-    };
+    let mut second_state = AppState::test_fixture();
+    second_state.repositories = restored.repositories;
+    second_state.agents = restored.agents;
+    second_state.selected_repository_index = restored.selected_repository_index;
+    second_state.selected_agent_index = restored.selected_agent_index;
+    second_state.hide_idle_repositories = restored.hide_idle_repositories;
+    second_state.pane_focus = restored.pane_focus;
+    second_state.terminal_focused = restored.terminal_focused;
+    second_state.durable_revision = restored.revision;
+    second_state.dormant_records = restored.dormant_records;
     second_state.last_selected_agent_by_repo = restored.last_selected_agent_by_repo;
     second_state.user_preferences = restored.user_preferences;
     let reprojected = to_durable_state(&second_state).value_or_panic("second projection");
@@ -624,7 +635,8 @@ fn inverse_restores_user_preferences_round_trip() {
         .update_for_repo(&repo_id, preferences);
 
     let projected = to_durable_state(&state).value_or_panic("projection succeeds");
-    let restored = from_durable_state(&projected).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&projected, &compiled_screens()).value_or_panic("restore succeeds");
 
     let restored_preferences = restored.user_preferences.for_repo(&repo_id);
     assert_eq!(restored_preferences.issue_search_query, "roadmap");
@@ -638,7 +650,7 @@ fn inverse_rejects_agent_with_unknown_repository() {
     projected.agents[0].repository_id =
         crate::domain::Id::parse("repo.unknown").value_or_panic("valid id");
 
-    assert!(from_durable_state(&projected).is_err());
+    assert!(from_durable_state(&projected, &compiled_screens()).is_err());
 }
 
 /// Two runtime repositories must never collapse onto one durable identifier.
@@ -699,7 +711,8 @@ fn inverse_preserves_a_disabled_remote_flag() {
     let enabled_key = crate::domain::Id::parse("enabled").value_or_panic("the enabled key");
     let _ = remote.insert(enabled_key, crate::domain::TypedValue::Bool(false));
 
-    let restored = from_durable_state(&durable).value_or_panic("restore the disabled remote");
+    let restored = from_durable_state(&durable, &compiled_screens())
+        .value_or_panic("restore the disabled remote");
 
     assert!(
         !restored.repositories[0].remote.enabled,
@@ -720,7 +733,7 @@ fn forward_refuses_a_work_dir_that_is_not_utf8() {
     let mut broken = agent("a1", "r1", "agent", "/srv/repo");
     broken.work_dir = PathBuf::from(invalid);
 
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(repository);
     state.agents.push(broken);
     state.rebuild_repository_agent_ids();
@@ -742,7 +755,7 @@ fn forward_refuses_a_work_dir_that_is_not_utf8() {
 /// stale pairing.
 #[test]
 fn forward_drops_a_remembered_agent_owned_by_another_repository() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state
         .repositories
         .push(local_repository("r1", "first", "/srv/first"));
@@ -806,7 +819,8 @@ fn descendant_anchors_survive_the_durable_round_trip() {
     let reparsed: crate::domain::StateV2 =
         serde_json::from_str(&encoded).value_or_panic("deserialize candidate");
 
-    let restored = from_durable_state(&reparsed).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(&reparsed, &compiled_screens()).value_or_panic("restore succeeds");
     let binding = restored.agents[0]
         .runtime_binding
         .as_ref()
@@ -840,7 +854,8 @@ fn a_document_without_descendant_anchors_restores_an_empty_set() {
     let parsed = StateDocument::parse(&encoded).unwrap_or_else(|diagnostics| {
         panic!("a pre-#642 document must still parse: {diagnostics:?}")
     });
-    let restored = from_durable_state(parsed.state()).value_or_panic("restore succeeds");
+    let restored =
+        from_durable_state(parsed.state(), &compiled_screens()).value_or_panic("restore succeeds");
     let binding = restored.agents[0]
         .runtime_binding
         .as_ref()

@@ -10,15 +10,14 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn state_with_focus(focus: PrFocus) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: focus,
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        pr_focus: focus,
+        ..PullRequestsState::default()
+    };
+    state
 }
 
 fn state_with_changes(focus: PrChangesFocus) -> AppState {

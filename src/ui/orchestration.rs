@@ -410,7 +410,8 @@ fn help_modal(
 ) -> AnyElement<'static> {
     element! {
         HelpModal(
-            action_registry_snapshot: snapshot.action_registry_snapshot.clone(),
+            published_workbench: Some(std::sync::Arc::clone(snapshot.published_workbench())),
+            action_availability: snapshot.action_availability_generation().cloned(),
             colors: colors.clone(),
             scroll_offset: scroll_offset,
             available_rows: available_rows,

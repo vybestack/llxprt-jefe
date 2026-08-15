@@ -79,7 +79,7 @@ fn make_test_comment(id: u64, author: &str, body: &str) -> IssueComment {
 
 /// Helper to set up a state with a selected repository at index 0.
 fn state_with_repo(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -145,7 +145,7 @@ fn test_issue_list_selection_highlight() {
 /// @requirement REQ-ISS-006
 #[test]
 fn test_issue_list_loading_state() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::EnterIssuesMode)
         .committed_pure();
 
@@ -251,7 +251,7 @@ fn test_issue_detail_comments_timeline() {
 /// @requirement REQ-ISS-010
 #[test]
 fn test_issue_detail_inline_composer_visible() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.inline_state = InlineState::None;
 
     let state = state
@@ -278,7 +278,7 @@ fn test_issue_detail_inline_composer_visible() {
 /// @requirement REQ-ISS-010
 #[test]
 fn test_issue_list_new_issue_composer_visible() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.inline_state = InlineState::None;
     // Start from IssueList (the default) so the assertion proves the event
     // transitions focus to IssueDetail, rather than confirming a no-op
@@ -323,7 +323,7 @@ fn test_issue_list_new_issue_composer_visible() {
 /// @requirement REQ-ISS-008
 #[test]
 fn test_filter_controls_value_binding() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.filter_ui.controls_open = true;
 
     // Update multiple draft filter fields
@@ -408,7 +408,7 @@ fn test_empty_state_no_comments() {
 /// @requirement REQ-ISS-014
 #[test]
 fn test_empty_state_no_agents_for_send() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     // Confirm no agents are configured
     assert!(state.agents.is_empty());
 

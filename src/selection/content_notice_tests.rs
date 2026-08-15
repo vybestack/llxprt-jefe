@@ -31,13 +31,11 @@ fn make_issues() -> Vec<Issue> {
 }
 
 fn issue_list_line_count(error: Option<&str>, notice: Option<&str>) -> usize {
-    let mut state = AppState {
-        issues_state: IssuesState {
-            error: error.map(str::to_string),
-            draft_notice: notice.map(str::to_string),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state = AppState::test_fixture();
+    state.issues_state = IssuesState {
+        error: error.map(str::to_string),
+        draft_notice: notice.map(str::to_string),
+        ..IssuesState::default()
     };
     state.issues_state.list.items_mut().extend(make_issues());
     state.issues_state.list.set_selected_index(Some(0));

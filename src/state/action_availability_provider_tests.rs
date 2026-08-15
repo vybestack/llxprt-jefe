@@ -1,16 +1,20 @@
 //! Provider availability survives the host's availability refresh
 //! (issue #390 CW-10, row CW10-13).
 //!
-//! The host recomputes availability for every action in the snapshot on nearly
-//! every input. Its reason table describes compiled actions only, so a provider
-//! action it has no opinion about must keep whatever startup composition
-//! decided — not silently become available.
+//! The host recomputes availability for every action in the workbench on
+//! nearly every input. Its reason table describes compiled actions only, so a
+//! provider action it has no opinion about must keep whatever the published
+//! workbench composition decided — not silently become available.
 
 use super::*;
-use crate::domain::action_registry::{
-    Action, ActionAvailability, ActionId, ActionMetadata, Availability, HandlerKey,
-};
-use crate::domain::input_context::ContextId;
+use crate::domain::action_registry::{ActionAvailability, ActionId, Availability};
+use crate::domain::plugin::HostTriple;
+use crate::persistence::paths::{PathProvenance, ResolvedFile, ResolvedPaths};
+use crate::persistence::plugin_inventory::{MANIFEST_FILE_NAME, scan};
+use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
+use crate::runtime::provider::Containment;
+use crate::startup_candidate::{WorkbenchCandidateRequest, build_workbench_candidate};
+use std::sync::Arc;
 
 fn action_id(value: &str) -> ActionId {
     let Ok(parsed) = ActionId::parse(value) else {
@@ -19,42 +23,103 @@ fn action_id(value: &str) -> ActionId {
     parsed
 }
 
-fn provider_action(id: &str) -> Action {
-    let Ok(context) = ContextId::parse("dashboard") else {
-        panic!("context fixture must parse");
+/// Stage a one-shot `vendor.deploy` package whose manifest either ships a
+/// binary for this host or only for an alien one, and return its root.
+fn stage_provider_package(with_host_binary: bool) -> tempfile::TempDir {
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let binaries = if with_host_binary {
+        format!(
+            r#"{{ "{}": "bin/provider" }}"#,
+            HostTriple::current().as_str()
+        )
+    } else {
+        r#"{ "aarch64-unknown-none-elf": "bin/provider" }"#.to_owned()
     };
-    let metadata = ActionMetadata {
-        id: action_id(id),
-        label: "Ship release".to_owned(),
-        description: "Ship the selected release".to_owned(),
-        category: "vendor".to_owned(),
-        contexts: vec![context],
-    };
-    match Action::new(metadata, HandlerKey::ProviderAction, false) {
-        Ok(action) => action,
-        Err(error) => panic!("provider action fixture must build: {error:?}"),
-    }
+    let manifest = format!(
+        r#"{{
+          "manifest_schema": 1,
+          "id": "vendor.deploy",
+          "version": "1.0.0",
+          "display_name": "Package vendor.deploy",
+          "host_api": {{ "minimum": "1.0.0", "maximum": "1.0.0" }},
+          "protocol": 1,
+          "provider": {{ "mode": "one-shot", "binaries": {binaries} }},
+          "actions": [
+            {{
+              "id": "vendor.deploy.ship",
+              "label": "Ship release",
+              "description": "Ship the selected release",
+              "category": "vendor",
+              "contexts": ["dashboard"],
+              "arguments": [],
+              "timeout_seconds": 60,
+              "destructive": false,
+              "confirmation": "none",
+              "handler": "run",
+              "allowed_outcomes": ["notice"]
+            }}
+          ],
+          "panels": [],
+          "routes": [],
+          "screens": []
+        }}"#
+    );
+    let directory = temp
+        .path()
+        .join("packages")
+        .join("vendor.deploy")
+        .join("1.0.0");
+    std::fs::create_dir_all(&directory)
+        .unwrap_or_else(|error| panic!("staging must succeed: {error}"));
+    std::fs::write(directory.join(MANIFEST_FILE_NAME), manifest.as_bytes())
+        .unwrap_or_else(|error| panic!("manifest must write: {error}"));
+    temp
 }
 
-/// A state whose snapshot carries one provider action with `availability`.
-fn state_with_provider(availability: Availability) -> AppState {
-    let settings = crate::persistence::settings_document::PublishedSettings::default();
-    let composed = crate::persistence::keymap_edit::compose_published_with_providers(
-        &settings,
-        "test",
-        vec![provider_action("vendor.deploy.ship")],
-        vec![ActionAvailability::new(
-            action_id("vendor.deploy.ship"),
-            availability,
-        )],
-    );
-    let Ok(composed) = composed else {
-        panic!("provider composition must succeed");
+/// One explicit workbench whose published registry carries the provider
+/// action `vendor.deploy.ship`, composed exactly as startup would publish
+/// it: a one-shot provider package whose manifest either ships a binary for
+/// this host or does not.
+fn provider_state(with_host_binary: bool) -> AppState {
+    let temp = stage_provider_package(with_host_binary);
+    let root = temp.path().join("packages");
+    let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
+    let catalog = crate::config_owners::owner_catalog_with_packages(inventory.packages())
+        .unwrap_or_else(|diagnostics| panic!("owner catalog must build: {diagnostics:?}"));
+    let settings = crate::persistence::settings_document::SettingsDocument::parse(
+        "settings_schema = 2\n\n[plugins.\"vendor.deploy\"]\nenabled = true\n".as_bytes(),
+    )
+    .unwrap_or_else(|error| panic!("settings must parse: {error:?}"))
+    .publish(&catalog)
+    .unwrap_or_else(|diagnostics| panic!("settings must publish: {diagnostics:?}"));
+
+    let file = |name: &str| ResolvedFile {
+        path: temp.path().join(name),
+        provenance: PathProvenance::ConfigArgument,
+        sources: Vec::new(),
     };
-    AppState {
-        action_registry_snapshot: Some(composed.snapshot().clone()),
-        ..AppState::default()
-    }
+    let paths = ResolvedPaths {
+        settings: file("settings.toml"),
+        state: file("state.json"),
+        definitions: temp.path().join("definitions"),
+        plugins: temp.path().join("plugins"),
+        themes: temp.path().join("themes"),
+    };
+    let candidate = build_workbench_candidate(&WorkbenchCandidateRequest {
+        paths: &paths,
+        inventory: &inventory,
+        settings: &settings,
+        host: HostTriple::current(),
+        containment: Containment {
+            home: temp.path().join("home"),
+            tmpdir: temp.path().join("tmp"),
+            working_dir: temp.path().join("work"),
+            locale: "C".to_owned(),
+            host_api: "1.0.0".to_owned(),
+        },
+    })
+    .unwrap_or_else(|error| panic!("provider workbench must compose: {error}"));
+    AppState::new(Arc::new(candidate))
 }
 
 /// The regression that matters: an action whose provider has no binary for this
@@ -62,24 +127,17 @@ fn state_with_provider(availability: Availability) -> AppState {
 /// it. Doing so would offer the operator an action that cannot possibly run.
 #[test]
 fn an_unavailable_provider_action_is_not_made_available_by_a_refresh() {
-    let reason = "no binary for x86_64-unknown-linux-gnu";
-    let state = state_with_provider(Availability::Unavailable {
-        reason: reason.to_owned(),
-    });
-    let Some(snapshot) = state.action_registry_snapshot.as_ref() else {
-        panic!("fixture must carry a snapshot");
-    };
+    let reason = format!("no binary for {}", HostTriple::current().as_str());
+    let state = provider_state(false);
 
-    let entries = availability_entries(&state, snapshot.actions());
+    let entries = availability_entries(&state, state.action_registry().actions());
 
     let entry = entries
         .iter()
         .find(|entry| entry.action() == &action_id("vendor.deploy.ship"));
     assert_eq!(
         entry.map(ActionAvailability::availability),
-        Some(&Availability::Unavailable {
-            reason: reason.to_owned()
-        }),
+        Some(&Availability::Unavailable { reason }),
         "the refresh must preserve the provider reason composition published"
     );
 }
@@ -87,12 +145,9 @@ fn an_unavailable_provider_action_is_not_made_available_by_a_refresh() {
 /// An available provider action stays available; preserving is not freezing.
 #[test]
 fn an_available_provider_action_stays_available() {
-    let state = state_with_provider(Availability::Available);
-    let Some(snapshot) = state.action_registry_snapshot.as_ref() else {
-        panic!("fixture must carry a snapshot");
-    };
+    let state = provider_state(true);
 
-    let entries = availability_entries(&state, snapshot.actions());
+    let entries = availability_entries(&state, state.action_registry().actions());
 
     let entry = entries
         .iter()
@@ -107,16 +162,13 @@ fn an_available_provider_action_stays_available() {
 /// mutating the immutable action declaration or restarting the provider.
 #[test]
 fn persistent_health_failure_makes_the_provider_action_unavailable() {
-    let mut state = state_with_provider(Availability::Available);
+    let mut state = provider_state(true);
     state.provider_action_health.insert(
         action_id("vendor.deploy.ship"),
         "provider stopped after ready".to_owned(),
     );
-    let Some(snapshot) = state.action_registry_snapshot.as_ref() else {
-        panic!("fixture must carry a snapshot");
-    };
 
-    let entries = availability_entries(&state, snapshot.actions());
+    let entries = availability_entries(&state, state.action_registry().actions());
 
     let entry = entries
         .iter()
@@ -131,9 +183,7 @@ fn persistent_health_failure_makes_the_provider_action_unavailable() {
 
 #[test]
 fn refusing_a_provider_action_retains_identity_for_the_unavailable_surface() {
-    let mut state = state_with_provider(Availability::Unavailable {
-        reason: "provider stopped after ready".to_owned(),
-    });
+    let mut state = provider_state(false);
     let provider_id = action_id("vendor.deploy.ship");
 
     state.record_unavailable_action(
@@ -148,14 +198,11 @@ fn refusing_a_provider_action_retains_identity_for_the_unavailable_surface() {
 /// would stop doing its job.
 #[test]
 fn compiled_actions_are_still_recomputed_from_host_state() {
-    let mut state = state_with_provider(Availability::Available);
+    let mut state = provider_state(true);
     state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
     state.issues_state.issue_focus = crate::state::IssueFocus::IssueList;
-    let Some(snapshot) = state.action_registry_snapshot.clone() else {
-        panic!("fixture must carry a snapshot");
-    };
 
-    let entries = availability_entries(&state, snapshot.actions());
+    let entries = availability_entries(&state, state.action_registry().actions());
 
     let entry = entries
         .iter()

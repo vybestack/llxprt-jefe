@@ -242,7 +242,14 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                 screen: state.map_or(ScreenId::Actions, |s| {
                     s.compiled_screen().unwrap_or(ScreenId::Actions)
                 }),
-                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
+                published_workbench: Some(std::sync::Arc::clone(
+                    state
+                        .unwrap_or_else(|| panic!("screen render requires AppState"))
+                        .published_workbench(),
+                )),
+                action_availability: state
+                    .and_then(AppState::action_availability_generation)
+                    .cloned(),
                 terminal_focused: false,
                 actions_focus: Some(actions_focus),
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),

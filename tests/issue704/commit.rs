@@ -43,7 +43,8 @@ fn provider_free_commit_installs_deferred_state_and_returns_one_aggregate_identi
         "commit installs state exactly once"
     );
     assert!(!commit.providers.has_persistent());
-    assert!(commit.providers.catalog().is_empty());
+    assert!(commit.workbench.provider_catalog().is_empty());
+    assert!(commit.workbench.provider_ready().is_some());
     let same_identity = Arc::clone(&commit.workbench);
     assert!(Arc::ptr_eq(&commit.workbench, &same_identity));
 }

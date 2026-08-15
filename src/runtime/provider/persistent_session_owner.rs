@@ -35,7 +35,10 @@ struct OwnerChannels {
 }
 
 /// Spawn one command-owner thread for a candidate.
-fn spawn_owner_thread(candidate: OwnedCandidate, bounds: SupervisorBounds) -> PersistentSession {
+fn spawn_owner_thread(
+    candidate: OwnedCandidate,
+    bounds: SupervisorBounds,
+) -> Result<PersistentSession, PersistentOwnerStartFailure> {
     let plugin_id = candidate.plugin_id.clone();
     let available = Arc::new(Mutex::new(true));
     let thread_available = Arc::clone(&available);
@@ -48,20 +51,21 @@ fn spawn_owner_thread(candidate: OwnedCandidate, bounds: SupervisorBounds) -> Pe
         .name(format!("jefe-persistent-{plugin_id}"))
         .spawn(move || {
             let availability = SessionAvailability(thread_available);
-            if let Ok(candidate) = candidate_rx.recv() {
-                let channels = OwnerChannels {
-                    invocation_rx,
-                    panel_command_rx,
-                    panel_delivery_tx,
-                    control_rx,
-                };
-                run_owner_thread(candidate, bounds, channels, &availability);
-            }
+            let Ok(candidate) = candidate_rx.recv() else {
+                return None;
+            };
+            let channels = OwnerChannels {
+                invocation_rx,
+                panel_command_rx,
+                panel_delivery_tx,
+                control_rx,
+            };
+            Some(run_owner_thread(candidate, bounds, channels, &availability))
         });
 
     match thread_result {
         Ok(thread) => match candidate_tx.send(candidate) {
-            Ok(()) => PersistentSession {
+            Ok(()) => Ok(PersistentSession {
                 plugin_id,
                 invocation_tx: Some(invocation_tx),
                 panel_tx: Some(panel_tx),
@@ -69,26 +73,32 @@ fn spawn_owner_thread(candidate: OwnedCandidate, bounds: SupervisorBounds) -> Pe
                 control_tx: Some(control_tx),
                 available,
                 thread: Some(thread),
-            },
+            }),
             Err(error) => {
-                reap_after_owner_start_failure(error.0, &bounds);
+                let reaped = reap_after_owner_start_failure(error.0, &bounds);
                 let _ = thread.join();
-                unavailable_session(plugin_id)
+                Err(PersistentOwnerStartFailure {
+                    plugin_id,
+                    cause: PersistentOwnerStartCause::CandidateHandoff,
+                    reaped: vec![reaped],
+                })
             }
         },
         Err(error) => {
-            tracing::warn!(
-                plugin_id = %plugin_id,
-                error = %error,
-                "failed to spawn persistent owner thread"
-            );
-            reap_after_owner_start_failure(candidate, &bounds);
-            unavailable_session(plugin_id)
+            let reaped = reap_after_owner_start_failure(candidate, &bounds);
+            Err(PersistentOwnerStartFailure {
+                plugin_id,
+                cause: PersistentOwnerStartCause::Thread(error),
+                reaped: vec![reaped],
+            })
         }
     }
 }
 
-fn reap_after_owner_start_failure(candidate: OwnedCandidate, bounds: &SupervisorBounds) {
+fn reap_after_owner_start_failure(
+    candidate: OwnedCandidate,
+    bounds: &SupervisorBounds,
+) -> super::persistent::ReapedCandidate {
     let reaped = reap_owned(candidate, bounds);
     if !reaped.reaped {
         tracing::warn!(
@@ -97,19 +107,7 @@ fn reap_after_owner_start_failure(candidate: OwnedCandidate, bounds: &Supervisor
             "persistent candidate cleanup after owner-start failure was incomplete"
         );
     }
-}
-
-fn unavailable_session(plugin_id: Id) -> PersistentSession {
-    let (_panel_tx, panel_rx) = mpsc::sync_channel(1);
-    PersistentSession {
-        plugin_id,
-        invocation_tx: None,
-        panel_tx: None,
-        panel_rx,
-        control_tx: None,
-        available: Arc::new(Mutex::new(false)),
-        thread: None,
-    }
+    reaped
 }
 
 /// The owner thread's main loop. Invocation traffic is bounded independently
@@ -120,7 +118,7 @@ fn run_owner_thread(
     bounds: SupervisorBounds,
     channels: OwnerChannels,
     availability: &SessionAvailability,
-) {
+) -> super::persistent::ReapedCandidate {
     let OwnerChannels {
         invocation_rx,
         panel_command_rx,
@@ -134,8 +132,7 @@ fn run_owner_thread(
         {
             availability.mark_unavailable();
             reject_pending_invocations(&invocation_rx);
-            reap_owned(candidate, &bounds);
-            return;
+            return reap_owned(candidate, &bounds);
         }
         match invocation_rx.recv_timeout(CANCEL_POLL) {
             Ok(command) => {
@@ -161,15 +158,13 @@ fn run_owner_thread(
                 let _ = command.terminal_tx.send(result);
                 command.done.store(true, Ordering::SeqCst);
                 if unavailable {
-                    reap_owned(candidate, &bounds);
-                    return;
+                    return reap_owned(candidate, &bounds);
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 availability.mark_unavailable();
-                reap_owned(candidate, &bounds);
-                return;
+                return reap_owned(candidate, &bounds);
             }
         }
     }

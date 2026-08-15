@@ -10,7 +10,7 @@ use crate::state::transition::TransitionExt;
 
 #[test]
 fn open_auth_dialog_from_no_modal_sets_awaiting_code() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert!(matches!(state.modal, ModalState::None));
 
     let next = state.apply(AppEvent::OpenAuthDialog).committed_pure();
@@ -25,7 +25,7 @@ fn open_auth_dialog_from_no_modal_sets_awaiting_code() {
 
 #[test]
 fn auth_code_received_transitions_to_confirming_with_code_and_url() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure();
     let next = state
@@ -48,7 +48,7 @@ fn auth_code_received_transitions_to_confirming_with_code_and_url() {
 
 #[test]
 fn auth_failed_from_awaiting_transitions_to_failed_with_retry() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure();
     let next = state
@@ -70,7 +70,7 @@ fn auth_failed_from_awaiting_transitions_to_failed_with_retry() {
 
 #[test]
 fn auth_retry_from_failed_returns_to_awaiting_code() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure()
         .apply(AppEvent::AuthFailed {
@@ -90,7 +90,7 @@ fn auth_retry_from_failed_returns_to_awaiting_code() {
 #[test]
 fn auth_retry_clears_stale_error_message() {
     // A retried flow should start with a clean error slate (issue #244 OCR).
-    let mut state = AppState::default()
+    let mut state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure();
     state.error_message = Some("stale".to_string());
@@ -100,7 +100,7 @@ fn auth_retry_clears_stale_error_message() {
 
 #[test]
 fn auth_succeeded_from_confirming_closes_modal() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure()
         .apply(AppEvent::AuthCodeReceived {
@@ -120,7 +120,7 @@ fn auth_failed_from_confirming_transitions_to_failed_with_retry() {
     // The code was shown (Confirming) but then expired or was denied while gh
     // was still running (gh exits non-zero). The dialog must NOT stick in
     // Confirming — it must surface a retryable failure (issue #244 review #1).
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure()
         .apply(AppEvent::AuthCodeReceived {
@@ -147,7 +147,7 @@ fn auth_failed_from_confirming_transitions_to_failed_with_retry() {
 
 #[test]
 fn auth_cancelled_closes_modal_and_sets_actionable_message() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure();
     let next = state.apply(AppEvent::AuthCancelled).committed_pure();
@@ -172,7 +172,7 @@ fn auth_cancelled_closes_modal_and_sets_actionable_message() {
 #[test]
 fn auth_failed_then_succeeded_closes_modal() {
     // Expired code → retry → new code → success.
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenAuthDialog)
         .committed_pure()
         .apply(AppEvent::AuthFailed {
@@ -196,10 +196,8 @@ fn open_auth_dialog_does_not_clobber_existing_form_modal() {
     // dialog from underneath the user. The dispatch layer is responsible for
     // only opening auth when no other modal is active; the reducer defends by
     // ignoring OpenAuthDialog when a non-None modal is already open.
-    let state = AppState {
-        modal: ModalState::Help,
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::Help;
     let next = state.apply(AppEvent::OpenAuthDialog).committed_pure();
     assert!(
         matches!(next.modal, ModalState::Help),
@@ -211,7 +209,7 @@ fn open_auth_dialog_does_not_clobber_existing_form_modal() {
 fn auth_code_received_ignored_when_no_auth_modal() {
     // Stray late-arriving code events must not corrupt state when the modal
     // has already been closed.
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let next = state
         .apply(AppEvent::AuthCodeReceived {
             code: "0000-0000".to_string(),
@@ -223,7 +221,7 @@ fn auth_code_received_ignored_when_no_auth_modal() {
 
 #[test]
 fn auth_succeeded_ignored_when_no_auth_modal() {
-    let next = AppState::default()
+    let next = AppState::test_fixture()
         .apply(AppEvent::AuthSucceeded)
         .committed_pure();
     assert!(matches!(next.modal, ModalState::None));

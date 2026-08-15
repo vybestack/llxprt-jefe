@@ -46,7 +46,7 @@ mod tests {
     use crate::domain::{Agent, Repository};
 
     fn fixture() -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let repository_id = RepositoryId("repo".into());
         state.repositories.push(Repository::new(
             repository_id.clone(),

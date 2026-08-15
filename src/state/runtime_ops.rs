@@ -58,7 +58,7 @@ impl AppState {
                     && agent.runtime_binding.is_some()
                 {
                     agent.status = AgentStatus::Running;
-                    self.sticky_dead_agent_ids.remove(&agent_id);
+                    self.sticky_visibility.dead_agents.remove(&agent_id);
                     self.clear_dead_preview(&agent_id);
                 }
             }
@@ -67,7 +67,7 @@ impl AppState {
             // path goes through dispatch_restart_agent which applies Kill then
             // Relaunch separately. Here we clear sticky and set Running.
             RuntimeMessage::RestartAgent(agent_id) => {
-                self.sticky_dead_agent_ids.remove(&agent_id);
+                self.sticky_visibility.dead_agents.remove(&agent_id);
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
                     && agent.runtime_binding.is_some()
                 {
@@ -83,7 +83,7 @@ impl AppState {
         if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
             agent.status = AgentStatus::Dead;
             agent.runtime_binding = None;
-            self.sticky_dead_agent_ids.insert(agent_id.clone());
+            self.sticky_visibility.dead_agents.insert(agent_id.clone());
         }
         // Immediate shell-inventory cleanup on explicit kill (issue #361
         // PR A): the session is being torn down, so any tracked shell window
@@ -103,7 +103,7 @@ impl AppState {
         if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
             agent.status = status;
             if status == AgentStatus::Running {
-                self.sticky_dead_agent_ids.remove(&agent_id);
+                self.sticky_visibility.dead_agents.remove(&agent_id);
                 self.clear_dead_preview(&agent_id);
             }
             // Reset scroll state when selected agent's status changes (fix #6).

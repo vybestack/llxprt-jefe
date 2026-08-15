@@ -1,13 +1,12 @@
 //! Pure S7 routing from approved rendered hit targets to snapshot resolutions.
 
-use jefe::domain::action_registry::{ActionId, ActionRegistrySnapshot, Resolution};
+use jefe::domain::action_registry::{ActionId, Resolution};
 use jefe::domain::input_context::ContextStack;
 use jefe::domain::keymap::Chord;
 use jefe::pane_content_projection::projected_pane_content;
-use jefe::persistence::settings_document::PublishedSettings;
 use jefe::selection::{SelectablePane, point_to_content_coords};
 use jefe::state::AppState;
-use jefe::state::keys_editor_project::{ChordText, project_keys};
+use jefe::state::keys_editor_project::ChordText;
 
 /// One mouse target after resolving its `ActionId` through the current snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +31,6 @@ pub(super) struct MouseClickInput {
 #[must_use]
 pub(super) fn resolve_action_click(
     state: &AppState,
-    snapshot: &ActionRegistrySnapshot,
     click: MouseClickInput,
 ) -> Option<MouseActionRoute> {
     if click.down != Some(click.up) {
@@ -41,7 +39,7 @@ pub(super) fn resolve_action_click(
     let (up_col, up_row) = click.up;
     let (cols, rows) = click.terminal;
     let action = confirm_action_at(state, up_col, up_row, cols, rows)?;
-    resolve_action(snapshot, &action, "confirm.button")
+    resolve_action(state, &action, "confirm.button")
 }
 
 fn confirm_action_at(
@@ -78,11 +76,15 @@ fn button_contains(line: &str, label: &str, column: usize) -> bool {
 }
 
 fn resolve_action(
-    snapshot: &ActionRegistrySnapshot,
+    state: &AppState,
     target: &ActionId,
     hit: &'static str,
 ) -> Option<MouseActionRoute> {
-    let rows = project_keys(snapshot, &PublishedSettings::default());
+    let rows = crate::state::keys_editor_project::project_keys_effective(
+        state.action_registry(),
+        state.action_availability_generation(),
+        state.published_workbench().settings(),
+    );
     let row = rows.iter().find(|row| &row.action == target)?;
     let stack = ContextStack::from_ordered([row.context.as_str()], false).ok()?;
     // Only a chord the grammar read can be resolved; text it could not read
@@ -94,7 +96,7 @@ fn resolve_action(
             ChordText::Unreadable(_) => None,
         })
         .find_map(|chord| {
-            let resolution = snapshot.resolve(&chord, &stack);
+            let resolution = state.resolve_action(&chord, &stack);
             resolution_targets(&resolution, target).then_some(MouseActionRoute {
                 chord,
                 resolution,

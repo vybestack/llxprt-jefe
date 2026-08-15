@@ -536,7 +536,14 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                             screen: state.map_or(ScreenId::PullRequests, |s| {
                                 s.compiled_screen().unwrap_or(ScreenId::PullRequests)
                             }),
-                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
+                            published_workbench: Some(std::sync::Arc::clone(
+                                state
+                                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                                    .published_workbench(),
+                            )),
+                            action_availability: state
+                                .and_then(AppState::action_availability_generation)
+                                .cloned(),
                             terminal_focused: state.is_some_and(|s| s.terminal_focused),
                             actions_focus: None,
                             mode_override: footer_mode,

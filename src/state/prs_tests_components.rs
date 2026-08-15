@@ -17,10 +17,8 @@ use crate::state::types::{ReadOnlyHintKind, ScreenId};
 
 /// Helper: PR-mode state with a selected PR.
 fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -69,7 +67,7 @@ fn test_show_notice_sets_draft_notice_for_each_readonly_hint_kind() {
         ReadOnlyHintKind::ReadOnlyNotEditable,
         ReadOnlyHintKind::NoSelectionToOpen,
     ] {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.prs_state.active = true;
 
         // Drive through the REAL dispatch hub (apply_message → apply_prs_message)
@@ -143,7 +141,7 @@ fn test_open_in_browser_reducer_is_pure_sets_opening_notice() {
 /// @pseudocode component-001 lines 349-357
 #[test]
 fn test_open_in_browser_no_selection_sets_notice() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.prs_state.active = true;
     state.prs_state.list.set_selected_index(None);
     state.prs_state.list.clear_items();
@@ -224,7 +222,7 @@ fn test_pr_show_notice_round_trips_and_sets_draft_notice() {
     );
 
     // The reducer (apply_prs_message) must set draft_notice.
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.prs_state.active = true;
     let handled = state.apply_prs_message(PullRequestsMessage::ShowNotice(kind));
     assert!(handled);

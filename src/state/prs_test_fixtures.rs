@@ -98,10 +98,8 @@ fn test_pull_request_detail(repo_id: &str, pr_number: u64) -> PullRequestDetail 
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 44-50
 pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.repositories.push(test_repository(repo_id));
     state.selected_repository_index = Some(0);
     state.prs_state.active = true;

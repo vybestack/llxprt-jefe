@@ -123,7 +123,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
 /// @requirement REQ-PR-001
 /// @pseudocode component-001 lines 66-76
 pub(super) fn dashboard_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     for slug in ["repo-1", "repo-2"] {
         state.repositories.push(Repository::new(
             RepositoryId(slug.to_string()),
@@ -171,7 +171,7 @@ pub(super) trait ApplyInPlace {
 
 impl ApplyInPlace for AppState {
     fn apply_in_place(&mut self, event: AppEvent) {
-        let old = std::mem::take(self);
+        let old = std::mem::replace(self, Self::test_fixture());
         *self = old.apply(event).committed_pure();
     }
 }
@@ -707,7 +707,7 @@ fn it_empty_pr_list_shows_empty_state() {
 /// Dashboard active screen renders correctly, and Issues mode can still be
 /// entered/exited. This is a regression guard.
 ///
-/// Drives: verify AppState::default() is Dashboard; enter Issues mode; exit
+/// Drives: verify AppState::test_fixture() is Dashboard; enter Issues mode; exit
 /// Issues mode; verify Dashboard is restored.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
@@ -715,7 +715,7 @@ fn it_empty_pr_list_shows_empty_state() {
 /// @pseudocode component-001 lines 66-76
 #[test]
 fn it_dashboard_and_issues_modes_unaffected() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert_eq!(
         state.screen(),
         ScreenId::Dashboard,

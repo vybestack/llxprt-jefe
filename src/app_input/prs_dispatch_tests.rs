@@ -48,13 +48,11 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
 /// @requirement REQ-PR-012
 /// @pseudocode component-004 lines 160-175
 fn state_with_invalid_slug() -> AppState {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        ..PullRequestsState::default()
     };
     state.prs_state.list.replace_items(vec![test_pr(42)]);
     state.prs_state.list.set_selected_index(Some(0));
@@ -178,11 +176,9 @@ fn test_open_in_browser_no_selection_yields_no_selection() {
 /// @pseudocode component-004 lines 119-126
 #[test]
 fn test_preview_guard_detects_selection_change_after_read_lock() {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState::default(),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState::default();
     state
         .prs_state
         .list
@@ -344,11 +340,9 @@ fn test_format_pr_prompt_wraps_focused_comment_in_delimiters() {
 /// Build an AppState with a selected PR whose `mergeable` is set to `value`.
 /// Used to prove the list→detail preview propagates the mergeable signal.
 fn state_with_mergeable_pr(value: Option<bool>) -> AppState {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState::default(),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState::default();
     let mut pr = test_pr(99);
     pr.mergeable = value;
     state.prs_state.list.replace_items(vec![pr]);

@@ -21,6 +21,11 @@ impl<T, E: std::fmt::Debug> TestResultExt<T, E> for Result<T, E> {
     }
 }
 
+fn compiled_screens() -> crate::workbench::ScreenRegistry {
+    crate::workbench::builtin_screens()
+        .unwrap_or_else(|error| panic!("compiled screens must build: {error}"))
+}
+
 fn manager(root: &Path) -> FilePersistenceManager {
     FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: root.join("settings.toml"),
@@ -77,7 +82,7 @@ fn absent_state_restores_an_empty_durable_document() {
     let manager = manager(temp.path());
 
     let restored = manager
-        .load_durable_state()
+        .load_durable_state(&compiled_screens())
         .value_or_panic("absent state should restore defaults");
 
     assert!(restored.repositories.is_empty());
@@ -96,7 +101,7 @@ fn schema1_state_is_migrated_on_read() {
         .value_or_panic("write schema-1 document");
 
     let restored = manager(temp.path())
-        .load_durable_state()
+        .load_durable_state(&compiled_screens())
         .value_or_panic("schema-1 state should migrate on read");
 
     assert_eq!(restored.repositories.len(), 1);
@@ -155,7 +160,7 @@ fn schema1_null_optional_flags_are_migrated() {
         .value_or_panic("write schema-1 document");
 
     let restored = manager(temp.path())
-        .load_durable_state()
+        .load_durable_state(&compiled_screens())
         .value_or_panic("null optional flags should migrate");
 
     assert_eq!(restored.agents.len(), 1);
@@ -206,7 +211,7 @@ fn migration_preserves_valid_agent_and_repository_ids() {
         .value_or_panic("write schema-1 document");
 
     let restored = manager(temp.path())
-        .load_durable_state()
+        .load_durable_state(&compiled_screens())
         .value_or_panic("schema-1 state should migrate on read");
 
     assert_eq!(restored.agents[0].id.0, "agent-1");
@@ -226,7 +231,7 @@ fn reading_a_schema1_document_does_not_rewrite_it() {
     std::fs::write(&path, &original).value_or_panic("write schema-1 document");
 
     let _ = manager(temp.path())
-        .load_durable_state()
+        .load_durable_state(&compiled_screens())
         .value_or_panic("schema-1 state should migrate on read");
 
     let after = std::fs::read_to_string(&path).value_or_panic("re-read state file");

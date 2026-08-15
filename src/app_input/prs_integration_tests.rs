@@ -76,7 +76,7 @@ pub(super) fn make_test_pr(number: u64) -> PullRequest {
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
 pub(super) fn dashboard_prs_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     for (idx, slug) in ["repo-1", "repo-2"].into_iter().enumerate() {
         let mut repo = Repository::new(
             RepositoryId(slug.to_string()),
@@ -113,7 +113,7 @@ pub(super) trait ApplyInPlace {
 
 impl ApplyInPlace for AppState {
     fn apply_in_place(&mut self, event: AppEvent) {
-        let owned = std::mem::take(self);
+        let owned = std::mem::replace(self, crate::test_app_state());
         *self = owned.apply(event).committed_pure();
     }
 }
@@ -694,7 +694,7 @@ fn it_open_in_browser_spawns_gh_pr_view_web() {
 /// @pseudocode component-004 lines 127-137
 #[test]
 fn it_missing_github_repo_shows_inline_config_error() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     // Repository with an EMPTY github_repo slug.
     state.repositories.push(Repository::new(
         RepositoryId("repo-noslugin".to_string()),

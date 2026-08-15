@@ -217,9 +217,7 @@ fn pr_comment_page_event(
 mod tests {
     use super::*;
     use jefe::domain::{IssueComment, PrCheckStatus, PrState, PullRequestDetail, Repository};
-    use jefe::state::{
-        AppState, ComposerTarget, InlineState, PrDetailSubfocus, PullRequestsState, ScreenId,
-    };
+    use jefe::state::{ComposerTarget, InlineState, PrDetailSubfocus, PullRequestsState, ScreenId};
     use std::path::PathBuf;
 
     /// Build a seeded PR detail for the max-offset test.
@@ -287,11 +285,9 @@ mod tests {
             inline_state: InlineState::None,
             ..PullRequestsState::default()
         };
-        let mut state = AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-            prs_state,
-            ..AppState::default()
-        };
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+        state.prs_state = prs_state;
         state.repositories.push(Repository::new(
             jefe::domain::RepositoryId("repo-1".to_string()),
             jefe::domain::shipped_agent_type(3),
@@ -344,11 +340,9 @@ mod tests {
             inline_state,
             ..PullRequestsState::default()
         };
-        let state = AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-            prs_state,
-            ..AppState::default()
-        };
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+        state.prs_state = prs_state;
 
         let document_viewport = jefe::layout::pr_detail_document_viewport_rows(
             state.prs_state.detail_viewport_rows,
@@ -378,11 +372,9 @@ mod tests {
             detail_viewport_rows: 6,
             ..PullRequestsState::default()
         };
-        let mut state = AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-            prs_state,
-            ..AppState::default()
-        };
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+        state.prs_state = prs_state;
         state.repositories.push(Repository::new(
             jefe::domain::RepositoryId("repo-1".to_string()),
             jefe::domain::shipped_agent_type(3),

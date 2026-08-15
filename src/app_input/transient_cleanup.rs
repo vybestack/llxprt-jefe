@@ -72,7 +72,7 @@ mod tests {
         std::fs::create_dir_all(&temp).unwrap_or_else(|e| panic!("create test temp dir: {e}"));
         assert!(temp.exists());
 
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state
             .agents
             .push(transient_agent(temp.to_str().unwrap_or("")));
@@ -87,7 +87,7 @@ mod tests {
         let temp = unique_temp_dir("cleanup-skips-persistent");
         std::fs::create_dir_all(&temp).unwrap_or_else(|e| panic!("create test temp dir: {e}"));
 
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         // Default Agent::new produces a persistent agent.
         state.agents.push(Agent::new(
             AgentId("p1".to_string()),
@@ -112,7 +112,7 @@ mod tests {
         let missing = unique_temp_dir("cleanup-missing");
         assert!(!missing.exists());
 
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state
             .agents
             .push(transient_agent(missing.to_str().unwrap_or("")));
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn cleanup_skips_empty_work_dir() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let mut agent = transient_agent("");
         agent.work_dir = PathBuf::new();
         state.agents.push(agent);
@@ -142,7 +142,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("create test file: {e}"));
         assert!(temp_file.is_file());
 
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state
             .agents
             .push(transient_agent(temp_file.to_str().unwrap_or("")));

@@ -15,7 +15,7 @@ use jefe::runtime::PreflightIssue;
 use jefe::state::generated_agent_form::{
     GeneratedAgentForm, GeneratedAgentFormFocus, GeneratedAgentFormIntent,
 };
-use jefe::state::{AppState, ConfirmFocus, ModalState, PaneFocus};
+use jefe::state::{ConfirmFocus, ModalState, PaneFocus};
 
 fn sample_signature() -> AgentLaunchRequest {
     AgentLaunchRequest {
@@ -123,11 +123,9 @@ fn confirm_focus_is_cancel_uses_correct_field_not_default() {
 
 #[test]
 fn successful_new_agent_submit_focuses_terminal_pane_and_sets_focused() {
-    let mut state = AppState {
-        pane_focus: PaneFocus::Repositories,
-        terminal_focused: false,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.pane_focus = PaneFocus::Repositories;
+    state.terminal_focused = false;
 
     focus_terminal_state(&mut state);
 

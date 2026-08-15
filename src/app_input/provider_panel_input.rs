@@ -1,10 +1,8 @@
+use super::action_handlers::BoundaryAction;
 use jefe::domain::{Id, TypedValue};
 use jefe::provider_panel_view::PanelHitTarget;
 use jefe::runtime::provider::protocol::{Affordance, PanelBody, PanelEvent};
 use jefe::state::provider_panels::PanelInstanceId;
-use jefe::workbench::screen_registry;
-
-use super::action_handlers::BoundaryAction;
 
 pub(super) fn apply(
     action: BoundaryAction,
@@ -14,9 +12,8 @@ pub(super) fn apply(
     let staged = {
         let mut state = app_state.write();
         let current = state.nav.current().clone();
-        let Ok(registry) = screen_registry() else {
-            return;
-        };
+        let workbench = std::sync::Arc::clone(state.published_workbench());
+        let registry = workbench.screen_registry();
         if registry
             .panel_binding(current.screen, &current.panel_focus)
             .is_none()
@@ -149,7 +146,7 @@ fn panel_projection(
     panel_id: &jefe::workbench::PanelId,
 ) -> Option<jefe::provider_panel_view::PanelProjection> {
     let layout = state.resolved_layout.as_ref()?;
-    let registry = screen_registry().ok()?;
+    let registry = state.published_workbench().screen_registry();
     let descriptor = registry.get_identity(state.screen())?;
     jefe::provider_panel_view::project_provider_screen(
         descriptor,
@@ -486,9 +483,8 @@ pub fn apply_raw_key(
     let (handled, staged) = {
         let mut state = app_state.write();
         let current = state.nav.current().clone();
-        let Ok(registry) = screen_registry() else {
-            return false;
-        };
+        let workbench = std::sync::Arc::clone(state.published_workbench());
+        let registry = workbench.screen_registry();
         if registry
             .panel_binding(current.screen, &current.panel_focus)
             .is_none()

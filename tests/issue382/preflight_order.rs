@@ -123,7 +123,7 @@ pub fn assert_engine_missing() {
     use jefe::runtime::{PreparationOutcome, UnavailableReason};
     let inspector = RecordingInspector {
         engine_available: false,
-        ..Default::default()
+        ..RecordingInspector::default()
     };
     authorize_and_prepare(vec!["API_TOKEN"], &inspector, |outcome| match outcome {
         PreparationOutcome::Unavailable(UnavailableReason::EngineMissing { engine }) => {
@@ -145,7 +145,7 @@ pub fn assert_image_missing() {
         engine_available: true,
         image_available: false,
         env_names: vec!["API_TOKEN"],
-        ..Default::default()
+        ..RecordingInspector::default()
     };
     authorize_and_prepare(vec!["API_TOKEN"], &inspector, |outcome| match outcome {
         PreparationOutcome::Unavailable(UnavailableReason::ImageMissing { image, .. }) => {
@@ -167,7 +167,7 @@ pub fn assert_env_missing() {
         engine_available: true,
         image_available: true,
         env_names: vec!["API_TOKEN"],
-        ..Default::default()
+        ..RecordingInspector::default()
     };
     authorize_and_prepare(
         vec!["API_TOKEN", "SECRET_KEY"],
@@ -188,7 +188,7 @@ pub fn assert_cleared() {
         engine_available: true,
         image_available: true,
         env_names: vec!["API_TOKEN"],
-        ..Default::default()
+        ..RecordingInspector::default()
     };
     authorize_and_prepare(vec!["API_TOKEN"], &inspector, |outcome| match outcome {
         PreparationOutcome::Cleared(cleared) => {

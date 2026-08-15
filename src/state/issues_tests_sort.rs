@@ -35,10 +35,8 @@ fn make_issue(number: u64, created_at: &str, updated_at: &str) -> Issue {
 }
 
 fn issues_state_with_issues(issues: Vec<Issue>) -> AppState {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     state.issues_state.active = true;
     state.issues_state.list.replace_items(issues);
     state.issues_state.list.set_selected_index(Some(0));

@@ -3,7 +3,7 @@
 use jefe::domain::action_registry::HandlerKey;
 use jefe::domain::keymap::Chord;
 use jefe::list_viewport::PageItemCount;
-use jefe::state::{AppEvent, AppState, ErrorsFocus, ScreenId};
+use jefe::state::{AppEvent, ErrorsFocus, ScreenId};
 
 use super::action_handlers::{BoundaryAction, HandlerExecution, execution_for};
 
@@ -17,10 +17,8 @@ fn chord(text: &str) -> Chord {
 
 #[test]
 fn page_navigation_produces_typed_page_event() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
     let execution = execution_for(
         HandlerKey::NavigatePageDown,
         chord("PageDown"),
@@ -36,10 +34,8 @@ fn page_navigation_produces_typed_page_event() {
 
 #[test]
 fn errors_back_and_reverse_cycle_preserve_focus_behavior() {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Errors),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Errors);
     state.errors_state.focus = ErrorsFocus::ErrorDetail;
     assert!(matches!(
         execution_for(
@@ -73,7 +69,7 @@ fn errors_back_and_reverse_cycle_preserve_focus_behavior() {
 
 #[test]
 fn terminal_tail_at_follow_tail_forwards_to_pty() {
-    let state = AppState::default();
+    let state = crate::test_app_state();
     assert!(matches!(
         execution_for(
             HandlerKey::TerminalScrollTail,
@@ -87,7 +83,7 @@ fn terminal_tail_at_follow_tail_forwards_to_pty() {
 
 #[test]
 fn s4_modal_controls_have_typed_executions() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.modal = jefe::state::ModalState::Help;
     assert!(matches!(
         execution_for(
@@ -111,10 +107,8 @@ fn s4_modal_controls_have_typed_executions() {
 
 #[test]
 fn s4_workspace_handlers_produce_source_specific_events() {
-    let mut issues = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    };
+    let mut issues = crate::test_app_state();
+    issues.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
     issues.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
     assert!(matches!(
         execution_for(
@@ -126,10 +120,8 @@ fn s4_workspace_handlers_produce_source_specific_events() {
         HandlerExecution::Event(AppEvent::IssuesScrollDetailDown)
     ));
 
-    let mut prs = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..AppState::default()
-    };
+    let mut prs = crate::test_app_state();
+    prs.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     prs.prs_state.pr_focus = jefe::state::PrFocus::PrList;
     assert!(matches!(
         execution_for(
@@ -143,10 +135,8 @@ fn s4_workspace_handlers_produce_source_specific_events() {
         ))
     ));
 
-    let mut actions = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Actions),
-        ..AppState::default()
-    };
+    let mut actions = crate::test_app_state();
+    actions.nav = crate::state::navigation::NavState::rooted(ScreenId::Actions);
     actions.actions_state.focus = jefe::state::ActionsFocus::Detail;
     assert!(matches!(
         execution_for(
@@ -166,22 +156,20 @@ fn dashboard_activation_respects_repository_focus_when_no_agents_exist() {
         .next()
         .unwrap_or_else(|| panic!("shipped definitions must not be empty"));
     let repository_id = jefe::domain::RepositoryId("repo-empty".to_string());
-    let mut state = AppState {
-        repositories: vec![jefe::domain::Repository::new(
-            repository_id.clone(),
-            definition.id.clone(),
-            jefe::domain::TypedMap::new(),
-            "Empty repository".to_string(),
-            "repo-empty".to_string(),
-            std::path::PathBuf::from("/tmp/repo-empty"),
-        )],
-        selected_repository_index: Some(0),
-        pane_focus: jefe::state::PaneFocus::Repositories,
-        agent_type_availability: vec![
-            jefe::agent_status_view::AgentAvailabilityObservation::not_found(&definition, true, 1),
-        ],
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.repositories = vec![jefe::domain::Repository::new(
+        repository_id.clone(),
+        definition.id.clone(),
+        jefe::domain::TypedMap::new(),
+        "Empty repository".to_string(),
+        "repo-empty".to_string(),
+        std::path::PathBuf::from("/tmp/repo-empty"),
+    )];
+    state.selected_repository_index = Some(0);
+    state.pane_focus = jefe::state::PaneFocus::Repositories;
+    state.agent_type_availability = vec![
+        jefe::agent_status_view::AgentAvailabilityObservation::not_found(&definition, true, 1),
+    ];
 
     assert!(matches!(
         execution_for(

@@ -19,7 +19,10 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
 
         // Drop any sticky-empty flag for the deleted repo so it cannot linger
         // as a stale entry pointing at a removed repository (issue #404).
-        state.sticky_empty_repository_ids.remove(repository_id);
+        state
+            .sticky_visibility
+            .empty_repositories
+            .remove(repository_id);
 
         // Remove all agents belonging to the deleted repository.
         // Capture the agents about to be removed so their shell windows can
@@ -187,7 +190,7 @@ mod tests {
         );
         agent.status = crate::domain::AgentStatus::Running;
 
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(repository);
         state.agents.push(agent);
         state.selected_repository_index = Some(0);
@@ -230,7 +233,7 @@ mod tests {
             PathBuf::from("/tmp/agent"),
         );
         agent.status = crate::domain::AgentStatus::Running;
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(repository);
         state.agents.push(agent);
         state.record_shell_window(agent_id.clone());
@@ -268,7 +271,7 @@ mod tests {
             "repo".into(),
             PathBuf::from("/tmp/repo"),
         );
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(repository);
         for id in [&agent_a, &agent_b] {
             let mut agent = Agent::new(
@@ -313,7 +316,7 @@ mod tests {
             "shared-repo".into(),
             PathBuf::from("/tmp/shared-repo"),
         );
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(repository);
 
         for id in [&agent_a, &agent_b] {
@@ -362,7 +365,7 @@ mod tests {
             "sole-repo".into(),
             PathBuf::from("/tmp/sole-repo"),
         );
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(repository);
 
         let mut agent = Agent::new(
@@ -415,7 +418,7 @@ mod tests {
             bogus_work_dir.clone(),
         );
         agent.status = crate::domain::AgentStatus::Running;
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(repository);
         state.agents.push(agent);
         state.selected_repository_index = Some(0);

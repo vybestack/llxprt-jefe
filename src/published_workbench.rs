@@ -21,14 +21,15 @@ use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::plugin_inventory::PluginInventory;
 use crate::persistence::settings_document::PublishedSettings;
-use crate::runtime::provider::ProviderComposition;
+use crate::runtime::provider::persistent::PersistentPublication;
+use crate::runtime::provider::{ProviderCatalog, ProviderComposition};
 use crate::startup_selection::SelectedOwner;
 use crate::workbench::compose::ScreenComposition;
 use crate::workbench::screens::ScreenRegistry;
 
 /// One atomically composed workbench candidate: every static declaration the
 /// session will run, validated before anything is started or published.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PublishedWorkbench {
     settings: PublishedSettings,
     inventory: PluginInventory,
@@ -36,6 +37,7 @@ pub struct PublishedWorkbench {
     agents: AgentTypeRegistry,
     screens: ScreenComposition,
     providers: ProviderComposition,
+    provider_ready: Option<PersistentPublication>,
     actions: ActionRegistrySnapshot,
 }
 
@@ -76,6 +78,7 @@ impl PublishedWorkbench {
             agents: parts.agents,
             screens: parts.screens,
             providers: parts.providers,
+            provider_ready: None,
             actions: parts.actions,
         }
     }
@@ -104,12 +107,6 @@ impl PublishedWorkbench {
         &self.agents
     }
 
-    /// The composed screen declarations and their non-fatal warnings.
-    #[must_use]
-    pub const fn screen_composition(&self) -> &ScreenComposition {
-        &self.screens
-    }
-
     /// The composed, validated screen registry.
     #[must_use]
     pub const fn screen_registry(&self) -> &ScreenRegistry {
@@ -129,10 +126,85 @@ impl PublishedWorkbench {
         &self.providers
     }
 
+    /// The immutable provider action descriptors composed into this workbench.
+    #[must_use]
+    pub fn provider_catalog(&self) -> &ProviderCatalog {
+        self.providers.catalog()
+    }
+
+    /// Ready metadata committed after every required persistent provider has
+    /// completed Configure and Ready.
+    #[must_use]
+    pub const fn provider_ready(&self) -> Option<&PersistentPublication> {
+        self.provider_ready.as_ref()
+    }
+
+    /// Attach the successful transaction's Ready metadata before publication.
+    #[must_use]
+    pub(crate) fn with_provider_ready(mut self, ready: PersistentPublication) -> Self {
+        self.provider_ready = Some(ready);
+        self
+    }
+
     /// The one static action registry snapshot, compiled actions and provider
     /// actions composed together.
     #[must_use]
     pub const fn actions(&self) -> &ActionRegistrySnapshot {
         &self.actions
+    }
+
+    /// Config schemas for the package versions selected by this workbench.
+    #[must_use]
+    pub fn selected_plugin_configs(
+        &self,
+    ) -> std::collections::BTreeMap<
+        crate::domain::Id,
+        crate::messages::settings::SelectedPluginConfig,
+    > {
+        crate::persistence::plugin_inventory::configured_packages(
+            self.inventory.packages(),
+            &self.settings,
+        )
+        .into_iter()
+        .filter_map(|package| {
+            package.manifest().config().map(|schema| {
+                (
+                    package.coordinate().id().owner_id().clone(),
+                    crate::messages::settings::SelectedPluginConfig {
+                        version: package.coordinate().version().clone(),
+                        schema: schema.clone(),
+                        can_migrate: package.manifest().provider().mode()
+                            != crate::domain::plugin::ProviderMode::None,
+                    },
+                )
+            })
+        })
+        .collect()
+    }
+
+    /// Config schemas for every installed package version in this workbench.
+    #[must_use]
+    pub fn installed_plugin_configs(
+        &self,
+    ) -> std::collections::BTreeMap<
+        crate::domain::Id,
+        Vec<crate::messages::settings::SelectedPluginConfig>,
+    > {
+        let mut installed = std::collections::BTreeMap::new();
+        for package in self.inventory.packages() {
+            let Some(schema) = package.manifest().config() else {
+                continue;
+            };
+            installed
+                .entry(package.coordinate().id().owner_id().clone())
+                .or_insert_with(Vec::new)
+                .push(crate::messages::settings::SelectedPluginConfig {
+                    version: package.coordinate().version().clone(),
+                    schema: schema.clone(),
+                    can_migrate: package.manifest().provider().mode()
+                        != crate::domain::plugin::ProviderMode::None,
+                });
+        }
+        installed
     }
 }

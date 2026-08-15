@@ -38,11 +38,12 @@ fn create_split_test_state() -> AppState {
         PathBuf::from("/projects/gable-work"),
     );
 
-    AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Repositories),
-        repositories: vec![repo1, repo2, repo3],
-        selected_repository_index: Some(0),
-        ..Default::default()
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state.repositories = vec![repo1, repo2, repo3];
+        state.selected_repository_index = Some(0);
+        state
     }
 }
 
@@ -52,9 +53,10 @@ fn create_split_test_state() -> AppState {
 
 #[test]
 fn s_key_enters_split_mode() {
-    let state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        ..Default::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state
     };
 
     let state = state.apply(AppEvent::EnterSplitMode).committed_pure();

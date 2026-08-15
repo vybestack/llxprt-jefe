@@ -13,10 +13,8 @@ use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenId};
 
 /// Helper: PR-mode state with multiple repositories.
 fn prs_mode_state() -> AppState {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     for slug in ["repo-1", "repo-2", "repo-3"] {
         state.repositories.push(Repository::new(
             RepositoryId(slug.to_string()),

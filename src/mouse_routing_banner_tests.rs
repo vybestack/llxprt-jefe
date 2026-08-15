@@ -7,20 +7,18 @@
 
 use super::super::{refresh_detail_viewport_rows, resolve_pane};
 use jefe::selection::SelectablePane;
-use jefe::state::{AppState, IssueFilterUiState, IssuesState, PullRequestsState, ScreenId};
+use jefe::state::{IssueFilterUiState, IssuesState, PullRequestsState, ScreenId};
 
 /// A notice-only banner (draft_notice set, no error) must shift the Issues
 /// workspace down by one row for mouse hit testing — exactly like an error
 /// banner. Row 1 is the banner (not selectable → None); row 2 is the workspace.
 #[test]
 fn notice_only_banner_shifts_issues_workspace_for_mouse_routing() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            draft_notice: Some("No agents available".to_string()),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        draft_notice: Some("No agents available".to_string()),
+        ..IssuesState::default()
     };
 
     // Row 1 is the notice banner — must NOT resolve to any selectable pane.
@@ -48,10 +46,8 @@ fn notice_only_banner_shifts_issues_workspace_for_mouse_routing() {
 /// not vacuously true.
 #[test]
 fn no_banner_keeps_issues_workspace_at_row_one_for_mouse_routing() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
 
     let Some((pane, geo)) = resolve_pane(&state, 40, 1, 120, 40, false) else {
         panic!("expected issue list at row 1 with no banner");
@@ -72,7 +68,7 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
     let term_rows: u16 = 40;
 
     // Baseline: no banner.
-    let mut state_none = AppState::default();
+    let mut state_none = crate::test_app_state();
     refresh_detail_viewport_rows(
         &mut state_none,
         SelectablePane::IssueDetail,
@@ -82,12 +78,10 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
     let rows_none = state_none.issues_state.detail_viewport_rows;
 
     // Notice-only banner.
-    let mut state_notice = AppState {
-        issues_state: IssuesState {
-            draft_notice: Some("No agents available".to_string()),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state_notice = crate::test_app_state();
+    state_notice.issues_state = IssuesState {
+        draft_notice: Some("No agents available".to_string()),
+        ..IssuesState::default()
     };
     refresh_detail_viewport_rows(
         &mut state_notice,
@@ -98,12 +92,10 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
     let rows_notice = state_notice.issues_state.detail_viewport_rows;
 
     // Error-only banner (reference).
-    let mut state_error = AppState {
-        issues_state: IssuesState {
-            error: Some("load failed".to_string()),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state_error = crate::test_app_state();
+    state_error.issues_state = IssuesState {
+        error: Some("load failed".to_string()),
+        ..IssuesState::default()
     };
     refresh_detail_viewport_rows(
         &mut state_error,
@@ -137,13 +129,11 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
 #[test]
 fn issues_draft_notice_does_not_shift_pr_mode_geometry() {
     // State with Issues draft_notice but screen = DashboardPullRequests.
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        issues_state: IssuesState {
-            draft_notice: Some("No agents available".to_string()),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.issues_state = IssuesState {
+        draft_notice: Some("No agents available".to_string()),
+        ..IssuesState::default()
     };
 
     // In PR mode with no PR error, row 1 must be the workspace (PR list).
@@ -162,13 +152,11 @@ fn issues_draft_notice_does_not_shift_pr_mode_geometry() {
 /// PR mouse geometry. Only the PR mode's own error should affect PR geometry.
 #[test]
 fn issues_error_does_not_shift_pr_mode_geometry() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        issues_state: IssuesState {
-            error: Some("load failed".to_string()),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.issues_state = IssuesState {
+        error: Some("load failed".to_string()),
+        ..IssuesState::default()
     };
 
     let Some((pane, geo)) = resolve_pane(&state, 40, 1, 120, 40, false) else {
@@ -186,13 +174,11 @@ fn issues_error_does_not_shift_pr_mode_geometry() {
 /// affect Issues geometry.
 #[test]
 fn pr_error_does_not_shift_issues_mode_geometry() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        prs_state: PullRequestsState {
-            error: Some("PR load failed".to_string()),
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.prs_state = PullRequestsState {
+        error: Some("PR load failed".to_string()),
+        ..PullRequestsState::default()
     };
 
     let Some((pane, geo)) = resolve_pane(&state, 40, 1, 120, 40, false) else {
@@ -209,13 +195,11 @@ fn pr_error_does_not_shift_issues_mode_geometry() {
 /// active mode's own error still works).
 #[test]
 fn pr_error_in_pr_mode_shifts_pr_geometry() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            error: Some("PR load failed".to_string()),
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        error: Some("PR load failed".to_string()),
+        ..PullRequestsState::default()
     };
 
     // Row 1 is the error banner — not selectable.
@@ -238,16 +222,14 @@ fn pr_error_in_pr_mode_shifts_pr_geometry() {
 /// filter isolation).
 #[test]
 fn issues_filter_open_does_not_shift_pr_mode_geometry() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        issues_state: IssuesState {
-            filter_ui: IssueFilterUiState {
-                controls_open: true,
-                ..Default::default()
-            },
-            ..IssuesState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.issues_state = IssuesState {
+        filter_ui: IssueFilterUiState {
+            controls_open: true,
+            ..Default::default()
         },
-        ..AppState::default()
+        ..IssuesState::default()
     };
 
     let Some((pane, geo)) = resolve_pane(&state, 40, 1, 120, 40, false) else {

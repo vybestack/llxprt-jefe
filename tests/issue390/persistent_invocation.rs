@@ -62,7 +62,10 @@ fn start_session_owner(
             panic!("expected started, got {other:?}")
         }
     };
-    supervisor.into_sessions()
+    match supervisor.into_sessions() {
+        Ok(sessions) => sessions,
+        Err(error) => panic!("expected ready provider ownership transfer: {error}"),
+    }
 }
 
 /// Poll `invocation.progress_rx` until a progress payload arrives or the

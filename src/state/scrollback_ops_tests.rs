@@ -441,11 +441,10 @@ fn selection_offset_agrees_with_viewport_projection() {
 /// Build a test AppState with the given scrollback geometry set inline to
 /// avoid `field_reassign_with_default` (set fields at construction).
 fn state_with_geometry(total_lines: usize, viewport_rows: usize) -> crate::state::AppState {
-    crate::state::AppState {
-        terminal_total_lines: total_lines,
-        terminal_viewport_rows: viewport_rows,
-        ..Default::default()
-    }
+    let mut state = crate::state::AppState::test_fixture();
+    state.terminal_total_lines = total_lines;
+    state.terminal_viewport_rows = viewport_rows;
+    state
 }
 
 #[test]
@@ -458,13 +457,11 @@ fn reducer_terminal_scroll_up_sets_offset() {
 
 #[test]
 fn reducer_terminal_scroll_down_to_bottom_clears_offset() {
-    use crate::state::{AppEvent, AppState};
-    let mut state = AppState {
-        terminal_total_lines: 50,
-        terminal_viewport_rows: 10,
-        terminal_history_offset: Some(2),
-        ..Default::default()
-    };
+    use crate::state::AppEvent;
+    let mut state = crate::state::AppState::test_fixture();
+    state.terminal_total_lines = 50;
+    state.terminal_viewport_rows = 10;
+    state.terminal_history_offset = Some(2);
     state = state.apply(AppEvent::TerminalScrollDown).committed_pure();
     assert_eq!(state.terminal_history_offset, Some(1));
     state = state.apply(AppEvent::TerminalScrollDown).committed_pure();
@@ -473,11 +470,9 @@ fn reducer_terminal_scroll_down_to_bottom_clears_offset() {
 
 #[test]
 fn reducer_terminal_follow_tail_clears_offset() {
-    use crate::state::{AppEvent, AppState};
-    let mut state = AppState {
-        terminal_history_offset: Some(42),
-        ..Default::default()
-    };
+    use crate::state::AppEvent;
+    let mut state = crate::state::AppState::test_fixture();
+    state.terminal_history_offset = Some(42);
     state = state.apply(AppEvent::TerminalFollowTail).committed_pure();
     assert_eq!(state.terminal_history_offset, None);
 }
@@ -496,14 +491,12 @@ fn reducer_terminal_page_up_down() {
 
 #[test]
 fn reducer_scroll_events_not_blocked_when_terminal_focused() {
-    use crate::state::{AppEvent, AppState, PaneFocus};
-    let mut state = AppState {
-        terminal_focused: true,
-        pane_focus: PaneFocus::Terminal,
-        terminal_total_lines: 50,
-        terminal_viewport_rows: 10,
-        ..Default::default()
-    };
+    use crate::state::{AppEvent, PaneFocus};
+    let mut state = crate::state::AppState::test_fixture();
+    state.terminal_focused = true;
+    state.pane_focus = PaneFocus::Terminal;
+    state.terminal_total_lines = 50;
+    state.terminal_viewport_rows = 10;
     // Even when terminal is focused, scroll events should be applied
     // (not blocked like normal navigation).
     state = state.apply(AppEvent::TerminalScrollUp).committed_pure();
@@ -535,15 +528,14 @@ fn state_with_agent() -> crate::state::AppState {
     );
     // Assign shortcut slot 1 so JumpToAgentByShortcut(1) finds this agent.
     agent.shortcut_slot = Some(1);
-    crate::state::AppState {
-        repositories: vec![repo],
-        agents: vec![agent],
-        selected_repository_index: Some(0),
-        terminal_total_lines: 50,
-        terminal_viewport_rows: 10,
-        terminal_history_offset: Some(20),
-        ..Default::default()
-    }
+    let mut state = crate::state::AppState::test_fixture();
+    state.repositories = vec![repo];
+    state.agents = vec![agent];
+    state.selected_repository_index = Some(0);
+    state.terminal_total_lines = 50;
+    state.terminal_viewport_rows = 10;
+    state.terminal_history_offset = Some(20);
+    state
 }
 
 #[test]
@@ -613,17 +605,16 @@ fn state_with_two_agents() -> crate::state::AppState {
         "Agent 2".into(),
         std::path::PathBuf::from("/tmp"),
     );
-    crate::state::AppState {
-        repositories: vec![repo],
-        agents: vec![agent1, agent2],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: crate::state::PaneFocus::Agents,
-        terminal_total_lines: 50,
-        terminal_viewport_rows: 10,
-        terminal_history_offset: Some(20),
-        ..Default::default()
-    }
+    let mut state = crate::state::AppState::test_fixture();
+    state.repositories = vec![repo];
+    state.agents = vec![agent1, agent2];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+    state.pane_focus = crate::state::PaneFocus::Agents;
+    state.terminal_total_lines = 50;
+    state.terminal_viewport_rows = 10;
+    state.terminal_history_offset = Some(20);
+    state
 }
 
 #[test]
@@ -692,17 +683,16 @@ fn state_with_two_repos() -> crate::state::AppState {
         "A2".into(),
         std::path::PathBuf::from("/tmp/r2"),
     );
-    crate::state::AppState {
-        repositories: vec![repo1, repo2],
-        agents: vec![agent1, agent2],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: crate::state::PaneFocus::Repositories,
-        terminal_total_lines: 50,
-        terminal_viewport_rows: 10,
-        terminal_history_offset: Some(20),
-        ..Default::default()
-    }
+    let mut state = crate::state::AppState::test_fixture();
+    state.repositories = vec![repo1, repo2];
+    state.agents = vec![agent1, agent2];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+    state.pane_focus = crate::state::PaneFocus::Repositories;
+    state.terminal_total_lines = 50;
+    state.terminal_viewport_rows = 10;
+    state.terminal_history_offset = Some(20);
+    state
 }
 
 #[test]

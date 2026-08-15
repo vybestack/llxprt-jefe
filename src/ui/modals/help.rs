@@ -1,7 +1,7 @@
 //! Help modal - keyboard shortcut reference.
 //!
 //! Renders a scrollable, comprehensive keyboard reference. The content lives
-//! in the pure `help_content_lines()` projection (single source of truth); the
+//! in the pure runtime-aware Help projection (single source of truth); the
 //! modal windows it through the shared `ScrollableText` viewport using the
 //! `scroll_offset` prop. Scroll actions are applied by the typed action executor
 //! (app_input); this component only renders the projection.
@@ -11,8 +11,13 @@
 
 use iocraft::prelude::*;
 
+#[cfg(test)]
 use crate::action_projection::{project_help_lines, project_provider_help_lines};
-use crate::domain::action_registry::ActionRegistrySnapshot;
+use crate::action_projection::{
+    project_help_lines_effective, project_provider_help_lines_effective,
+};
+use crate::domain::action_registry::{ActionRegistrySnapshot, AvailabilityGeneration};
+use crate::published_workbench::PublishedWorkbench;
 use crate::selection::TextSelection;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::ScrollableText;
@@ -23,10 +28,23 @@ use crate::ui::components::ScrollableText;
 /// not exist when this binary was built, so they are not in the compiled
 /// display table, and an operator who cannot find a package action anywhere in
 /// Help has no way to learn it exists or why it will not run.
+#[cfg(test)]
 #[must_use]
 pub fn help_content_lines(snapshot: &ActionRegistrySnapshot) -> Vec<String> {
     let mut lines = project_help_lines(snapshot);
     lines.extend(project_provider_help_lines(snapshot));
+    lines
+}
+
+/// Project Help from committed declarations plus one validated runtime-only
+/// availability generation.
+#[must_use]
+pub fn effective_help_content_lines(
+    snapshot: &ActionRegistrySnapshot,
+    runtime: Option<&AvailabilityGeneration>,
+) -> Vec<String> {
+    let mut lines = project_help_lines_effective(snapshot, runtime);
+    lines.extend(project_provider_help_lines_effective(snapshot, runtime));
     lines
 }
 
@@ -41,8 +59,10 @@ pub struct HelpModalProps {
     /// never overflows the screen.
     pub available_rows: u16,
     /// Active text selection for drag-highlight (issue #178).
-    /// Immutable action/binding/availability authority for this render.
-    pub action_registry_snapshot: Option<ActionRegistrySnapshot>,
+    /// The committed declaration authority for this render.
+    pub published_workbench: Option<std::sync::Arc<PublishedWorkbench>>,
+    /// Latest validated runtime-only availability generation, when one exists.
+    pub action_availability: Option<AvailabilityGeneration>,
     pub selection: Option<TextSelection>,
 }
 
@@ -142,12 +162,12 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
     // `HELP_CHROME_ROWS` implicitly).
     let viewport_height = u32::try_from(viewport_rows).unwrap_or(0);
 
-    let content = props
-        .action_registry_snapshot
-        .as_ref()
-        .map_or_else(String::new, |snapshot| {
-            help_content_lines(snapshot).join("\n")
-        });
+    let Some(workbench) = props.published_workbench.as_ref() else {
+        panic!("HelpModal requires the committed workbench");
+    };
+    let content =
+        effective_help_content_lines(workbench.actions(), props.action_availability.as_ref())
+            .join("\n");
 
     element! {
         Box(

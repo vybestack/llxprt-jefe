@@ -12,9 +12,11 @@ mod auth;
 
 pub use auth::{AUTH_MODAL_TITLE, AuthModal, AuthModalProps};
 pub use confirm::{ConfirmModal, ConfirmModalProps};
+#[cfg(test)]
+pub use help::help_content_lines;
 pub use help::{
-    HELP_CHROME_ROWS, HELP_MODAL_WIDTH, HELP_TITLE, HelpModal, HelpModalProps, help_content_lines,
-    help_max_scroll, help_viewport_rows,
+    HELP_CHROME_ROWS, HELP_MODAL_WIDTH, HELP_TITLE, HelpModal, HelpModalProps,
+    effective_help_content_lines, help_max_scroll, help_viewport_rows,
 };
 pub use provider::{ProviderModal, ProviderModalProps, provider_modal_lines};
 

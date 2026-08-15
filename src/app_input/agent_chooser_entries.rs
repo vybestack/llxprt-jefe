@@ -155,7 +155,7 @@ mod tests {
     }
 
     fn state_with_repo_and_agents(repo_id: &str, agents: &[Agent]) -> AppState {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.repositories.push(make_repo(repo_id, false));
         state.selected_repository_index = Some(0);
         state.available_agent_type_ids = vec![
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn build_metadata_remote_repo_has_no_branch_or_dirty() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.repositories.push(make_repo("r1", true));
         state.selected_repository_index = Some(0);
         state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];

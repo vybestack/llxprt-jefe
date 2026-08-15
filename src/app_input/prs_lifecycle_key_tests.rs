@@ -20,15 +20,14 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn prs_list_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: PrFocus::PrList,
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        pr_focus: PrFocus::PrList,
+        ..PullRequestsState::default()
+    };
+    state
 }
 
 // ── Closing from the list (A1) ─────────────────────────────────────────────

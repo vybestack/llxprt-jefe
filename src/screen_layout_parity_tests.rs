@@ -13,10 +13,9 @@ use crate::state::AppState;
 use crate::workbench::{PanelId, ScreenId};
 
 fn dashboard() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Dashboard);
+    state
 }
 
 /// Resolve the dashboard at a raw terminal size.

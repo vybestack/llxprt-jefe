@@ -10,7 +10,7 @@ use super::route::{
     ActivationError, ActivationValue, ActivationValues, MAX_ACTIVATION_BYTES, NavCode,
     RouteDeclaration, route_declaration,
 };
-use super::{ScreenRegistry, screen_registry};
+use super::{ScreenRegistry, builtin_screens};
 
 fn id(name: &str) -> Id {
     Id::parse(name).unwrap_or_else(|_| unreachable!("test field name is a valid identifier"))
@@ -31,8 +31,8 @@ fn unknown_route() -> RouteId {
     RouteId::parse("nonesuch").unwrap_or_else(|_| unreachable!("test route id is valid"))
 }
 
-fn registry() -> &'static ScreenRegistry {
-    screen_registry().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
+fn registry() -> ScreenRegistry {
+    builtin_screens().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
 }
 
 fn declaration(schema: Vec<ActivationField>) -> RouteDeclaration {
@@ -66,7 +66,7 @@ fn every_compiled_screen_is_reachable_through_its_declared_route() {
         let Some(descriptor) = registry.get(screen) else {
             panic!("every compiled screen has a descriptor");
         };
-        let Ok(resolved) = route_declaration(registry, descriptor.route) else {
+        let Ok(resolved) = route_declaration(&registry, descriptor.route) else {
             panic!("a compiled screen's own route must resolve");
         };
         assert_eq!(resolved.target_screen, ScreenIdentity::Compiled(screen));
@@ -77,7 +77,7 @@ fn every_compiled_screen_is_reachable_through_its_declared_route() {
 
 #[test]
 fn an_unknown_route_is_refused_without_a_declaration() {
-    match route_declaration(registry(), unknown_route()) {
+    match route_declaration(&registry(), unknown_route()) {
         Ok(_) => panic!("a route no descriptor declares must not resolve"),
         Err(error) => assert!(matches!(error, ActivationError::UnknownRoute { .. })),
     }
@@ -119,7 +119,7 @@ fn a_compiled_screen_accepts_an_empty_activation() {
         let Some(descriptor) = registry.get(screen) else {
             panic!("every compiled screen has a descriptor");
         };
-        let Ok(declared) = route_declaration(registry, descriptor.route) else {
+        let Ok(declared) = route_declaration(&registry, descriptor.route) else {
             panic!("a compiled screen's own route must resolve");
         };
         assert_eq!(

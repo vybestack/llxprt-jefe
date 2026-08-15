@@ -2356,7 +2356,7 @@
     },
     {
       "path": "src/app_input/action_handlers.rs",
-      "sha256": "9bed648e84f392aee891eee2e0983deb3f1997e8766d68d71187a085fb5df775",
+      "sha256": "3144e384348b8a52fdc10a6bb2fba74451e8b84cc1db54d8f064739b82eca2e6",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2365,7 +2365,7 @@
     },
     {
       "path": "src/app_input/action_handlers_tests.rs",
-      "sha256": "d60248044dfb47e597147ba6dcc89976d3e3f6699b02dda5d19701d6448d4b7f",
+      "sha256": "9652fe7bffa41424a26c46ebfb60b0bbf79201162e420c05f7107853c25ad17c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2382,7 +2382,7 @@
     },
     {
       "path": "src/app_input/app_input_tests.rs",
-      "sha256": "1237ccd0d481d29c02ba07032daf5725c452e7bbc03aceeaaa2a5fe0c76ce055",
+      "sha256": "76b57ed04e29406c7d36212248ba9950e40bf53e7133f70c7d6b966806bae900",
       "mode": "100644",
       "criteria": [
         "CW00B-02"
@@ -2399,7 +2399,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "539d1dddd8a606feab50d4e9cadb1f7e0fde4cc7840823522f7b9fcb2f94bc1d",
+      "sha256": "f400a58236d3b5d97b4233fc0398ff24fe4092b830d55d5559efc92e7e6ac110",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2408,7 +2408,7 @@
     },
     {
       "path": "src/app_shell_key_routing_tests.rs",
-      "sha256": "8ebc6315776e4a8068f95734d4ff5530e9592243302faf04d38ca3cc24113893",
+      "sha256": "21102723456bde9e463f9183d9c1ff64704aed6e2242233b740edb99ecc23fdf",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2417,7 +2417,7 @@
     },
     {
       "path": "src/bin/jefe-harness-probe.rs",
-      "sha256": "6f972f2975a2d974daf8493e49a7f92f407a55e5df80d61fe15d4d6827b975ff",
+      "sha256": "a4d6ef404de99010d1675d225194dab744d7d474cd7b65c80be31c8b82033221",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2468,7 +2468,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "77d671b6acf8baa9e9eb238845af18d163d56f8a89652b50ba0204d179486d09",
+      "sha256": "e458b456fd7f977f55608f75d753fb9e3d420722433625cf020ee9291300024e",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

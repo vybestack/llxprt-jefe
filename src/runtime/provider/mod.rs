@@ -49,6 +49,7 @@ mod candidate;
 // drive repeated same-PID invocations on ready candidates.
 mod persistent_session;
 
+pub use persistent_session::PersistentOwnerStartFailure;
 pub use persistent_session::{PersistentInvocation, PersistentInvokeError, PersistentSessionOwner};
 
 pub use composition::{

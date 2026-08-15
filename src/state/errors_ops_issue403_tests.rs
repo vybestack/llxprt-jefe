@@ -5,10 +5,9 @@ use super::*;
 use crate::state::AppState;
 
 fn state_with_error(msg: &str) -> AppState {
-    AppState {
-        error_message: Some(msg.to_owned()),
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.error_message = Some(msg.to_owned());
+    state
 }
 
 #[test]

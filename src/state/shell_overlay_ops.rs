@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn open_shell_overlay_sets_agent_id_and_focuses_terminal() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.open_shell_overlay(agent_id.clone());
         assert_eq!(state.shell_overlay.agent_id, Some(agent_id));
@@ -200,10 +200,8 @@ mod tests {
 
     #[test]
     fn close_shell_overlay_clears_agent_id_and_restores_focus() {
-        let mut state = AppState {
-            pane_focus: PaneFocus::Agents,
-            ..AppState::default()
-        };
+        let mut state = AppState::test_fixture();
+        state.pane_focus = PaneFocus::Agents;
         state.open_shell_overlay(AgentId("agent-1".into()));
         state.close_shell_overlay();
         assert_eq!(state.shell_overlay.agent_id, None);
@@ -214,7 +212,7 @@ mod tests {
 
     #[test]
     fn close_shell_overlay_restores_repository_focus() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.open_shell_overlay(AgentId("agent-1".into()));
         state.close_shell_overlay();
         assert_eq!(state.pane_focus, PaneFocus::Repositories);
@@ -222,7 +220,7 @@ mod tests {
 
     #[test]
     fn manager_restore_consumes_previous_focus_and_return_target() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
         state.open_shell_overlay(AgentId("agent-1".into()));
 
@@ -239,7 +237,7 @@ mod tests {
 
     #[test]
     fn close_shell_overlay_is_idempotent_when_not_active() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         // Closing when not active should not panic.
         state.close_shell_overlay();
         assert_eq!(state.shell_overlay.agent_id, None);
@@ -247,7 +245,7 @@ mod tests {
 
     #[test]
     fn open_shell_overlay_clears_dashboard_grab() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.dashboard_grab =
             Some(crate::state::DashboardGrabPane::Repository { visible_index: 0 });
         state.open_shell_overlay(AgentId("agent-1".into()));
@@ -256,10 +254,8 @@ mod tests {
 
     #[test]
     fn hide_shell_overlay_clears_visible_overlay_but_keeps_inventory() {
-        let mut state = AppState {
-            pane_focus: PaneFocus::Agents,
-            ..AppState::default()
-        };
+        let mut state = AppState::test_fixture();
+        state.pane_focus = PaneFocus::Agents;
         state.open_shell_overlay(AgentId("agent-1".into()));
         state.hide_shell_overlay();
         assert_eq!(state.shell_overlay.agent_id, None);
@@ -272,7 +268,7 @@ mod tests {
 
     #[test]
     fn hide_shell_overlay_restores_repository_focus() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.open_shell_overlay(AgentId("agent-1".into()));
         state.hide_shell_overlay();
         assert_eq!(state.pane_focus, PaneFocus::Repositories);
@@ -280,7 +276,7 @@ mod tests {
 
     #[test]
     fn hide_shell_overlay_is_noop_when_not_visible() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.hide_shell_overlay();
         assert_eq!(state.shell_overlay.agent_id, None);
         assert!(state.shell_overlay.inventory.is_empty());
@@ -288,7 +284,7 @@ mod tests {
 
     #[test]
     fn hide_shell_overlay_bumps_generation() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.open_shell_overlay(AgentId("agent-1".into()));
         let gen_before = state.shell_overlay.generation;
         state.hide_shell_overlay();
@@ -301,7 +297,7 @@ mod tests {
 
     #[test]
     fn manager_shell_hide_returns_to_manager_and_clears_return_target() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let _ = state.enter_screen(crate::state::ScreenId::Terminals);
         state.terminal_manager.active = true;
         state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
@@ -330,7 +326,7 @@ mod tests {
     fn repeatedly_entering_and_hiding_a_manager_shell_does_not_grow_the_stack() {
         // `state.screen()` stays Terminals either way, so only the depth shows
         // whether the session is stacking copies of the screen it is on.
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let _ = state.enter_screen(crate::state::ScreenId::Terminals);
         state.terminal_manager.active = true;
         let depth = state.nav.depth();
@@ -347,7 +343,7 @@ mod tests {
 
     #[test]
     fn resume_shell_overlay_makes_overlay_visible_and_keeps_inventory() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.open_shell_overlay(agent_id.clone());
         state.hide_shell_overlay();
@@ -363,7 +359,7 @@ mod tests {
 
     #[test]
     fn resume_shell_overlay_bumps_generation() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.open_shell_overlay(agent_id.clone());
         state.hide_shell_overlay();
@@ -378,7 +374,7 @@ mod tests {
 
     #[test]
     fn close_shell_overlay_removes_inventory_entry() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.open_shell_overlay(agent_id.clone());
         assert!(state.has_shell_window(&agent_id));
@@ -388,7 +384,7 @@ mod tests {
 
     #[test]
     fn close_after_hide_via_remove_window_clears_inventory_entry() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.open_shell_overlay(agent_id.clone());
         state.hide_shell_overlay();
@@ -402,7 +398,7 @@ mod tests {
 
     #[test]
     fn record_shell_window_is_idempotent() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.record_shell_window(agent_id.clone());
         state.record_shell_window(agent_id.clone());
@@ -411,7 +407,7 @@ mod tests {
 
     #[test]
     fn remove_shell_window_returns_whether_entry_existed() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("agent-1".into());
         state.record_shell_window(agent_id.clone());
         assert!(state.remove_shell_window(&agent_id));
@@ -420,7 +416,7 @@ mod tests {
 
     #[test]
     fn replace_shell_inventory_overwrites_membership() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.record_shell_window(AgentId("old".into()));
         state.replace_shell_inventory(vec![AgentId("a".into()), AgentId("b".into())]);
         assert!(!state.has_shell_window(&AgentId("old".into())));
@@ -430,7 +426,7 @@ mod tests {
 
     #[test]
     fn clear_shell_inventory_empties_all_entries() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.record_shell_window(AgentId("a".into()));
         state.record_shell_window(AgentId("b".into()));
         state.clear_shell_inventory();
@@ -439,7 +435,7 @@ mod tests {
 
     #[test]
     fn shell_window_owners_snapshots_inventory() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.record_shell_window(AgentId("b".into()));
         state.record_shell_window(AgentId("a".into()));
         let owners = state.shell_window_owners();
@@ -457,7 +453,7 @@ mod tests {
         use crate::state::AppMessage;
 
         let agent_id = AgentId("agent-kill".into());
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let mut agent = Agent::new(
             agent_id.clone(),
             RepositoryId("repo".into()),
@@ -500,7 +496,7 @@ mod tests {
         use crate::state::AppMessage;
 
         let agent_id = AgentId("agent-natural".into());
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let mut agent = Agent::new(
             agent_id.clone(),
             RepositoryId("repo".into()),

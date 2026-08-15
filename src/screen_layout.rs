@@ -14,9 +14,7 @@
 use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
 use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
-use crate::workbench::{
-    PanelId, PanelState, Rect, ResolvedLayout, ScreenId, resolve_layout, screen_registry,
-};
+use crate::workbench::{PanelId, PanelState, Rect, ResolvedLayout, ScreenId, resolve_layout};
 
 /// Resolve the active screen's geometry for a terminal size.
 ///
@@ -27,13 +25,7 @@ use crate::workbench::{
 #[must_use]
 pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Option<ResolvedLayout> {
     let screen = state.screen();
-    let registry = match screen_registry() {
-        Ok(registry) => registry,
-        Err(error) => {
-            tracing::error!(screen = %screen, %error, "screen registry is unavailable");
-            return None;
-        }
-    };
+    let registry = state.published_workbench().screen_registry();
     let Some(descriptor) = registry.get_identity(screen) else {
         tracing::error!(screen = %screen, "no descriptor for the active screen");
         return None;

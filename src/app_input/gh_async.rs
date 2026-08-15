@@ -201,7 +201,7 @@ mod tests {
     use crate::app_input::apply_background_gh_delivery;
     use core::time::Duration;
     use iocraft::prelude::*;
-    use jefe::state::{AppState, ScreenId, ScreenIdentity};
+    use jefe::state::{ScreenId, ScreenIdentity};
     use smol::stream::StreamExt;
     use std::sync::mpsc;
 
@@ -214,7 +214,7 @@ mod tests {
     #[component]
     fn PanicProbe(mut hooks: Hooks, props: &ProbeProps) -> impl Into<AnyElement<'static>> {
         let state = hooks.use_state(|| {
-            let mut state = AppState::default();
+            let mut state = crate::test_app_state();
             state.issues_state.loading.detail = true;
             state
         });
@@ -314,7 +314,7 @@ mod tests {
         mut hooks: Hooks,
         props: &ThreadAffinityProbeProps,
     ) -> impl Into<AnyElement<'static>> {
-        let state = hooks.use_state(AppState::default);
+        let state = hooks.use_state(crate::test_app_state);
         let mut started = hooks.use_state(|| false);
         let mut reported = hooks.use_state(|| false);
         let render_thread = std::thread::current().id();
@@ -401,9 +401,10 @@ mod tests {
         mut hooks: Hooks,
         props: &SilentPanicProbeProps,
     ) -> impl Into<AnyElement<'static>> {
-        let state = hooks.use_state(|| AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-            ..AppState::default()
+        let state = hooks.use_state(|| {
+            let mut state = crate::test_app_state();
+            state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+            state
         });
         let mut started = hooks.use_state(|| false);
         let mut reported = hooks.use_state(|| false);
@@ -502,7 +503,7 @@ mod tests {
         mut hooks: Hooks,
         props: &DroppedDeliveryProbeProps,
     ) -> impl Into<AnyElement<'static>> {
-        let state = hooks.use_state(AppState::default);
+        let state = hooks.use_state(crate::test_app_state);
         let notify = props.notify.clone();
         let mut handler = hooks.use_async_handler(move |delivery| {
             let state = state;

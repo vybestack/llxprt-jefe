@@ -332,7 +332,14 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 screen: state.map_or(ScreenId::Dashboard, |s| {
                     s.compiled_screen().unwrap_or(ScreenId::Dashboard)
                 }),
-                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
+                published_workbench: Some(std::sync::Arc::clone(
+                    state
+                        .unwrap_or_else(|| panic!("screen render requires AppState"))
+                        .published_workbench(),
+                )),
+                action_availability: state
+                    .and_then(AppState::action_availability_generation)
+                    .cloned(),
                 terminal_focused: terminal_focused,
                 shell_overlay_active: shell_overlay_active,
                 shell_resume_available: shell_resume_available,

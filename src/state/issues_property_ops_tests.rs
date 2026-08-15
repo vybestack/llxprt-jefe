@@ -25,15 +25,14 @@ fn make_state_with_detail() -> AppState {
         comments: crate::domain::PaginatedList::default(),
         state_reason: None,
     };
-    AppState {
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            issue_detail: Some(detail),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        issue_detail: Some(detail),
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn add_repo(state: &mut AppState) {

@@ -404,7 +404,7 @@ mod pending_focus_tests {
     #[test]
     fn pending_focus_match_is_evaluated_from_executor_snapshot() {
         let agent_id = AgentId("agent-496".to_owned());
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.terminal_manager.pending_focus = Some(PendingShellFocus {
             agent_id: agent_id.clone(),
             generation: 7,

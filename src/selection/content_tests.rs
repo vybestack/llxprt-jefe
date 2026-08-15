@@ -70,7 +70,7 @@ fn terminal_lines_from_snapshot() {
     };
     let content = pane_content_lines(
         SelectablePane::TerminalView,
-        &AppState::default(),
+        &AppState::test_fixture(),
         Some(&snap),
         &[],
         120,
@@ -83,7 +83,7 @@ fn terminal_lines_from_snapshot() {
 fn terminal_lines_none_snapshot_shows_placeholder() {
     let content = pane_content_lines(
         SelectablePane::TerminalView,
-        &AppState::default(),
+        &AppState::test_fixture(),
         None,
         &[],
         120,
@@ -99,7 +99,7 @@ fn terminal_lines_none_snapshot_shows_placeholder() {
 fn terminal_lines_none_snapshot_running_agent_shows_session_live() {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
     let repo_id = RepositoryId("r1".to_string());
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         repo_id.clone(),
         crate::domain::shipped_agent_type(3),
@@ -132,7 +132,7 @@ fn terminal_lines_none_snapshot_running_agent_shows_session_live() {
 #[test]
 fn sidebar_lines_include_selection_prefix() {
     use crate::domain::{AgentId, Repository, RepositoryId};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let mut repository = Repository::new(
         RepositoryId("r1".to_string()),
         crate::domain::shipped_agent_type(3),
@@ -162,18 +162,16 @@ fn repository_form_selection_projection_matches_runtime_focus_order() {
         github_repo: "owner/repo".to_owned(),
         ..RepositoryFormFields::default()
     };
-    let state = AppState {
-        modal: ModalState::NewRepository {
-            fields,
-            focus: RepositoryFormFocus::DefaultLlxprtVersion,
-            cursor: RepositoryFormCursor {
-                default_llxprt_version: 5,
-                ..RepositoryFormCursor::default()
-            },
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::NewRepository {
+        fields,
+        focus: RepositoryFormFocus::DefaultLlxprtVersion,
+        cursor: RepositoryFormCursor {
+            default_llxprt_version: 5,
+            ..RepositoryFormCursor::default()
         },
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
     };
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     let lines = crate::selection::repository_form_content_lines(&state)
         .unwrap_or_else(|| panic!("expected repository form projection"));
     let positions = [
@@ -196,7 +194,7 @@ fn repository_form_selection_projection_matches_runtime_focus_order() {
 #[test]
 fn pr_list_lines_match_rendered_projection_with_prefix() {
     use crate::domain::{PrCheckStatus, PrState, PullRequest};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.prs_state.list.replace_items(vec![PullRequest {
         number: 7,
         title: "A title".to_string(),
@@ -225,7 +223,7 @@ fn pr_list_lines_match_rendered_projection_with_prefix() {
 #[test]
 fn issue_list_lines_match_rendered_projection_with_prefix() {
     use crate::domain::{Issue, IssueState};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.list.items_mut().push(Issue {
         number: 3,
         node_id: String::new(),
@@ -257,7 +255,7 @@ fn issue_list_lines_match_rendered_projection_with_prefix() {
 fn status_bar_lines_match_rendered_left_and_center() {
     let content = pane_content_lines(
         SelectablePane::StatusBar,
-        &AppState::default(),
+        &AppState::test_fixture(),
         None,
         &[],
         120,
@@ -271,7 +269,7 @@ fn status_bar_lines_match_rendered_left_and_center() {
 #[test]
 fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
     let repo_id = crate::domain::RepositoryId("kennel-repo".to_owned());
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(crate::domain::Repository::new(
         repo_id.clone(),
         crate::domain::shipped_agent_type(3),
@@ -298,11 +296,8 @@ fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
 }
 #[test]
 fn keybind_bar_lines_match_rendered_hints() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(crate::state::ScreenId::Dashboard),
-        action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Dashboard);
     let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, &[], 120, 40);
     assert_eq!(content.lines.len(), 1);
     assert!(content.lines[0].contains("navigate"));
@@ -318,7 +313,7 @@ fn keybind_bar_lines_match_rendered_hints() {
 #[test]
 fn issue_detail_lines_start_with_header_rows() {
     use crate::domain::{IssueDetail, IssueState};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "o/r".to_string(),
         number: 42,
@@ -361,7 +356,7 @@ fn issue_detail_lines_start_with_header_rows() {
 #[test]
 fn pr_detail_lines_start_with_header_rows() {
     use crate::domain::{PrCheckStatus, PrState, PullRequestDetail};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.prs_state.pr_detail = Some(PullRequestDetail {
         repo_owner_name: "o/r".to_string(),
         number: 7,
@@ -411,10 +406,7 @@ fn pr_detail_lines_start_with_header_rows() {
 
 #[test]
 fn help_modal_lines_match_help_content_projection() {
-    let state = AppState {
-        action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-        ..AppState::default()
-    };
+    let state = AppState::test_fixture();
     let content = pane_content_lines(SelectablePane::HelpModal, &state, None, &[], 120, 40);
     // help_lines() must project the actual help content (issue #178: it
     // was returning an empty Vec).
@@ -432,7 +424,7 @@ fn help_modal_lines_match_help_content_projection() {
 fn agent_form_lines_include_title_and_fields() {
     use crate::domain::RepositoryId;
     use crate::state::{AgentFormFields, ModalState};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.modal = ModalState::NewAgent {
         repository_id: RepositoryId("r1".to_string()),
         fields: AgentFormFields {
@@ -456,7 +448,7 @@ fn agent_form_lines_include_title_and_fields() {
 
 #[test]
 fn agent_form_lines_empty_when_no_modal() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let content = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40);
     assert!(
         content.lines.is_empty(),
@@ -467,7 +459,7 @@ fn agent_form_lines_empty_when_no_modal() {
 #[test]
 fn repository_form_lines_include_title_and_fields() {
     use crate::state::{ModalState, RepositoryFormFields};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.modal = ModalState::NewRepository {
         fields: RepositoryFormFields {
             name: "my-repo".to_string(),
@@ -495,7 +487,7 @@ fn repository_form_selection_projection_uses_runtime_focus_order() {
 #[test]
 fn agent_chooser_lines_include_header_and_agent_names() {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     // Add a repository and two agents so the chooser has entries.
     let repo_id = RepositoryId("r1".to_string());
     state.repositories.push(Repository::new(
@@ -550,7 +542,7 @@ fn agent_chooser_lines_include_header_and_agent_names() {
 #[test]
 fn merge_chooser_lines_include_header_and_methods() {
     use crate::domain::{PrCheckStatus, PrState, PullRequestDetail};
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.prs_state.merge_chooser = Some(crate::state::PrMergeChooserState {
         selected_index: 0,
         allowed_methods: None,
@@ -614,7 +606,7 @@ fn merge_chooser_lines_include_header_and_methods() {
 fn confirm_modal_lines_include_title_and_message() {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
     use crate::state::ModalState;
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let repo_id = RepositoryId("r1".to_string());
     state.repositories.push(Repository::new(
         repo_id.clone(),
@@ -651,7 +643,7 @@ fn confirm_modal_lines_include_title_and_message() {
 
 #[test]
 fn panic_error_detail_remains_selectable_and_identifies_its_source() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     crate::state::transition::commit_pure_site(
         &mut state,
         crate::messages::AppMessage::Errors(crate::messages::ErrorsMessage::CaptureSilent {

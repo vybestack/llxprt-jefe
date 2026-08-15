@@ -1,15 +1,9 @@
 //! Provider runtime coordinator (issue #390 CW-10, Slice D).
 //!
 //! The coordinator is the edge-owned runtime owner of the provider subsystem.
-//! It owns the [`PersistentSupervisor`] (when persistent providers started
-//! successfully) and the data-only [`PersistentPublication`] snapshot. It never
-//! lives inside `AppState` — it is held by `AppContext` so process handles stay
-//! at the boundary, never in pure state.
-//!
-//! The coordinator also owns the immutable provider action catalog: a mapping
-//! from [`ActionId`] to the descriptor the background worker needs to execute a
-//! one-shot invocation. The catalog is built once at startup composition and
-//! never mutated.
+//! It owns only live provider sessions and request-generation state. Static
+//! descriptors and Ready metadata belong exclusively to `PublishedWorkbench`.
+//! It never lives inside `AppState`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,7 +16,6 @@ use crate::domain::{CanonicalSemver, Id};
 use crate::runtime::provider::dto::{ConfigurePayload, InvokeActionPayload, InvokeContext};
 use crate::runtime::provider::environment::ProviderEnvironment;
 use crate::runtime::provider::identifiers::RequestId;
-use crate::runtime::provider::persistent::PersistentPublication;
 use crate::runtime::provider::persistent_session::{
     PersistentInvocation, PersistentInvokeError, PersistentSessionOwner,
 };
@@ -254,14 +247,11 @@ pub fn build_one_shot_request(
 
 /// The provider runtime coordinator.
 ///
-/// Owns the persistent session owner (when persistent providers started
-/// successfully) plus the data-only publication snapshot. Held by `AppContext`,
-/// never by `AppState`. Shuts down before host exit. Owns a monotonic
-/// request-id counter so each in-flight request gets a unique `h-` id.
+/// Owns the persistent session owner. Held by `AppContext`, never by
+/// `AppState`. Shuts down before host exit. Owns a monotonic request-id counter
+/// so each in-flight request gets a unique `h-` id.
 pub struct ProviderCoordinator {
     sessions: PersistentSessionOwner,
-    publication: Option<PersistentPublication>,
-    catalog: ProviderCatalog,
     request_counter: AtomicU64,
 }
 
@@ -299,65 +289,16 @@ impl From<PersistentInvokeError> for PersistentDispatchError {
 }
 
 impl ProviderCoordinator {
-    /// Construct an empty coordinator (no persistent providers, empty catalog).
-    #[must_use]
-    pub fn empty() -> Self {
-        Self::from_catalog(ProviderCatalog::new())
-    }
-
-    /// Construct a coordinator that owns a catalog but no persistent process.
-    ///
-    /// This is the one-shot case: actions are invocable, and every process
-    /// exists only for the duration of one invocation.
-    #[must_use]
-    pub fn from_catalog(catalog: ProviderCatalog) -> Self {
-        Self {
-            sessions: PersistentSessionOwner::empty(),
-            publication: None,
-            catalog,
+    /// Move every successfully started persistent candidate into its runtime
+    /// session owner. A failed transfer reaps every candidate and cannot
+    /// construct a coordinator.
+    pub(crate) fn from_ready_supervisor(
+        supervisor: crate::runtime::provider::persistent::PersistentSupervisor,
+    ) -> Result<Self, crate::runtime::provider::PersistentOwnerStartFailure> {
+        Ok(Self {
+            sessions: supervisor.into_sessions()?,
             request_counter: AtomicU64::new(0),
-        }
-    }
-
-    /// Construct from a persistent startup result and catalog. On success,
-    /// moves each ready candidate into a command-owner thread and stores the
-    /// publication snapshot. On failure, no sessions are held and no processes
-    /// leak.
-    #[must_use]
-    pub fn from_startup(
-        result: crate::runtime::provider::persistent::PersistentStartupResult,
-        catalog: ProviderCatalog,
-    ) -> Self {
-        use crate::runtime::provider::persistent::PersistentStartupResult;
-        match result {
-            PersistentStartupResult::Started {
-                supervisor,
-                publication,
-            } => Self {
-                sessions: supervisor.into_sessions(),
-                publication: Some(publication),
-                catalog,
-                request_counter: AtomicU64::new(0),
-            },
-            PersistentStartupResult::Failed(_) => Self {
-                sessions: PersistentSessionOwner::empty(),
-                publication: None,
-                catalog,
-                request_counter: AtomicU64::new(0),
-            },
-        }
-    }
-
-    /// The data-only publication snapshot, when persistent providers are ready.
-    #[must_use]
-    pub fn publication(&self) -> Option<&PersistentPublication> {
-        self.publication.as_ref()
-    }
-
-    /// The immutable provider action catalog.
-    #[must_use]
-    pub fn catalog(&self) -> &ProviderCatalog {
-        &self.catalog
+        })
     }
 
     /// Whether any persistent provider session is owned.
@@ -474,14 +415,6 @@ impl std::fmt::Debug for ProviderCoordinator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProviderCoordinator")
             .field("has_persistent", &self.has_persistent())
-            .field(
-                "candidate_count",
-                &self
-                    .publication
-                    .as_ref()
-                    .map_or(0, |publication| publication.ready().len()),
-            )
-            .field("catalog_len", &self.catalog.len())
             .finish_non_exhaustive()
     }
 }

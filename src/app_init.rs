@@ -29,7 +29,6 @@ use jefe::domain::liveness_observation::{
     Observed, ProbeBoundary, RetryPolicy, Uncertainty, retry_observation,
 };
 use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, WorkerProcessIdentity};
-use jefe::persistence::{PersistenceManager, Settings};
 #[cfg(windows)]
 use jefe::runtime::MultiplexerPlan;
 use jefe::runtime::{
@@ -403,76 +402,35 @@ fn restore_persisted_state(
 
 fn observe_agent_types(
     state: &mut AppState,
+    registry: &jefe::agent_registry::AgentTypeRegistry,
     settings: &jefe::persistence::settings_document::PublishedSettings,
 ) -> Vec<jefe::domain::effects::IssuedEffect> {
     let repository_root = state.selected_repository().map_or_else(
         || std::path::PathBuf::from("."),
         |repository| repository.base_dir.clone(),
     );
-    match jefe::agent_registry::AgentTypeRegistry::shipped() {
-        Ok(registry) => {
-            let startup = match crate::app_input::observe_startup_agent_availability(
-                &registry,
-                &repository_root,
-                state.agent_probe_generation,
-                |type_id| jefe::agent_registry::agent_type_enabled(settings, type_id),
-            ) {
-                Ok(startup) => startup,
-                Err(error) => {
-                    append_warning(state, error);
-                    return Vec::new();
-                }
-            };
-            state.agent_probe_generation = startup.latest_generation;
-            state.available_agent_type_ids =
-                jefe::agent_detection::compatible_agent_type_ids(&startup.observations);
-            state.agent_type_availability = startup.observations;
-            jefe::state::transition::commit_in_place(
-                state,
-                jefe::messages::AppMessage::RepositoryAgent(
-                    jefe::messages::RepositoryAgentMessage::ProbeAgentAvailability(startup.probes),
-                ),
-            )
-        }
+    let startup = match crate::app_input::observe_startup_agent_availability(
+        registry,
+        &repository_root,
+        state.agent_probe_generation,
+        |type_id| jefe::agent_registry::agent_type_enabled(settings, type_id),
+    ) {
+        Ok(startup) => startup,
         Err(error) => {
-            append_warning(
-                state,
-                format!("Agent type registry could not be published: {error}"),
-            );
-            Vec::new()
+            append_warning(state, error);
+            return Vec::new();
         }
-    }
-}
-
-/// tmux sessions, marking stale ones Dead.  Also activates the saved theme.
-/// Scan the ordered package roots into the pure snapshot the Settings section
-/// projects (issue #389).
-///
-/// A scan never fails startup: an unreadable root contributes nothing, exactly
-/// as a missing one does, because a broken package directory is not a reason to
-/// refuse to start.
-fn scan_plugin_inventory(
-    ctx: &SharedContext,
-) -> Vec<jefe::state::plugins_editor::PluginSnapshotRow> {
-    use jefe::persistence::plugin_inventory::{scan, snapshot};
-    use jefe::persistence::plugin_roots::{PluginRootRequest, candidate_roots};
-
-    let Some(ctx_arc) = ctx else {
-        return Vec::new();
     };
-    let Ok(guard) = ctx_arc.lock() else {
-        return Vec::new();
-    };
-    let settings_path = guard.persistence.paths_ref().settings_path.clone();
-    drop(guard);
-    let roots = candidate_roots(&PluginRootRequest {
-        executable_dir: std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
-        platform: jefe::persistence::paths::Platform::current(),
-        config_plugins_dir: jefe::persistence::paths::plugins_dir_for(&settings_path),
-    });
-    snapshot(&scan(&roots), &jefe::domain::plugin::HostTriple::current())
+    state.agent_probe_generation = startup.latest_generation;
+    state.available_agent_type_ids =
+        jefe::agent_detection::compatible_agent_type_ids(&startup.observations);
+    state.agent_type_availability = startup.observations;
+    jefe::state::transition::commit_in_place(
+        state,
+        jefe::messages::AppMessage::RepositoryAgent(
+            jefe::messages::RepositoryAgentMessage::ProbeAgentAvailability(startup.probes),
+        ),
+    )
 }
 
 pub fn init_app_state(
@@ -480,33 +438,37 @@ pub fn init_app_state(
     ctx: &SharedContext,
 ) -> Vec<jefe::domain::effects::IssuedEffect> {
     let multiplexer_warning = windows_multiplexer_startup_warning();
-    let plugin_inventory = scan_plugin_inventory(ctx);
     let Some(ctx_arc) = ctx else {
-        return Vec::new();
+        panic!("application initialization requires its committed context");
     };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return Vec::new();
+        panic!("application context lock poisoned during initialization");
     };
-
-    let settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
-        warn!(error = %e, "could not load settings, using defaults");
-        Settings::default_with_version()
-    });
-
-    let (persisted, durable_read_held) =
-        resolve_durable_read(ctx_guard.persistence.load_durable_state());
-
     let mut state = app_state.write();
+    assert!(
+        std::sync::Arc::ptr_eq(state.published_workbench(), &ctx_guard.workbench),
+        "application state and context must share one committed workbench"
+    );
+    let workbench = std::sync::Arc::clone(state.published_workbench());
+    let (persisted, durable_read_held) = resolve_durable_read(
+        ctx_guard
+            .persistence
+            .load_durable_state(workbench.screen_registry()),
+    );
+
     surface_durable_read_hold(&mut state, durable_read_held);
     restore_persisted_state(&mut state, persisted);
     apply_startup_warning(&mut state, multiplexer_warning);
     report_unclean_prior_runs(&mut state, &mut ctx_guard);
-    state.plugin_inventory = plugin_inventory;
-    state.override_agent_theme = settings.override_agent_theme;
+    state.override_agent_theme = workbench
+        .settings()
+        .appearance
+        .override_agent_theme
+        .unwrap_or(false);
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
-    let agent_probe_effects = observe_agent_types(&mut state, &ctx_guard.published_settings);
-    state.action_registry_snapshot = ctx_guard.keymap_snapshot.take();
+    let agent_probe_effects =
+        observe_agent_types(&mut state, workbench.agent_registry(), workbench.settings());
 
     // Log platform engine diagnostic at startup.
     tracing::info!("{}", platform_engine_diagnostic());
@@ -542,8 +504,10 @@ pub fn init_app_state(
         {
             warn!(error = %e, "could not save reconciled startup state");
         }
-        if let Err(e) = ctx_mut.theme_manager.set_active(&settings.theme) {
-            warn!(error = %e, theme = %settings.theme, "could not activate saved theme");
+        if let Some(theme) = workbench.settings().appearance.theme.as_deref()
+            && let Err(e) = ctx_mut.theme_manager.set_active(theme)
+        {
+            warn!(error = %e, %theme, "could not activate saved theme");
         }
     }
     crate::app_input::refresh_action_availability(app_state);

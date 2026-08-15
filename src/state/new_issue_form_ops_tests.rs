@@ -11,7 +11,7 @@ use crate::state::transition::TransitionExt;
 use crate::state::types::{InlineState, NewIssueTemplate};
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -145,7 +145,7 @@ fn new_issue_cancel_closes_form_and_discards_draft() {
 /// property-editor reset on repo change).
 #[test]
 fn repo_change_closes_new_issue_form() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),

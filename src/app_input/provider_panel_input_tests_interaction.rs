@@ -2,7 +2,7 @@
     fn action_event_targets_first_enabled_affordance() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.detail");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let body = PanelBody::Empty(jefe::runtime::provider::protocol::EmptyBody {
             message: "Ready".to_owned(),
             action: None,
@@ -38,7 +38,7 @@
     fn action_event_uses_host_local_focus_when_set() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.detail");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let body = PanelBody::Empty(jefe::runtime::provider::protocol::EmptyBody {
             message: "Ready".to_owned(),
             action: None,
@@ -83,7 +83,7 @@
     fn action_event_returns_none_when_no_enabled_affordance() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.detail");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let body = PanelBody::Empty(jefe::runtime::provider::protocol::EmptyBody {
             message: "Ready".to_owned(),
             action: None,
@@ -113,7 +113,7 @@
     fn submit_event_uses_host_local_form_draft() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.form");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let submit = action_id("vendor.submit");
         let body = PanelBody::Form(jefe::runtime::provider::protocol::FormBody {
             fields: vec![string_field("name", "Name", None)],
@@ -166,7 +166,7 @@
     fn submit_event_returns_none_for_non_form_body() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.list");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let alpha = id("alpha");
         let beta = id("beta");
         let snapshot = list_snapshot(PanelInstanceId::from_u64(1), alpha, beta);
@@ -188,7 +188,7 @@
     fn page_next_event_uses_snapshot_token() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.list");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let alpha = id("alpha");
         let body = PanelBody::List(ListBody {
             items: vec![ListItem {
@@ -228,7 +228,7 @@
     fn page_next_event_returns_none_without_token() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.list");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let alpha = id("alpha");
         let beta = id("beta");
         let snapshot = list_snapshot(PanelInstanceId::from_u64(1), alpha, beta);
@@ -250,7 +250,7 @@
     fn link_select_event_targets_first_detail_link() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.detail");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let body = PanelBody::Detail(jefe::runtime::provider::protocol::DetailBody {
             document: "Doc".to_owned(),
             metadata: Vec::new(),
@@ -284,7 +284,7 @@
     fn link_select_event_returns_none_for_non_detail_body() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.list");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let alpha = id("alpha");
         let beta = id("beta");
         let snapshot = list_snapshot(PanelInstanceId::from_u64(1), alpha, beta);
@@ -306,7 +306,7 @@
     fn action_event_on_suspended_panel_stages_no_provider_effect() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.detail");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let body = PanelBody::Empty(jefe::runtime::provider::protocol::EmptyBody {
             message: "Ready".to_owned(),
             action: None,
@@ -341,7 +341,7 @@
     fn undeclared_action_kind_stages_no_provider_effect() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.detail");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let body = PanelBody::Empty(jefe::runtime::provider::protocol::EmptyBody {
             message: "Ready".to_owned(),
             action: None,
@@ -391,7 +391,7 @@
     fn field_change_event_validates_against_form_snapshot() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.form");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let submit = action_id("vendor.submit");
         let field =
             jefe::domain::plugin::field::Field::parse(jefe::domain::plugin::field::FieldDraft {
@@ -440,7 +440,7 @@
     fn field_change_event_for_unknown_field_stages_no_effect() {
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.form");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let submit = action_id("vendor.submit");
         let body = PanelBody::Form(jefe::runtime::provider::protocol::FormBody {
             fields: Vec::new(),

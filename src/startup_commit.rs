@@ -11,9 +11,8 @@ use crate::domain::plugin::HostTriple;
 use crate::persistence::paths::{StateImportError, StateImportPlan, commit_state_import};
 use crate::published_workbench::PublishedWorkbench;
 use crate::runtime::provider::environment::{HostEnv, ProcessHostEnv};
-use crate::runtime::provider::persistent::PersistentStartupResult;
 use crate::runtime::provider::supervisor::SupervisorBounds;
-use crate::runtime::provider::{Containment, ProviderCoordinator};
+use crate::runtime::provider::{Containment, PersistentOwnerStartFailure, ProviderCoordinator};
 use crate::startup::StartupPersistence;
 use crate::startup_candidate::{
     WorkbenchCandidateRequest, WorkbenchStaticFailure, build_workbench_candidate,
@@ -37,8 +36,11 @@ pub enum StartupCommitFailure {
     Static(WorkbenchStaticFailure),
     /// A required provider failed; rollback completed before this value returned.
     Provider(ProviderTransactionFailure),
+    /// A ready provider could not transfer into its runtime owner; every ready
+    /// candidate was reaped before this value returned.
+    ProviderOwner(PersistentOwnerStartFailure),
     /// The final atomic state import failed after providers became ready; dropping
-    /// their supervisor reaped them before this value returned.
+    /// their coordinator reaped them before this value returned.
     StateImport(StateImportError),
 }
 
@@ -47,7 +49,7 @@ impl StartupCommitFailure {
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
-            Self::Static(_) | Self::Provider(_) => 2,
+            Self::Static(_) | Self::Provider(_) | Self::ProviderOwner(_) => 2,
             Self::StateImport(error) => error.exit_code(),
         }
     }
@@ -61,6 +63,10 @@ impl std::fmt::Display for StartupCommitFailure {
                 "workbench static validation failed: {error}; durable data preserved"
             ),
             Self::Provider(error) => write!(
+                formatter,
+                "{error}; rollback complete; durable data preserved"
+            ),
+            Self::ProviderOwner(error) => write!(
                 formatter,
                 "{error}; rollback complete; durable data preserved"
             ),
@@ -122,18 +128,14 @@ pub fn commit_candidate<E: HostEnv>(
     } = run_provider_transaction(&candidate, bounds, host_env)
         .map_err(StartupCommitFailure::Provider)?;
 
+    let providers = ProviderCoordinator::from_ready_supervisor(supervisor)
+        .map_err(StartupCommitFailure::ProviderOwner)?;
+
     if let Some(plan) = state_import {
         commit_state_import(plan).map_err(StartupCommitFailure::StateImport)?;
     }
 
-    let catalog = candidate.providers().clone().into_catalog();
-    let providers = ProviderCoordinator::from_startup(
-        PersistentStartupResult::Started {
-            supervisor,
-            publication,
-        },
-        catalog,
-    );
+    let candidate = candidate.with_provider_ready(publication);
     Ok(StartupCommit {
         workbench: Arc::new(candidate),
         providers,

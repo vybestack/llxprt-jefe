@@ -5,8 +5,11 @@
 //! status bar carries only a persistent *count* of outstanding errors; the full
 //! text lives on the Errors screen where it is already selectable and copyable.
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use jefe::domain::ErrorSource;
-use jefe::state::{AppState, capture_reclaim_report};
+use jefe::state::capture_reclaim_report;
 use jefe::ui::components::status_bar_stats;
 
 /// A realistic reclaim report: long, and enumerating far more sessions than a
@@ -68,7 +71,7 @@ fn a_transient_warning_alone_shows_no_count() {
 /// listed 21 sessions in a 50-character slot, and buried everything else.
 #[test]
 fn the_reclaim_report_goes_to_the_errors_screen_not_the_status_bar() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     capture_reclaim_report(&mut state, RECLAIM_REPORT);
 
     assert_eq!(
@@ -96,7 +99,7 @@ fn the_reclaim_report_goes_to_the_errors_screen_not_the_status_bar() {
 /// the user's current selection on the Errors screen.
 #[test]
 fn the_reclaim_report_counts_without_stealing_the_errors_selection() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     capture_reclaim_report(&mut state, RECLAIM_REPORT);
 
     assert_eq!(state.errors_state.count(), 1);
@@ -110,7 +113,7 @@ fn the_reclaim_report_counts_without_stealing_the_errors_selection() {
 /// The count is what the bar renders, so a reclaim report must move it.
 #[test]
 fn a_recorded_reclaim_report_drives_the_status_bar_count() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     capture_reclaim_report(&mut state, RECLAIM_REPORT);
 
     let rendered = status_bar_stats(None, 4, 4, 9, state.errors_state.count());

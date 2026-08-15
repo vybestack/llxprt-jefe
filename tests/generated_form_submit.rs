@@ -5,6 +5,9 @@
 //! (exactly one agent, modal closed, selection updated) and that an
 //! unsupported Create has zero state/runtime/persistence effects.
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use jefe::agent_status_view::AgentAvailabilityObservation;
 use jefe::domain::agent_definition::{AgentDefinition, AgentTypeId, Availability, Operation};
 use jefe::domain::canonical_values::typed_field;
@@ -59,12 +62,13 @@ fn state_with_llxprt_form_open_and_create_enabled() -> AppState {
     let availability = installed_compatible();
     let observation = AgentAvailabilityObservation::new(&definition, true, availability);
     let repository = test_repository(definition.id.clone());
-    AppState {
-        repositories: vec![repository],
-        selected_repository_index: Some(0),
-        agent_type_availability: vec![observation],
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository];
+        state.selected_repository_index = Some(0);
+        state.agent_type_availability = vec![observation];
+        state.pane_focus = PaneFocus::Agents;
+        state
     }
     .apply(AppEvent::OpenAgentTypeForm(definition.id))
     .committed_pure()
@@ -154,12 +158,13 @@ fn unsupported_create_creates_zero_agents_and_keeps_modal_open() {
     let definition = claude_definition();
     let observation =
         AgentAvailabilityObservation::new(&definition, true, compatible_without_capabilities());
-    let state = AppState {
-        repositories: vec![test_repository(definition.id.clone())],
-        selected_repository_index: Some(0),
-        agent_type_availability: vec![observation],
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![test_repository(definition.id.clone())];
+        state.selected_repository_index = Some(0);
+        state.agent_type_availability = vec![observation];
+        state.pane_focus = PaneFocus::Agents;
+        state
     }
     .apply(AppEvent::OpenAgentTypeForm(definition.id))
     .committed_pure();
@@ -210,12 +215,13 @@ fn enabled_create_selects_remote_target_respects_repository_remote() {
     // the agent's work_dir for a remote target reuses the repository base dir.
     repository.remote.enabled = true;
 
-    let mut state = AppState {
-        repositories: vec![repository],
-        selected_repository_index: Some(0),
-        agent_type_availability: vec![observation],
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository];
+        state.selected_repository_index = Some(0);
+        state.agent_type_availability = vec![observation];
+        state.pane_focus = PaneFocus::Agents;
+        state
     }
     .apply(AppEvent::OpenAgentTypeForm(definition.id))
     .committed_pure();
@@ -292,10 +298,11 @@ fn submit_without_repository_has_zero_effects() {
     let definition = llxprt_definition();
     let availability = installed_compatible();
     let observation = AgentAvailabilityObservation::new(&definition, true, availability);
-    let mut state = AppState {
-        repositories: Vec::new(),
-        agent_type_availability: vec![observation],
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = Vec::new();
+        state.agent_type_availability = vec![observation];
+        state
     }
     .apply(AppEvent::OpenAgentTypeForm(definition.id))
     .committed_pure();
@@ -324,12 +331,13 @@ fn legacy_pass_continue_maps_to_typed_continue_for_llxprt() {
     let type_id = AgentTypeId::parse("core.llxprt")
         .unwrap_or_else(|error| panic!("valid LLxprt type id: {error}"));
     let repository = test_repository(type_id.clone());
-    let mut state = AppState {
-        repositories: vec![repository],
-        selected_repository_index: Some(0),
-        available_agent_type_ids: vec![type_id.clone()],
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository];
+        state.selected_repository_index = Some(0);
+        state.available_agent_type_ids = vec![type_id.clone()];
+        state.pane_focus = PaneFocus::Agents;
+        state
     }
     .apply(AppEvent::OpenNewAgent(RepositoryId(
         "test-repo".to_string(),
@@ -381,12 +389,13 @@ fn edit_modal_loads_pass_continue_from_typed_continue() {
         .default_values
         .insert(prompt_id, TypedValue::Bool(true));
 
-    let mut state = AppState {
-        repositories: vec![repository],
-        selected_repository_index: Some(0),
-        available_agent_type_ids: vec![type_id.clone()],
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository];
+        state.selected_repository_index = Some(0);
+        state.available_agent_type_ids = vec![type_id.clone()];
+        state.pane_focus = PaneFocus::Agents;
+        state
     }
     .apply(AppEvent::OpenNewAgent(RepositoryId(
         "test-repo".to_string(),

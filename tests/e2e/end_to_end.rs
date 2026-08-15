@@ -36,7 +36,7 @@ fn create_test_environment() -> (AppState, FilePersistenceManager, FileThemeMana
     let persistence = FilePersistenceManager::with_paths(paths);
     let theme_mgr = FileThemeManager::new();
 
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
 
     // Add test data
     let repo = Repository::new(

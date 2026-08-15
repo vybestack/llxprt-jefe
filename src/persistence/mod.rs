@@ -747,11 +747,15 @@ impl FilePersistenceManager {
     /// migrated, or describes state the runtime cannot represent.
     pub fn load_durable_state(
         &self,
+        screens: &crate::workbench::ScreenRegistry,
     ) -> Result<crate::state::durable_projection::RestoredState, PersistenceError> {
         let path = &self.paths.state_path;
         if !path.exists() {
-            return crate::state::durable_restore::from_durable_state(&empty_durable_state())
-                .map_err(|error| PersistenceError::ParseError(error.to_string()));
+            return crate::state::durable_restore::from_durable_state(
+                &empty_durable_state(),
+                screens,
+            )
+            .map_err(|error| PersistenceError::ParseError(error.to_string()));
         }
 
         let bytes = std::fs::read(path)
@@ -765,7 +769,7 @@ impl FilePersistenceManager {
                 )
             ))
         })?;
-        crate::state::durable_restore::from_durable_state(migration.state())
+        crate::state::durable_restore::from_durable_state(migration.state(), screens)
             .map_err(|error| PersistenceError::ParseError(error.to_string()))
     }
 

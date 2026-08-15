@@ -1,7 +1,7 @@
 //! Integration tests for provider effect worker execution
 //! (issue #390 CW-10, Slice D).
 //!
-//! These drive the real one-shot supervisor through the coordinator and
+//! These drive the real one-shot supervisor through the request builder and
 //! effect-worker translation pipeline, proving the full flow:
 //! descriptor → OneShotRequest → supervisor → typed ProviderMessages.
 //!
@@ -17,7 +17,7 @@ use jefe::domain::plugin::provider::ProviderMode;
 use jefe::domain::{CanonicalSemver, Id, TypedMap};
 use jefe::messages::ProviderMessage;
 use jefe::runtime::provider::coordinator::{
-    ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator, build_invocation_payload,
+    ProviderActionDescriptor, ProviderCatalog, build_invocation_payload, build_one_shot_request,
 };
 use jefe::runtime::provider::environment::{HostEnv, ProcessHostEnv, ProviderEnvironment};
 use jefe::runtime::provider::protocol::{ConfigurePayload, EnvName, Outcome};
@@ -131,22 +131,19 @@ fn fast_bounds() -> SupervisorBounds {
     }
 }
 
-/// The coordinator builds a valid OneShotRequest from a descriptor + invocation,
-/// and the request-id is unique per call (monotonic counter, not generation).
+/// The request builder creates a valid OneShotRequest from a descriptor and
+/// invocation, preserving the caller's unique monotonic request IDs.
 #[test]
-fn coordinator_builds_one_shot_with_unique_request_ids() {
+fn request_builder_preserves_unique_request_ids() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
-    let coordinator = ProviderCoordinator::empty();
     let inv1 = Scene::invocation(1);
     let inv2 = Scene::invocation(2);
 
-    let req1 = coordinator
-        .build_one_shot(&descriptor, &inv1)
+    let req1 = build_one_shot_request(&descriptor, &inv1, 0)
         .unwrap_or_else(|e| panic!("build_one_shot 1: {e:?}"));
-    let req2 = coordinator
-        .build_one_shot(&descriptor, &inv2)
+    let req2 = build_one_shot_request(&descriptor, &inv2, 1)
         .unwrap_or_else(|e| panic!("build_one_shot 2: {e:?}"));
 
     assert_ne!(
@@ -165,11 +162,9 @@ fn happy_path_produces_progress_and_navigate_outcome() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
@@ -217,11 +212,9 @@ fn error_mode_produces_error_terminal() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("error");
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
@@ -247,11 +240,9 @@ fn never_ready_produces_generation_failed() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("never-ready");
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
@@ -292,32 +283,6 @@ fn catalog_stores_and_retrieves_descriptors() {
     assert_eq!(retrieved.mode, ProviderMode::OneShot);
 }
 
-/// The coordinator's catalog is accessible and returns the registered actions.
-#[test]
-fn coordinator_catalog_is_accessible() {
-    let _budget = super::persistent_support::process_budget();
-    let scene = Scene::new();
-    let descriptor = scene.descriptor("happy");
-    let action_id = descriptor.action_id.clone();
-
-    let mut catalog = ProviderCatalog::new();
-    catalog.insert(action_id.clone(), descriptor);
-    let coordinator = ProviderCoordinator::from_startup(
-        jefe::runtime::provider::PersistentStartupResult::Failed(
-            jefe::runtime::provider::PersistentStartupFailure {
-                failure: jefe::runtime::provider::StartupFailure::DuplicatePluginId {
-                    plugin_id: Id::parse("test").unwrap_or_else(|e| panic!("id: {e:?}")),
-                },
-                rollback: Vec::new(),
-            },
-        ),
-        catalog,
-    );
-
-    assert!(!coordinator.has_persistent());
-    assert!(!coordinator.catalog().is_empty());
-}
-
 /// Secrets never appear in the execution result messages or retained stderr.
 #[test]
 fn secrets_never_appear_in_execution_messages() {
@@ -331,11 +296,9 @@ fn secrets_never_appear_in_execution_messages() {
         EnvName::parse("HOST_DEPLOY_KEY").unwrap_or_else(|e| panic!("env name: {e:?}")),
     );
 
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &SecretEnv(secret_value));

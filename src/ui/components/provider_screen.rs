@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::provider_panel_view::{PanelProjection, PanelStatus, project_provider_screen};
 use crate::state::AppState;
 use crate::theme::{ResolvedColors, ThemeColors};
-use crate::workbench::{Rect, screen_registry};
+use crate::workbench::Rect;
 
 /// Props for a descriptor-driven provider screen.
 #[derive(Default, Props)]
@@ -27,10 +27,11 @@ pub fn ProviderScreen(props: &ProviderScreenProps) -> impl Into<AnyElement<'stat
     let Some(state) = props.state.as_ref() else {
         return empty_screen();
     };
-    let Ok(registry) = screen_registry() else {
-        return empty_screen();
-    };
-    let Some(descriptor) = registry.get_identity(state.screen()) else {
+    let Some(descriptor) = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+    else {
         return empty_screen();
     };
     let Some(layout) = state.resolved_layout.as_ref() else {

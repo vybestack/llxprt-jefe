@@ -21,7 +21,7 @@ use crate::state::transition::TransitionExt;
 
 /// Helper: a Dashboard AppState with two repositories selected at index 0.
 fn dashboard_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),
@@ -62,12 +62,10 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
 /// @pseudocode component-001 lines 66-71
 #[test]
 fn test_enter_prs_mode_sets_active_and_saves_prior_focus() {
-    let state = AppState {
-        pane_focus: PaneFocus::Agents,
-        selected_agent_index: Some(2),
-        selected_repository_index: Some(1),
-        ..dashboard_state()
-    };
+    let mut state = dashboard_state();
+    state.pane_focus = PaneFocus::Agents;
+    state.selected_agent_index = Some(2);
+    state.selected_repository_index = Some(1);
     let new_state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     assert_eq!(new_state.screen(), ScreenId::PullRequests);
@@ -144,10 +142,8 @@ fn test_clear_committed_filter_resets_state_to_open() {
 /// @pseudocode component-001 lines 77-87
 #[test]
 fn test_exit_prs_mode_restores_prior_focus_with_bounds_fallback() {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..dashboard_state()
-    };
+    let mut state = dashboard_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.prs_state.active = true;
     // Prior focus points to an agent index that no longer exists (out of bounds).
     state.prs_state.prior_agent_focus = Some(PriorAgentFocus {
@@ -201,7 +197,7 @@ fn test_pre_pr_persisted_state_deserializes_without_pr_fields() {
     assert!(!state.hide_idle_repositories);
 }
 
-/// AppState::default() must have inactive prs_state (active=false, empty
+/// AppState::test_fixture() must have inactive prs_state (active=false, empty
 /// list/detail, default filter).
 ///
 /// @plan PLAN-20260624-PR-MODE.P04
@@ -209,7 +205,7 @@ fn test_pre_pr_persisted_state_deserializes_without_pr_fields() {
 /// @pseudocode component-001 lines 66-76
 #[test]
 fn test_app_state_default_has_inactive_prs_state() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
 
     assert!(matches!(
         state.prs_state,
@@ -232,10 +228,8 @@ fn test_app_state_default_has_inactive_prs_state() {
 /// @pseudocode component-001 lines 218-220
 #[test]
 fn test_empty_pr_list_shows_empty_state_not_panic() {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..dashboard_state()
-    };
+    let mut state = dashboard_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
     state.prs_state.active = true;
     // Seed with a NON-empty list + selection + detail so the no-op stub would
     // leave them intact (and the test would FAIL). Only a real reducer that

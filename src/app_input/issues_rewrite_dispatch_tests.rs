@@ -14,7 +14,7 @@ use jefe::state::{ComposerTarget, InlineState, NewIssueFormFocus, NewIssueFormSt
 use std::path::PathBuf;
 
 fn base_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     let mut repo = Repository::new(
         RepositoryId("repo-1".to_string()),
         jefe::domain::shipped_agent_type(3),

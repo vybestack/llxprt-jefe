@@ -87,8 +87,6 @@ pub mod startup_candidate;
 #[path = "startup_commit.rs"]
 pub mod startup_commit;
 /// Startup publication of trusted package providers (issue #390 CW-10).
-#[path = "startup_providers.rs"]
-pub mod startup_providers;
 #[path = "startup_screens.rs"]
 pub mod startup_screens;
 /// Exact selected-package resolution for the workbench candidate

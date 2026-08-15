@@ -110,7 +110,7 @@ fn load_state_returns_defaults_when_file_missing() {
     });
 
     let state = mgr
-        .load_durable_state()
+        .load_durable_state(crate::common_app_state::published_workbench().screen_registry())
         .test_unwrap("missing state should restore defaults");
 
     assert!(state.repositories.is_empty());

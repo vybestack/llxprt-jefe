@@ -532,18 +532,10 @@ fn bounded_candidate(chord_count: usize) -> RegistryCandidate {
 }
 
 #[test]
-fn availability_republication_is_atomic_and_preserves_exact_correlation() {
+fn availability_composition_is_atomic_and_preserves_exact_correlation() {
     let actions = vec![action("test.action", "screen", HandlerKey::OpenKeys, false)];
-    let snapshot = compose(
-        actions.clone(),
-        vec![binding("screen", "test.action", &["x"])],
-        Vec::new(),
-        vec![stack(&["screen"])],
-        None,
-    );
-    let Ok(snapshot) = snapshot else {
-        panic!("baseline snapshot must compose: {snapshot:?}");
-    };
+    let bindings = vec![binding("screen", "test.action", &["x"])];
+    let order = stack(&["screen"]);
     let generation = AvailabilityGeneration::new(
         correlation(99),
         vec![ActionAvailability::new(
@@ -553,24 +545,81 @@ fn availability_republication_is_atomic_and_preserves_exact_correlation() {
             },
         )],
     );
-    let published = snapshot.publish_availability(generation);
-    let Ok(published) = published else {
-        panic!("complete generation must publish: {published:?}");
+    let composed = RegistryCandidate::new(
+        actions,
+        bindings,
+        Vec::new(),
+        vec![order.clone()],
+        generation,
+    )
+    .compose();
+    let Ok(published) = composed else {
+        panic!("complete generation must compose: {composed:?}");
     };
     assert_eq!(published.availability_correlation(), &correlation(99));
     assert_eq!(
-        published.resolve(&chord("x"), &stack(&["screen"])),
+        published.resolve(&chord("x"), &order),
         Resolution::Unavailable {
             action: action_id("test.action"),
             reason: "exact reason".to_owned(),
         }
     );
 
+    // A generation that omits even one action cannot compose: the snapshot is
+    // published whole or not at all.
+    let missing = action("missing.action", "screen", HandlerKey::OpenKeys, false);
     let incomplete = AvailabilityGeneration::new(correlation(100), Vec::new());
+    let result = RegistryCandidate::new(
+        vec![missing],
+        Vec::new(),
+        Vec::new(),
+        vec![order],
+        incomplete,
+    )
+    .compose();
     assert!(matches!(
-        published.publish_availability(incomplete),
+        result,
         Err(ref diagnostic)
             if matches!(diagnostic.kind(), RegistryDiagnosticKind::MissingAvailability(_))
+    ));
+}
+
+#[test]
+fn runtime_generation_cannot_promote_committed_unavailability() {
+    let action = action("test.action", "screen", HandlerKey::OpenKeys, false);
+    let action_id = action.id.clone();
+    let committed = RegistryCandidate::new(
+        vec![action],
+        vec![binding("screen", "test.action", &["x"])],
+        Vec::new(),
+        vec![stack(&["screen"])],
+        AvailabilityGeneration::new(
+            correlation(101),
+            vec![ActionAvailability::new(
+                action_id.clone(),
+                Availability::Unavailable {
+                    reason: "committed refusal".to_owned(),
+                },
+            )],
+        ),
+    )
+    .compose()
+    .unwrap_or_else(|error| panic!("committed fixture must compose: {error}"));
+    let runtime = AvailabilityGeneration::new(
+        correlation(102),
+        vec![ActionAvailability::new(
+            action_id.clone(),
+            Availability::Available,
+        )],
+    );
+
+    let Err(error) = committed.validate_availability_generation(&runtime) else {
+        panic!("runtime availability must not promote a committed refusal");
+    };
+    assert!(matches!(
+        error.kind(),
+        RegistryDiagnosticKind::StaticAvailabilityPromotion(promoted)
+            if promoted == &action_id
     ));
 }
 

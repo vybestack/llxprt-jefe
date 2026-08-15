@@ -105,7 +105,7 @@ fn gesture_event_kind_classifies_wheel_right_middle_as_other() {
 
 fn focused_terminal_state(kind: AgentTypeId) -> AppState {
     let repo_id = RepositoryId("repo-1".into());
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(Repository::new(
         repo_id.clone(),
         jefe::domain::shipped_agent_type(3),
@@ -170,7 +170,7 @@ fn terminal_pane_not_routed_in_issues_mode() {
 fn workflow_dispatch_is_blocking_modal() {
     use jefe::domain::Workflow;
     use jefe::state::WorkflowDispatchFormFields;
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.modal = ModalState::WorkflowDispatch {
         workflow: Workflow {
             id: 1,
@@ -190,17 +190,15 @@ fn workflow_dispatch_is_blocking_modal() {
 
 #[test]
 fn no_modal_is_not_blocking() {
-    let state = AppState::default();
+    let state = crate::test_app_state();
     assert!(!is_blocking_modal_open(&state));
 }
 
 #[test]
 fn search_is_not_blocking_modal() {
-    let state = AppState {
-        modal: ModalState::Search {
-            query: "test".to_string(),
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::Search {
+        query: "test".to_string(),
     };
     assert!(!is_blocking_modal_open(&state));
 }
@@ -574,23 +572,21 @@ fn terminal_selection_text_uses_bound_snapshot_not_recaptured() {
 
 #[test]
 fn active_overlay_none_when_no_modal() {
-    let state = AppState::default();
+    let state = crate::test_app_state();
     assert_eq!(active_overlay_for(&state), OverlayPane::None);
 }
 
 #[test]
 fn active_overlay_help_modal() {
-    let state = AppState {
-        modal: ModalState::Help,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::Help;
     assert_eq!(active_overlay_for(&state), OverlayPane::HelpModal);
 }
 
 #[test]
 fn active_overlay_agent_form() {
     use jefe::state::AgentFormFields;
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.modal = ModalState::NewAgent {
         repository_id: RepositoryId("r".into()),
         fields: AgentFormFields::default(),
@@ -603,14 +599,14 @@ fn active_overlay_agent_form() {
 
 #[test]
 fn active_overlay_agent_chooser() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.issues_state.agent_chooser = Some(jefe::state::AgentChooserState::default());
     assert_eq!(active_overlay_for(&state), OverlayPane::AgentChooser);
 }
 
 #[test]
 fn active_overlay_issue_delete_confirm() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.issues_state.delete_confirm = Some(jefe::state::IssueDeleteConfirmState {
         issue_number: 42,
         awaiting_confirmation: false,
@@ -699,7 +695,7 @@ use jefe::selection::PaneGeometry;
 
 /// Minimal AppState carrying a single issue detail with the given body.
 fn state_with_issue_body(body: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 1,
@@ -911,7 +907,7 @@ fn header_row_uses_naive_mapping() {
 
 #[test]
 fn finite_pane_blank_space_clamps_to_last_projected_line_end() {
-    let state = jefe::state::AppState::default();
+    let state = crate::test_app_state();
     let geometry = origin_geometry();
     let content = jefe::pane_content_projection::projected_pane_content(
         SelectablePane::KeybindBar,
@@ -943,7 +939,7 @@ fn finite_pane_blank_space_clamps_to_last_projected_line_end() {
 
 #[test]
 fn non_detail_pane_has_no_wrap_projection() {
-    let state = AppState::default();
+    let state = crate::test_app_state();
     assert!(
         detail_wrap_projection(&state, SelectablePane::IssueList, 120).is_none(),
         "IssueList has no wrap projection"

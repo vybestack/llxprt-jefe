@@ -782,7 +782,7 @@ fn accepted_notice_outcome_stages_one_closed_post_commit_host_effect() {
         arguments: empty_map(),
         policy: default_policy(),
     };
-    let invoke_transition = AppState::default()
+    let invoke_transition = AppState::test_fixture()
         .apply_message(AppMessage::Provider(Box::new(invoke)))
         .unwrap_or_else(|error| panic!("invoke transition: {error}"));
     let key = match &invoke_transition.effects[0].effect {

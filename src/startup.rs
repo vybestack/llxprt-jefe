@@ -10,7 +10,6 @@
 use std::path::Path;
 
 use crate::config_owners::owner_catalog_with_packages;
-use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::keymap_edit::{KeymapDiagnostic, LoadedKeymap, load_bytes};
 use crate::persistence::migration::migrate_state;
@@ -28,24 +27,10 @@ use crate::persistence::{FilePersistenceManager, PersistencePaths};
 pub struct StartupPersistence {
     pub paths: ResolvedPaths,
     pub settings: PublishedSettings,
-    pub keymap_snapshot: ActionRegistrySnapshot,
     pub settings_document: SettingsDocument,
     pub settings_expected_hash: ExpectedHash,
     keymap_diagnostic: Option<KeymapDiagnostic>,
     pub manager: FilePersistenceManager,
-    /// The plugin package inventory found in the ordered roots (issue #389).
-    ///
-    /// Scanned exactly once here, at the boundary that already owns path
-    /// resolution. Nothing downstream rescans, so what the Settings section
-    /// shows and what the session composed are the same moment.
-    pub plugin_inventory: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
-    /// The installed packages behind [`Self::plugin_inventory`], carrying the
-    /// validated manifests provider composition needs (issue #390).
-    ///
-    /// Carried rather than rescanned for the same reason the projection is:
-    /// a second scan could see a different directory than the one the operator
-    /// is looking at.
-    pub plugin_packages: Vec<crate::persistence::plugin_inventory::InstalledPackage>,
     pub(crate) inventory: crate::persistence::plugin_inventory::PluginInventory,
     pub(crate) state_import: Option<StateImportPlan>,
 }
@@ -90,13 +75,8 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     // dormant. Reading trust therefore requires knowing which packages are
     // installed first (issue #390).
     let scanned = scan_plugin_inventory(&paths);
-    let plugin_inventory = crate::persistence::plugin_inventory::snapshot(
-        &scanned,
-        &crate::domain::plugin::HostTriple::current(),
-    );
-    let plugin_packages = scanned.packages().to_vec();
     let (keymap, settings_document, settings_expected_hash) =
-        validate_settings(&paths.settings.path, &plugin_packages)?;
+        validate_settings(&paths.settings.path, scanned.packages())?;
     if state_import.is_none() {
         validate_state(&paths.state.path)?;
     }
@@ -107,13 +87,10 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     Ok(StartupPersistence {
         paths,
         settings: keymap.settings,
-        keymap_snapshot: keymap.composed.snapshot().clone(),
         settings_document,
         settings_expected_hash,
         keymap_diagnostic: keymap.diagnostic,
         manager,
-        plugin_inventory,
-        plugin_packages,
         inventory: scanned,
         state_import,
     })
@@ -617,9 +594,6 @@ mod tests {
 
     #[test]
     fn malformed_initial_keymap_retains_bytes_and_uses_compiled_defaults() {
-        use crate::domain::{
-            action_registry::Resolution, input_context::ContextStack, keymap::Chord,
-        };
         let dir = unique_dir("malformed-keymap");
         let source = br#"settings_schema = 2
 [appearance]
@@ -662,13 +636,6 @@ enabled = false
             Some(false)
         );
         assert!(startup.settings.keymap.is_empty());
-        let chord = Chord::parse("j").value_or_panic("default chord");
-        let stack = ContextStack::from_ordered(["dashboard", "global"], false)
-            .value_or_panic("dashboard stack");
-        assert!(matches!(
-            startup.keymap_snapshot.resolve(&chord, &stack),
-            Resolution::Dispatch { .. }
-        ));
         assert_eq!(
             std::fs::read(dir.join("settings.toml")).value_or_panic("retained settings"),
             source

@@ -499,15 +499,13 @@ mod tests {
 
     #[test]
     fn agent_form_title_has_leading_space() {
-        let state = AppState {
-            modal: ModalState::NewAgent {
-                repository_id: RepositoryId("r1".to_string()),
-                fields: AgentFormFields::default(),
-                focus: AgentFormFocus::Shortcut,
-                cursor: AgentFormCursor::default(),
-                work_dir_manual: false,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields::default(),
+            focus: AgentFormFocus::Shortcut,
+            cursor: AgentFormCursor::default(),
+            work_dir_manual: false,
         };
         let Some(lines) = agent_form_content_lines(&state) else {
             panic!("must have lines");
@@ -520,21 +518,19 @@ mod tests {
 
     #[test]
     fn agent_form_focused_name_field_has_caret() {
-        let state = AppState {
-            modal: ModalState::NewAgent {
-                repository_id: RepositoryId("r1".to_string()),
-                fields: AgentFormFields {
-                    name: "abc".to_string(),
-                    ..Default::default()
-                },
-                focus: AgentFormFocus::Name,
-                cursor: AgentFormCursor {
-                    name: 1,
-                    ..Default::default()
-                },
-                work_dir_manual: false,
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                name: "abc".to_string(),
+                ..Default::default()
             },
-            ..Default::default()
+            focus: AgentFormFocus::Name,
+            cursor: AgentFormCursor {
+                name: 1,
+                ..Default::default()
+            },
+            work_dir_manual: false,
         };
         let Some(lines) = agent_form_content_lines(&state) else {
             panic!("must have lines");
@@ -551,18 +547,16 @@ mod tests {
 
     #[test]
     fn agent_form_unfocused_field_has_no_caret() {
-        let state = AppState {
-            modal: ModalState::NewAgent {
-                repository_id: RepositoryId("r1".to_string()),
-                fields: AgentFormFields {
-                    name: "abc".to_string(),
-                    ..Default::default()
-                },
-                focus: AgentFormFocus::Description,
-                cursor: AgentFormCursor::default(),
-                work_dir_manual: false,
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                name: "abc".to_string(),
+                ..Default::default()
             },
-            ..Default::default()
+            focus: AgentFormFocus::Description,
+            cursor: AgentFormCursor::default(),
+            work_dir_manual: false,
         };
         let Some(lines) = agent_form_content_lines(&state) else {
             panic!("must have lines");
@@ -579,19 +573,17 @@ mod tests {
 
     #[test]
     fn agent_form_sandbox_disabled_shows_disabled_hint() {
-        let state = AppState {
-            modal: ModalState::NewAgent {
-                repository_id: RepositoryId("r1".to_string()),
-                fields: AgentFormFields {
-                    agent_type_id: "core.llxprt".to_owned(),
-                    sandbox_enabled: false,
-                    ..Default::default()
-                },
-                focus: AgentFormFocus::Shortcut,
-                cursor: AgentFormCursor::default(),
-                work_dir_manual: false,
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                agent_type_id: "core.llxprt".to_owned(),
+                sandbox_enabled: false,
+                ..Default::default()
             },
-            ..Default::default()
+            focus: AgentFormFocus::Shortcut,
+            cursor: AgentFormCursor::default(),
+            work_dir_manual: false,
         };
         let Some(lines) = agent_form_content_lines(&state) else {
             panic!("must have lines");
@@ -608,19 +600,17 @@ mod tests {
 
     #[test]
     fn agent_form_sandbox_enabled_shows_cycle_hint() {
-        let state = AppState {
-            modal: ModalState::NewAgent {
-                repository_id: RepositoryId("r1".to_string()),
-                fields: AgentFormFields {
-                    agent_type_id: "core.llxprt".to_owned(),
-                    sandbox_enabled: true,
-                    ..Default::default()
-                },
-                focus: AgentFormFocus::Shortcut,
-                cursor: AgentFormCursor::default(),
-                work_dir_manual: false,
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                agent_type_id: "core.llxprt".to_owned(),
+                sandbox_enabled: true,
+                ..Default::default()
             },
-            ..Default::default()
+            focus: AgentFormFocus::Shortcut,
+            cursor: AgentFormCursor::default(),
+            work_dir_manual: false,
         };
         let Some(lines) = agent_form_content_lines(&state) else {
             panic!("must have lines");
@@ -637,22 +627,20 @@ mod tests {
 
     #[test]
     fn agent_form_sandbox_flags_focused_has_caret() {
-        let state = AppState {
-            modal: ModalState::NewAgent {
-                repository_id: RepositoryId("r1".to_string()),
-                fields: AgentFormFields {
-                    agent_type_id: "core.llxprt".to_owned(),
-                    sandbox_flags: "--network".to_string(),
-                    ..Default::default()
-                },
-                focus: AgentFormFocus::SandboxFlags,
-                cursor: AgentFormCursor {
-                    sandbox_flags: 2,
-                    ..Default::default()
-                },
-                work_dir_manual: false,
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                agent_type_id: "core.llxprt".to_owned(),
+                sandbox_flags: "--network".to_string(),
+                ..Default::default()
             },
-            ..Default::default()
+            focus: AgentFormFocus::SandboxFlags,
+            cursor: AgentFormCursor {
+                sandbox_flags: 2,
+                ..Default::default()
+            },
+            work_dir_manual: false,
         };
         let Some(lines) = agent_form_content_lines(&state) else {
             panic!("must have lines");

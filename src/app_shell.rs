@@ -30,14 +30,14 @@ use jefe::ui::orchestration::{
 };
 
 fn provider_projection(snapshot: &AppState, viewport_rows: u16) -> Option<ProviderViewProjection> {
-    let registry = snapshot.action_registry_snapshot.as_ref()?;
+    let registry = snapshot.action_registry();
     if let Some(surface_action) = snapshot.provider_surface_action.as_ref() {
         let action = registry
             .provider_actions()
             .find(|action| action.id == *surface_action)?;
         return Some(project_provider_view(&ProviderViewInput {
             requests: &snapshot.provider_requests,
-            availability: registry.availability_of(&action.id),
+            availability: snapshot.action_availability(&action.id),
             focused: false,
             confirm: None,
             viewport_rows: usize::from(viewport_rows),
@@ -50,7 +50,7 @@ fn provider_projection(snapshot: &AppState, viewport_rows: u16) -> Option<Provid
     let action = registry
         .provider_actions()
         .find(|action| action.id.as_str() == request.key().action_id.as_str())?;
-    let availability = registry.availability_of(&action.id);
+    let availability = snapshot.action_availability(&action.id);
     Some(project_provider_view(&ProviderViewInput {
         requests: &snapshot.provider_requests,
         availability,
@@ -97,15 +97,21 @@ fn drain_jsp_messages(
     true
 }
 
-#[derive(Default, Props)]
+#[derive(Props)]
 pub struct AppProps {
-    pub context: Option<Arc<std::sync::Mutex<AppContext>>>,
+    pub context: Arc<std::sync::Mutex<AppContext>>,
 }
 
 #[component]
 pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
+    let published_workbench = {
+        let Ok(context) = props.context.lock() else {
+            panic!("application context lock poisoned before state construction");
+        };
+        Arc::clone(&context.workbench)
+    };
     let should_quit = hooks.use_state(|| false);
-    let mut app_state = hooks.use_state(AppState::default);
+    let mut app_state = hooks.use_state(move || AppState::new(published_workbench));
     let render_tick = hooks.use_state(|| 0u64);
     let mut initialized = hooks.use_state(|| false);
     let mut startup_sessions_restored = hooks.use_state(|| false);
@@ -114,7 +120,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let mut mouse_click = hooks.use_state(crate::mouse_routing::MouseClickState::default);
     let last_activity = hooks.use_state(Instant::now);
 
-    let ctx = props.context.clone();
+    let ctx = Some(Arc::clone(&props.context));
 
     let startup_probe_effects = if initialized.get() {
         Vec::new()
@@ -527,8 +533,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // which guarantees a nonzero content rectangle or hides the pane, so there
     // is no `.max(1)` to apply here.
     let terminal_rect = snapshot.resolved_layout.as_ref().and_then(|layout| {
-        let registry = jefe::workbench::screen_registry().ok()?;
-        let descriptor = registry.get_identity(snapshot.screen())?;
+        let descriptor = snapshot
+            .published_workbench()
+            .screen_registry()
+            .get_identity(snapshot.screen())?;
         jefe::workbench::pty_content_rect(
             descriptor,
             layout,

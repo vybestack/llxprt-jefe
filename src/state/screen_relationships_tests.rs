@@ -3,15 +3,21 @@
 
 use crate::workbench::{
     ActivationMode, EmptyPolicy, PortDirection, PortValue, RelationshipKind, ScreenId,
-    master_detail_edge, screen_descriptor,
+    ScreenRegistry, builtin_screens, master_detail_edge,
 };
 
 use super::{couples_list_to_detail, detail_target_for, subject};
 
+fn registry() -> ScreenRegistry {
+    builtin_screens().unwrap_or_else(|error| unreachable!("compiled screens must build: {error}"))
+}
+
 /// The declared coupling of one workspace screen, as text.
 fn declared_edge(screen: ScreenId) -> Option<(String, String)> {
-    let descriptor = screen_descriptor(screen)
-        .unwrap_or_else(|error| unreachable!("compiled descriptor must exist: {error}"));
+    let registry = registry();
+    let descriptor = registry
+        .get(screen)
+        .unwrap_or_else(|| unreachable!("compiled descriptor must exist"));
     master_detail_edge(descriptor).map(|(source, target)| (source.to_string(), target.to_string()))
 }
 
@@ -47,8 +53,10 @@ fn a_screen_whose_detail_does_not_follow_its_list_declares_no_coupling() {
 #[test]
 fn the_bundled_couplings_follow_the_selection_at_once_and_clear_when_empty() {
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
-        let descriptor = screen_descriptor(screen)
-            .unwrap_or_else(|error| unreachable!("compiled descriptor must exist: {error}"));
+        let registry = registry();
+        let descriptor = registry
+            .get(screen)
+            .unwrap_or_else(|| unreachable!("compiled descriptor must exist"));
 
         assert_eq!(
             descriptor.relationships[0].kind,
@@ -67,8 +75,10 @@ fn the_bundled_ports_face_the_right_way_and_share_one_versioned_type() {
         (ScreenId::Issues, "github.issue@1"),
         (ScreenId::PullRequests, "github.pull-request@1"),
     ] {
-        let descriptor = screen_descriptor(screen)
-            .unwrap_or_else(|error| unreachable!("compiled descriptor must exist: {error}"));
+        let registry = registry();
+        let descriptor = registry
+            .get(screen)
+            .unwrap_or_else(|| unreachable!("compiled descriptor must exist"));
         let (source, target) = master_detail_edge(descriptor)
             .unwrap_or_else(|| unreachable!("{screen} must declare a coupling"));
         let source_port = descriptor
@@ -95,7 +105,7 @@ fn the_bundled_ports_face_the_right_way_and_share_one_versioned_type() {
 fn a_coupled_screen_hands_its_detail_the_selected_subject() {
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
         assert_eq!(
-            detail_target_for(screen, &subject(Some(42))),
+            detail_target_for(&registry(), screen, &subject(Some(42))),
             Some(PortValue::Subject("42".to_owned())),
             "{screen} must hand its detail whatever the list selected"
         );
@@ -106,7 +116,7 @@ fn a_coupled_screen_hands_its_detail_the_selected_subject() {
 fn a_coupled_screen_clears_its_detail_when_nothing_is_selected() {
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
         assert_eq!(
-            detail_target_for(screen, &subject(None)),
+            detail_target_for(&registry(), screen, &subject(None)),
             Some(PortValue::Absent),
             "{screen} shows nothing when its list selects nothing"
         );
@@ -115,13 +125,13 @@ fn a_coupled_screen_clears_its_detail_when_nothing_is_selected() {
 
 #[test]
 fn only_the_screens_that_declare_a_coupling_report_one() {
-    assert!(couples_list_to_detail(ScreenId::Issues));
-    assert!(couples_list_to_detail(ScreenId::PullRequests));
-    assert!(!couples_list_to_detail(ScreenId::Actions));
-    assert!(!couples_list_to_detail(ScreenId::Errors));
-    assert!(!couples_list_to_detail(ScreenId::Dashboard));
+    assert!(couples_list_to_detail(&registry(), ScreenId::Issues));
+    assert!(couples_list_to_detail(&registry(), ScreenId::PullRequests));
+    assert!(!couples_list_to_detail(&registry(), ScreenId::Actions));
+    assert!(!couples_list_to_detail(&registry(), ScreenId::Errors));
+    assert!(!couples_list_to_detail(&registry(), ScreenId::Dashboard));
     assert_eq!(
-        detail_target_for(ScreenId::Actions, &subject(Some(42))),
+        detail_target_for(&registry(), ScreenId::Actions, &subject(Some(42))),
         None
     );
 }

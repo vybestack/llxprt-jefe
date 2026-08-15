@@ -367,7 +367,10 @@ impl AppState {
         if self.issues_state.selected_issue_index() == previous {
             return;
         }
-        if !crate::state::screen_relationships::couples_list_to_detail(ScreenId::Issues) {
+        if !crate::state::screen_relationships::couples_list_to_detail(
+            self.published_workbench().screen_registry(),
+            ScreenId::Issues,
+        ) {
             return;
         }
         self.issues_state.loading.detail = false;

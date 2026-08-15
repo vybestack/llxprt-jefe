@@ -27,7 +27,7 @@ fn sample_signature() -> AgentLaunchRequest {
 
 #[test]
 fn confirm_focus_defaults_to_cancel_on_open_delete_agent() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenDeleteAgent(AgentId("a1".into())))
         .committed_pure();
 
@@ -45,7 +45,7 @@ fn confirm_focus_defaults_to_cancel_on_open_delete_agent() {
 
 #[test]
 fn confirm_focus_defaults_to_cancel_on_open_delete_repository() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenDeleteRepository(RepositoryId("r1".into())))
         .committed_pure();
 
@@ -59,7 +59,7 @@ fn confirm_focus_defaults_to_cancel_on_open_delete_repository() {
 
 #[test]
 fn confirm_cycle_focus_toggles_cancel_to_confirm() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenDeleteAgent(AgentId("a1".into())))
         .committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Cancel));
@@ -70,14 +70,12 @@ fn confirm_cycle_focus_toggles_cancel_to_confirm() {
 
 #[test]
 fn confirm_cycle_focus_toggles_confirm_to_cancel() {
-    let state = AppState {
-        modal: ModalState::ConfirmDeleteAgent {
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::ConfirmDeleteAgent {
             id: AgentId("a1".into()),
             delete_work_dir: false,
             confirm_focus: ConfirmFocus::Confirm,
-        },
-        ..AppState::default()
-    };
+        };
 
     let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Cancel));
@@ -85,10 +83,8 @@ fn confirm_cycle_focus_toggles_confirm_to_cancel() {
 
 #[test]
 fn confirm_cycle_focus_noop_on_non_confirm_modal() {
-    let state = AppState {
-        modal: ModalState::Help,
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::Help;
     let before = state.modal.clone();
 
     let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
@@ -97,7 +93,7 @@ fn confirm_cycle_focus_noop_on_non_confirm_modal() {
         "ConfirmCycleFocus must not change Help"
     );
 
-    let state2 = AppState::default()
+    let state2 = AppState::test_fixture()
         .apply(AppEvent::ConfirmCycleFocus)
         .committed_pure();
     assert_eq!(state2.modal, ModalState::None);
@@ -105,14 +101,12 @@ fn confirm_cycle_focus_noop_on_non_confirm_modal() {
 
 #[test]
 fn toggle_delete_work_dir_preserves_confirm_focus() {
-    let state = AppState {
-        modal: ModalState::ConfirmDeleteAgent {
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::ConfirmDeleteAgent {
             id: AgentId("a1".into()),
             delete_work_dir: false,
             confirm_focus: ConfirmFocus::Confirm,
-        },
-        ..AppState::default()
-    };
+        };
 
     let state = state.apply(AppEvent::ToggleDeleteWorkDir).committed_pure();
 
@@ -150,16 +144,14 @@ fn confirm_focus_default_is_cancel() {
 
 #[test]
 fn cycle_focus_works_on_dirty_copy() {
-    let state = AppState {
-        modal: ModalState::ConfirmIssueDirtyCopy {
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::ConfirmIssueDirtyCopy {
             agent_id: AgentId("a1".into()),
             work_dir: std::path::PathBuf::from("/tmp"),
             signature: sample_signature(),
             payload: SendPayload::default(),
             confirm_focus: ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
-    };
+        };
 
     let state = state.apply(AppEvent::ConfirmCycleFocus).committed_pure();
     assert_eq!(state.current_confirm_focus(), Some(ConfirmFocus::Confirm));
@@ -167,14 +159,12 @@ fn cycle_focus_works_on_dirty_copy() {
 
 #[test]
 fn close_modal_dismisses_confirm_without_side_effect() {
-    let state = AppState {
-        modal: ModalState::ConfirmDeleteAgent {
+    let mut state = AppState::test_fixture();
+    state.modal = ModalState::ConfirmDeleteAgent {
             id: AgentId("a1".into()),
             delete_work_dir: false,
             confirm_focus: ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
-    };
+        };
 
     let state = state.apply(AppEvent::CloseModal).committed_pure();
     assert_eq!(state.modal, ModalState::None);
@@ -212,10 +202,8 @@ fn non_confirm_modals_return_none_focus() {
         },
     ];
     for modal in non_confirms {
-        let state = AppState {
-            modal: modal.clone(),
-            ..AppState::default()
-        };
+        let mut state = AppState::test_fixture();
+        state.modal = modal.clone();
         assert_eq!(
             state.current_confirm_focus(),
             None,
@@ -273,10 +261,8 @@ fn all_confirm_modal_samples() -> Vec<ModalState> {
 /// Assert that a single confirm variant is recognized by the focus machinery
 /// and that cycling focus via the public reducer toggles Cancel ↔ Confirm.
 fn assert_confirm_recognized_and_cycles(modal: ModalState) {
-    let state = AppState {
-        modal: modal.clone(),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.modal = modal.clone();
     assert!(
         state.current_confirm_focus().is_some(),
         "confirm variant must be recognized by current_confirm_focus: {modal:?}"

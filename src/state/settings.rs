@@ -13,38 +13,34 @@
 //! - only the newest scheduled revision is answerable, so a completion that
 //!   arrives after the user has saved again is a fact about work that has been
 //!   superseded, not an instruction.
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::config_owners::builtin_owner_catalog;
 use crate::domain::effects::{
     Correlation, CorrelationId, EffectError, EffectErrorKind, EffectFamily, SemanticKey,
 };
-use crate::domain::plugin::{FieldKind, SecretReference};
-use crate::domain::plugin_config::{ConfigValueError, validate_config};
-use crate::domain::{
-    CanonicalDecimal, ConfigContractError, Id, OwnerCatalog, OwnerDescriptor, OwnerKind, ThemeId,
-    TypedMap, TypedValue,
-};
+use crate::domain::plugin::FieldKind;
+use crate::domain::plugin_config::validate_config;
+use crate::domain::{Id, ThemeId, TypedMap};
 use crate::messages::NavDir;
 use crate::messages::settings::{
-    PluginConfigMessage, SelectedPluginConfig, SettingsMessage, SettingsSection, SettingsSource,
+    PluginConfigMessage, SettingsMessage, SettingsSection, SettingsSource,
 };
-use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
-use crate::persistence::migration::SettingsMigration;
-use crate::persistence::settings_document::PublishedSettings;
-use crate::persistence::settings_edit::load_settings_base;
+use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::writer::ExpectedHash;
-use crate::persistence::{
-    PluginConfigEditValue, SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath,
-};
+use crate::persistence::{SettingsCandidate, SettingsEdit, SettingsSaveOutcome, SyntaxPath};
 use crate::theme::ThemePreviewToken;
 use crate::workbench::ScreenId;
 
 use super::navigation_dirty::{DirtyChoice, DraftAction, SaveIntent};
+use super::settings_tail::step;
 use super::settings_types::{
-    DraftCandidate, DraftStatus, PluginConfigChange, PluginConfigDiffRow, PluginConfigMigration,
-    PluginConfigMigrationPreview, PluginConfigMigrationState, SettingsDraft, SettingsFocus,
+    DraftStatus, PluginConfigMigration, PluginConfigMigrationPreview, PluginConfigMigrationState,
+    SettingsDraft, SettingsFocus,
+};
+use super::settings_validation::{
+    apply_migration_edits, build_candidate, load_base, migration_requirement,
+    parse_plugin_config_edit, plugin_config_edit_value, redacted_config_diff, revalidate,
+    selected_schema,
 };
 use super::{AppState, settings_view};
 
@@ -128,12 +124,11 @@ impl AppState {
         self.settings_state.recovery_row = 0;
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = None;
-        // The registries the editors project from are snapshotted with the
-        // draft, so what the rows say and what the draft would save are two
-        // halves of one moment rather than two moments that can disagree.
         self.settings_state.agent_types = self.agent_type_availability.clone();
-        self.settings_state.plugins = self.plugin_inventory.clone();
-        self.settings_state.actions = self.action_registry_snapshot.clone();
+        self.settings_state.plugins = crate::persistence::plugin_inventory::snapshot(
+            self.published_workbench().inventory(),
+            &crate::domain::plugin::HostTriple::current(),
+        );
         self.bind_settings_source(source);
         let _ = self.enter_screen(ScreenId::Settings);
         true
@@ -194,6 +189,7 @@ impl AppState {
             .map_or(ExpectedHash::Absent, |bytes| {
                 ExpectedHash::Present(crate::domain::sha256::Sha256::digest(bytes))
             });
+        let workbench = Arc::clone(self.published_workbench());
         match load_base(
             source.bytes.as_deref(),
             &self.settings_state.installed_plugin_configs,
@@ -205,6 +201,7 @@ impl AppState {
                     &[],
                     expected,
                     &self.settings_state.installed_plugin_configs,
+                    workbench.screen_registry(),
                 );
                 self.settings_state.blocked.clear();
                 self.settings_state.draft = Some(SettingsDraft::bound(
@@ -242,7 +239,6 @@ impl AppState {
         self.settings_state.blocked.clear();
         self.settings_state.agent_types.clear();
         self.settings_state.plugins.clear();
-        self.settings_state.actions = None;
         self.settings_state.plugin_config_editor = None;
         self.settings_state.restore_theme = unsaved_preview
             .then(|| self.settings_state.opened_theme.clone())
@@ -274,7 +270,11 @@ impl AppState {
     fn navigate_settings(&mut self, direction: NavDir) -> bool {
         let count = match self.settings_state.focus {
             SettingsFocus::Sections => SettingsSection::ALL.len(),
-            SettingsFocus::Detail => settings_view::detail_rows(&self.settings_state).len(),
+            SettingsFocus::Detail => settings_view::detail_rows(
+                &self.settings_state,
+                self.settings_projection_authority(),
+            )
+            .len(),
         };
         let current = self.settings_state.selected_row;
         self.settings_state.selected_row = step(current, count, direction);
@@ -311,7 +311,8 @@ impl AppState {
             self.settings_state.selected_row = 0;
             return true;
         }
-        let rows = settings_view::detail_rows(&self.settings_state);
+        let rows =
+            settings_view::detail_rows(&self.settings_state, self.settings_projection_authority());
         let Some(activation) = rows
             .get(self.settings_state.selected_row)
             .and_then(settings_view::SettingsRow::activation)
@@ -419,6 +420,7 @@ impl AppState {
         }
         self.settings_state.plugin_config_migration = PluginConfigMigrationState::Idle;
         self.settings_state.approved_plugin_migrations.clear();
+        let workbench = std::sync::Arc::clone(self.published_workbench());
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
@@ -426,7 +428,11 @@ impl AppState {
         for edit in edits {
             draft.record(edit);
         }
-        revalidate(draft, &self.settings_state.installed_plugin_configs);
+        revalidate(
+            draft,
+            &self.settings_state.installed_plugin_configs,
+            workbench.screen_registry(),
+        );
         if touches_theme {
             self.refresh_theme_preview();
         }
@@ -613,6 +619,7 @@ impl AppState {
                 Some("the migration proposal contains an unsupported value".to_owned());
             return true;
         };
+        let workbench = std::sync::Arc::clone(self.published_workbench());
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
@@ -637,7 +644,11 @@ impl AppState {
         reset_fields.sort();
         reset_fields.dedup();
         apply_migration_edits(draft, &preview.request.owner, reset_fields, target_edits);
-        revalidate(draft, &self.settings_state.installed_plugin_configs);
+        revalidate(
+            draft,
+            &self.settings_state.installed_plugin_configs,
+            workbench.screen_registry(),
+        );
         self.settings_state.approved_plugin_migrations.insert(
             preview.request.owner,
             preview.request.target_package_version,
@@ -655,10 +666,15 @@ impl AppState {
             .settings_state
             .last_scheduled_revision
             .saturating_add(1);
+        let workbench = std::sync::Arc::clone(self.published_workbench());
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
-        revalidate(draft, &self.settings_state.installed_plugin_configs);
+        revalidate(
+            draft,
+            &self.settings_state.installed_plugin_configs,
+            workbench.screen_registry(),
+        );
         if !draft.is_saveable() {
             self.settings_state.notice =
                 Some("Save is blocked until the draft validates".to_owned());
@@ -748,6 +764,7 @@ impl AppState {
     /// Make a completed save the new base.
     fn adopt_saved(&mut self, revision: u64, hash: crate::domain::sha256::Sha256) -> bool {
         let schemas = self.settings_state.installed_plugin_configs.clone();
+        let workbench = std::sync::Arc::clone(self.published_workbench());
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
@@ -774,7 +791,11 @@ impl AppState {
         draft.adopt(Arc::new(base), hash, revision);
         let adopted = draft.preview().cloned().map(ThemePreviewToken::adopt);
         draft.set_preview(None);
-        revalidate(draft, &self.settings_state.installed_plugin_configs);
+        revalidate(
+            draft,
+            &self.settings_state.installed_plugin_configs,
+            workbench.screen_registry(),
+        );
         let exits = draft.exits_after_save();
         if let Some(theme) = adopted {
             self.settings_state.opened_theme = Some(theme);
@@ -923,6 +944,7 @@ impl AppState {
 
     /// Abandon every edit and return to the draft's base.
     fn discard_settings(&mut self) -> bool {
+        let workbench = std::sync::Arc::clone(self.published_workbench());
         let Some(draft) = self.settings_state.draft.as_mut() else {
             return false;
         };
@@ -930,71 +952,14 @@ impl AppState {
         draft.clear_pending();
         draft.set_preview(None);
         draft.set_status(DraftStatus::Clean);
-        revalidate(draft, &self.settings_state.installed_plugin_configs);
+        revalidate(
+            draft,
+            &self.settings_state.installed_plugin_configs,
+            workbench.screen_registry(),
+        );
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = Some("Changes discarded".to_owned());
         let _ = self.mark_screen_clean();
         true
     }
-
-    /// Raise the confirmation a reload needs before it can discard work.
-    ///
-    /// A clean draft needs no confirmation, so the boundary reads the disk
-    /// straight away; this only ever puts the question on screen.
-    fn request_settings_reload(&mut self) -> bool {
-        if !self.settings_state.is_dirty() || self.settings_state.reload_confirm {
-            return false;
-        }
-        self.settings_state.reload_confirm = true;
-        true
-    }
-
-    fn cancel_settings_reload(&mut self) -> bool {
-        if !self.settings_state.reload_confirm {
-            return false;
-        }
-        self.settings_state.reload_confirm = false;
-        true
-    }
-
-    /// Report where a draft was exported, or why it was not.
-    fn complete_settings_export(&mut self, result: Result<std::path::PathBuf, Diagnostic>) -> bool {
-        self.settings_state.notice = Some(match result {
-            Ok(path) => format!("Exported draft to {}", path.display()),
-            Err(diagnostic) => format!(
-                "{}: {}",
-                diagnostic.code.as_str(),
-                diagnostic.redacted_detail
-            ),
-        });
-        true
-    }
-
-    fn clamp_settings_selection(&mut self) {
-        let count = match self.settings_state.focus {
-            SettingsFocus::Sections => SettingsSection::ALL.len(),
-            SettingsFocus::Detail => settings_view::detail_rows(&self.settings_state).len(),
-        };
-        self.settings_state.selected_row = self
-            .settings_state
-            .selected_row
-            .min(count.saturating_sub(1));
-    }
 }
-
-pub(super) fn step(current: usize, count: usize, direction: NavDir) -> usize {
-    if count == 0 {
-        return 0;
-    }
-    let last = count - 1;
-    match direction {
-        NavDir::Up | NavDir::Prev => current.saturating_sub(1),
-        NavDir::Down | NavDir::Next => (current + 1).min(last),
-        // A Settings section is never longer than a screen, so a page is the
-        // whole list and paging is the same movement as Home and End.
-        NavDir::Home | NavDir::PageUp(_) => 0,
-        NavDir::End | NavDir::PageDown(_) => last,
-    }
-}
-
-include!("settings_validation.rs");

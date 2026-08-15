@@ -3,13 +3,12 @@
 use crate::domain::AgentId;
 use crate::screen_layout::{hidden_panel_ids, resolve_screen, screen_rect};
 use crate::state::AppState;
-use crate::workbench::{PanelId, ScreenId, screen_descriptor};
+use crate::workbench::{PanelId, ScreenId, builtin_screens};
 
 fn state_on(screen: ScreenId) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(screen),
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(screen);
+    state
 }
 
 fn resolved(screen: ScreenId, cols: u16, rows: u16) -> crate::workbench::ResolvedLayout {
@@ -217,8 +216,10 @@ fn every_panel_the_application_hides_is_declared_by_its_screen() {
     // The hiding rules name panels by identity literal, so a descriptor that
     // renamed a panel would leave them addressing nothing and the band would
     // stay on screen forever. Nothing else would notice.
+    let registry = builtin_screens()
+        .unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"));
     for screen in ScreenId::ALL {
-        let Ok(descriptor) = screen_descriptor(screen) else {
+        let Some(descriptor) = registry.get(screen) else {
             unreachable!("every screen has a compiled descriptor");
         };
         let mut named = 0_usize;

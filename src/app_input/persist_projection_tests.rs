@@ -7,10 +7,8 @@ use std::path::PathBuf;
 
 #[test]
 fn staged_candidate_carries_hide_idle_toggle() {
-    let mut state = AppState {
-        hide_idle_repositories: true,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.hide_idle_repositories = true;
 
     let persisted = require_request(&mut state);
     assert!(persisted.candidate.preferences.hide_idle_repositories);
@@ -18,11 +16,9 @@ fn staged_candidate_carries_hide_idle_toggle() {
 
 #[test]
 fn staged_candidate_carries_pane_focus_and_terminal_focused() {
-    let mut state = AppState {
-        pane_focus: PaneFocus::Terminal,
-        terminal_focused: true,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.pane_focus = PaneFocus::Terminal;
+    state.terminal_focused = true;
 
     let persisted = require_request(&mut state);
     assert_eq!(persisted.candidate.preferences.pane_focus, "terminal");
@@ -50,7 +46,7 @@ fn stale_completion_keeps_persisted_state_byte_identical() {
     };
     use jefe::messages::{AppMessage, RuntimeMessage};
 
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(jefe::domain::Repository::new(
         jefe::domain::RepositoryId("repo-1".to_owned()),
         jefe::domain::shipped_agent_type(3),
@@ -124,14 +120,15 @@ fn pane_focus_round_trips_through_the_durable_candidate() {
         PaneFocus::Agents,
         PaneFocus::Terminal,
     ] {
-        let mut state = AppState {
-            pane_focus: focus,
-            ..AppState::default()
-        };
+        let mut state = crate::test_app_state();
+        state.pane_focus = focus;
         let request = durable_save_request(&mut state)
             .unwrap_or_else(|| panic!("durable projection should stage a candidate"));
-        let restored = jefe::state::durable_restore::from_durable_state(request.candidate.as_ref())
-            .unwrap_or_else(|error| panic!("candidate must restore: {error}"));
+        let restored = jefe::state::durable_restore::from_durable_state(
+            request.candidate.as_ref(),
+            state.published_workbench().screen_registry(),
+        )
+        .unwrap_or_else(|error| panic!("candidate must restore: {error}"));
         assert_eq!(restored.pane_focus, focus, "round-trip for {focus:?}");
     }
 }

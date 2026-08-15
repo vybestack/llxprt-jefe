@@ -119,6 +119,19 @@ fn handle_line(line: &str, run_sequence: &mut u64) -> Result<bool, String> {
     }
     Ok(false)
 }
+fn harness_workbench()
+-> Result<std::sync::Arc<jefe::published_workbench::PublishedWorkbench>, String> {
+    let config_dir = std::env::temp_dir().join(format!(
+        "jefe-harness-probe-workbench-{}",
+        std::process::id()
+    ));
+    let mut startup = jefe::startup::build_persistence(Some(&config_dir))
+        .map_err(|error| format!("build harness workbench persistence: {error:?}"))?;
+    jefe::startup_commit::commit_startup(&mut startup)
+        .map(|commit| commit.workbench)
+        .map_err(|error| format!("commit harness workbench: {error}"))
+}
+
 fn render_panic_errors() -> Result<(), String> {
     const PANIC_MARKER: &str = "issue-496-ui-panic";
     init_diagnostics();
@@ -127,7 +140,7 @@ fn render_panic_errors() -> Result<(), String> {
     if unwind.is_ok() {
         return Err("panic fixture did not unwind".to_owned());
     }
-    let mut state = jefe::state::AppState::default();
+    let mut state = jefe::state::AppState::new(harness_workbench()?);
     let reports = panic_capture::drain_panic_reports();
     if reports.is_empty() {
         return Err("panic fixture did not capture a report".to_owned());

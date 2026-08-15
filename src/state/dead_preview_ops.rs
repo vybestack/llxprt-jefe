@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn dead_preview_cache_stores_replaces_and_clears_lines() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let agent_id = AgentId("dead-agent".to_owned());
 
         state.store_dead_preview(agent_id.clone(), vec!["first".to_owned()]);

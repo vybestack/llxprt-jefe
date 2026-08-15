@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 /// Create a test state with search-related data.
 fn create_search_test_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
 
     // Add repositories
     let repo1 = Repository::new(

@@ -26,3 +26,6 @@ mod transaction;
 
 #[path = "issue704/commit.rs"]
 mod commit;
+
+#[path = "issue704/consumer_cutover.rs"]
+mod consumer_cutover;

@@ -13,7 +13,7 @@ use crate::state::{AppEvent, AppState, ModalState, RepositoryFormFocus};
 /// Opening the New Repository modal should start with focus on Name.
 #[test]
 fn new_repository_modal_starts_focused_on_name() {
-    let state = AppState::default()
+    let state = AppState::test_fixture()
         .apply(AppEvent::OpenNewRepository)
         .committed_pure();
     let ModalState::NewRepository { focus, .. } = state.modal else {
@@ -27,10 +27,8 @@ fn new_repository_modal_starts_focused_on_name() {
 /// the bottom of the form). This is the core regression in issue #369.
 #[test]
 fn llxprt_tab_from_default_version_lands_on_github_repo() {
-    let mut state = AppState {
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Advance to DefaultLlxprtVersion (skip hidden CodePuppy fields).
     state = state.apply(AppEvent::FormNextField).committed_pure(); // Name → BaseDir
@@ -59,10 +57,8 @@ fn llxprt_tab_from_default_version_lands_on_github_repo() {
 /// Shift+Tab backward from GitHubRepo must land on DefaultLlxprtVersion.
 #[test]
 fn llxprt_shift_tab_from_github_repo_lands_on_default_version() {
-    let mut state = AppState {
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
@@ -83,7 +79,7 @@ fn llxprt_shift_tab_from_github_repo_lands_on_default_version() {
 /// Typing into the GitHubRepo field while focused must insert characters.
 #[test]
 fn github_repo_field_accepts_typed_input_when_focused() {
-    let mut state = AppState::default()
+    let mut state = AppState::test_fixture()
         .apply(AppEvent::OpenNewRepository)
         .committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
@@ -105,7 +101,7 @@ fn github_repo_field_accepts_typed_input_when_focused() {
 /// Tabbing forward from GitHubRepo must land on IssuePrRepo.
 #[test]
 fn tab_from_github_repo_lands_on_issue_pr_repo() {
-    let mut state = AppState::default()
+    let mut state = AppState::test_fixture()
         .apply(AppEvent::OpenNewRepository)
         .committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
@@ -124,10 +120,8 @@ fn tab_from_github_repo_lands_on_issue_pr_repo() {
 /// end of the chain (after SetupEnvDefault), matching their render position.
 #[test]
 fn transient_fields_are_reachable_after_setup_env_default() {
-    let mut state = AppState {
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     let ModalState::NewRepository { focus, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
@@ -151,10 +145,8 @@ fn transient_fields_are_reachable_after_setup_env_default() {
 /// visible field at the bottom of the form).
 #[test]
 fn shift_tab_from_name_wraps_to_transient_max_concurrent() {
-    let mut state = AppState {
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Focus starts on Name.
     state = state.apply(AppEvent::FormPrevField).committed_pure();

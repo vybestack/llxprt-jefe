@@ -82,7 +82,7 @@ fn selected_required_string() -> (Id, SelectedPluginConfig) {
 
 /// A state with Settings open over `bytes`.
 fn opened(bytes: Option<&[u8]>) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(source(bytes))));
     state
 }
@@ -91,7 +91,11 @@ fn section_window_keeps_the_selected_section_visible_at_reduced_height() {
     let mut state = opened(Some(SCHEMA_2));
     state.settings_state.section = SettingsSection::Plugins;
 
-    let window = settings_view::section_window(&state.settings_state, 4);
+    let window = settings_view::section_window(
+        &state.settings_state,
+        4,
+        state.settings_projection_authority(),
+    );
 
     assert!(
         window
@@ -111,11 +115,12 @@ fn active_selected_plugin_config_projects_generated_row_and_adjacent_error() {
     let (owner, selected) = selected_required_string();
     input.plugin_configs.insert(owner.clone(), selected.clone());
     input.installed_plugin_configs.insert(owner, vec![selected]);
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.settings_state.section = SettingsSection::Plugins;
 
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
     let generated = rows
         .iter()
         .find(|row| row.label == "vendor.config / Endpoint")
@@ -159,7 +164,7 @@ fn changing_package_version_projects_the_exact_installed_target_schema() {
     input
         .installed_plugin_configs
         .insert(owner.clone(), vec![target.clone(), source]);
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.settings_state.section = SettingsSection::Plugins;
 
@@ -168,7 +173,8 @@ fn changing_package_version_projects_the_exact_installed_target_schema() {
         version: target.version,
     }));
 
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
     assert!(
         rows.iter().any(|row| row.label == "vendor.config / Region"),
         "the draft-selected target schema owns generated fields"
@@ -189,11 +195,12 @@ fn generated_string_field_edits_through_the_settings_owned_editor() {
     let (owner, selected) = selected_required_string();
     input.plugin_configs.insert(owner.clone(), selected.clone());
     input.installed_plugin_configs.insert(owner, vec![selected]);
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.settings_state.section = SettingsSection::Plugins;
     state.settings_state.focus = SettingsFocus::Detail;
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
     state.settings_state.selected_row = rows
         .iter()
         .position(|row| row.label == "vendor.config / Endpoint")
@@ -271,11 +278,11 @@ fn hidden_generated_plugin_config_fields_are_omitted() {
     };
     input.plugin_configs.insert(owner.clone(), selected.clone());
     input.installed_plugin_configs.insert(owner, vec![selected]);
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.settings_state.section = SettingsSection::Plugins;
     assert!(
-        !settings_view::detail_rows(&state.settings_state)
+        !settings_view::detail_rows(&state.settings_state, state.settings_projection_authority())
             .iter()
             .any(|row| row.label.ends_with(" / Detail"))
     );
@@ -316,10 +323,11 @@ fn complete_written(state: &mut AppState) {
 fn the_sections_run_from_the_session_outwards_to_its_registries_and_problems() {
     let state = opened(Some(SCHEMA_2));
 
-    let titles = settings_view::section_rows(&state.settings_state)
-        .into_iter()
-        .map(|row| row.title)
-        .collect::<Vec<_>>();
+    let titles =
+        settings_view::section_rows(&state.settings_state, state.settings_projection_authority())
+            .into_iter()
+            .map(|row| row.title)
+            .collect::<Vec<_>>();
 
     assert_eq!(
         titles,
@@ -339,7 +347,8 @@ fn the_sections_run_from_the_session_outwards_to_its_registries_and_problems() {
 fn the_diagnostics_section_carries_its_count() {
     let state = opened(Some(b"settings_schema = 2\n[appearance]\ntheme = 42\n"));
 
-    let rows = settings_view::section_rows(&state.settings_state);
+    let rows =
+        settings_view::section_rows(&state.settings_state, state.settings_projection_authority());
     let Some(diagnostics) = rows
         .iter()
         .find(|row| row.section == SettingsSection::Diagnostics)
@@ -379,7 +388,8 @@ fn the_appearance_rows_carry_every_installed_theme_and_the_override_toggle() {
         SettingsMessage::SelectSection(SettingsSection::Appearance),
     );
 
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
 
     assert!(rows.iter().any(|row| row.label == "Green Screen"));
     assert!(rows.iter().any(|row| row.label == "Dracula"));
@@ -396,7 +406,8 @@ fn a_theme_the_document_names_but_the_manager_cannot_resolve_renders_unavailable
         SettingsMessage::SelectSection(SettingsSection::Appearance),
     );
 
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
 
     let Some(row) = rows.iter().find(|row| row.label == "missing-theme") else {
         panic!("an unresolvable theme is still shown: {rows:?}");
@@ -435,7 +446,8 @@ fn activating_a_theme_row_edits_the_draft() {
 fn the_general_section_reports_the_paths_and_platform_it_is_using() {
     let state = opened(Some(SCHEMA_2));
 
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
 
     assert!(rows.iter().any(|row| row.label == "Settings"));
     assert!(rows.iter().any(|row| row.label == "State"));
@@ -454,7 +466,8 @@ fn the_diagnostics_section_is_read_only() {
         SettingsMessage::SelectSection(SettingsSection::Diagnostics),
     );
 
-    let rows = settings_view::detail_rows(&state.settings_state);
+    let rows =
+        settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
 
     assert!(!rows.is_empty());
     assert!(rows.iter().all(|row| row.activation().is_none()));

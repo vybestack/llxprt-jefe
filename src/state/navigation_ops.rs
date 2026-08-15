@@ -17,7 +17,7 @@
 //!   whatever was underneath.
 
 use crate::domain::effects::{Correlation, EffectError};
-use crate::workbench::{ActivationValues, RouteId, ScreenId, ScreenIdentity, screen_registry};
+use crate::workbench::{ActivationValues, RouteId, ScreenId, ScreenIdentity};
 
 use super::AppState;
 use super::navigation::{
@@ -163,13 +163,8 @@ impl AppState {
     /// Commit one navigation message, surfacing any refusal and reporting what
     /// the draft's owner must now do.
     fn navigate(&mut self, message: NavMessage) -> DraftAction {
-        let Ok(registry) = screen_registry() else {
-            // The compiled screen table is malformed, which the descriptor
-            // tests already fail on. Refusing to move and saying so is the only
-            // honest answer; moving anyway would be worse than not moving.
-            self.error_message = Some("NAV-E001: the screen registry is unavailable".to_owned());
-            return DraftAction::None;
-        };
+        let workbench = std::sync::Arc::clone(self.published_workbench());
+        let registry = workbench.screen_registry();
         let transition = reduce_navigation(
             std::mem::replace(&mut self.nav, NavState::rooted(ScreenId::default())),
             registry,

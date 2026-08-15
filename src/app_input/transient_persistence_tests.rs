@@ -38,7 +38,7 @@ fn make_repo() -> Repository {
 #[test]
 fn durable_candidate_filters_out_transient_agents() {
     let repo = make_repo();
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(repo.clone());
 
     // Regular agent
@@ -89,7 +89,7 @@ fn durable_candidate_filters_out_transient_agents() {
 #[test]
 fn durable_candidate_clears_selection_pointing_at_transient() {
     let repo = make_repo();
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(repo.clone());
 
     // One regular agent at index 0, one transient at index 1.
@@ -135,7 +135,7 @@ fn durable_candidate_clears_selection_pointing_at_transient() {
 #[test]
 fn durable_candidate_keeps_all_non_transient_agents() {
     let repo = make_repo();
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(repo.clone());
 
     for i in 0..3 {
@@ -158,7 +158,7 @@ fn durable_candidate_keeps_all_non_transient_agents() {
 #[test]
 fn durable_candidate_remaps_selection_when_transient_precedes_persistent() {
     let repo = make_repo();
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(repo.clone());
 
     // Transient agent at index 0, persistent at index 1.

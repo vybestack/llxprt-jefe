@@ -603,10 +603,16 @@ impl PersistentSupervisor {
     ///
     /// The supervisor is fully consumed: its candidates become owned by the
     /// returned [`PersistentSessionOwner`], and the supervisor's `Drop` is a
-    /// no-op afterward. No `Child`, pipe, or thread handle enters `AppState` —
-    /// the session owner stays at the runtime boundary.
-    #[must_use]
-    pub fn into_sessions(mut self) -> super::persistent_session::PersistentSessionOwner {
+    /// no-op afterward. If an owner cannot start, every transferred and pending
+    /// candidate is reaped before the typed error returns. No `Child`, pipe, or
+    /// thread handle enters `AppState` — the session owner stays at the runtime
+    /// boundary.
+    pub fn into_sessions(
+        mut self,
+    ) -> Result<
+        super::persistent_session::PersistentSessionOwner,
+        super::persistent_session::PersistentOwnerStartFailure,
+    > {
         self.shut_down = true;
         let candidates = std::mem::take(&mut self.candidates);
         super::persistent_session::PersistentSessionOwner::from_candidates(candidates, self.bounds)

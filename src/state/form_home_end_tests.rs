@@ -25,10 +25,8 @@ fn seed_repository() -> crate::domain::Repository {
 /// Open a NewAgent modal and type into the Name field so the cursor is at the
 /// end of the typed text, ready for a Home/End assertion.
 fn new_agent_form_with_typed_name(text: &str) -> AppState {
-    let mut state = AppState {
-        repositories: vec![seed_repository()],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![seed_repository()];
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
         .committed_pure();
@@ -99,10 +97,8 @@ fn form_home_end_utf8_safe_agent_name() {
 /// Home/End also works on a repository text field (BaseDir focus).
 #[test]
 fn form_home_end_repository_basedir() {
-    let mut state = AppState {
-        repositories: vec![seed_repository()],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![seed_repository()];
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     // Move focus to BaseDir (Tab advances field focus).
     state = state.apply(AppEvent::FormNextField).committed_pure();

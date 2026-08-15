@@ -14,24 +14,23 @@ use super::*;
 /// `InlineState` (issue #407), which is what routes keys through
 /// `resolve_new_issue_inline_key_event`.
 fn issues_state_with_new_issue_form(focus: NewIssueFormFocus) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            inline_state: InlineState::Composer {
-                target: ComposerTarget::NewIssue,
-                text: String::new(),
-                cursor: 0,
-            },
-            new_issue_form: Some(NewIssueFormState {
-                focus,
-                ..NewIssueFormState::default()
-            }),
-            ..IssuesState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        inline_state: InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            text: String::new(),
+            cursor: 0,
         },
-        ..AppState::default()
-    }
+        new_issue_form: Some(NewIssueFormState {
+            focus,
+            ..NewIssueFormState::default()
+        }),
+        ..IssuesState::default()
+    };
+    state
 }
 
 /// Plain Enter on the Title field must advance focus to the next field,

@@ -21,10 +21,8 @@ fn remote_agent_work_dir_preserves_unix_tilde_and_trims_trailing_slashes() {
         enabled: true,
         ..RemoteRepositorySettings::default()
     };
-    let mut state = AppState {
-        repositories: vec![repository],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repository];
 
     state = state
         .apply(AppEvent::OpenNewAgent(repository_id))

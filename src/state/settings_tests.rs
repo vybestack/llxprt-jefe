@@ -137,7 +137,7 @@ fn opened_migration_draft_with_enabled(source_enabled: bool) -> (AppState, Id, C
         .entry(owner.clone())
         .or_default()
         .insert(0, target);
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.reduce_settings(SettingsMessage::Edit(SettingsEdit::PluginVersion {
         plugin: owner.clone(),
@@ -152,7 +152,7 @@ fn opened_migration_draft() -> (AppState, Id, CanonicalSemver) {
 
 /// A state with Settings open over `bytes`.
 fn opened(bytes: Option<&[u8]>) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(source(bytes))));
     state
 }
@@ -173,7 +173,7 @@ fn draft_status(state: &AppState) -> DraftStatus {
 fn selected_active_plugin_schema_blocks_save_when_required_config_is_missing() {
     let bytes =
         b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = true\nversion = \"1.0.0\"\n";
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(
         source_with_selected_config(bytes),
     )));
@@ -219,7 +219,7 @@ fn changing_package_version_validates_against_the_exact_installed_target_schema(
         .entry(owner.clone())
         .or_default()
         .insert(0, target.clone());
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
 
     state.reduce_settings(SettingsMessage::Edit(SettingsEdit::PluginVersion {
@@ -243,7 +243,7 @@ fn changing_package_version_validates_against_the_exact_installed_target_schema(
 #[test]
 fn disabled_plugin_config_is_dormant_and_preserved_without_owner_validation() {
     let bytes = b"settings_schema = 2\n[plugins.\"vendor.config\"]\nenabled = false\nversion = \"1.0.0\"\n[plugins.\"vendor.config\".config]\nendpoint = 42\n";
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(
         source_with_selected_config(bytes),
     )));
@@ -542,7 +542,7 @@ fn invalid_migration_target_fails_without_scheduling_a_write() {
 
 #[test]
 fn opening_binds_the_draft_to_the_exact_bytes_hash_and_revision() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let mut source = source(Some(SCHEMA_2));
     source.revision = 12;
 
@@ -614,11 +614,13 @@ fn an_unsaved_edit_leaves_the_published_settings_and_screen_registry_alone() {
         "a structural draft moves no session"
     );
     assert_eq!(
-        crate::workbench::screen_registry()
-            .map(|registry| registry.screens().len())
-            .unwrap_or_default(),
+        state
+            .published_workbench()
+            .screen_registry()
+            .screens()
+            .len(),
         ScreenId::ALL.len(),
-        "the compiled registry is unchanged while the draft is unsaved"
+        "the committed registry is unchanged while the draft is unsaved"
     );
     assert_eq!(draft_status(&state), DraftStatus::Dirty);
 }
@@ -870,7 +872,7 @@ theme = 'dracula'
 ",
     ));
     opened_on.active_theme = theme("dracula");
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     apply(&mut state, SettingsMessage::Open(Box::new(opened_on)));
     assert_eq!(
         state.settings_state.desired_theme(),

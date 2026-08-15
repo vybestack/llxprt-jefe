@@ -639,7 +639,7 @@ fn a_composable_signature_is_still_adopted() {
 /// already lost (issue #541 V7).
 #[test]
 fn a_held_durable_read_is_visible_to_the_operator() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
 
     surface_durable_read_hold(&mut state, Some("state.json is not valid JSON".to_owned()));
 
@@ -661,7 +661,7 @@ fn a_held_durable_read_is_visible_to_the_operator() {
 /// The mirror hazard: a readable document must leave no warning and no hold.
 #[test]
 fn a_successful_durable_read_shows_nothing() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
 
     surface_durable_read_hold(&mut state, None);
 
@@ -676,7 +676,7 @@ fn a_successful_durable_read_shows_nothing() {
 /// cannot be attached to and is given no reason (issue #541 V4/V7).
 #[test]
 fn held_agents_are_reported_to_the_operator() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
 
     surface_startup_holds(
         &mut state,
@@ -709,7 +709,7 @@ fn held_agents_are_reported_to_the_operator() {
 /// The mirror hazard: no holds must leave the status line alone.
 #[test]
 fn no_holds_reports_nothing() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     surface_startup_holds(&mut state, &[]);
     assert_eq!(state.warning_message, None);
 }
@@ -725,10 +725,8 @@ fn agents_held_at_startup_are_selected_for_another_attempt() {
     agent.runtime_binding = None;
 
     let expected = agent.id.clone();
-    let state = AppState {
-        agents: vec![agent],
-        ..Default::default()
-    };
+    let mut state = crate::test_app_state();
+    state.agents = vec![agent];
 
     assert_eq!(
         agents_awaiting_readoption(&state),
@@ -762,10 +760,8 @@ fn bound_and_finished_agents_are_left_alone() {
     dead.status = AgentStatus::Dead;
     dead.runtime_binding = None;
 
-    let state = AppState {
-        agents: vec![bound, dead],
-        ..Default::default()
-    };
+    let mut state = crate::test_app_state();
+    state.agents = vec![bound, dead];
 
     assert!(
         agents_awaiting_readoption(&state).is_empty(),
@@ -891,7 +887,7 @@ fn vanished_run(pid: u32, last_seen_unix: u64, breadcrumb: Option<&str>) -> Uncl
 
 #[test]
 fn a_prior_run_that_vanished_is_named_where_the_operator_will_see_it() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
 
     surface_unclean_prior_runs(
         &mut state,
@@ -918,7 +914,7 @@ fn a_prior_run_that_vanished_is_named_where_the_operator_will_see_it() {
 
 #[test]
 fn a_start_with_nothing_left_behind_says_nothing() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
 
     surface_unclean_prior_runs(&mut state, &[], 1_130);
 
@@ -930,7 +926,7 @@ fn a_start_with_nothing_left_behind_says_nothing() {
 
 #[test]
 fn every_run_that_vanished_is_reported_not_only_the_first() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
 
     surface_unclean_prior_runs(
         &mut state,
@@ -956,7 +952,7 @@ fn every_run_that_vanished_is_reported_not_only_the_first() {
 
 #[test]
 fn a_vanished_run_report_is_added_to_an_existing_warning_rather_than_replacing_it() {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     append_warning(&mut state, "Settings were reset.".to_owned());
 
     surface_unclean_prior_runs(&mut state, &[vanished_run(4242, 1_000, None)], 1_130);
