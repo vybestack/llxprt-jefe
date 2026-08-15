@@ -1,12 +1,14 @@
 //! Per-candidate persistent startup (issue #390 CW-10, Slice C2).
 //!
 //! This private module owns the mechanics of starting one persistent candidate
-//! process — environment construction, spawn, drains, the closed
+//! process from its already-resolved launch inputs — spawn, drains, the closed
 //! `hello`/`hello-ack` → `configure`/`ready` handshake with per-stage bounds,
 //! the manifest-declared capability-subset check, and the rollback reap of a
-//! candidate that failed after spawn. It reuses the Slice C1 framing,
-//! environment, drains, process-tree spawn, and staged-reap helpers and keeps
-//! no application state.
+//! candidate that failed after spawn. Environment construction and secret
+//! resolution happen once, before any spawn, in [`super::persistent`]'s
+//! preparation phase; this module reuses the Slice C1 framing, drains,
+//! process-tree spawn, and staged-reap helpers and keeps no application
+//! state.
 //!
 //! It hands back a typed [`StartOutcome`] (an owned ready process or a typed
 //! failure plus reap evidence) to [`super::persistent`], which sequences
@@ -24,13 +26,12 @@ use super::drains::{StderrDrain, StdoutDrain, StdoutEvent};
 use super::driver::unexpected_kind;
 use super::dto::{Capability, ConfigurePayload, ParsedMessage, ProviderMessage};
 use super::encode::{encode_configure, encode_hello};
-use super::environment::{
-    EnvironmentError, HostEnv, ProcessEnv, Redactor, build_process_env, resolve_configure_secrets,
-};
+use super::environment::{ProcessEnv, Redactor};
 use super::error;
 use super::persistent::{
-    CandidateFailure, OwnedCandidate, PersistentCandidate, PersistentPhase, ReadyCandidate,
-    ReapedCandidate, capability_mismatch_failure, first_undeclared_capability, reap_owned,
+    CandidateFailure, OwnedCandidate, PersistentCandidate, PersistentPhase, PreparedEnvironment,
+    ReadyCandidate, ReapedCandidate, capability_mismatch_failure, first_undeclared_capability,
+    reap_owned,
 };
 use super::process_tree::{self, ProviderProcess};
 use super::protocol::{Direction, LifecycleOrder, MessageKind, parse_message};
@@ -52,62 +53,28 @@ pub(super) enum StartOutcome {
     },
 }
 
-/// Start one candidate: environment, spawn, drains, handshake, capability check.
-pub(super) fn start_one<E: HostEnv>(
+/// Start one candidate from its already-prepared environment: spawn, drains,
+/// handshake, capability check.
+///
+/// The [`PreparedEnvironment`] was resolved once before any spawn; its values
+/// drive the process environment, the `Configure` payload, and every
+/// redaction, so mutable host inputs are never read a second time.
+pub(super) fn start_prepared(
     candidate: &PersistentCandidate,
+    prepared: PreparedEnvironment,
     bounds: &SupervisorBounds,
-    host_env: &E,
 ) -> StartOutcome {
     let plugin_id = candidate.plugin_id.clone();
-    let (env, configure, redactor) = match prepare_environment(candidate, host_env) {
-        Ok(prepared) => prepared,
-        Err(failure) => return failed_before_spawn(plugin_id, PersistentPhase::Spawn, failure),
-    };
+    let PreparedEnvironment {
+        env,
+        configure,
+        redactor,
+    } = prepared;
     let spawned = match spawn_with_drains(candidate, &env, bounds, &redactor) {
         Ok(spawned) => spawned,
         Err(outcome) => return *outcome,
     };
     finalize_start(candidate, plugin_id, configure, spawned, bounds, &redactor)
-}
-
-/// Build the contained environment, resolve `configure` secrets, and return the
-/// redactor scrubbed against every resolved secret value. Every provider-owned
-/// observation surface (startup diagnostics, retained stderr, cleanup evidence)
-/// is redacted through the returned [`Redactor`] exactly like the one-shot path.
-fn prepare_environment<E: HostEnv>(
-    candidate: &PersistentCandidate,
-    host_env: &E,
-) -> Result<(ProcessEnv, ConfigurePayload, Redactor), SupervisorFailure> {
-    let env = build_process_env(
-        &candidate.environment,
-        &candidate.home,
-        &candidate.tmpdir,
-        &candidate.locale,
-        host_env,
-    )
-    .map_err(SupervisorFailure::Environment)?;
-    let secrets = resolve_configure_secrets(&candidate.environment, host_env)
-        .map_err(SupervisorFailure::Environment)?;
-    reject_caller_secrets(&candidate.configure)?;
-    let mut configure = candidate.configure.clone();
-    for (binding, value) in secrets {
-        configure.secrets.insert(binding, value);
-    }
-    let redactor = env.redactor();
-    Ok((env, configure, redactor))
-}
-
-/// The supervisor is the sole Configure-secret resolver: reject any
-/// caller-supplied secret.
-fn reject_caller_secrets(configure: &ConfigurePayload) -> Result<(), SupervisorFailure> {
-    if let Some((binding, _)) = configure.secrets.first_key_value() {
-        return Err(SupervisorFailure::Environment(
-            EnvironmentError::UndeclaredConfigureSecret {
-                binding: binding.to_string(),
-            },
-        ));
-    }
-    Ok(())
 }
 
 /// Spawn the process and its drain threads. The error is boxed to keep the

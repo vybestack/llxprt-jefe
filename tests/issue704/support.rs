@@ -27,6 +27,9 @@ pub struct PackageSpec<'a> {
     pub(crate) mode: &'a str,
     pub(crate) actions: bool,
     pub(crate) config: bool,
+    /// A secret-reference config field whose default names this host
+    /// environment variable (unset in tests that prove resolution failure).
+    pub(crate) secret_ref: Option<&'a str>,
 }
 
 impl PackageSpec<'_> {
@@ -37,6 +40,7 @@ impl PackageSpec<'_> {
             mode: "persistent",
             actions: true,
             config: false,
+            secret_ref: None,
         }
     }
 
@@ -47,6 +51,34 @@ impl PackageSpec<'_> {
             mode: "one-shot",
             actions: true,
             config: false,
+            secret_ref: None,
+        }
+    }
+
+    /// A declaration-empty persistent `PackageSpec` (no actions, no config,
+    /// no panels, no routes, no screens).
+    pub(crate) fn declaration_empty(id: &'static str) -> Self {
+        Self {
+            id,
+            version: "1.0.0",
+            mode: "persistent",
+            actions: false,
+            config: false,
+            secret_ref: None,
+        }
+    }
+
+    /// A required persistent `PackageSpec` whose config schema declares one
+    /// secret-reference field defaulting to `secret_ref`, so composition
+    /// routes it into `configure_secret_sources`.
+    pub(crate) fn persistent_actions_secret(id: &'static str, secret_ref: &'static str) -> Self {
+        Self {
+            id,
+            version: "1.0.0",
+            mode: "persistent",
+            actions: true,
+            config: true,
+            secret_ref: Some(secret_ref),
         }
     }
 
@@ -75,8 +107,25 @@ pub fn host() -> HostTriple {
     HostTriple::current()
 }
 
+/// The provider executable file name a staged package must carry for this
+/// host: Windows loads executables by extension, other hosts use the
+/// extensionless name.
+pub fn provider_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "provider.exe"
+    } else {
+        "provider"
+    }
+}
+
+/// The package-relative provider path declared in staged manifests, matching
+/// the file [`provider_exe_name`] stages.
+pub fn provider_relative() -> String {
+    format!("bin/{}", provider_exe_name())
+}
+
 pub fn host_binaries() -> String {
-    format!(r#"{{ "{}": "bin/provider" }}"#, host().as_str())
+    format!(r#"{{ "{}": "{}" }}"#, host().as_str(), provider_relative())
 }
 
 /// A triple no test host is, for the required-but-unavailable row.
@@ -92,15 +141,27 @@ pub fn manifest_of(spec: &PackageSpec<'_>, binaries: &str) -> String {
     } else {
         "\"actions\": [],".to_owned()
     };
-    let config = if spec.config {
+    let config = if let Some(env_name) = spec.secret_ref {
+        format!(
+            r#""config": {{
+              "schema_version": 1,
+              "fields": [
+                {{ "id": "{}.token", "label": "API token", "type": "secret-reference", "required": false, "restart": "none",
+                   "default": {{ "env": "{env_name}" }} }}
+              ]
+            }},"#,
+            spec.id
+        )
+    } else if spec.config {
         r#""config": {
           "schema_version": 1,
           "fields": [
             { "id": "mode", "label": "Mode", "type": "string", "required": false, "restart": "none" }
           ]
         },"#
+            .to_owned()
     } else {
-        ""
+        String::new()
     };
     format!(
         r#"{{

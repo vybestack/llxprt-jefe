@@ -92,6 +92,9 @@ pub mod startup_screens;
 /// (issue #704).
 #[path = "startup_selection.rs"]
 pub mod startup_selection;
+/// Required-provider startup transaction (issue #704, slice S2).
+#[path = "startup_transaction.rs"]
+pub mod startup_transaction;
 pub mod state;
 /// Shared nine-level agent status precedence (extracted from preview_view, #626).
 pub mod status_precedence;

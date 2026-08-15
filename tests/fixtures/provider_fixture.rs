@@ -67,11 +67,24 @@
 //!   lifecycle-failure evidence while still being killed/reaped.
 //! - `persistent-escape-child`: a lingering descendant spawned by
 //!   `persistent-descendant-hang` (Unix only).
+//!
+//! Test-only sidecar control: the product composition spawns providers with no
+//! argv, so a staged copy of this fixture selects its behavior from a
+//! `<executable>.control` file next to the copied executable — one
+//! `key=value` line per setting (`mode`, `record_dir`, `spawn_marker`). The
+//! sidecar is consulted only when argv supplies no mode, so every test that
+//! drives the fixture through explicit argv (all of issue #390) is unaffected.
+//! `spawn_marker` names a file touched the instant the fixture starts: the
+//! fail-if-spawned trap for providers the host must never start.
+
+#[path = "provider_fixture_control.rs"]
+mod control;
 
 use std::io::Write;
 use std::process::ExitCode;
 use std::process::Stdio;
 
+use control::resolve_invocation;
 use serde_json::Value;
 
 fn main() -> ExitCode {
@@ -82,10 +95,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), u8> {
-    let mode = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "happy".to_owned());
-    let record_dir = std::env::args().nth(2);
+    let (mode, record_dir) = resolve_invocation();
 
     // A hanging descendant that keeps the inherited pipes open. Spawned by the
     // descendant-hang mode; it never speaks the protocol.
@@ -108,7 +118,7 @@ fn run() -> Result<(), u8> {
     // candidate handshakes only to `ready` and then waits for `shutdown`; it
     // never reads an `invoke-action`.
     if mode.starts_with("persistent-") {
-        return run_persistent(&mode, &hello, generation);
+        return run_persistent(&mode, &hello, generation, record_dir.as_deref());
     }
 
     if mode == "generation-drift" {
@@ -561,15 +571,21 @@ fn record_observations(dir: Option<&str>, configure_line: &str) {
 // ---- Persistent candidate lifecycle (issue #390 CW-10, Slice C2)
 
 /// The persistent candidate handshake. It reaches `ready`, records its plugin
-/// id into a shared startup-sequence file (when argv[2] is a directory) so the
-/// ordered-startup test can observe the deterministic plugin-id start order,
-/// then enters the post-ready loop: it reads `invoke-action` (emitting progress
-/// and a terminal outcome), `cancel` (recording receipt), and `shutdown`
-/// (acknowledging and exiting). Failure modes hang or exit at the named
-/// handshake phase before reaching the post-ready loop.
-fn run_persistent(mode: &str, hello: &str, generation: u64) -> Result<(), u8> {
+/// id into a shared startup-sequence file (when a record directory is known,
+/// from argv or the control sidecar) so the ordered-startup test can observe
+/// the deterministic plugin-id start order, then enters the post-ready loop:
+/// it reads `invoke-action` (emitting progress and a terminal outcome),
+/// `cancel` (recording receipt), and `shutdown` (acknowledging and exiting).
+/// Failure modes hang or exit at the named handshake phase before reaching
+/// the post-ready loop.
+fn run_persistent(
+    mode: &str,
+    hello: &str,
+    generation: u64,
+    record_dir: Option<&str>,
+) -> Result<(), u8> {
     let plugin_id = parse_plugin_id(hello);
-    if let Some(dir) = std::env::args().nth(2).as_deref() {
+    if let Some(dir) = record_dir {
         append_startup_sequence(dir, &plugin_id);
         write_pid_file(dir, &plugin_id);
     }
@@ -632,23 +648,27 @@ fn run_persistent(mode: &str, hello: &str, generation: u64) -> Result<(), u8> {
         std::process::exit(0);
     }
 
-    persistent_ready_loop(mode, generation, &plugin_id)
+    persistent_ready_loop(mode, generation, &plugin_id, record_dir)
 }
 
 /// Read requests after a persistent candidate reaches Ready.
-fn persistent_ready_loop(mode: &str, generation: u64, plugin_id: &str) -> Result<(), u8> {
-    let record_dir = std::env::args().nth(2);
+fn persistent_ready_loop(
+    mode: &str,
+    generation: u64,
+    plugin_id: &str,
+    record_dir: Option<&str>,
+) -> Result<(), u8> {
     if mode == "persistent-descendant-hang" {
-        spawn_escaping_descendant(record_dir.as_deref(), plugin_id);
+        spawn_escaping_descendant(record_dir, plugin_id);
     }
     loop {
         let line = next_line()?;
         match frame_type(&line).as_deref() {
             Some("invoke-action") => {
-                emit_persistent_invocation(mode, generation, record_dir.as_deref(), plugin_id);
+                emit_persistent_invocation(mode, generation, record_dir, plugin_id);
             }
             Some("cancel") => {
-                record_cancel_received(record_dir.as_deref(), plugin_id);
+                record_cancel_received(record_dir, plugin_id);
                 if mode == "persistent-cancel-then-terminal" {
                     emit(&frame(
                         "outcome",

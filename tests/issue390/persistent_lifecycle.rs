@@ -434,7 +434,7 @@ fn cw10_03_duplicate_candidate_plugin_ids_are_rejected_before_any_spawn() {
                 "persistent-ready",
                 vec![Capability::Actions],
             ),
-            scene.candidate(
+            scene.candidate_with_secret(
                 "vendor.alpha",
                 "persistent-ready",
                 vec![Capability::Actions],

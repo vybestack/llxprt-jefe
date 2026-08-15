@@ -27,12 +27,15 @@ use std::sync::mpsc;
 
 use crate::domain::{CanonicalSemver, Id};
 
-use super::candidate::{StartOutcome, start_one};
+use super::candidate::{StartOutcome, start_prepared};
 use super::drains::{StderrDrain, StdoutDrain, StdoutEvent, final_stdout_drain};
 use super::driver;
 use super::dto::{Capability, ConfigurePayload, ShutdownReason};
 use super::encode::encode_shutdown;
-use super::environment::{HostEnv, ProviderEnvironment, Redactor};
+use super::environment::{
+    EnvironmentError, HostEnv, ProcessEnv, ProviderEnvironment, Redactor, build_process_env,
+    resolve_configure_secrets,
+};
 use super::error;
 use super::identifiers::RequestId;
 use super::process_tree::ProviderProcess;
@@ -81,6 +84,75 @@ pub struct PersistentCandidate {
     pub configure: ConfigurePayload,
     /// Capabilities the manifest declares this provider may report at `ready`.
     pub declared_capabilities: Vec<Capability>,
+}
+
+/// One candidate's fully resolved launch inputs: the contained process
+/// environment, the `Configure` payload with every secret merged in, and the
+/// redactor scrubbed against those secret values (issue #704 S2).
+///
+/// Built once, before any provider spawns, by
+/// [`prepare_candidate_environment`]; the same values drive spawn and
+/// handshake, so a mutable host input resolved during preparation is never
+/// read a second time.
+pub(crate) struct PreparedEnvironment {
+    /// The contained environment the provider command is spawned with.
+    pub(crate) env: ProcessEnv,
+    /// The `Configure` payload with resolved secrets merged in.
+    pub(crate) configure: ConfigurePayload,
+    /// Scrubs every resolved secret value out of observation surfaces.
+    pub(crate) redactor: Redactor,
+}
+
+/// Resolve one candidate's contained environment and `Configure` secrets.
+///
+/// This is the single preparation authority shared by preflight and startup:
+/// it builds the empty-based contained environment, resolves every declared
+/// secret source against the host environment exactly once, rejects
+/// caller-supplied `Configure` secrets, and returns the redactor covering
+/// every resolved value. It reads, but never mutates, the host environment
+/// and spawns nothing.
+///
+/// # Errors
+///
+/// Returns [`EnvironmentError::UnresolvedSecret`] when a declared secret
+/// source is absent from the host environment, or
+/// [`EnvironmentError::UndeclaredConfigureSecret`] when the caller supplied a
+/// `Configure` secret the manifest did not declare. No secret value is ever
+/// carried in an error.
+pub(crate) fn prepare_candidate_environment<E: HostEnv>(
+    candidate: &PersistentCandidate,
+    host_env: &E,
+) -> Result<PreparedEnvironment, EnvironmentError> {
+    let env = build_process_env(
+        &candidate.environment,
+        &candidate.home,
+        &candidate.tmpdir,
+        &candidate.locale,
+        host_env,
+    )?;
+    let secrets = resolve_configure_secrets(&candidate.environment, host_env)?;
+    reject_caller_secrets(&candidate.configure)?;
+    let mut configure = candidate.configure.clone();
+    for (binding, value) in secrets {
+        configure.secrets.insert(binding, value);
+    }
+    let redactor = env.redactor();
+    Ok(PreparedEnvironment {
+        env,
+        configure,
+        redactor,
+    })
+}
+
+/// The supervisor is the sole `Configure`-secret resolver: reject any
+/// caller-supplied secret.
+fn reject_caller_secrets(configure: &ConfigurePayload) -> Result<(), EnvironmentError> {
+    if let Some((binding, _)) = configure.secrets.first_key_value() {
+        return Err(EnvironmentError::UndeclaredConfigureSecret {
+            binding: binding.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// The atomic candidate startup boundary.
@@ -305,12 +377,15 @@ pub struct CandidateShutdown {
 
 /// Start every persistent candidate in deterministic plugin-id order.
 ///
-/// Each candidate performs `hello`/`hello-ack`/`configure`/`ready` with
-/// per-stage handshake bounds, and its `ready` capabilities must be a subset of
-/// the manifest-declared capabilities. Every required candidate must reach
-/// `ready` before one atomic publication. On any failure, every previously
-/// started and the failing candidate is stopped/reaped and no publication is
-/// returned. There is no auto-restart.
+/// Every candidate's environment and `Configure` secrets are resolved first,
+/// in plugin-id order, before any process spawns, so a resolution defect in
+/// any candidate prevents every spawn. Each candidate then performs
+/// `hello`/`hello-ack`/`configure`/`ready` with per-stage handshake bounds,
+/// and its `ready` capabilities must be a subset of the manifest-declared
+/// capabilities. Every required candidate must reach `ready` before one
+/// atomic publication. On any failure, every previously started and the
+/// failing candidate is stopped/reaped and no publication is returned. There
+/// is no auto-restart.
 ///
 /// Duplicate plugin ids are rejected before any spawn.
 pub fn run_persistent_startup<E: HostEnv>(
@@ -318,17 +393,67 @@ pub fn run_persistent_startup<E: HostEnv>(
     bounds: &SupervisorBounds,
     host_env: &E,
 ) -> PersistentStartupResult {
-    if let Some(plugin_id) = duplicate_plugin_id(&startup.candidates) {
+    if let Some(plugin_id) = duplicate_plugin_id(startup.candidates.iter()) {
         return PersistentStartupResult::Failed(PersistentStartupFailure {
             failure: StartupFailure::DuplicatePluginId { plugin_id },
             rollback: Vec::new(),
         });
     }
-    let order = startup_order(&startup.candidates);
+    match prepare_pairs(&startup.candidates, host_env) {
+        Ok(pairs) => run_prepared_startup(pairs, bounds),
+        Err(failure) => PersistentStartupResult::Failed(failure),
+    }
+}
+
+/// Resolve every candidate's launch inputs in deterministic plugin-id order,
+/// before any spawn. Returns candidate/prepared pairs in plugin-id order.
+fn prepare_pairs<E: HostEnv>(
+    candidates: &[PersistentCandidate],
+    host_env: &E,
+) -> Result<Vec<(PersistentCandidate, PreparedEnvironment)>, PersistentStartupFailure> {
+    let mut pairs = Vec::with_capacity(candidates.len());
+    for index in startup_order(candidates) {
+        match prepare_candidate_environment(&candidates[index], host_env) {
+            Ok(environment) => pairs.push((candidates[index].clone(), environment)),
+            Err(error) => {
+                return Err(PersistentStartupFailure {
+                    failure: StartupFailure::Candidate(CandidateFailure {
+                        plugin_id: candidates[index].plugin_id.clone(),
+                        phase: PersistentPhase::Spawn,
+                        failure: SupervisorFailure::Environment(error),
+                    }),
+                    rollback: Vec::new(),
+                });
+            }
+        }
+    }
+    Ok(pairs)
+}
+
+/// Start every already-prepared candidate in deterministic plugin-id order
+/// and publish atomically (issue #704 S2).
+///
+/// Each pair carries the candidate and its [`PreparedEnvironment`] resolved
+/// exactly once; spawn consumes the prepared values and never re-reads a
+/// mutable host input. Duplicate plugin ids are rejected before any spawn.
+pub(crate) fn run_prepared_startup(
+    pairs: Vec<(PersistentCandidate, PreparedEnvironment)>,
+    bounds: &SupervisorBounds,
+) -> PersistentStartupResult {
+    let candidates: Vec<&PersistentCandidate> =
+        pairs.iter().map(|(candidate, _)| candidate).collect();
+    if let Some(plugin_id) = duplicate_plugin_id(candidates) {
+        return PersistentStartupResult::Failed(PersistentStartupFailure {
+            failure: StartupFailure::DuplicatePluginId { plugin_id },
+            rollback: Vec::new(),
+        });
+    }
+    let mut ordered = pairs;
+    ordered.sort_by(|left, right| left.0.plugin_id.as_str().cmp(right.0.plugin_id.as_str()));
     let mut owned: Vec<OwnedCandidate> = Vec::new();
     let mut ready: Vec<ReadyCandidate> = Vec::new();
-    for index in order {
-        match start_one(&startup.candidates[index], bounds, host_env) {
+    for (candidate, environment) in ordered {
+        match start_prepared(&candidate, environment, bounds) {
             StartOutcome::Started(candidate, publication) => {
                 owned.push(*candidate);
                 ready.push(publication);
@@ -387,7 +512,9 @@ fn publish(
 // ---------------------------------------------------------------------------
 
 /// The first repeated plugin id, if any. Checked before any spawn.
-pub(super) fn duplicate_plugin_id(candidates: &[PersistentCandidate]) -> Option<Id> {
+pub(super) fn duplicate_plugin_id<'a>(
+    candidates: impl IntoIterator<Item = &'a PersistentCandidate>,
+) -> Option<Id> {
     let mut seen: BTreeSet<Id> = BTreeSet::new();
     for candidate in candidates {
         if !seen.insert(candidate.plugin_id.clone()) {

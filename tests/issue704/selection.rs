@@ -6,8 +6,8 @@
 //! outcome is observed exactly as a consumer will see it.
 
 use super::support::{
-    PackageSpec, config_root, host_binaries, plugins_root, publish_settings, resolve_paths,
-    scan_roots, selected_owner, selection_toml, stage, stage_config,
+    PackageSpec, config_root, host_binaries, plugins_root, provider_relative, publish_settings,
+    resolve_paths, scan_roots, selected_owner, selection_toml, stage, stage_config,
 };
 use jefe::persistence::plugin_inventory::{MANIFEST_FILE_NAME, PluginInventory, UnavailableReason};
 use jefe::startup_selection::SelectionRefused;
@@ -50,7 +50,7 @@ fn an_enabled_pin_selects_exactly_that_installed_version() {
     assert!(
         descriptor
             .binary
-            .ends_with("vendor.pinned/1.0.0/bin/provider"),
+            .ends_with(format!("vendor.pinned/1.0.0/{}", provider_relative())),
         "composition must use only the exact selected package, got {}",
         descriptor.binary.display()
     );
