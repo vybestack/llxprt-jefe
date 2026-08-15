@@ -47,6 +47,12 @@
       "timeout_ms": 15000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Code Puppy  Installed, enabled",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "n",
       "modifiers": ["shift"]
@@ -58,9 +64,16 @@
       "timeout_ms": 15000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default YOLO     [x]",
+      "timeout_ms": 15000
+    },
+    {
       "op": "assert-frame",
       "contains": [
-        "Default Mode     [--yolo]"
+        "Default Agent    [core.code-puppy]",
+        "Default YOLO     [x]"
       ],
       "absent": []
     },
@@ -302,6 +315,11 @@
     {
       "op": "key",
       "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
       "modifiers": []
     },
     {

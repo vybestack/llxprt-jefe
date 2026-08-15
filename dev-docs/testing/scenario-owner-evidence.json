@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "0d5c7d5fe87a294f8a7bc3c830ea048ccb2f615a81cec8eb22ccef3d61f98bc5",
+  "scenario_manifest_sha256": "148e454065bed5af1676a63bcea7fdffdf4d6ee4a7bf00301ec6e0d409a64a01",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -1327,7 +1327,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/transient-agent-options.json",
-      "sha256": "50fdbf70e6d9184c37c385a9e4c9a0c23d6b0994d856b745b51fa404e2f76e68",
+      "sha256": "5de4c793cfb3e2cdf3d568cae1504d7a582b1e80f5ba1ac88c546628e62709f4",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1935,7 +1935,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "0d5c7d5fe87a294f8a7bc3c830ea048ccb2f615a81cec8eb22ccef3d61f98bc5",
+      "sha256": "148e454065bed5af1676a63bcea7fdffdf4d6ee4a7bf00301ec6e0d409a64a01",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
