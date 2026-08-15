@@ -177,8 +177,8 @@ fn confirm_text(snapshot: &AppState, kind: ConfirmKind) -> (String, String, bool
         ConfirmKind::IssueDirtyCopy => (
             String::from("Working Copy Not Ready"),
             String::from(
-                "The agent working copy is not on the default branch or has uncommitted changes. \
-                 Delete the working copy and re-clone from the configured origin?",
+                "Delete the working copy and re-clone from the configured origin? \
+                 It is dirty or not on the default branch.",
             ),
             false,
         ),
@@ -191,7 +191,7 @@ fn confirm_text(snapshot: &AppState, kind: ConfirmKind) -> (String, String, bool
             (
                 String::from("Wrong Repository"),
                 format!(
-                    "Working copy origin is {actual_repr}, expected {expected}. Replace it with a fresh clone?"
+                    "Replace it with a fresh clone? Working copy origin is {actual_repr}, expected {expected}."
                 ),
                 false,
             )

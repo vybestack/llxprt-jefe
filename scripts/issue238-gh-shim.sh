@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Fail-closed gh shim for issue #238 tmux scenario (pr-review-newest-first).
 #
 # Matches the COMPLETE Bash argv array against explicit exact production
@@ -21,16 +21,6 @@
 # This shim MUST NOT perform any live GitHub request. Test-only fixture seam.
 set -euo pipefail
 
-if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
-    echo "gh shim: Bash 4.3 or newer is required" >&2
-    exit 2
-fi
-
-if ! command -v flock >/dev/null 2>&1; then
-    echo "gh shim: flock is required for audit logging" >&2
-    exit 2
-fi
-
 if [[ -n "${GH_SHIM_AUDIT:-}" ]]; then
     AUDIT_FILE="$GH_SHIM_AUDIT"
 else
@@ -45,20 +35,31 @@ if ! : 2>/dev/null >> "$AUDIT_FILE"; then
 fi
 
 audit_write() {
-    local msg="$1"
-    (
-        flock 9
-        printf '%s\n' "$msg" >> "$AUDIT_FILE"
-    ) 9>"$AUDIT_FILE"
+    local message="$1"
+    local lock="${AUDIT_FILE}.lock"
+    local attempts=0
+    while ! /bin/mkdir "$lock" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if ((attempts >= 100000)); then
+            echo "gh shim: failed to acquire audit lock: $AUDIT_FILE" >&2
+            return 2
+        fi
+    done
+    local status=0
+    printf '%s\n' "$message" >> "$AUDIT_FILE" || status=$?
+    /bin/rmdir "$lock" || status=$?
+    return "$status"
 }
 
 audit_accept() {
     local op="$1"; shift
     audit_write "ACCEPTED $op -- gh $(printf '%q ' "$@")"
+    : > "${AUDIT_FILE}.accepted-${op}"
 }
 
 audit_reject() {
     local reason="$1"; shift
+    : > "${AUDIT_FILE}.rejected"
     audit_write "REJECTED $reason -- gh $(printf '%q ' "$@")"
 }
 

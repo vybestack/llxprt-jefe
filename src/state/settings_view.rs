@@ -481,6 +481,42 @@ pub fn section_rows(state: &SettingsState) -> Vec<SectionRow> {
         .collect()
 }
 
+/// The visible portion of the Settings section navigator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionWindow {
+    /// The section rows to draw.
+    pub rows: Vec<SectionRow>,
+    /// How many section rows sit above the window.
+    pub above: usize,
+    /// How many section rows sit below the window.
+    pub below: usize,
+}
+
+/// Window the section navigator around its selected section.
+#[must_use]
+pub fn section_window(state: &SettingsState, content_rows: usize) -> SectionWindow {
+    let rows = section_rows(state);
+    let selected = rows.iter().position(|row| row.section == state.section);
+    let viewport = ListViewport::uniform(
+        rows.len(),
+        selected,
+        ContentRows::new(content_rows),
+        RowsPerItem::new(1),
+    );
+    let range = viewport.visible_range();
+    let above = range.start;
+    let below = rows.len().saturating_sub(range.end);
+    SectionWindow {
+        rows: rows
+            .into_iter()
+            .skip(range.start)
+            .take(range.len())
+            .collect(),
+        above,
+        below,
+    }
+}
+
 /// The count one section's title carries, when it carries one.
 ///
 /// A count is shown where it is the fact the user is looking for: how many

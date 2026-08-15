@@ -209,6 +209,22 @@ fn the_template_row_shows_the_selected_template_label() {
     );
 }
 
+/// Validation failures remain visible in the full-screen form projection.
+#[test]
+fn validation_error_is_rendered() {
+    let form = NewIssueFormState {
+        error: Some("Issue title cannot be empty".to_string()),
+        ..NewIssueFormState::default()
+    };
+    let rendered = lines(Some(&form));
+    assert!(
+        rendered
+            .iter()
+            .any(|line| line == "Issue title cannot be empty"),
+        "the validation error must remain visible: {rendered:?}"
+    );
+}
+
 /// A5 — rendered rows stay emoji-free ASCII, as the New PR composer does.
 #[test]
 fn the_new_issue_document_is_ascii_only() {

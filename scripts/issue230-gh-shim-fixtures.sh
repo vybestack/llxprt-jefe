@@ -28,14 +28,14 @@ readonly ISSUE230_NUMBER="230"
 
 # The exact GraphQL search-list query body (no cursor — first page).
 # Source: src/github/parse.rs build_issue_search_args, cursor=None branch.
-readonly ISSUE230_SEARCH_QUERY_BODY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }'
+readonly ISSUE230_SEARCH_QUERY_BODY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state stateReason author { login } createdAt updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } issueFieldValues(first: 10) { nodes { __typename ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldSingleSelect { name } } } } } timelineItems(first: 15, itemTypes: [CROSS_REFERENCED_EVENT]) { nodes { ... on CrossReferencedEvent { source { ... on PullRequest { number } } } } } } } pageInfo { hasNextPage endCursor } } }'
 
 # The exact search query string for the default open filter.
-readonly ISSUE230_SEARCH_QUERY_STRING="repo:${ISSUE230_REPO_SLUG} is:issue state:open"
+readonly ISSUE230_SEARCH_QUERY_STRING="repo:${ISSUE230_REPO_SLUG} is:issue state:open sort:updated-desc"
 
 # The exact --json field list for `gh issue view`.
 # Source: src/github/mod.rs get_issue_detail.
-readonly ISSUE230_VIEW_JSON_FIELDS='number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
+readonly ISSUE230_VIEW_JSON_FIELDS='number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
 
 # The exact GraphQL comments query body (no cursor — first page).
 # Source: src/github/mod.rs list_comments, cursor=None branch.

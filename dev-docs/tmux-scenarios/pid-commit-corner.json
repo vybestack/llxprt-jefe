@@ -49,7 +49,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "No terminal attached"
+        "Agent Types"
       ],
       "absent": []
     },

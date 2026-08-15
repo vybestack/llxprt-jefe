@@ -26,11 +26,11 @@ use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_c
 /// (the reducer already surfaces this, but we double-check here to avoid
 /// marking a mutation pending for an invalid submit).
 pub fn handle_new_issue_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    apply_and_persist(app_state, ctx, AppEvent::NewIssueSubmit);
     let Some(params) = resolve_submit_params(app_state) else {
         return;
     };
     if params.title.trim().is_empty() {
-        // Reducer already set the error; nothing to spawn.
         return;
     }
     let mutation_id = begin_mutation(app_state, ctx, params.scope_repo_id.clone());

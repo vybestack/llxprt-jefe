@@ -31,14 +31,13 @@ const MULTIPLEXER_VERBS: [&str; 4] = [
 /// Evidence that the file does not merely mention a verb but actually runs it.
 const SPAWN_MARKERS: [&str; 3] = [".status()", ".output()", ".spawn()"];
 
-/// Evidence that commands are scoped to a private server. `MultiplexerPlan` and
-/// the harness driver both inject `-L`/`-S` themselves, so naming either counts.
-const SCOPING_MARKERS: [&str; 6] = [
+/// Evidence that commands are scoped to a private server. `MultiplexerPlan`
+/// injects `-L`/`-S` itself, so naming the plan also counts.
+const SCOPING_MARKERS: [&str; 5] = [
     "\"-L\"",
     "\"-S\"",
     "MultiplexerPlan",
     "plan.command",
-    "PsmuxDriver",
     "base_args",
 ];
 

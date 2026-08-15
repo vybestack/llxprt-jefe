@@ -34,7 +34,8 @@ pub mod report;
 #[cfg(unix)]
 pub mod runner;
 pub mod semantic;
-pub mod tmux_runner;
+#[cfg(unix)]
+pub mod signal_cleanup;
 pub mod validate;
 #[cfg(unix)]
 pub mod workspace;

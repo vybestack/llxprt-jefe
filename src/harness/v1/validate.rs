@@ -69,17 +69,23 @@ pub fn validate_env_name(field: &str, name: &str) -> Result<(), HarnessError> {
     Ok(())
 }
 
-/// Validate a capture id: 1..=64 bytes of `[A-Za-z0-9._-]`, not `.` or `..`.
-/// Capture names become workspace file names, so the character set is closed.
+/// Whether an identifier is 1..=64 bytes of `[A-Za-z0-9._-]`, excluding
+/// `.` and `..`. Capture and install names share this closed file-name rule.
+#[must_use]
+pub fn is_valid_id(id: &str) -> bool {
+    let valid_chars = id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    !id.is_empty() && id.len() <= 64 && valid_chars && id != "." && id != ".."
+}
+
+/// Validate a capture or install identifier.
 ///
 /// # Errors
 ///
 /// `HAR-E001` on any violation.
 pub fn validate_id(field: &str, id: &str) -> Result<(), HarnessError> {
-    let valid_chars = id
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
-    if id.is_empty() || id.len() > 64 || !valid_chars || id == "." || id == ".." {
+    if !is_valid_id(id) {
         return Err(HarnessError::syntax(format!(
             "{field}: id '{id}' must be 1..=64 chars of [A-Za-z0-9._-] and not '.'/'..'"
         )));

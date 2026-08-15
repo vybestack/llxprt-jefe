@@ -16,6 +16,206 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo-0",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-0/agent-0",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-1",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-1/agent-1",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-2",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-2/agent-2",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-3",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-3/agent-3",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-4",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-4/agent-4",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-5",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-5/agent-5",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-6",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-6/agent-6",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-7",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-7/agent-7",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-8",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-8/agent-8",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-9",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-9/agent-9",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-10",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-10/agent-10",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-11",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-11/agent-11",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-12",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-12/agent-12",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-13",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-13/agent-13",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-14",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-14/agent-14",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-15",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-15/agent-15",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-16",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-16/agent-16",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-17",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-17/agent-17",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-18",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-18/agent-18",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-19",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-19/agent-19",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-20",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-20/agent-20",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-21",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-21/agent-21",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-22",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-22/agent-22",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-23",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-23/agent-23",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-24",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-24/agent-24",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +223,13 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo-0\",\n      \"name\": \"Repository 0\",\n      \"slug\": \"repository-0\",\n      \"base_dir\": \"repo-0\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-1\",\n      \"name\": \"Repository 1\",\n      \"slug\": \"repository-1\",\n      \"base_dir\": \"repo-1\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-2\",\n      \"name\": \"Repository 2\",\n      \"slug\": \"repository-2\",\n      \"base_dir\": \"repo-2\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-3\",\n      \"name\": \"Repository 3\",\n      \"slug\": \"repository-3\",\n      \"base_dir\": \"repo-3\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-4\",\n      \"name\": \"Repository 4\",\n      \"slug\": \"repository-4\",\n      \"base_dir\": \"repo-4\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-5\",\n      \"name\": \"Repository 5\",\n      \"slug\": \"repository-5\",\n      \"base_dir\": \"repo-5\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-6\",\n      \"name\": \"Repository 6\",\n      \"slug\": \"repository-6\",\n      \"base_dir\": \"repo-6\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-7\",\n      \"name\": \"Repository 7\",\n      \"slug\": \"repository-7\",\n      \"base_dir\": \"repo-7\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-8\",\n      \"name\": \"Repository 8\",\n      \"slug\": \"repository-8\",\n      \"base_dir\": \"repo-8\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-9\",\n      \"name\": \"Repository 9\",\n      \"slug\": \"repository-9\",\n      \"base_dir\": \"repo-9\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-10\",\n      \"name\": \"Repository 10\",\n      \"slug\": \"repository-10\",\n      \"base_dir\": \"repo-10\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-11\",\n      \"name\": \"Repository 11\",\n      \"slug\": \"repository-11\",\n      \"base_dir\": \"repo-11\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-12\",\n      \"name\": \"Repository 12\",\n      \"slug\": \"repository-12\",\n      \"base_dir\": \"repo-12\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-13\",\n      \"name\": \"Repository 13\",\n      \"slug\": \"repository-13\",\n      \"base_dir\": \"repo-13\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-14\",\n      \"name\": \"Repository 14\",\n      \"slug\": \"repository-14\",\n      \"base_dir\": \"repo-14\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-15\",\n      \"name\": \"Repository 15\",\n      \"slug\": \"repository-15\",\n      \"base_dir\": \"repo-15\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-16\",\n      \"name\": \"Repository 16\",\n      \"slug\": \"repository-16\",\n      \"base_dir\": \"repo-16\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-17\",\n      \"name\": \"Repository 17\",\n      \"slug\": \"repository-17\",\n      \"base_dir\": \"repo-17\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-18\",\n      \"name\": \"Repository 18\",\n      \"slug\": \"repository-18\",\n      \"base_dir\": \"repo-18\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-19\",\n      \"name\": \"Repository 19\",\n      \"slug\": \"repository-19\",\n      \"base_dir\": \"repo-19\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-20\",\n      \"name\": \"Repository 20\",\n      \"slug\": \"repository-20\",\n      \"base_dir\": \"repo-20\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-21\",\n      \"name\": \"Repository 21\",\n      \"slug\": \"repository-21\",\n      \"base_dir\": \"repo-21\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-22\",\n      \"name\": \"Repository 22\",\n      \"slug\": \"repository-22\",\n      \"base_dir\": \"repo-22\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-23\",\n      \"name\": \"Repository 23\",\n      \"slug\": \"repository-23\",\n      \"base_dir\": \"repo-23\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    },\n    {\n      \"id\": \"repo-24\",\n      \"name\": \"Repository 24\",\n      \"slug\": \"repository-24\",\n      \"base_dir\": \"repo-24\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": [\n        \"agent-0\",\n        \"agent-1\",\n        \"agent-2\",\n        \"agent-3\",\n        \"agent-4\",\n        \"agent-5\",\n        \"agent-6\",\n        \"agent-7\",\n        \"agent-8\",\n        \"agent-9\",\n        \"agent-10\",\n        \"agent-11\",\n        \"agent-12\",\n        \"agent-13\",\n        \"agent-14\",\n        \"agent-15\",\n        \"agent-16\",\n        \"agent-17\",\n        \"agent-18\",\n        \"agent-19\",\n        \"agent-20\",\n        \"agent-21\",\n        \"agent-22\",\n        \"agent-23\",\n        \"agent-24\"\n      ]\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent-0\",\n      \"display_id\": \"agent-0\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 0\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-0/agent-0\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-1\",\n      \"display_id\": \"agent-1\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 1\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-1/agent-1\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-2\",\n      \"display_id\": \"agent-2\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 2\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-2/agent-2\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-3\",\n      \"display_id\": \"agent-3\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 3\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-3/agent-3\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-4\",\n      \"display_id\": \"agent-4\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 4\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-4/agent-4\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-5\",\n      \"display_id\": \"agent-5\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 5\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-5/agent-5\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-6\",\n      \"display_id\": \"agent-6\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 6\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-6/agent-6\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-7\",\n      \"display_id\": \"agent-7\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 7\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-7/agent-7\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-8\",\n      \"display_id\": \"agent-8\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 8\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-8/agent-8\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-9\",\n      \"display_id\": \"agent-9\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 9\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-9/agent-9\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-10\",\n      \"display_id\": \"agent-10\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 10\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-10/agent-10\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-11\",\n      \"display_id\": \"agent-11\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 11\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-11/agent-11\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-12\",\n      \"display_id\": \"agent-12\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 12\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-12/agent-12\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-13\",\n      \"display_id\": \"agent-13\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 13\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-13/agent-13\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-14\",\n      \"display_id\": \"agent-14\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 14\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-14/agent-14\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-15\",\n      \"display_id\": \"agent-15\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 15\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-15/agent-15\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-16\",\n      \"display_id\": \"agent-16\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 16\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-16/agent-16\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-17\",\n      \"display_id\": \"agent-17\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 17\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-17/agent-17\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-18\",\n      \"display_id\": \"agent-18\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 18\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-18/agent-18\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-19\",\n      \"display_id\": \"agent-19\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 19\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-19/agent-19\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-20\",\n      \"display_id\": \"agent-20\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 20\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-20/agent-20\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-21\",\n      \"display_id\": \"agent-21\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 21\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-21/agent-21\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-22\",\n      \"display_id\": \"agent-22\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 22\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-22/agent-22\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-23\",\n      \"display_id\": \"agent-23\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 23\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-23/agent-23\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-24\",\n      \"display_id\": \"agent-24\",\n      \"repository_id\": \"repo-24\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 24\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-24/agent-24\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    }\n  ],\n  \"selected_repository_index\": 24,\n  \"selected_agent_index\": 24,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
         },
         "mode": 384
       }
@@ -79,7 +286,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

@@ -52,17 +52,22 @@ fn new_agent_form(
     let profile = typed_string(&values, "profile");
     let model = typed_string(&values, "model");
     let selector = typed_string(&values, "version_selector");
+    let (code_puppy_version, llxprt_version) = match type_id.as_str() {
+        "core.code-puppy" => (selector, String::new()),
+        "core.llxprt" => (String::new(), selector),
+        _ => (String::new(), String::new()),
+    };
     let yolo = typed_bool(&values, "yolo").unwrap_or(false);
     let fields = AgentFormFields {
         shortcut_slot,
         work_dir: defaults.base_dir,
         profile,
         code_puppy_model: model,
-        code_puppy_version: selector.clone(),
+        code_puppy_version,
         code_puppy_yolo: yolo,
         code_puppy_quick_resume: typed_bool(&values, "interactive").unwrap_or(false).into(),
         agent_type_id: type_id.as_str().to_owned(),
-        llxprt_version: selector,
+        llxprt_version,
         mode: if yolo {
             "--yolo".to_owned()
         } else {

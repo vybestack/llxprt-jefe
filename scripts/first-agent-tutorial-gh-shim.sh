@@ -9,12 +9,12 @@ REPO=vybestack/llxprt-jefe
 ISSUE=352
 PR=353
 
-ISSUE_SEARCH_QUERY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state stateReason author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }'
+ISSUE_SEARCH_QUERY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state stateReason author { login } createdAt updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } issueFieldValues(first: 10) { nodes { __typename ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldSingleSelect { name } } } } } timelineItems(first: 15, itemTypes: [CROSS_REFERENCED_EVENT]) { nodes { ... on CrossReferencedEvent { source { ... on PullRequest { number } } } } } } } pageInfo { hasNextPage endCursor } } }'
 ISSUE_COMMENTS_QUERY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }'
-PR_SEARCH_QUERY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }'
+PR_SEARCH_QUERY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } createdAt updatedAt headRefName headRefOid baseRefName isDraft mergeable reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl startedAt completedAt checkSuite { app { slug } workflowRun { workflow { name } } } } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }'
 PR_COMMENTS_QUERY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } totalCount } } } }'
-PR_THREADS_QUERY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first) { nodes { id isResolved isOutdated path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body pullRequestReview { id } } } } pageInfo { hasNextPage endCursor } } } } }'
-ISSUE_VIEW_FIELDS='number,title,state,state_reason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
+PR_THREADS_QUERY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first) { nodes { id isResolved isOutdated path line diffSide startDiffSide startLine originalLine originalStartLine comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body pullRequestReview { id } } } } pageInfo { hasNextPage endCursor } } } } }'
+ISSUE_VIEW_FIELDS='number,title,state,stateReason,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
 PR_VIEW_FIELDS='number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,headRefOid,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus'
 
 log() {
@@ -23,6 +23,7 @@ log() {
 
 reject() {
     log "REJECTED $*"
+    printf 'rejected\n' > "${TUTORIAL_GH_AUDIT}.rejected"
     printf 'tutorial gh fixture rejected: gh %s\n' "$*" >&2
     exit 1
 }
@@ -39,7 +40,7 @@ EOF
 
 issue_view_json() {
     cat <<'EOF'
-{"number":352,"title":"Turn the getting-started guide into a filled-in visual happy path","state":"OPEN","state_reason":null,"author":{"login":"tutorial-user"},"createdAt":"2026-07-17T16:22:00Z","updatedAt":"2026-07-17T16:22:26Z","labels":[{"name":"documentation"},{"name":"enhancement"}],"assignees":[],"milestone":null,"body":"Rewrite the getting-started guide as one filled-in visual happy path from repository setup through merge.","url":"https://github.com/vybestack/llxprt-jefe/issues/352","comments":[],"id":"I_TUTORIAL352"}
+{"number":352,"title":"Turn the getting-started guide into a filled-in visual happy path","state":"OPEN","stateReason":null,"author":{"login":"tutorial-user"},"createdAt":"2026-07-17T16:22:00Z","updatedAt":"2026-07-17T16:22:26Z","labels":[{"name":"documentation"},{"name":"enhancement"}],"assignees":[],"milestone":null,"body":"Rewrite the getting-started guide as one filled-in visual happy path from repository setup through merge.","url":"https://github.com/vybestack/llxprt-jefe/issues/352","comments":[],"id":"I_TUTORIAL352"}
 EOF
 }
 
@@ -68,7 +69,7 @@ pr_threads_json() {
 if [ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ]; then
     log 'ACCEPTED auth-status'
     printf '%s\n' 'github.com' '  Logged in to github.com account tutorial-user'
-elif [ "$#" -eq 8 ] && [ "$1" = api ] && [ "$2" = graphql ] && [ "$3" = -f ] && [ "$4" = "query=$ISSUE_SEARCH_QUERY" ] && [ "$5" = -F ] && [ "$6" = "searchQuery=repo:$REPO is:issue state:open" ] && [ "$7" = -F ] && [ "$8" = first=30 ]; then
+elif [ "$#" -eq 10 ] && [ "$1" = api ] && [ "$2" = graphql ] && [ "$3" = -H ] && [ "$4" = 'GraphQL-Features: issue_fields' ] && [ "$5" = -f ] && [ "$6" = "query=$ISSUE_SEARCH_QUERY" ] && [ "$7" = -F ] && [ "$8" = "searchQuery=repo:$REPO is:issue state:open sort:updated-desc" ] && [ "$9" = -F ] && [ "${10}" = first=30 ]; then
     log 'ACCEPTED issue-search'
     issue_search_json
 elif [ "$#" -eq 7 ] && [ "$1" = issue ] && [ "$2" = view ] && [ "$3" = --repo ] && [ "$4" = "$REPO" ] && [ "$5" = "$ISSUE" ] && [ "$6" = --json ] && [ "$7" = "$ISSUE_VIEW_FIELDS" ]; then

@@ -16,6 +16,18 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "work/worktree",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -25,9 +37,28 @@
           "utf8": "settings_schema = 2\n"
         },
         "mode": 384
+      },
+      {
+        "path": "work/worktree/README.md",
+        "content": {
+          "utf8": "# issue 621 fixture\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"issue621-repo\",\n      \"name\": \"list-send-fixture\",\n      \"slug\": \"list-send-fixture\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"owner/list-send-fixture\",\n      \"remote\": {\n        \"enabled\": true,\n        \"login_user\": \"fixture-user\",\n        \"host\": \"fixture-host\",\n        \"run_as_user\": \"\",\n        \"setup_env_default\": false\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": [\n        \"issue621-agent\"\n      ]\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"issue621-agent\",\n      \"display_id\": \"issue621-agent\",\n      \"repository_id\": \"issue621-repo\",\n      \"shortcut_slot\": null,\n      \"name\": \"fixture-agent\",\n      \"description\": \"\",\n      \"work_dir\": \"worktree\",\n      \"profile\": \"list-send\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Queued\",\n      \"runtime_binding\": null\n    }\n  ],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
       }
     ],
-    "env": []
+    "env": [
+      {
+        "name": "JEFE_GH_AUDIT",
+        "value": "${workspace}/private/gh-audit.log"
+      }
+    ]
   },
   "steps": [
     {
@@ -117,6 +148,40 @@
       "modifiers": [
         "control"
       ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log",
+        "content": {
+          "utf8": "ACCEPTED issue-search\nACCEPTED issue-view-detail\nACCEPTED issue-comments\n"
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-issue-search"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-issue-view-detail"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-issue-comments"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "finish"

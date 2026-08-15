@@ -58,6 +58,9 @@ pub(super) fn mark_agent_runtime_attached(
         && let Some(binding) = agent.runtime_binding.as_mut()
     {
         binding.attached = attached;
+        if attached {
+            agent.status = AgentStatus::Running;
+        }
     }
 }
 

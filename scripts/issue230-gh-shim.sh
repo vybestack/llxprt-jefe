@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Fail-closed gh shim for issue #230 tmux scenario.
 #
 # Matches the COMPLETE Bash argv array against explicit exact production
@@ -24,17 +24,7 @@
 # the real gh binary. It is a test-only fixture seam.
 set -euo pipefail
 
-if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
-    echo "gh shim: Bash 4.3 or newer is required" >&2
-    exit 2
-fi
-
-if ! command -v flock >/dev/null 2>&1; then
-    echo "gh shim: flock is required for audit logging" >&2
-    exit 2
-fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
 FIXTURES="$SCRIPT_DIR/issue230-gh-shim-fixtures.sh"
 if [[ ! -r "$FIXTURES" ]]; then
     echo "gh shim: shared fixtures file is missing or not readable: $FIXTURES" >&2
@@ -74,42 +64,41 @@ cleanup_shim_audit() {
 }
 trap cleanup_shim_audit EXIT
 
-audit_timestamp() {
-    date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo "unknown"
-}
-
 # ─── Audit helpers ───────────────────────────────────────────────────────
+#
+# Exact argv matching below is the fail-closed boundary. The audit records
+# only stable operation labels so the schema can assert the complete sequence.
 
 audit_accept() {
     local op="$1"; shift
-    audit_write "[$(audit_timestamp)] ACCEPTED $op -- gh $(shell_quote "$@")"
+    if [[ "$op" == "auth-status" ]]; then
+        : > "${AUDIT_FILE}.auth-status"
+        return
+    fi
+    audit_write "ACCEPTED $op"
 }
 
 audit_reject() {
     local reason="$1"; shift
-    audit_write "[$(audit_timestamp)] REJECTED $reason -- gh $(shell_quote "$@")"
+    : > "${AUDIT_FILE}.rejected"
+    audit_write "REJECTED $reason"
 }
 
 audit_write() {
     local record="$1"
-    local audit_fd
-    if ! exec {audit_fd}>> "$AUDIT_FILE"; then
-        echo "gh shim: audit file became unwritable: $AUDIT_FILE" >&2
-        return 2
-    fi
-    if ! flock -w 5 -x "$audit_fd"; then
-        echo "gh shim: timed out or failed while locking audit file: $AUDIT_FILE" >&2
-        exec {audit_fd}>&-
-        return 2
-    fi
-    if ! printf '%s\n' "$record" >&"$audit_fd"; then
-        echo "gh shim: failed while writing audit file: $AUDIT_FILE" >&2
-        flock -u "$audit_fd" || true
-        exec {audit_fd}>&-
-        return 2
-    fi
-    flock -u "$audit_fd" || true
-    exec {audit_fd}>&-
+    local lock="${AUDIT_FILE}.lock"
+    local attempts=0
+    while ! /bin/mkdir "$lock" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if ((attempts >= 100000)); then
+            echo "gh shim: failed to acquire audit lock: $AUDIT_FILE" >&2
+            return 2
+        fi
+    done
+    local status=0
+    printf '%s\n' "$record" >> "$AUDIT_FILE" || status=$?
+    /bin/rmdir "$lock" || status=$?
+    return "$status"
 }
 
 shell_quote() {
@@ -143,16 +132,19 @@ reject() {
 # ─── Exact argv comparison ───────────────────────────────────────────────
 
 argv_eq() {
-    local -n _expected_ref="$1"
-    local -n _actual_ref="$2"
-    local expected_len=${#_expected_ref[@]}
-    local actual_len=${#_actual_ref[@]}
+    local expected_name="$1"
+    local actual_name="$2"
+    local expected_len actual_len expected_value actual_value
+    eval 'expected_len=${#'"$expected_name"'[@]}'
+    eval 'actual_len=${#'"$actual_name"'[@]}'
     if [[ $expected_len -ne $actual_len ]]; then
         return 1
     fi
     local i
     for ((i = 0; i < expected_len; i++)); do
-        if [[ "${_expected_ref[i]}" != "${_actual_ref[i]}" ]]; then
+        eval 'expected_value="${'"$expected_name"'[i]}"'
+        eval 'actual_value="${'"$actual_name"'[i]}"'
+        if [[ "$expected_value" != "$actual_value" ]]; then
             return 1
         fi
     done
@@ -177,6 +169,8 @@ build_search_argv() {
     SEARCH_ARGV=(
         "api"
         "graphql"
+        "-H"
+        "GraphQL-Features: issue_fields"
         "-f"
         "query=${ISSUE230_SEARCH_QUERY_BODY}"
         "-F"

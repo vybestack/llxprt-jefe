@@ -8,7 +8,7 @@
 //! same cleanup, retains the workspace and a bounded report, and permits a
 //! fresh run.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -22,10 +22,19 @@ use super::interp;
 use super::keys;
 use super::pty::{POLL_INTERVAL, ProcessExit, PtySession};
 use super::report::{AppExit, CaptureReport, Frame, Report, StepResult};
+use super::signal_cleanup::SignalCleanupGuard;
 use super::workspace::Workspace;
 
 /// Resize acknowledgement shares the wait contract's upper bound.
 const RESIZE_ACK_TIMEOUT: Duration = Duration::from_secs(10);
+/// Bound how long ordinary input waits for the application to emit a redraw.
+const INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// Keep adjacent escape-key steps inside terminal escape-sequence windows.
+const ESCAPE_INPUT_ACK_TIMEOUT: Duration = Duration::from_millis(25);
+/// Let the PTY reader drain output emitted immediately before child exit.
+const EXIT_OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+/// Require fresh PTY output to settle before injecting the next schema step.
+const INPUT_QUIET_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The outcome of a run: the report plus the overall error, if any.
 #[derive(Debug)]
@@ -45,29 +54,39 @@ pub struct RunnerConfig {
     pub installs: Vec<(String, PathBuf)>,
 }
 
+impl RunnerConfig {
+    fn validate(&self) -> Result<(), HarnessError> {
+        let mut names = BTreeSet::new();
+        for (name, _) in &self.installs {
+            super::validate::validate_id("runner.install.name", name)?;
+            if !names.insert(name) {
+                return Err(HarnessError::syntax(format!(
+                    "runner.install.name: duplicate id '{name}'"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Execute a validated scenario. Always returns a report; `error` carries
 /// the first failure and its exit mapping.
 #[must_use]
 pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
+    if let Err(err) = config.validate() {
+        return failed_outcome(scenario, "", err);
+    }
+    let signal_cleanup = match SignalCleanupGuard::new() {
+        Ok(guard) => guard,
+        Err(err) => return failed_outcome(scenario, "", err),
+    };
     let mut workspace = match Workspace::allocate() {
         Ok(workspace) => workspace,
-        Err(err) => {
-            let mut report = Report::new(&scenario.name, "");
-            report.status = "failed".to_string();
-            return RunOutcome {
-                report,
-                error: Some(err),
-            };
-        }
+        Err(err) => return failed_outcome(scenario, "", err),
     };
     let root = workspace.root().to_string_lossy().into_owned();
     if let Err(err) = workspace.materialize(&scenario.workspace) {
-        let mut report = Report::new(&scenario.name, &root);
-        report.status = "failed".to_string();
-        return RunOutcome {
-            report,
-            error: Some(err),
-        };
+        return failed_outcome(scenario, &root, err);
     }
     let mut state = RunState {
         scenario,
@@ -75,8 +94,11 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
         workspace,
         session: None,
         app_socket: None,
+        app_environment: None,
+        app_exit_observed_at: None,
         capture_names: Vec::new(),
         report: Report::new(&scenario.name, &root),
+        signal_cleanup,
     };
     let run_error = state.install_binaries().err().or_else(|| state.execute());
     let capture_error = state.load_capture_reports();
@@ -98,6 +120,15 @@ pub fn run(scenario: &ScenarioV1, config: &RunnerConfig) -> RunOutcome {
     }
 }
 
+fn failed_outcome(scenario: &ScenarioV1, workspace: &str, error: HarnessError) -> RunOutcome {
+    let mut report = Report::new(&scenario.name, workspace);
+    report.status = "failed".to_string();
+    RunOutcome {
+        report,
+        error: Some(error),
+    }
+}
+
 struct RunState<'a> {
     scenario: &'a ScenarioV1,
     config: &'a RunnerConfig,
@@ -106,8 +137,13 @@ struct RunState<'a> {
     /// Multiplexer socket the application under test owns, when this run is
     /// responsible for reaping it (issue #586).
     app_socket: Option<std::path::PathBuf>,
+    /// Exact hermetic launch environment used again for owned-server cleanup.
+    app_environment: Option<BTreeMap<String, String>>,
+    /// First observation of direct-child exit while the PTY reader drains.
+    app_exit_observed_at: Option<Instant>,
     capture_names: Vec<String>,
     report: Report,
+    signal_cleanup: SignalCleanupGuard,
 }
 
 impl RunState<'_> {
@@ -129,7 +165,16 @@ impl RunState<'_> {
 
     fn execute(&mut self) -> Option<HarnessError> {
         for (index, step) in self.scenario.steps.iter().enumerate() {
-            let result = self.execute_step(step);
+            let next_step = self.scenario.steps.get(index + 1);
+            let mut result = match self.signal_cleanup.interruption() {
+                Some(err) => Err(err),
+                None => self.execute_step(step, next_step),
+            };
+            if result.is_ok()
+                && let Some(err) = self.signal_cleanup.interruption()
+            {
+                result = Err(err);
+            }
             self.report.steps.push(StepResult {
                 index,
                 op: step.op_name().to_string(),
@@ -138,13 +183,15 @@ impl RunState<'_> {
             });
             if let Err(err) = result {
                 self.cleanup_after_failure();
-                self.reap_app_socket();
+                if let Err(cleanup) = self.reap_app_socket() {
+                    self.record_cleanup_error(&cleanup);
+                }
                 return Some(err);
             }
         }
         // A scenario without an explicit finish still tears down the app.
         if self.session.is_some()
-            && let Err(err) = self.finish()
+            && let Err(err) = self.finish(None)
         {
             self.report.steps.push(StepResult {
                 index: self.scenario.steps.len(),
@@ -157,7 +204,7 @@ impl RunState<'_> {
         None
     }
 
-    fn execute_step(&mut self, step: &Step) -> Result<(), HarnessError> {
+    fn execute_step(&mut self, step: &Step, next_step: Option<&Step>) -> Result<(), HarnessError> {
         match step {
             Step::Write { file } => self.workspace.write_file(file),
             Step::Mkdir { dir } => self.workspace.mkdir(dir),
@@ -178,8 +225,15 @@ impl RunState<'_> {
                 Ok(())
             }
             Step::Launch { argv, env, cwd } => self.launch(argv, env, cwd),
-            Step::Key { key, modifiers } => self.send_key(key, modifiers),
-            Step::Text { text } => self.session_mut()?.write_bytes(text.as_bytes()),
+            Step::Key { key, modifiers } => {
+                let escape_sequence_continues = key == "escape"
+                    && matches!(
+                        next_step,
+                        Some(Step::Key { key, .. }) if key == "escape"
+                    );
+                self.send_key(key, modifiers, escape_sequence_continues)
+            }
+            Step::Text { text } => self.send_text(text),
             Step::Resize { size } => self.resize(*size),
             Step::Wait {
                 source,
@@ -190,7 +244,7 @@ impl RunState<'_> {
             Step::AssertCapture { capture } => self.assert_capture(capture),
             Step::AssertFile { file } => self.assert_file(file),
             Step::Restart => self.restart(),
-            Step::Finish => self.finish(),
+            Step::Finish { expected_exit_code } => self.finish(*expected_exit_code),
         }
     }
 
@@ -198,6 +252,26 @@ impl RunState<'_> {
         self.session
             .as_mut()
             .ok_or_else(|| HarnessError::process("no application is running".to_string()))
+    }
+
+    fn unexpected_app_exit(&mut self) -> Option<HarnessError> {
+        let session = self.session.as_mut()?;
+        let exit = session.try_exit()?;
+        let now = Instant::now();
+        let observed_at = *self.app_exit_observed_at.get_or_insert(now);
+        if session.is_alive() && now.duration_since(observed_at) < EXIT_OUTPUT_DRAIN_TIMEOUT {
+            return None;
+        }
+        self.report.app_exit = Some(AppExit {
+            exit_code: exit.exit_code,
+        });
+        let detail = exit.exit_code.map_or_else(
+            || "without an exit code".to_string(),
+            |code| format!("with exit code {code}"),
+        );
+        Some(HarnessError::process(format!(
+            "application exited before scenario finish {detail}"
+        )))
     }
 
     fn launch(
@@ -229,39 +303,121 @@ impl RunState<'_> {
         // Remember the socket now, while the resolved environment is in hand,
         // so teardown can reap it (issue #586).
         self.app_socket = super::app_socket::socket_to_reap(&environment, self.workspace.root());
+        self.app_environment = Some(environment.clone());
         let session =
             PtySession::launch(&resolved, &environment, &cwd_abs, self.scenario.terminal)?;
         self.session = Some(session);
+        self.app_exit_observed_at = None;
         Ok(())
     }
 
-    /// Kill the multiplexer server the application owned, if this run is
-    /// responsible for one.
-    ///
-    /// Best effort by design: the server may already be gone, may never have
-    /// started, or tmux may be absent. None of those is a scenario failure, and
-    /// a teardown that could fail the run would turn a leak into a flake.
-    fn reap_app_socket(&mut self) {
-        let Some(socket) = self.app_socket.take() else {
-            return;
+    /// Kill and verify the multiplexer server this run owns.
+    fn reap_app_socket(&mut self) -> Result<(), HarnessError> {
+        let Some(socket) = self.app_socket.clone() else {
+            return Ok(());
         };
-        let _ = std::process::Command::new("tmux")
+        if !socket.exists() {
+            self.app_socket = None;
+            self.app_environment = None;
+            return Ok(());
+        }
+        let tmux = self.workspace.root().join("bin/tmux");
+        if !tmux.is_file() {
+            return Err(HarnessError::cleanup(format!(
+                "owned application socket '{}' exists without an installed tmux",
+                socket.display()
+            )));
+        }
+        let environment = self.app_environment.as_ref().ok_or_else(|| {
+            HarnessError::cleanup("owned application server has no launch environment".to_string())
+        })?;
+        let status = std::process::Command::new(&tmux)
             .arg("-S")
             .arg(&socket)
             .arg("kill-server")
+            .env_clear()
+            .envs(environment)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status();
+            .status()
+            .map_err(|err| {
+                HarnessError::cleanup(format!("kill owned application server: {err}"))
+            })?;
+        if status.success() && socket.exists() {
+            std::fs::remove_file(&socket).map_err(|err| {
+                HarnessError::cleanup(format!(
+                    "remove owned application socket '{}': {err}",
+                    socket.display()
+                ))
+            })?;
+        }
+        if !status.success() || socket.exists() {
+            return Err(HarnessError::cleanup(format!(
+                "owned application server cleanup failed for '{}'",
+                socket.display()
+            )));
+        }
+        self.app_socket = None;
+        self.app_environment = None;
+        Ok(())
     }
 
-    fn send_key(&mut self, key: &str, modifiers: &[Modifier]) -> Result<(), HarnessError> {
+    fn send_key(
+        &mut self,
+        key: &str,
+        modifiers: &[Modifier],
+        escape_sequence_continues: bool,
+    ) -> Result<(), HarnessError> {
         let bytes = keys::encode("key", key, modifiers)?;
-        self.session_mut()?.write_bytes(&bytes)
+        let ack_timeout = if escape_sequence_continues {
+            ESCAPE_INPUT_ACK_TIMEOUT
+        } else {
+            INPUT_ACK_TIMEOUT
+        };
+        self.write_input(&bytes, ack_timeout)
+    }
+
+    fn send_text(&mut self, text: &str) -> Result<(), HarnessError> {
+        self.write_input(text.as_bytes(), INPUT_ACK_TIMEOUT)
+    }
+
+    fn write_input(&mut self, bytes: &[u8], ack_timeout: Duration) -> Result<(), HarnessError> {
+        let generation = self.session_mut()?.generation();
+        self.session_mut()?.write_bytes(bytes)?;
+        let deadline = Instant::now() + ack_timeout;
+        let mut observed_generation = generation;
+        let mut last_output = None;
+        loop {
+            if let Some(err) = self.signal_cleanup.interruption() {
+                return Err(err);
+            }
+            let now = Instant::now();
+            let current_generation = self.session_mut()?.generation();
+            if current_generation != observed_generation {
+                observed_generation = current_generation;
+                last_output = Some(now);
+            }
+            if last_output.is_some_and(|last| now.duration_since(last) >= INPUT_QUIET_INTERVAL)
+                || now >= deadline
+            {
+                return Ok(());
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
     }
 
     fn resize(&mut self, size: Size) -> Result<(), HarnessError> {
         let session = self.session_mut()?;
+        if session.size() == size {
+            let frame = Frame {
+                cols: size.cols,
+                rows: size.rows,
+                lines: session.frame_lines()?,
+            };
+            self.report.push_frame(frame);
+            return Ok(());
+        }
         let generation = session.generation();
         session.resize(size)?;
         // Acknowledge only after the app emits fresh output following resize.
@@ -270,6 +426,10 @@ impl RunState<'_> {
         // characters wide.
         let deadline = Instant::now() + RESIZE_ACK_TIMEOUT;
         loop {
+            if let Some(err) = self.signal_cleanup.interruption() {
+                self.record_frame()?;
+                return Err(err);
+            }
             let session = self.session_mut()?;
             let lines = session.frame_lines()?;
             if session.generation() > generation
@@ -283,6 +443,10 @@ impl RunState<'_> {
                 };
                 self.report.push_frame(frame);
                 return Ok(());
+            }
+            if let Some(err) = self.unexpected_app_exit() {
+                self.record_frame()?;
+                return Err(err);
             }
             if Instant::now() >= deadline {
                 return Err(HarnessError::wait_timeout(format!(
@@ -302,6 +466,10 @@ impl RunState<'_> {
     ) -> Result<(), HarnessError> {
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         loop {
+            if let Some(err) = self.signal_cleanup.interruption() {
+                self.record_frame()?;
+                return Err(err);
+            }
             let session = self.session_mut()?;
             let found = match source {
                 WaitSource::Frame => session
@@ -315,6 +483,10 @@ impl RunState<'_> {
             if found {
                 self.record_frame()?;
                 return Ok(());
+            }
+            if let Some(err) = self.unexpected_app_exit() {
+                self.record_frame()?;
+                return Err(err);
             }
             if Instant::now() >= deadline {
                 let timeout = HarnessError::wait_timeout(format!(
@@ -393,6 +565,7 @@ impl RunState<'_> {
             .ok_or_else(|| HarnessError::process("no application to restart".to_string()))?;
         self.stop_session(&mut session)?;
         drop(session);
+        self.reap_app_socket()?;
         let launch = self
             .scenario
             .steps
@@ -406,15 +579,37 @@ impl RunState<'_> {
     }
 
     /// Finish: graceful stop then escalation, always reaping the group.
-    fn finish(&mut self) -> Result<(), HarnessError> {
+    fn finish(&mut self, expected_exit_code: Option<u32>) -> Result<(), HarnessError> {
         let Some(mut session) = self.session.take() else {
-            self.reap_app_socket();
+            self.reap_app_socket()?;
             return Ok(());
         };
         let exit = self.stop_session(&mut session)?;
         self.record_exit(exit);
-        self.reap_app_socket();
-        Ok(())
+        let cleanup = self.reap_app_socket();
+        let exit_failure = match expected_exit_code {
+            Some(expected) if exit.exit_code != Some(expected) => Some(exit.exit_code.map_or_else(
+                || format!("application terminated without expected exit code {expected}"),
+                |code| {
+                    format!(
+                        "application exited with code {code} instead of expected code {expected}"
+                    )
+                },
+            )),
+            None if !exit.harness_signalled => exit
+                .exit_code
+                .filter(|code| *code != 0)
+                .map(|code| format!("application exited with code {code}")),
+            _ => None,
+        };
+        if let Some(message) = exit_failure {
+            let suffix = cleanup
+                .err()
+                .map(|err| format!("; {err}"))
+                .unwrap_or_default();
+            return Err(HarnessError::process(format!("{message}{suffix}")));
+        }
+        cleanup
     }
 
     fn stop_session(&self, session: &mut PtySession) -> Result<ProcessExit, HarnessError> {
@@ -457,6 +652,15 @@ impl RunState<'_> {
                 }
             }
         }
+    }
+
+    fn record_cleanup_error(&mut self, error: &HarnessError) {
+        self.report.steps.push(StepResult {
+            index: self.scenario.steps.len(),
+            op: "cleanup".to_string(),
+            status: "failed".to_string(),
+            error: Some(error.to_string()),
+        });
     }
 
     fn load_capture_reports(&mut self) -> Option<HarnessError> {

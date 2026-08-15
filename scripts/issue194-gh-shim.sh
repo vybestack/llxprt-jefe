@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 AUDIT="${GH_SHIM_AUDIT:?GH_SHIM_AUDIT is required}"
@@ -6,6 +6,7 @@ printf '%s\n' "$*" >> "$AUDIT"
 
 case "$*" in
   "api repos/owner/actions-fixture/actions/runs"\?"page=1&per_page=30")
+    : > "${AUDIT}.accepted-actions-runs-page-1"
     # Deliberately oldest-first API order. Production must sort newest-first
     # (issue #208). total_count > 30 so page-1 reports has_more for load-more.
     cat <<'JSON'
@@ -13,21 +14,25 @@ case "$*" in
 JSON
     ;;
   "api repos/owner/actions-fixture/actions/runs"\?"page=2&per_page=30")
+    : > "${AUDIT}.accepted-actions-runs-page-2"
     cat <<'JSON'
 {"total_count":60,"workflow_runs":[{"id":20800,"name":"CI","display_title":"Interleaved Actions fixture run","head_branch":"issue208-interleaved","head_sha":"mid208","run_number":100,"event":"push","status":"completed","conclusion":"failure","created_at":"2026-07-10T00:00:00Z","updated_at":"2026-07-10T00:01:00Z"}]}
 JSON
     ;;
   "api repos/owner/actions-fixture/actions/workflows --jq .workflows")
+    : > "${AUDIT}.accepted-actions-workflows"
     cat <<'JSON'
 [{"id":194,"name":"CI","path":".github/workflows/ci.yml","state":"active"}]
 JSON
     ;;
   "run view --repo owner/actions-fixture 19401 --json attempt,conclusion,createdAt,databaseId,displayTitle,event,headBranch,headSha,name,number,startedAt,status,updatedAt,url,workflowDatabaseId,workflowName")
+    : > "${AUDIT}.accepted-run-view-19401"
     cat <<'JSON'
 {"databaseId":19401,"name":"Inspectable Actions fixture","headBranch":"issue194","headSha":"abc194","number":194,"event":"push","status":"completed","conclusion":"failure","workflowName":"CI","createdAt":"2026-07-14T00:00:00Z","updatedAt":"2026-07-14T00:01:00Z"}
 JSON
     ;;
   "run view --repo owner/actions-fixture 19401 --json jobs --jq .jobs")
+    : > "${AUDIT}.accepted-run-jobs-19401"
     cat <<'JSON'
 [{"databaseId":19411,"name":"build-linux-with-a-long-job-name","status":"completed","conclusion":"success","steps":[{"name":"Checkout fixture source","status":"completed","conclusion":"success","number":1},{"name":"Compile fixture application","status":"completed","conclusion":"success","number":2}]},{"databaseId":19412,"name":"test-suite-with-a-long-job-name","status":"completed","conclusion":"failure","steps":[{"name":"Run failing fixture tests","status":"completed","conclusion":"failure","number":1}]},{"databaseId":19413,"name":"publish-artifacts","status":"completed","conclusion":"skipped","steps":[]}]
 JSON
@@ -53,6 +58,7 @@ JSON
 JSON
     ;;
   *)
+    : > "${AUDIT}.rejected"
     printf 'REJECTED %s
 ' "$*" >> "$AUDIT"
     printf 'REJECTED unexpected gh argv: ' >&2

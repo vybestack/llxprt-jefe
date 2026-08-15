@@ -9,6 +9,7 @@
 
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -23,6 +24,7 @@ use jefe::harness::v1::redact::Redactor;
 use jefe::harness::v1::run;
 #[cfg(unix)]
 use jefe::harness::v1::runner::RunnerConfig;
+use jefe::harness::v1::validate::is_valid_id;
 
 #[cfg(not(unix))]
 fn main() -> ExitCode {
@@ -58,6 +60,7 @@ fn parse_args(args: &[String]) -> Result<Command, String> {
     let mut scenario: Option<PathBuf> = None;
     let mut shim: Option<PathBuf> = None;
     let mut installs: Vec<(String, PathBuf)> = Vec::new();
+    let mut install_names = BTreeSet::new();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -81,8 +84,13 @@ fn parse_args(args: &[String]) -> Result<Command, String> {
                 let (name, path) = value
                     .split_once('=')
                     .ok_or_else(|| format!("--install expects <name>=<path>, got '{value}'"))?;
-                if name.is_empty() || path.is_empty() {
-                    return Err(format!("--install expects <name>=<path>, got '{value}'"));
+                if !is_valid_id(name) || path.is_empty() {
+                    return Err(format!(
+                        "--install name must be a 1..=64 character identifier of [A-Za-z0-9._-], not '.' or '..': '{name}'"
+                    ));
+                }
+                if !install_names.insert(name.to_string()) {
+                    return Err(format!("duplicate --install name: '{name}'"));
                 }
                 installs.push((name.to_string(), PathBuf::from(path)));
             }
@@ -209,4 +217,41 @@ fn write_stderr(message: &str) -> std::io::Result<()> {
     let mut stderr = std::io::stderr().lock();
     stderr.write_all(message.as_bytes())?;
     stderr.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_args;
+
+    fn parse_error(args: &[&str]) -> String {
+        let owned: Vec<String> = args.iter().map(|value| (*value).to_string()).collect();
+        match parse_args(&owned) {
+            Ok(_) => panic!("arguments must be rejected: {args:?}"),
+            Err(error) => error,
+        }
+    }
+
+    #[test]
+    fn install_names_are_single_safe_identifiers() {
+        let over_limit = "a".repeat(65);
+        for name in [".", "..", "a/b", r"a\b", "/absolute", &over_limit] {
+            let install = format!("{name}=/bin/true");
+            let error = parse_error(&["--install", &install]);
+            assert!(
+                error.contains("--install name"),
+                "unexpected error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn install_names_are_unique() {
+        let error = parse_error(&[
+            "--install",
+            "tool=/bin/true",
+            "--install",
+            "tool=/bin/false",
+        ]);
+        assert_eq!(error, "duplicate --install name: 'tool'");
+    }
 }

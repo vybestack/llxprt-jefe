@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 
 use super::capture::BEHAVIOR_SUFFIX;
-use super::contract::{ScenarioV1, Step};
+use super::contract::{ENV_DIRS, ScenarioV1, Step};
 use super::error::HarnessError;
 use super::limits::{MAX_BYTES, MAX_CAPTURES};
 
@@ -31,6 +31,12 @@ fn validate_workspace(scenario: &ScenarioV1) -> Result<(), HarnessError> {
         .map(|file| file.path.as_str())
         .collect();
     for dir in &scenario.workspace.dirs {
+        if ENV_DIRS.contains(&dir.path.as_str()) {
+            return Err(HarnessError::syntax(format!(
+                "scenario.workspace.dirs: '{}' is a reserved environment directory",
+                dir.path.as_str()
+            )));
+        }
         insert_workspace_path(&mut paths, &file_paths, dir.path.as_str())?;
     }
     for file in &scenario.workspace.files {
@@ -165,7 +171,7 @@ fn check_step(scan: &mut StepScan, index: usize, step: &Step) -> Result<(), Harn
                 )))
             }
         }
-        Step::Finish => {
+        Step::Finish { .. } => {
             scan.finished = true;
             Ok(())
         }

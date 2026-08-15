@@ -162,18 +162,18 @@
     },
     {
       "op": "text",
-      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u754ccell-tail"
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa界cell-tail"
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "\u2502   \u2502 \u754ccell-tail",
+      "literal": "│ 界 cell-tail",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "\u2502   \u2502 \u754ccell-tail"
+        "│ 界 cell-tail"
       ],
       "absent": []
     },
@@ -185,7 +185,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

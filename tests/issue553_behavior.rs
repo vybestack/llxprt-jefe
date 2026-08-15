@@ -159,6 +159,16 @@ fn probe_error_reason(result: &AgentProbeResult) -> String {
     }
 }
 
+fn incompatible_reason(result: &AgentProbeResult) -> String {
+    match result.availability() {
+        Availability::InstalledIncompatible { reason, generation } => {
+            assert_eq!(*generation, 5, "the requested stamp is preserved");
+            reason.clone()
+        }
+        other => panic!("expected an incompatible installation, got {other:?}"),
+    }
+}
+
 fn assert_compatible(result: &AgentProbeResult, generation: u64) {
     match result.availability() {
         Availability::InstalledCompatible {
@@ -221,9 +231,9 @@ fn probe_timeout_reason_names_phase_executable_elapsed_and_budget() {
     );
 }
 
-/// A5: non-timeout probe failures are equally attributable.
+/// A5: identity mismatches are equally attributable.
 #[test]
-fn probe_failure_reasons_name_their_phase_and_executable() {
+fn identity_mismatch_reasons_name_their_phase_and_executable() {
     let fixture = Fixture::direct();
     write_file(
         fixture
@@ -234,7 +244,7 @@ fn probe_failure_reasons_name_their_phase_and_executable() {
         b"not a version at all\n",
     );
 
-    let reason = probe_error_reason(&fixture.run(5));
+    let reason = incompatible_reason(&fixture.run(5));
     assert!(
         reason.contains("identity"),
         "reason names its phase: {reason:?}"

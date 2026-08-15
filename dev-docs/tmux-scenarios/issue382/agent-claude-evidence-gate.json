@@ -2,29 +2,23 @@
   "schema": 1,
   "name": "agent-claude-evidence-gate",
   "platform": "macos",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
-      {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
-        "mode": 493
-      },
-      {
-        "path": "bin/codex",
-        "content": { "utf8": "#!/bin/sh\nprintf 'codex-cli 0.142.0\\n'\n" },
-        "mode": 493
-      },
-      {
-        "path": "bin/code-puppy",
-        "content": { "utf8": "#!/bin/sh\nprintf '0.0.634\\n'\n" },
-        "mode": 493
-      },
       {
         "path": "config/settings.toml",
         "content": {
@@ -34,23 +28,50 @@
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
-      { "name": "TERM", "value": "xterm-256color" }
+      {
+        "name": "TERM",
+        "value": "xterm-256color"
+      }
     ]
   },
   "steps": [
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "Claude Code  Not found, enabled  [Create disabled]", "timeout_ms": 15000 },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Claude Code  Not found, enabled  [Create disabled]",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
       "contains": [
         "Claude Code  Not found, enabled  [Create disabled]",
         "no executable candidate resolved"
       ],
-      "absent": ["Claude Code  Installed", "Claude Code  Probe error", "Claude Code  Incompatible"]
+      "absent": [
+        "Claude Code  Installed",
+        "Claude Code  Probe error",
+        "Claude Code  Incompatible"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

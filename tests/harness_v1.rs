@@ -6,12 +6,14 @@
 //! runner itself.
 #![cfg(unix)]
 
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 
 use jefe::harness::v1::error::HarCode;
 use jefe::harness::v1::redact::Redactor;
 use jefe::harness::v1::runner::{RunOutcome, RunnerConfig};
-use jefe::harness::v1::{parse_scenario_v1, run};
+use jefe::harness::v1::{HarnessError, parse_scenario_v1, run};
 
 fn bin_path(name: &str) -> PathBuf {
     let mut path = std::env::current_exe().unwrap_or_else(|err| panic!("current_exe: {err}"));
@@ -22,14 +24,49 @@ fn bin_path(name: &str) -> PathBuf {
     path.join(name)
 }
 
+struct Sentinel(Child);
+
+impl Sentinel {
+    fn start() -> Self {
+        let child = Command::new("/bin/sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap_or_else(|err| panic!("start unrelated sentinel: {err}"));
+        Self(child)
+    }
+
+    fn assert_alive(&mut self) {
+        assert!(
+            self.0
+                .try_wait()
+                .unwrap_or_else(|err| panic!("poll unrelated sentinel: {err}"))
+                .is_none(),
+            "runner reaped an unrelated process"
+        );
+    }
+}
+
+impl Drop for Sentinel {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 fn run_scenario(json: &str) -> RunOutcome {
+    let mut sentinel = Sentinel::start();
     let scenario =
         parse_scenario_v1(json.as_bytes()).unwrap_or_else(|err| panic!("should parse: {err}"));
     let config = RunnerConfig {
         shim_binary: bin_path("jefe-capture-shim"),
         installs: Vec::new(),
     };
-    run(&scenario, &config)
+    let outcome = run(&scenario, &config);
+    sentinel.assert_alive();
+    outcome
 }
 
 fn cleanup(outcome: &RunOutcome) {
@@ -58,6 +95,49 @@ fn current_platform() -> &'static str {
     } else {
         "linux"
     }
+}
+
+#[test]
+fn runner_rejects_unsafe_or_duplicate_install_names_before_workspace_allocation() {
+    let json = probe_scenario(current_platform(), r#"{"op":"finish"}"#, "[]");
+    let scenario = parse_scenario_v1(json.as_bytes())
+        .unwrap_or_else(|err| panic!("install validation scenario should parse: {err}"));
+    for names in [vec!["../escape"], vec!["tool", "tool"]] {
+        let config = RunnerConfig {
+            shim_binary: bin_path("jefe-capture-shim"),
+            installs: names
+                .into_iter()
+                .map(|name| (name.to_string(), PathBuf::from("/bin/true")))
+                .collect(),
+        };
+        let outcome = run(&scenario, &config);
+        assert_eq!(
+            outcome.error.as_ref().map(HarnessError::code),
+            Some(HarCode::E001)
+        );
+        assert!(outcome.report.workspace.is_empty());
+    }
+}
+
+#[test]
+fn cli_rejects_terminal_limits_before_execution_without_a_report() {
+    let scenario = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/harness_v1/harness-limits.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_tmux_scenario"))
+        .args([
+            "--scenario",
+            scenario
+                .to_str()
+                .unwrap_or_else(|| panic!("fixture path is UTF-8")),
+        ])
+        .output()
+        .unwrap_or_else(|err| panic!("run tmux_scenario parser fixture: {err}"));
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "HAR-E002: scenario.terminal.cols: 501 is outside 1..=500\n"
+    );
 }
 
 #[test]
@@ -113,6 +193,49 @@ fn resize_waits_for_exact_dimension_frame() {
         .any(|frame| frame.cols == 70 && frame.rows == 18);
     assert!(has_normal, "report must contain a 100x30 frame");
     assert!(has_focused, "report must contain a 70x18 frame");
+    cleanup(&outcome);
+}
+
+#[test]
+fn resize_to_current_dimensions_is_an_acknowledged_no_op() {
+    let json = probe_scenario(
+        current_platform(),
+        r#"{"op":"wait","source":"frame","literal":"PROBE READY 100x30","timeout_ms":10000},
+           {"op":"resize","size":{"cols":100,"rows":30}},
+           {"op":"assert-frame","contains":["PROBE READY 100x30"],"absent":[]},
+           {"op":"finish"}"#,
+        "[]",
+    );
+    let outcome = run_scenario(&json);
+    assert!(
+        outcome.error.is_none(),
+        "no-op resize should pass: {:?}",
+        outcome.error
+    );
+    assert_eq!(outcome.report.status, "passed");
+    cleanup(&outcome);
+}
+
+#[test]
+fn finish_accepts_harness_controlled_termination() {
+    let json = format!(
+        r#"{{"schema":1,"name":"harness-termination","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],"files":[],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["/bin/sh","-c","trap 'exit 1' TERM; printf 'READY\\r\\n'; while read line; do :; done"],"env":[],"cwd":"work"}},
+                {{"op":"wait","source":"frame","literal":"READY","timeout_ms":10000}},
+                {{"op":"finish"}}
+            ],"secrets":[]}}"#,
+        current_platform()
+    );
+    let outcome = run_scenario(&json);
+    assert!(
+        outcome.error.is_none(),
+        "harness-induced exit must not become an application failure: {:?}",
+        outcome.error
+    );
+    assert_eq!(outcome.report.status, "passed");
     cleanup(&outcome);
 }
 
@@ -234,6 +357,13 @@ fn wait_timeout_escalates_and_reaps_hanging_process_tree() {
     assert!(err.is_timeout(), "timeout flag must map to exit 124");
     assert_eq!(err.exit_code(), 124);
     assert_eq!(outcome.report.status, "failed");
+    let failed = outcome
+        .report
+        .steps
+        .iter()
+        .find(|step| step.status == "failed")
+        .unwrap_or_else(|| panic!("timeout step must be reported"));
+    assert_eq!((failed.index, failed.op.as_str()), (4, "wait"));
     // CW00-08: the shim (child) and its hanging grandchild are both gone.
     let capture = outcome
         .report
@@ -351,6 +481,13 @@ fn failure_stops_later_steps_and_retains_workspace() {
         .unwrap_or_else(|| panic!("assertion must fail"));
     assert_eq!(err.code(), HarCode::E006);
     assert_eq!(err.exit_code(), 4);
+    let failed = outcome
+        .report
+        .steps
+        .iter()
+        .find(|step| step.status == "failed")
+        .unwrap_or_else(|| panic!("assertion step must be reported"));
+    assert_eq!((failed.index, failed.op.as_str()), (2, "assert-frame"));
     // Later steps did not run.
     let after = std::path::Path::new(&outcome.report.workspace).join("work/after.txt");
     assert!(!after.exists(), "steps after the failure must not execute");
@@ -370,6 +507,260 @@ fn failure_stops_later_steps_and_retains_workspace() {
         statuses.contains(&("assert-frame", "failed")),
         "{statuses:?}"
     );
+
+    cleanup(&outcome);
+}
+
+#[test]
+fn unexpected_app_exit_fails_the_active_step_without_waiting_for_timeout() {
+    let json = probe_scenario(
+        current_platform(),
+        r#"{"op":"wait","source":"frame","literal":"PROBE READY","timeout_ms":10000},
+           {"op":"text","text":"exit\n"},
+           {"op":"wait","source":"frame","literal":"NEVER-PRINTED","timeout_ms":1000},
+           {"op":"finish"}"#,
+        "[]",
+    );
+    let outcome = run_scenario(&json);
+    let err = outcome
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("unexpected app exit must fail"));
+    assert_eq!(err.code(), HarCode::E005);
+    assert_eq!(err.exit_code(), 4);
+    assert_eq!(
+        outcome.report.app_exit.and_then(|exit| exit.exit_code),
+        Some(0)
+    );
+    let failed = outcome
+        .report
+        .steps
+        .iter()
+        .find(|step| step.status == "failed")
+        .unwrap_or_else(|| panic!("child failure step must be reported"));
+    assert_eq!((failed.index, failed.op.as_str()), (3, "wait"));
+    cleanup(&outcome);
+}
+
+#[test]
+fn nonzero_exit_after_observable_output_cannot_finish_green() {
+    let json = format!(
+        r##"{{"schema":1,"name":"nonzero-child","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],
+                "files":[{{"path":"work/fail.sh","content":{{"utf8":"#!/bin/sh\nprintf ready > ready.txt\nprintf 'WROTE\\n'\nexit 17\n"}},"mode":493}}],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["${{workspace}}/work/fail.sh"],"env":[],"cwd":"work"}},
+                {{"op":"wait","source":"stdout","literal":"WROTE","timeout_ms":10000}},
+                {{"op":"assert-file","file":{{"path":"work/ready.txt","exists":true,"content":{{"utf8":"ready"}}}}}},
+                {{"op":"finish"}}
+            ],"secrets":[]}}"##,
+        current_platform()
+    );
+    let outcome = run_scenario(&json);
+    let error = outcome
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("nonzero application exit must fail"));
+    assert_eq!(error.code(), HarCode::E005);
+    assert_eq!(error.exit_code(), 4);
+    assert_eq!(
+        outcome.report.app_exit.and_then(|exit| exit.exit_code),
+        Some(17)
+    );
+    let failed = outcome
+        .report
+        .steps
+        .iter()
+        .find(|step| step.status == "failed")
+        .unwrap_or_else(|| panic!("nonzero child exit must be reported"));
+    assert_eq!(failed.op, "finish");
+    cleanup(&outcome);
+}
+
+#[test]
+fn declared_nonzero_exit_can_finish_green() {
+    let json = format!(
+        r##"{{"schema":1,"name":"expected-nonzero-child","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],
+                "files":[{{"path":"work/fail.sh","content":{{"utf8":"#!/bin/sh\nprintf 'WROTE\\n'\nexit 17\n"}},"mode":493}}],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["${{workspace}}/work/fail.sh"],"env":[],"cwd":"work"}},
+                {{"op":"wait","source":"stdout","literal":"WROTE","timeout_ms":10000}},
+                {{"op":"finish","expected_exit_code":17}}
+            ],"secrets":[]}}"##,
+        current_platform()
+    );
+    let outcome = run_scenario(&json);
+    assert!(
+        outcome.error.is_none(),
+        "expected nonzero exit: {outcome:?}"
+    );
+    assert_eq!(
+        outcome.report.app_exit.and_then(|exit| exit.exit_code),
+        Some(17)
+    );
+    cleanup(&outcome);
+
+    let mismatch =
+        run_scenario(&json.replace("\"expected_exit_code\":17", "\"expected_exit_code\":3"));
+    let error = mismatch
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("mismatched expected exit code must fail"));
+    assert_eq!(error.code(), HarCode::E005);
+    assert!(error.to_string().contains("instead of expected code 3"));
+    cleanup(&mismatch);
+}
+
+#[test]
+fn owned_app_socket_cleanup_reuses_the_hermetic_launch_environment() {
+    let fixture = tempfile::tempdir().unwrap_or_else(|err| panic!("fixture directory: {err}"));
+    let tmux = fixture.path().join("tmux");
+    std::fs::write(
+        &tmux,
+        "#!/bin/sh\n[ \"$CLEANUP_TOKEN\" = expected ] || exit 31\n[ \"$1\" = -S ] || exit 32\n[ \"$3\" = kill-server ] || exit 33\n",
+    )
+    .unwrap_or_else(|err| panic!("write tmux fixture: {err}"));
+    std::fs::set_permissions(&tmux, std::fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|err| panic!("chmod tmux fixture: {err}"));
+    let json = format!(
+        r##"{{"schema":1,"name":"socket-cleanup-environment","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],
+                "files":[{{"path":"work/app.sh","content":{{"utf8":"#!/bin/sh\n: > \"$JEFE_SOCKET_PATH\"\nprintf 'READY\\n'\nexec /bin/sleep 60\n"}},"mode":493}}],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["${{workspace}}/work/app.sh"],"env":[{{"name":"JEFE_SOCKET_PATH","value":"${{workspace}}/owned.sock"}},{{"name":"CLEANUP_TOKEN","value":"expected"}}],"cwd":"work"}},
+                {{"op":"wait","source":"stdout","literal":"READY","timeout_ms":10000}},
+                {{"op":"finish"}}
+            ],"secrets":[]}}"##,
+        current_platform()
+    );
+    let scenario =
+        parse_scenario_v1(json.as_bytes()).unwrap_or_else(|err| panic!("should parse: {err}"));
+    let config = RunnerConfig {
+        shim_binary: bin_path("jefe-capture-shim"),
+        installs: vec![("tmux".to_string(), tmux)],
+    };
+    let mut sentinel = Sentinel::start();
+    let outcome = run(&scenario, &config);
+    sentinel.assert_alive();
+    assert!(outcome.error.is_none(), "outcome={outcome:?}");
+    assert_eq!(outcome.report.status, "passed");
+    assert!(
+        !std::path::Path::new(&outcome.report.workspace)
+            .join("owned.sock")
+            .exists(),
+        "runner must remove the exact stale socket after successful cleanup"
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn restart_reaps_the_owned_socket_before_launching_a_distinct_generation() {
+    let fixture = tempfile::tempdir().unwrap_or_else(|err| panic!("fixture directory: {err}"));
+    let tmux = fixture.path().join("tmux");
+    std::fs::write(
+        &tmux,
+        "#!/bin/sh\n[ \"$CLEANUP_TOKEN\" = expected ] || exit 31\n[ \"$1\" = -S ] || exit 32\n[ \"$3\" = kill-server ] || exit 33\nprintf 'cleanup\\n' >> \"$CLEANUP_LOG\"\n",
+    )
+    .unwrap_or_else(|err| panic!("write tmux fixture: {err}"));
+    std::fs::set_permissions(&tmux, std::fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|err| panic!("chmod tmux fixture: {err}"));
+    let unrelated_path = fixture.path().join("unrelated.sock");
+    let _unrelated_socket = std::os::unix::net::UnixListener::bind(&unrelated_path)
+        .unwrap_or_else(|err| panic!("bind unrelated socket: {err}"));
+    let json = format!(
+        r##"{{"schema":1,"name":"restart-socket-cleanup","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],
+                "files":[{{"path":"work/app.sh","content":{{"utf8":"#!/bin/sh\ngeneration=1\nif [ -f generation ]; then generation=$(( $(/bin/cat generation) + 1 )); fi\nprintf '%s' \"$generation\" > generation\nprintf 'generation-%s' \"$generation\" > \"$JEFE_SOCKET_PATH\"\nprintf 'READY-%s\\n' \"$generation\"\nexec /bin/sleep 60\n"}},"mode":493}}],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["${{workspace}}/work/app.sh"],"env":[{{"name":"JEFE_SOCKET_PATH","value":"${{workspace}}/owned.sock"}},{{"name":"CLEANUP_TOKEN","value":"expected"}},{{"name":"CLEANUP_LOG","value":"${{workspace}}/cleanup.log"}}],"cwd":"work"}},
+                {{"op":"wait","source":"stdout","literal":"READY-1","timeout_ms":10000}},
+                {{"op":"assert-file","file":{{"path":"owned.sock","content":{{"utf8":"generation-1"}}}}}},
+                {{"op":"restart"}},
+                {{"op":"wait","source":"stdout","literal":"READY-2","timeout_ms":10000}},
+                {{"op":"assert-file","file":{{"path":"owned.sock","content":{{"utf8":"generation-2"}}}}}},
+                {{"op":"finish"}}
+            ],"secrets":[]}}"##,
+        current_platform()
+    );
+    let scenario =
+        parse_scenario_v1(json.as_bytes()).unwrap_or_else(|err| panic!("should parse: {err}"));
+    let config = RunnerConfig {
+        shim_binary: bin_path("jefe-capture-shim"),
+        installs: vec![("tmux".to_string(), tmux)],
+    };
+    let mut sentinel = Sentinel::start();
+    let outcome = run(&scenario, &config);
+    sentinel.assert_alive();
+    assert!(unrelated_path.exists(), "unrelated socket must survive");
+    assert!(outcome.error.is_none(), "outcome={outcome:?}");
+    assert_eq!(outcome.report.status, "passed");
+    let workspace = std::path::Path::new(&outcome.report.workspace);
+    assert!(!workspace.join("owned.sock").exists());
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("cleanup.log"))
+            .unwrap_or_else(|err| panic!("read cleanup log: {err}")),
+        "cleanup\ncleanup\n"
+    );
+    cleanup(&outcome);
+}
+
+#[test]
+fn restart_socket_cleanup_failure_is_reported_without_relaunch() {
+    let fixture = tempfile::tempdir().unwrap_or_else(|err| panic!("fixture directory: {err}"));
+    let tmux = fixture.path().join("tmux");
+    std::fs::write(&tmux, "#!/bin/sh\nexit 1\n")
+        .unwrap_or_else(|err| panic!("write tmux fixture: {err}"));
+    std::fs::set_permissions(&tmux, std::fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|err| panic!("chmod tmux fixture: {err}"));
+    let json = format!(
+        r##"{{"schema":1,"name":"restart-socket-cleanup-failure","platform":"{}",
+            "terminal":{{"cols":100,"rows":30}},
+            "workspace":{{"mode":448,"dirs":[{{"path":"work","mode":493}}],
+                "files":[{{"path":"work/app.sh","content":{{"utf8":"#!/bin/sh\nprintf 'launch\\n' >> launches\n: > \"$JEFE_SOCKET_PATH\"\nprintf 'READY\\n'\nexec /bin/sleep 60\n"}},"mode":493}}],"env":[]}},
+            "steps":[
+                {{"op":"launch","argv":["${{workspace}}/work/app.sh"],"env":[{{"name":"JEFE_SOCKET_PATH","value":"${{workspace}}/owned.sock"}}],"cwd":"work"}},
+                {{"op":"wait","source":"stdout","literal":"READY","timeout_ms":10000}},
+                {{"op":"restart"}}
+            ],"secrets":[]}}"##,
+        current_platform()
+    );
+    let scenario =
+        parse_scenario_v1(json.as_bytes()).unwrap_or_else(|err| panic!("should parse: {err}"));
+    let config = RunnerConfig {
+        shim_binary: bin_path("jefe-capture-shim"),
+        installs: vec![("tmux".to_string(), tmux)],
+    };
+    let mut sentinel = Sentinel::start();
+    let outcome = run(&scenario, &config);
+    sentinel.assert_alive();
+    let error = outcome
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("restart cleanup failure must fail"));
+    assert_eq!(error.code(), HarCode::E007);
+    let workspace = std::path::Path::new(&outcome.report.workspace);
+    assert!(
+        workspace.join("owned.sock").exists(),
+        "failed cleanup must retain its diagnostic socket"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("work/launches"))
+            .unwrap_or_else(|err| panic!("read launch inventory: {err}")),
+        "launch\n",
+        "restart cleanup failure must prevent a replacement launch"
+    );
+    let failed = outcome
+        .report
+        .steps
+        .iter()
+        .find(|step| step.status == "failed")
+        .unwrap_or_else(|| panic!("cleanup failure must be reported"));
+    assert_eq!(failed.op, "restart");
     cleanup(&outcome);
 }
 

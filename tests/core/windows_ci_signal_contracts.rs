@@ -254,14 +254,14 @@ fn ci_records_a_scheduled_main_flake_baseline() {
 #[test]
 fn windows_native_still_runs_every_native_step() {
     let job = windows_native_job();
+    // Schema-1 scenarios and renderer evidence run in the required Unix jobs:
+    // Windows owns native psmux behavior rather than a second scenario runner.
     for required in [
         "Install pinned psmux",
         "Verify psmux version",
         "Build locked all-feature workspace",
         "Run installer Pester harness",
         "Test locked all-feature workspace",
-        "Run deterministic startup and quit TUI scenario",
-        "Verify renderer viewport edges without full redraws",
         "Clean package lifecycle",
         "Run real psmux startup-quit against installed binary",
     ] {
@@ -270,6 +270,41 @@ fn windows_native_still_runs_every_native_step() {
             "windows_native must still run the native step `{required}`"
         );
     }
+    let smoke = step_body(&job, "Run real psmux startup-quit against installed binary");
+    for required in [
+        "$launchCommand = \"& '$installedJefe' '--config' '$config'\"",
+        "new-session -d -s $session -c $working $launchCommand",
+        "list-sessions -F '#S'",
+        "capture-pane",
+        "LLxprt Jefe",
+        "Green Screen",
+        "╮",
+        "display-message",
+        "#{pane_width}x#{pane_height}",
+        "installed-startup-viewport.txt",
+        "send-keys -t \"$session`:0.0\" N",
+        "New Repository",
+        "installed-new-repository-frame.txt",
+        "send-keys -t \"$session`:0.0\" Escape",
+        "installed-restored-frame.txt",
+        "$restoredText -notmatch 'New Repository'",
+        "C-q",
+        "$sessions -notcontains $session",
+        "finally",
+        "kill-session",
+        "kill-server",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "installed psmux smoke must prove {required:?}"
+        );
+    }
+    assert!(
+        !smoke.contains("Start-Process")
+            && !smoke.contains("Stop-Process")
+            && !smoke.contains("Start-Sleep -Seconds"),
+        "the installed smoke must run inside psmux and use observable readiness"
+    );
 }
 
 /// Issue #542, V7. The orphan check recorded surviving psmux *sessions* into an

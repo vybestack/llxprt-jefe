@@ -83,12 +83,77 @@
     },
     {
       "op": "key",
-      "key": "end",
+      "key": "down",
       "modifiers": []
     },
     {
       "op": "key",
-      "key": "enter",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
       "modifiers": []
     },
     {
@@ -101,7 +166,7 @@
       "op": "assert-frame",
       "contains": [
         "[x]",
-        "s Save"
+        "s save"
       ],
       "absent": []
     },
@@ -139,7 +204,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

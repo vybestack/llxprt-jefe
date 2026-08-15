@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Fail-closed read-only gh shim for issue #189 PR composer scenario.
 set -euo pipefail
 
@@ -31,10 +31,12 @@ audit_write() {
 audit_accept() {
     local op="$1"; shift
     audit_write "ACCEPTED $op -- gh $(printf '%q ' "$@")"
+    : > "${AUDIT_FILE}.accepted-${op}"
 }
 
 audit_reject() {
     local reason="$1"; shift
+    : > "${AUDIT_FILE}.rejected"
     audit_write "REJECTED $reason -- gh $(printf '%q ' "$@")"
 }
 

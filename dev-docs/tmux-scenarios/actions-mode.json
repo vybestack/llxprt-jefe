@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -25,9 +33,21 @@
           "utf8": "settings_schema = 2\n"
         },
         "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"issue194-repo\",\n      \"name\": \"actions-fixture\",\n      \"slug\": \"actions-fixture\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"owner/actions-fixture\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
       }
     ],
-    "env": []
+    "env": [
+      {
+        "name": "GH_SHIM_AUDIT",
+        "value": "${workspace}/private/gh-audit.log"
+      }
+    ]
   },
   "steps": [
     {
@@ -67,7 +87,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "> \u2717 Inspectable Actions fixture"
+        "> ✗ Inspectable Actions fixture"
       ],
       "absent": []
     },
@@ -97,7 +117,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "> \u2717 Interleaved Actions fixture run",
+      "literal": "> ✗ Interleaved Actions fixture run",
       "timeout_ms": 15000
     },
     {
@@ -108,7 +128,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "> \u2717 Inspectable Actions fixture",
+      "literal": "> ✗ Inspectable Actions fixture",
       "timeout_ms": 15000
     },
     {
@@ -125,7 +145,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "> \u25b8 \u2713 build-linux-with-a-long-job-name"
+        "> ▸ ✓ build-linux-with-a-long-job-name"
       ],
       "absent": []
     },
@@ -150,7 +170,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "\u2713 [1] Checkout fixture source"
+        "✓ [1] Checkout fixture source"
       ],
       "absent": []
     },
@@ -169,7 +189,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "> \u25b8 \u2713 build-linux-with-a-long-job-name"
+        "> ▸ ✓ build-linux-with-a-long-job-name"
       ],
       "absent": []
     },
@@ -181,7 +201,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "> \u25b8 \u2717 test-suite-with-a-long-job-name"
+        "> ▸ ✗ test-suite-with-a-long-job-name"
       ],
       "absent": []
     },
@@ -199,7 +219,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "\u2717 [1] Run failing fixture tests"
+        "✗ [1] Run failing fixture tests"
       ],
       "absent": []
     },
@@ -253,6 +273,43 @@
       "op": "key",
       "key": "q",
       "modifiers": []
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-actions-runs-page-1"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-actions-runs-page-2"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-actions-workflows"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-run-view-19401"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.accepted-run-jobs-19401"
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "finish"

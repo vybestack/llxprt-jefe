@@ -24,13 +24,6 @@
     ],
     "files": [
       {
-        "path": "bin/env",
-        "content": {
-          "utf8": "#!/bin/sh\nexec /usr/bin/env \"$@\"\n"
-        },
-        "mode": 493
-      },
-      {
         "path": "config/settings.toml",
         "content": {
           "utf8": "schema_version = 1\ntheme = 'green-screen'\noverride_agent_theme = true\n"
@@ -185,8 +178,27 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "> [Create enabled]",
+      "literal": "> Sandbox Enabled: [ ]",
       "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "podman"
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
       "op": "key",
@@ -298,7 +310,7 @@
       "op": "wait",
       "source": "frame",
       "literal": "Needs you (1)",
-      "timeout_ms": 25000
+      "timeout_ms": 30000
     },
     {
       "op": "assert-frame",

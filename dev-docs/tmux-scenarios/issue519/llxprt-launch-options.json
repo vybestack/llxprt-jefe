@@ -16,6 +16,10 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +27,13 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo-519\",\n      \"name\": \"Issue 519\",\n      \"slug\": \"issue-519\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": []\n    }\n  ],\n  \"agents\": [],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
         },
         "mode": 384
       }
@@ -47,35 +58,8 @@
       "timeout_ms": 15000
     },
     {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Agent Types",
-      "timeout_ms": 15000
-    },
-    {
       "op": "key",
-      "key": "down",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "down",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "down",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "> LLxprt",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "enter",
+      "key": "n",
       "modifiers": []
     },
     {
@@ -87,19 +71,21 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Yolo: [x]",
+      "literal": "Mode Flags       [--yolo]",
       "timeout_ms": 15000
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Continue: [ ]",
+      "literal": "Pass --continue  [x]",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Prompt Interactive: [ ]"
+        "Agent Runtime    [core.llxprt]",
+        "Mode Flags       [--yolo]",
+        "Pass --continue  [x]"
       ],
       "absent": []
     },
@@ -111,7 +97,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

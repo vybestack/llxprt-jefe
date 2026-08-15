@@ -39,13 +39,25 @@ pub fn parse_step(index: usize, value: &JsonValue) -> Result<Step, HarnessError>
         "assert-capture" => parse_assert_capture(&context, &mut reader),
         "assert-file" => parse_assert_file(&context, &mut reader),
         "restart" => Ok(Step::Restart),
-        "finish" => Ok(Step::Finish),
+        "finish" => parse_finish(&context, &mut reader),
         other => Err(HarnessError::syntax(format!(
             "{context}.op: unknown op '{other}'"
         ))),
     }?;
     reader.finish()?;
     Ok(step)
+}
+
+fn parse_finish(context: &str, reader: &mut ObjectReader<'_>) -> Result<Step, HarnessError> {
+    let field = format!("{context}.expected_exit_code");
+    let expected_exit_code = reader
+        .opt("expected_exit_code")?
+        .map(|value| as_int_in(&field, value, (0, u32::MAX.into())))
+        .transpose()?
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| HarnessError::limit(format!("{field}: value exceeds {}", u32::MAX)))?;
+    Ok(Step::Finish { expected_exit_code })
 }
 
 fn parse_write(context: &str, reader: &mut ObjectReader<'_>) -> Result<Step, HarnessError> {

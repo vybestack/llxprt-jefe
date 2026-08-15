@@ -18,18 +18,19 @@
         "mode": 448
       },
       {
+        "path": "work/.llxprt",
+        "mode": 448
+      },
+      {
         "path": "work/llxprt",
+        "mode": 448
+      },
+      {
+        "path": "work/.llxprt/bin",
         "mode": 448
       }
     ],
     "files": [
-      {
-        "path": "bin/env",
-        "content": {
-          "utf8": "#!/bin/sh\nexec /usr/bin/env \"$@\"\n"
-        },
-        "mode": 493
-      },
       {
         "path": "config/settings.toml",
         "content": {
@@ -43,6 +44,13 @@
           "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.jsp\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"JSP Preview Fixture\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"slug\": {\n            \"type\": \"string\",\n            \"value\": \"jsp-preview\"\n          }\n        }\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo.jsp\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
         },
         "mode": 384
+      },
+      {
+        "path": "work/.llxprt/bin/llxprt",
+        "content": {
+          "utf8": "#!/bin/sh\nprintf '0.10.0\\n'\n"
+        },
+        "mode": 493
       }
     ],
     "env": []

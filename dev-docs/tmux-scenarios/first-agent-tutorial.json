@@ -16,6 +16,30 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "home/projects",
+        "mode": 448
+      },
+      {
+        "path": "home/projects/llxprt-jefe",
+        "mode": 448
+      },
+      {
+        "path": "home/projects/llxprt-jefe/tutorial-llxprt",
+        "mode": 448
+      },
+      {
+        "path": "home/projects/llxprt-jefe/tutorial-puppy",
+        "mode": 448
+      },
+      {
+        "path": "home/projects/llxprt-jefe/transient",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +47,41 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "home/projects/llxprt-jefe/tutorial-llxprt/README.md",
+        "content": {
+          "utf8": "# Tutorial fixture\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "home/projects/llxprt-jefe/tutorial-puppy/README.md",
+        "content": {
+          "utf8": "# Tutorial fixture\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-audit.log",
+        "content": {
+          "utf8": ""
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-state",
+        "content": {
+          "utf8": "open\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/tmux-audit.log",
+        "content": {
+          "utf8": ""
         },
         "mode": 384
       }
@@ -37,26 +96,60 @@
         "--config",
         "${workspace}/config"
       ],
-      "env": [],
+      "env": [
+        {
+          "name": "JEFE_GH_BIN",
+          "value": "${workspace}/bin/gh"
+        },
+        {
+          "name": "JEFE_GIT_BIN",
+          "value": "${workspace}/bin/git"
+        },
+        {
+          "name": "JEFE_LOG",
+          "value": "${workspace}/private/jefe.log"
+        },
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/jefe.sock"
+        },
+        {
+          "name": "TUTORIAL_GH_AUDIT",
+          "value": "${workspace}/private/gh-audit.log"
+        },
+        {
+          "name": "TUTORIAL_GH_STATE",
+          "value": "${workspace}/private/gh-state"
+        },
+        {
+          "name": "TUTORIAL_TMUX_AUDIT",
+          "value": "${workspace}/private/tmux-audit.log"
+        }
+      ],
       "cwd": "work"
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Jefe",
+      "literal": "LLxprt  Installed",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "No terminal attached"
+        "Code Puppy  Installed",
+        "LLxprt  Installed"
       ],
-      "absent": []
+      "absent": [
+        "Probe error"
+      ]
     },
     {
       "op": "key",
       "key": "n",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -69,6 +162,12 @@
       "text": "LLxprt Jefe"
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt Jefe",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "tab",
       "modifiers": []
@@ -78,13 +177,116 @@
       "text": "~/projects/llxprt-jefe"
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "~/projects/llxprt-jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Agent    [core.llxprt]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "tutorial"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Profile  [tutorial",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
       "op": "key",
       "key": "tab",
       "modifiers": []
     },
     {
       "op": "text",
-      "text": "tutorial"
+      "text": "vybestack/llxprt-jefe"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "vybestack/llxprt-jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "text",
+      "text": "vybestack/llxprt-jefe"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "vybestack/llxprt-jefe",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
       "op": "key",
@@ -111,6 +313,12 @@
       "text": "~/projects/llxprt-jefe/transient"
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "~/projects/llxprt-jefe/transient",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "tab",
       "modifiers": []
@@ -120,34 +328,17 @@
       "text": "2"
     },
     {
-      "op": "key",
-      "key": "tab",
-      "modifiers": []
-    },
-    {
-      "op": "text",
-      "text": "vybestack/llxprt-jefe"
-    },
-    {
-      "op": "key",
-      "key": "tab",
-      "modifiers": []
-    },
-    {
-      "op": "text",
-      "text": "vybestack/llxprt-jefe"
+      "op": "wait",
+      "source": "frame",
+      "literal": "2",
+      "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "~/projects/llxprt-jefe"
-      ],
-      "absent": []
-    },
-    {
-      "op": "assert-frame",
-      "contains": [
-        "vybestack/llxprt-jefe"
+        "~/projects/llxprt-jefe",
+        "vybestack/llxprt-jefe",
+        "Default Agent    [core.llxprt]"
       ],
       "absent": []
     },
@@ -159,7 +350,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "1 repos | 0/0 running",
+      "literal": "LLxprt Jefe (0)",
       "timeout_ms": 15000
     },
     {
@@ -1723,7 +1914,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Agent Runtime    [LLxprt]"
+        "Agent Runtime    [core.llxprt]"
       ],
       "absent": []
     },
@@ -1789,7 +1980,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "t/f12 terminal focus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 15000
     },
     {
@@ -3372,7 +3563,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Agent Runtime    [code_puppy]"
+        "Agent Runtime    [core.code-puppy]"
       ],
       "absent": []
     },
@@ -3402,13 +3593,15 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "t/f12 terminal focus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 15000
     },
     {
       "op": "key",
       "key": "k",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "wait",
@@ -3430,7 +3623,9 @@
     {
       "op": "key",
       "key": "k",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "wait",
@@ -3476,7 +3671,9 @@
     {
       "op": "key",
       "key": "s",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -3538,7 +3735,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "t/f12 terminal focus",
+      "literal": "t/T/F12 terminal focus",
       "timeout_ms": 15000
     },
     {
@@ -3579,7 +3776,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "\u2713merge"
+        "✓merge"
       ],
       "absent": []
     },
@@ -3636,9 +3833,27 @@
       "absent": []
     },
     {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-state",
+        "content": {
+          "utf8": "merged\n"
+        }
+      }
+    },
+    {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

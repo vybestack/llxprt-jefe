@@ -5,7 +5,7 @@ use jefe::domain::action_registry::{HandlerKey, Resolution};
 use jefe::domain::effects::{
     Effect, EffectCompletion, EffectResponse, ProviderEffect, ProviderResponse,
 };
-use jefe::messages::{AppMessage, RepositoryAgentMessage};
+use jefe::messages::{AppMessage, RepositoryAgentMessage, SystemMessage};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{
     AppState, ComposerTarget, ConfirmFocus, ErrorsFocus, InlineState, IssueFocus,
@@ -125,6 +125,54 @@ fn assert_list_send_unavailable(mut state: AppState, reason: &str) {
     assert_eq!(state.issues_state.agent_chooser, issue_chooser);
     assert_eq!(state.prs_state.agent_chooser, pr_chooser);
     assert_eq!(state.pending_effects, pending_effects);
+}
+
+#[test]
+fn escape_consumes_an_active_warning_before_other_routing() {
+    let mut state = AppState {
+        modal: ModalState::ConfirmDeleteRepository {
+            id: jefe::domain::RepositoryId("repo".to_owned()),
+            confirm_focus: ConfirmFocus::Confirm,
+        },
+        ..AppState::default()
+    };
+    state.issues_state.draft_notice = Some("No agents available".to_owned());
+    state.prs_state.draft_notice = Some("No agents available".to_owned());
+
+    assert!(crate::app_shell::should_dismiss_warning(
+        &state,
+        &key(KeyCode::Esc)
+    ));
+    assert!(!crate::app_shell::should_dismiss_warning(
+        &state,
+        &key(KeyCode::Enter)
+    ));
+    assert!(!crate::app_shell::should_dismiss_warning(
+        &AppState::default(),
+        &key(KeyCode::Esc)
+    ));
+
+    let provider_action = jefe::domain::action_registry::ActionId::parse("vendor.deploy.ship")
+        .unwrap_or_else(|error| panic!("provider action id: {error}"));
+    let provider_state = AppState {
+        warning_message: Some("provider unavailable".to_owned()),
+        provider_surface_action: Some(provider_action),
+        ..AppState::default()
+    };
+    assert!(!crate::app_shell::should_dismiss_warning(
+        &provider_state,
+        &key(KeyCode::Esc)
+    ));
+
+    let after = state
+        .apply_message(AppMessage::System(SystemMessage::ClearWarning))
+        .committed_pure();
+    assert!(after.issues_state.draft_notice.is_none());
+    assert!(after.prs_state.draft_notice.is_none());
+    assert!(matches!(
+        after.modal,
+        ModalState::ConfirmDeleteRepository { .. }
+    ));
 }
 
 #[test]

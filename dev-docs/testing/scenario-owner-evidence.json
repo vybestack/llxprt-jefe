@@ -1,0 +1,3996 @@
+{
+  "schema": 1,
+  "scenario_manifest_sha256": "4b454b74a5b9495429290a47d78823fb10e17abd408ca2387a7d1be25dc96cef",
+  "scenarios": [
+    {
+      "path": "dev-docs/tmux-scenarios/actions-mode.json",
+      "sha256": "7478decc1ec0973cc5a17b2c015658b965fc2b30c3b50d10a500c80811d2237c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/actions-mode.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/issue194-gh-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/actions-pr-filter.json",
+      "sha256": "3fea69a862192dcfc36ab119e237c847fe71e4e5aee90f6f6a420b6dfd1a72c5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/actions-pr-filter.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/agent-runtime-choice.json",
+      "sha256": "dd05f6590ceb1aa097a71f78fe1aa3c22e5d7ef4f5dc9073b55f1dbbb4c4436d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/agent-runtime-choice.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/agent-shell-overlay.json",
+      "sha256": "47c5a45b1ea5ac9e914d607ceb520af4d6045b300a068163e008cc4ca18acfc1",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/agent-shell-overlay.json --install dd=repo:scripts/harness-shell-tools-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-interactive-agent-shim.sh --install od=repo:scripts/harness-shell-tools-shim.sh --install stty=repo:scripts/harness-shell-tools-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux --install tr=repo:scripts/harness-shell-tools-shim.sh"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/auth-dialog.json",
+      "sha256": "4889363dd122ef6f7decdb8654138fefdda5dbb5bd6d92ef825021f359608864",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/auth-dialog.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/code-puppy-chord-passthrough.json",
+      "sha256": "e92417cd0374299fab62fa0d21175a1d57b9c98d9467379afb9e1e45773a67c1",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/code-puppy-chord-passthrough.json --install code-puppy=repo:scripts/harness-interactive-agent-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/code-puppy-version-fields.json",
+      "sha256": "c34ee18ef0b3f8a565cb97f35c5575e65f8e2671d310c3224ced1296e3897db0",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/code-puppy-version-fields.json --install code-puppy=repo:scripts/harness-agent-availability-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/confirm-dialog-focus.json",
+      "sha256": "d4f051b84b19e850e2c751f281ed4727710eab104b8054eb15b75ef927dfe555",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/confirm-dialog-focus.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/dashboard-list-windowing.json",
+      "sha256": "c51cf1b7f80a2ac05c725ebaa7cb7dd8523cdcd64030d6dcfb6b98acfcf20e7d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/dashboard-list-windowing.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/dashboard-reorder.json",
+      "sha256": "819224521fffb883739a2fc19eb36b89b68cd1c43003376082152c9bf2e5e71c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/dashboard-reorder.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/edit-properties-menu.json",
+      "sha256": "31f3c298fc41f2d242a7b6674350a736cb8ec1521f57899de825f7b29ce1b72f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/edit-properties-menu.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/errors-mode.json",
+      "sha256": "f8010324dddd6d0213a7b7242930dc4d7c777c8a7b02d04ada7b99b6b5a084f3",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/errors-mode.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/f12-cross-view-defocus.json",
+      "sha256": "7111f2dae7216bf0dad39e778058fe303ccdf8d6008eddc94f31fd90cfe32e29",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/f12-cross-view-defocus.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/first-agent-tutorial.json",
+      "sha256": "3d5b4c2305c74f34456d3c8f9f1415ceb7d3e1a5746bbb7fb734afbc2ed9755a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/first-agent-tutorial.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install code-puppy=repo:scripts/first-agent-tutorial-code-puppy-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install gh=repo:scripts/first-agent-tutorial-gh-shim.sh --install git=repo:scripts/first-agent-tutorial-git-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/first-agent-tutorial-llxprt-shim.sh --install tmux=repo:scripts/first-agent-tutorial-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/fork-issue-pr-repository.json",
+      "sha256": "c662ffb9be0421c86450d318dcdc54217669d578410a151bf82a5d53bba69f91",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/fork-issue-pr-repository.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/help-modal.json",
+      "sha256": "fefd6f9a0c92cf5c010ac55a206794e8960cdcbc7daff66f7f1cd10e23960347",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/help-modal.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue-dirty-copy-confirm.json",
+      "sha256": "57677238732678be5429d8c2e504e77526880c943740bc30d070943a1eda75a8",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue-dirty-copy-confirm.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install git=repo:scripts/harness-repository-prep-git-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue265-linux-keys.json",
+      "sha256": "7f7ae56921d1fa8da7fc828623b8da740ce61d70e0b4bf2789b3e2b33cb1c734",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue265-linux-keys.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/issue265-gh-shim.sh --install issue265-gh-shim-fixtures.sh=repo:scripts/issue265-gh-shim-fixtures.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-claude-evidence-gate.json",
+      "sha256": "56e921e2bd3d5e74c159f16ee1c8674af57abaefc3fa03a40df37db5cdf19f7e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-claude-evidence-gate.json --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-fresh-issue.json",
+      "sha256": "3c34947710a357a227132c708f5ca5ea7191efee1cbca3a90738d150885579c4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-fresh-issue.json --install claude=repo:scripts/issue382-agent-shim.sh --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-fresh-pr.json",
+      "sha256": "d86399f7318bf4e45621656ddfbdf338ae32c13ede2792dd2e1d2f930c0a1648",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-fresh-pr.json --install claude=repo:scripts/issue382-agent-shim.sh --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-incompatible-zero-spawn.json",
+      "sha256": "8e6c53b16a64d4b3bbfe4222d4ff1a0e0e7bfdb588a2d36b59657bc2fceaffff",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-incompatible-zero-spawn.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-legacy-migration.json",
+      "sha256": "c3c58d3ccec16f96ae3ff17f104ffa547a0e2359836afc1a8bf655452dc73b8d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-legacy-migration.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-local-operation-matrix.json",
+      "sha256": "4de08e64384ccfa95ec3761da90694202b61e9a8e36d4b066cd7deb9bc5a1a8d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-local-operation-matrix.json --install claude=repo:scripts/issue382-agent-shim.sh --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-no-product-branches.json",
+      "sha256": "606639094c4dfe6cb8bb68d71d67c0e155b044d9e0e22cef7b2047104465ab2c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-no-product-branches.json --install claude=repo:scripts/issue382-agent-shim.sh --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-probe-negative.json",
+      "sha256": "8288824de9f923e47533d65997e2db93bba7997aa62b73775951f705b92924a6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-probe-negative.json --install codex=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-probe-parser.json",
+      "sha256": "43d941183868010324449fea617ffb846d047b59b0d5bab4316533be58921709",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-probe-parser.json --install claude=repo:scripts/issue382-agent-shim.sh --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-remote-operation-matrix.json",
+      "sha256": "cb2363ac94eff8da679d5b1a91c1cdb46732a6abc928e507720f2e3abad909a4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-remote-operation-matrix.json --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-resolver-order.json",
+      "sha256": "362c765e876b73cab979ae67562a39236aefeef730e7a5987f94bf79d64346f6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-resolver-order.json --install claude=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-sandbox-preflight.json",
+      "sha256": "e80487e07b1d3e02d3ac11b7d1319ace3376e37b2eed087c8af8576100f337ec",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-sandbox-preflight.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-stale-generation.json",
+      "sha256": "1799c0fb7c9d96b5620351526658abfd94589dd46fa1377cf7bdb355e4290532",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-stale-generation.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-status-cartesian.json",
+      "sha256": "5d7f2b97e01e9cd57d7ba02c85c56b901e53274be69fdb5df60c3270c6b078cc",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-status-cartesian.json --install code-puppy=repo:scripts/issue382-agent-shim.sh --install codex=repo:scripts/issue382-agent-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue382-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-terminal-compatibility.json",
+      "sha256": "467685bf01af53f596ff0514fa4372a30ca5687082fcc21d244af61dec7f3acf",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-terminal-compatibility.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-unsupported-ui.json",
+      "sha256": "45c9e75d2b63d3b06fcfab04814a43083b9dbd796530cd1bfc6a52659fb91463",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-unsupported-ui.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue382/agent-version-selector.json",
+      "sha256": "42e1153e8b75966f62815c0cffb29babb8fc95fe262ccce35e506e7620fd6a8e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue382/agent-version-selector.json --install claude=repo:scripts/issue382-agent-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install npm=repo:scripts/issue382-agent-shim.sh --install python3=host-path:python3 --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue435/status-bar-error-count.json",
+      "sha256": "287bc9d0765806654049801f2d421ab28d13a29c70e1c49063b62ec9f8f066ec",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue435/status-bar-error-count.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue519/llxprt-launch-options.json",
+      "sha256": "2824a966efb76039ebe62d051675d0dcc91539dc2c55b25224f9c647e64b5e89",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue519/llxprt-launch-options.json --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json",
+      "sha256": "c4daba96918880884d3a2ff8a1ef9f40c8127b7bf98b1debd2b5366ebe5ebf1a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "windows",
+      "ci_job": "windows_native",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json",
+      "sha256": "5075a4dbd2c8929fbccde382b6b3a765c8d1a573e127bd9b2e882457ba6f2b3b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "windows",
+      "ci_job": "windows_native",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue621/issues-list-send-agent.json",
+      "sha256": "34769badd5accbccb82d28a1a10e401175315ade8a5a5e48374aabe664c3b3cd",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue621/issues-list-send-agent.json --install gh=repo:scripts/issue621-gh-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue621/prs-list-send-agent.json",
+      "sha256": "78825b6e36168a54848a723d4eedc141dfb04da8d07d67d0217bf0636ba12412",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue621/prs-list-send-agent.json --install gh=repo:scripts/issue621-gh-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json",
+      "sha256": "79ea1502758ea11e9f48a73b647771ea3e3407df7c3963c081d7a90e7d366c39",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue687/config-isolation.json",
+      "sha256": "e65318efbfab5117ca551f63b9c40c2d83d13e759fd7c2167c688b56803ffd48",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue687/config-isolation.json --install jefe=cargo-bin:jefe --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue687/session-continuity.json",
+      "sha256": "945554d2f2e835a59d6dc496dac99578e1cc2148c4e07c97f1fd05d80f484315",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue687/session-continuity.json --install jefe=cargo-bin:jefe --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json",
+      "sha256": "c4a4feb32188cf01e9bccc8f84501344b816f226375ca45a9f15b2b6adc16f5f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
+      "sha256": "cf162e354f8b515f47e6ff94a01e4bb0eb8e6efc47fdc1cbeb7399128829c675",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-close-delete.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-close-reason.json",
+      "sha256": "07a0cd96c739d7728530042899c0cdd5a1e08dae9b7e4cf90779421efa37cb5f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-close-reason.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-composer-textbox.json",
+      "sha256": "43822f7877c524d6e10a5c71abd05ee86bdc1e025ebf6862e2af8b4608e9002b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-composer-textbox.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-detail-word-wrap.json",
+      "sha256": "e7eddc689ba0729eeee7e0aefb3c1d38a7d3ba5f40ee562ac7dc31eb37d8d7e4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-detail-word-wrap.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-empty-repository.json",
+      "sha256": "4db0765ce71d6b347733e0abf83102dfcd99c57d773b5bf7b25eb22fbda840b6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-empty-repository.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/issue351-gh-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-filter-clear-delete.json",
+      "sha256": "842b6f689dc37dba25fe890346976c82c0c879a42c7791c39c59402f639aa16e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-filter-clear-delete.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-filter-open-close.json",
+      "sha256": "55838fdd91abd26f8cb8bbacaf8dd831163399072fa8a53ce2b8c90fbda42618",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-filter-open-close.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issues-new-issue-typing.json",
+      "sha256": "f33f610bd497b78124651b474e1b0071947016452670cb04981e0815b502496f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issues-new-issue-typing.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/kennel-terminal-select.json",
+      "sha256": "e5540464d854654668ece7d5e71caf15812ef89676b5f0d7fbe1d7b2f70d6da9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/kennel-terminal-select.json --install code-puppy=repo:scripts/harness-interactive-agent-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/keymap-projection-consistency.json",
+      "sha256": "bc2ece3646b595762f43c3631744b1fe609959e35d39998c2475cba0682a2d3d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/keymap-projection-consistency.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/latest-version-fields.json",
+      "sha256": "1f3dd808f747e9f4192f288df68e7e0a49ea190574161249575339aa0f759d76",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/latest-version-fields.json --install code-puppy=repo:scripts/harness-agent-availability-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/liveness-responsiveness.json",
+      "sha256": "a206e198368f999d455efa0181f3eb46d41621eeaf14bb166d6e8d4cebeacd7a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/liveness-responsiveness.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/llxprt-terminal-scroll.json",
+      "sha256": "ec85d12f729d3956359e24a915ca99c759cdee6fb7f780799e88e72dc6366afd",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/llxprt-terminal-scroll.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/llxprt-version-fields.json",
+      "sha256": "ad0247219eb9da0b04a9749ef793cfd0be38c67f577b0497eeb98d7cadeb5f4d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/llxprt-version-fields.json --install code-puppy=repo:scripts/harness-agent-availability-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/navigation-local-unwind.json",
+      "sha256": "be07cda705ddbc8c58970d2899e94da14217059387ef63eb53c6c69c610a9aab",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/navigation-local-unwind.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/origin-mismatch-confirm.json",
+      "sha256": "dd622b859f243993ed19c41f20d65ab9782919a64b4470c578dd9abefc85aca6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/origin-mismatch-confirm.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install git=repo:scripts/harness-repository-prep-git-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/package-panel-lifecycle.json",
+      "sha256": "426c66f7c730112d68fb5632536ff40aeb0f47386afe43d0b4316410726c8b3b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/package-panel-lifecycle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/paste-enter-escape.json",
+      "sha256": "5c778bd018c36ac9dbf298e014fa261b9507baab1bced1669d22f7e96d561fda",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/paste-enter-escape.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-interactive-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pid-commit-corner.json",
+      "sha256": "b2d5b8937814ee5d5d8f9e6c3f95f9a52afd9e6daaaa962f8c80012824e8b969",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pid-commit-corner.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/plugin-settings-all-states.json",
+      "sha256": "e9569c258c99afcd1a0ea6d07e9fedfcdbe78b48d908fe3f895881b12f7214dd",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/plugin-settings-all-states.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/plugin-settings-generated-config.json",
+      "sha256": "7c4f6cb31f5745f2f42cde78172ae3117e1bf697442b0b3ec4b9e59c2f278cf6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/plugin-settings-generated-config.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pr-composer-submit-key.json",
+      "sha256": "487b5ba6b9d7f6b66a17999d9557dec9516c38ae5cdd69b318462b9554c4a1ea",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pr-composer-submit-key.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/issue189-gh-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pr-detail-esc-refocus.json",
+      "sha256": "b019fc32b7c54d90be4b72ffeed71c8d858c3c7bf1321cf621907f877125c190",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pr-detail-esc-refocus.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pr-edit-properties.json",
+      "sha256": "84519d170250f7414d845697b89a7779819a51050a227eb71e268cd9f8987635",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pr-edit-properties.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pr-merge.json",
+      "sha256": "2cbcd3d42a268df8007c2adc19d68f9501f461a776e1d48f1533d63e1e2e1ae3",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pr-merge.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/harness-github-scenario-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pr-new-composer.json",
+      "sha256": "01026c98382d8b886d48481f3c2dfb3b533040c9189585cbd006a93718bb24fd",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pr-new-composer.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/pr-review-newest-first.json",
+      "sha256": "a289136de404bb9d2a3be72f98f6cf5d8df8edfdbc93354d1034d61ce7dcca71",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/pr-review-newest-first.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/issue238-gh-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-confirmation.json",
+      "sha256": "39bcea2d3ebcb24003ab616d3eaca245caa1f314549d246bbcea27b8cca1acd3",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-confirmation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-error.json",
+      "sha256": "c5fb9dc47c1398eb539d82be1206d4ca9645a3323cfdbc8b7729f9acf153d1a1",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-error.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-health-unavailable.json",
+      "sha256": "6739828fc7625e7fe1c7912d646d16f64690d25a6a91050181113d17913875b7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-health-unavailable.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-lifecycle.json",
+      "sha256": "87c569ebf7b4cb7541ac74c7a6411e44dce6557994c026c11ff862274e2e6bb9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-lifecycle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-published.json",
+      "sha256": "b672cbbfcb1ca0abfee319445b334eb1cc7c5f43c87d7c81419f8d8e8c702cf6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-published.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-recovery.json",
+      "sha256": "23015debef16d6d58a2094ba1b3479353506790e5485572fed5f2101b6b99f1d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-recovery.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-small.json",
+      "sha256": "f53477d564c2da32253c34407dd549f523816d97beac563645fcc4ea589fc1e5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-small.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/provider-action-unavailable.json",
+      "sha256": "c914b873fa88cc937b40c133c11f5e77b1433d70b592590586ad94bc5b89f628",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/provider-action-unavailable.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/repo-github-field-focus.json",
+      "sha256": "f52face6244e8becc663497fd539133df227b95bae701c55afe056353e9c5145",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/repo-github-field-focus.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/scratch-pr-mode.json",
+      "sha256": "620fad92cf0c4622571a5440ce6dadb2b110a89d464de724c46cabd57337b332",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/scratch-pr-mode.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/send-to-agent-details.json",
+      "sha256": "6aa40eac6d01d236fa3eeeef8d968d1746ce52ce6e132b0d9192f119a7f2ce82",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/send-to-agent-details.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install code-puppy=repo:scripts/harness-agent-availability-shim.sh --install gh=repo:scripts/issue230-gh-shim.sh --install git=repo:scripts/issue230-git-shim.sh --install issue230-gh-shim-fixtures.sh=repo:scripts/issue230-gh-shim-fixtures.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/send-to-agent-slow-probe.json",
+      "sha256": "ca79112cbab2e3a3e629d9b418962de6d01722fcf8a7c42743f88f794b32e6d8",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/send-to-agent-slow-probe.json --install cat=repo:scripts/first-agent-tutorial-cat-shim.sh --install gh=repo:scripts/issue230-gh-shim.sh --install git=repo:scripts/issue230-git-shim.sh --install issue230-gh-shim-fixtures.sh=repo:scripts/issue230-gh-shim-fixtures.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue633-slow-probe-shim.sh --install sleep=host-path:sleep --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-dirty.json",
+      "sha256": "43157c87bd85f29a13777fa962ae351e4af731f503b0086e70c967b33cc5a13a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-dirty.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-error.json",
+      "sha256": "d3e896d3e09a4b1c73d2ec1d2caba85b8a1ecc5771e6ec954f5e7dca8e10dcad",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-error.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-focused.json",
+      "sha256": "0db1cf750e273f5f02469e9010d9df511ecc41998a81e4ca8e9a449d6a28beb2",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-focused.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-normal.json",
+      "sha256": "89923dbe8e51f0ba94d97b99fa9e8e601bdbcd3dc0756b4c37a9dcdc69b6e137",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-normal.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-recovery.json",
+      "sha256": "d6728202945d64ed9b912ce375c43d900f9813043145264154bdb4119df01d5d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-recovery.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-small.json",
+      "sha256": "b41b76e312f79f0641da70e15b88504518951e1b8bb624bd8d33b943e33faecf",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-small.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-agent-types-unavailable.json",
+      "sha256": "b05588f9c00af4abb682c72283e1d59d340012341cbe83078053f88a54b55c72",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-agent-types-unavailable.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-dirty.json",
+      "sha256": "6c89f277e9182350141c664f31050413a162dc939ac0fe6d9ac4a059f3f489a9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-dirty.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-error.json",
+      "sha256": "51de0f3c6cd66c99f1110098c5cb3a0ed14c7eebdcdbdaecb3e407521f4cf958",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-error.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-focused.json",
+      "sha256": "031187f16c0d459a7e52c6e3c2b09cb46442cca98eb71d2987e5510802afd07b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-focused.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-normal.json",
+      "sha256": "a49a00d40fd4d638581471245b2903a578d40bd509b8cd93c4ec6a48e0d722f7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-normal.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-recovery.json",
+      "sha256": "a55d0d029a39561288f544d1192bd5f7413a3b7577d3457147dbe87997f803eb",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-recovery.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-small.json",
+      "sha256": "0a8c79307d8254f90cf3de5b3ea69a0258e18154ba51e3b70d70fb759878d42c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-small.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-keys-unavailable.json",
+      "sha256": "7bdc81dc4debd2473aa9cfe64c4d39dffe4930e65f2dfa6348f95ebd5fb9ef45",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-keys-unavailable.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-dirty.json",
+      "sha256": "dcae1a994dcb5b29c3058ddac51b8a87b874ade087cca7a3fc5b7ba0e9867386",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-dirty.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-error.json",
+      "sha256": "de12630a86a67904b057251f465595c2c33a3fdac45458352af76bafd8d78e41",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-error.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-focused.json",
+      "sha256": "c5a352eff20ada382c9e1e7244923a5c02b7ae9d029cfd992b945104d69479f3",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-focused.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-normal.json",
+      "sha256": "465c4d873b6195ee01076ec8539ec9c9a06b6cbbcb96f6af5bc7d84920468d14",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-normal.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-recovery.json",
+      "sha256": "89af0c8b748dbcdb36ddcbb10f7cf9449c477debdeafa0f9def20887dc9a18a2",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-recovery.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-small.json",
+      "sha256": "9d4882f9927ee1c1ff89debdebb7e1c70c7bf21884b0457f17e971829d461474",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-small.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/settings-screens-unavailable.json",
+      "sha256": "dc419885662da3dbe6903c2c18f67e5884b171fb9c81cd3f9309084db4508a32",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/settings-screens-unavailable.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/startup-quit.json",
+      "sha256": "6b02d7c1422a697a8ad4adbe9ff27033802afd925c0bdb143aa2c68422ec49a2",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/startup-quit.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/terminal-manager.json",
+      "sha256": "342e9e0b74d74af32849453ec8f2116e00e71ec970c7b91ef89efb8b4c49a857",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/terminal-manager.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-interactive-agent-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/terminal-scrollback.json",
+      "sha256": "a025babbe9c007f695cb82d31486de2843dee71f3dce973b5baf6a88038ff39c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/terminal-scrollback.json --install code-puppy=repo:scripts/harness-interactive-agent-shim.sh --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/theme-override-toggle.json",
+      "sha256": "46fb708b4961a6f9e7d274f89a173a43004a863cd356ec0a82f99c54a2c30659",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/theme-override-toggle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/transient-agent-options.json",
+      "sha256": "5de4c793cfb3e2cdf3d568cae1504d7a582b1e80f5ba1ac88c546628e62709f4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/transient-agent-options.json --install code-puppy=repo:scripts/harness-agent-availability-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/harness-agent-availability-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/typed-navigation-push-back.json",
+      "sha256": "ac8f33db38116de0af0fe280c241eb2956b61e2443704150c4d173c3c2ed8d04",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/typed-navigation-push-back.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/action-capture-evidence.json",
+      "sha256": "9f57149d29203b1bfa21e3435e14f74c92a9b63d2b61369a26fc6fee7acb1427",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/action-capture-evidence.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/config-ambiguity.json",
+      "sha256": "d5f6aaf049a0094136002e974d842c5b1aecdd4fa01342d90e78d977b1d29cff",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/config-ambiguity.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/config-path-precedence.json",
+      "sha256": "b27d9a35f4cb43a06b5f1824ada853845e8339e3ba9fea198eba92033384f3be",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/config-path-precedence.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/config-provider-free.json",
+      "sha256": "d9ad09dac2a68f8b8979904e286be53af4862bf333fa94a68d314562e0e40996",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/config-provider-free.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/custom-screen-active-invalid.json",
+      "sha256": "1f6f4fbcddb856dd2f432e9080b2a66c7c5c19edeb84fa0ca352504401397e06",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/custom-screen-active-invalid.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/custom-screen-enable.json",
+      "sha256": "731a2e267cd3f4da92c506e5528200818ef3341d875c8cacc8d7e5523ff30348",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/custom-screen-enable.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/custom-screen-inactive-invalid.json",
+      "sha256": "0d9c03a2fef071732d0f746624c4878630229ca9c84f51cfc63173ecdae1f83b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/custom-screen-inactive-invalid.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/effect-after-commit.json",
+      "sha256": "b2dce85d5c8021f3dbe5dd8f75f5b1407964f3ff81b252d6b7b3c9bbfe1b5137",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/effect-after-commit.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-capture.json",
+      "sha256": "6fcd1169696d4fb97a658e5f36ae5ef98c84d868355c79c44da75ef2450f90d4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-capture.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-containment.json",
+      "sha256": "314233bcd9e18e89a969df53dc4b29281488717af0a30c0a8a9d2951211470cc",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-containment.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-interpolation.json",
+      "sha256": "2713dffb68ba2e7bf363907660e81c064e8e8029c97fb3a9c87f7019c598aa60",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-interpolation.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-redaction.json",
+      "sha256": "254088068b9cc773f16d52ae4218281d286b0b87993d2bb70b72ba809f767bc9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-redaction.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-resize-restart.json",
+      "sha256": "f64f5f0133b4733cec279d3fc8456a13315ea4cd88eb288dfd05f3d404b1d50f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-resize-restart.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-schema-all-ops.json",
+      "sha256": "1e3256d703da19bde38ca366f71d22c67f68ac8f34b8309e86b096583201033d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-schema-all-ops.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-timeout.json",
+      "sha256": "b74f9e4be559abf2dbd7a1ea1bdd39b5cd33bb0ccc2254c6481aee4aebe0039a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/harness-timeout.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/issue493-server-loss.json",
+      "sha256": "7be21c9d4f0430262b76e376f7a541d659e131a6daf9f0c355ca4d412fa347d2",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-05",
+        "CW00B-07"
+      ],
+      "platform": "windows",
+      "ci_job": "windows_native",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/issue493-server-loss.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/issue575-direct-upgrade-launch.json",
+      "sha256": "20c9bb870593cba9f6627883e7386b9fb9b722aacaf49ad2c680cf2dcadf41a5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/issue575-direct-upgrade-launch.json --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue575-llxprt-shim.sh --install tmux=repo:scripts/issue520-tmux-shim.sh"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json",
+      "sha256": "56b8bccda7b44a893d043ec513608012fd7db81b57e2b4267247f23a4c981935",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json --install jefe=cargo-bin:jefe --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/jsp-llxprt-preview-native.json",
+      "sha256": "5d240f5e2e2939fb8acdad86c853b5b026384b15e0364406abb4e010f8ae117a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/jsp-llxprt-preview-native.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/jsp-llxprt-preview.json",
+      "sha256": "626719c7ece2007af0137d1e823acf9fdd903ff457c0653eb27d49294c10fe18",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/jsp-llxprt-preview.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/llxprt-continue-field.json",
+      "sha256": "2f01c5efdc0c9f012686adf530d1aec3a650294236a4a1ac4cad6eb15abadef4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/llxprt-continue-field.json --install gh=repo:scripts/issue520-gh-shim.sh --install git=repo:scripts/issue520-git-shim.sh --install jefe=cargo-bin:jefe --install llxprt=repo:scripts/issue575-llxprt-shim.sh --install tmux=repo:scripts/issue520-tmux-shim.sh"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/panic-capture-errors.json",
+      "sha256": "ed9744ac51166415cec5c1390139b5c5f3ddd196365b6a1674b8ea76e1ced78d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/panic-capture-errors.json --install jefe-harness-probe=cargo-bin:jefe-harness-probe"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/pr-delta-review.json",
+      "sha256": "33030668a1426a90aef05d6aa3944de310fe2e3b3afa8b40dd374f5cba4b635d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/pr-delta-review.json --install gh=repo:scripts/issue376-gh-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/probe-form.json",
+      "sha256": "270e5ee3f6915910b5947a307459908c0db09fbb021e69945dadeca7f90052f0",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/probe-form.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-dirty-back.json",
+      "sha256": "8bbcd8ae768c207282c49bf1750ad87a70caec8f82fd7b14a4de324d4b57fe65",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-dirty-back.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-edit.json",
+      "sha256": "dd48899dceacd63dce38dc474e91bc0a60aaa78f6c9738d8254debdca8c15758",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-edit.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-external-edit.json",
+      "sha256": "886845ee0ec14e4d39371e2a8a073bef62f3d53d5e288477a9198ef917ce5531",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-external-edit.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-format-check.json",
+      "sha256": "fc090221d69f87e38f20be84b169ae24aa5038f55b6a11bb6d992b97b47f8ec2",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-format-check.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-format-migrate.json",
+      "sha256": "ead4faa9c7c88d5fa05d9c56497c508df4f83c469df4310e7d0578581f4860cb",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-format-migrate.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-lossless-save.json",
+      "sha256": "ff05ab1376f77ed4ee6eaa09db3aba634cd04f6cc0d0fe0c54d6d4921d458e59",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-lossless-save.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-shell.json",
+      "sha256": "9b0e953fa412e5274fed416b155f1c7e3efe04c59eda9c5ac4d5fff4f275012e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-shell.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-show-effective.json",
+      "sha256": "b9d453ac03c38f3e7ec5325d830efc5eede5a817a6344a87aeeea675ff70d966",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-show-effective.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-unavailable-small.json",
+      "sha256": "400a3618f595c9105a1b1480a7e432fc54119b8ba754d9a9fb40e761dd368d30",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-unavailable-small.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/settings-v1-lossless.json",
+      "sha256": "ee975573831582a92aa48a50badacf6435426050faf3c25de3f67de3aff07675",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/settings-v1-lossless.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/startup-malformed-state.json",
+      "sha256": "0d147b307308a87a3c49097574b5410320d4877448270df7857be5dc13bed90c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/startup-malformed-state.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/state-v1-v2.json",
+      "sha256": "b0a75cd1d8da3dac5613b44d483eaa16c389fe1ff79ad567a29a47c7f5bc39d8",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/state-v1-v2.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/workbench-attach.json",
+      "sha256": "34d257244485aeca9c8f0d3ae211a74d6a46b5268e81da41eb3f67f32e775080",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/workbench-attach.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/workbench-cards-native.json",
+      "sha256": "fdcd2a7e21607ba8e85d2df6d7e4c5d1a7ca8d78e689defd15903e8424d0ab44",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/workbench-cards-native.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/workbench-cards.json",
+      "sha256": "cc8d7ab6c95dbfeb4b9a918b71b87cd9a22ca54cd89c6b508e6bc768df64f811",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/workbench-cards.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/workbench-screen.json",
+      "sha256": "84462eefd9e44d94286a06d012af8379393447140e8a6a0ec3196a1d1bfddc41",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/workbench-screen.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/v1/workbench-sort.json",
+      "sha256": "ed5b0f682a70beedf14d28ab5323297610efdd5d4ecb7a863885bd5fd1d6a8c9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/v1/workbench-sort.json --install env=repo:scripts/first-agent-tutorial-env-shim.sh --install jefe=cargo-bin:jefe --install llxprt=cargo-bin:jefe-jsp-llxprt-fixture --install tmux=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/windows-local-repository-prep.json",
+      "sha256": "57ec18a59319fb8ef84a8d155b702a8ee66b71ab2f059d3bd11aa87d8f85f5d1",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "windows",
+      "ci_job": "windows_native",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-local-repository-prep.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json",
+      "sha256": "7104daee65d6b81fc6224573632f306de1f3aea8760ad813c202833368b32d05",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "windows",
+      "ci_job": "windows_native",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/windows-remote-linux-config.json",
+      "sha256": "ae14596e55dcb83c515a7be13adde8f0622f5f5d870fca6834a7b90056bb3995",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-remote-linux-config.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/windows-renderer-viewport.json",
+      "sha256": "385213ce88a196847ea2ec1681f605d4cdcbe727f28b289a6c9ecc4d67120414",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-renderer-viewport.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json",
+      "sha256": "3deacef0bad200ef3651ffa451f0dd11fd0cc47f6641427e435f1d3de5d42db4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "windows",
+      "ci_job": "windows_native",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "sha256": "2e7b7f623af7b1f344b5f027d1b6075fd170cae5e55d0c6c47f0eb0709b9cf34",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "9f3982099375b4b5cfa9d584ece1bd1f7d170f04f8b4bd35ccc41b325184d589",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-05",
+        "CW00B-07",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "sha256": "e96dc771173153288797757455fae141d931585553472422758194862563935e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/scenario-execution-manifest.json",
+      "sha256": "4b454b74a5b9495429290a47d78823fb10e17abd408ca2387a7d1be25dc96cef",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-05",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/tmux-harness.md",
+      "sha256": "9d5c313062094922918f819cce5532cf8acac6b8ce7c1c65dda098025064ed96",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-05",
+        "CW00B-06",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-code-puppy.svg",
+      "sha256": "af014e03a1e9b9c22ddbe2f2be8026679779914acc16262772be51396320e845",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-issue-send.svg",
+      "sha256": "7674aaed712b9f5ba1867f349e1cffe6640d6e3f83b66be55af09391203bbaa5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-issues.svg",
+      "sha256": "68f63e3ddc21eade26578ee9e537cd888bddb0eb37fc36cc9c8c0e992820dbb5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-new-agent.svg",
+      "sha256": "203f81b0d36539c97a0246931d395d6d4baeed2548b22fdbbe2b0d12deab38ee",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-new-repository.svg",
+      "sha256": "7e754bb1ec425c53b103c0d370469432fefb2df0972d1e8c6f632009d72b238c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-pr-merge.svg",
+      "sha256": "0c63e0ebabb452d8874443ed952c7f72eef810a76e56e70787a8f09e45cef8d2",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-pull-request.svg",
+      "sha256": "5646df490322ca9f49cbbea818ea37a504caac9d870271e718979ec4a64109a6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-result.svg",
+      "sha256": "5490dd6f7cb76b51e4bc9cfd4abfa39bace097428726336b376ef58e644e31c8",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "docs/assets/first-agent-tutorial.provenance",
+      "sha256": "ff38a33dccd3bb8037ca68f8074d806bd47d60f814a6d87f0abe90a112107e5e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "project-plans/issue397-plan.md",
+      "sha256": "f1a53a9c9647ef65215b15014b94b8055d382f63c3896a1dbf77301f17c79be3",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-06",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-cat-shim.sh",
+      "sha256": "0fdbe8bf8d6784483c2fa8447a18525f6fa25d11b0662f42905fc54cedd3713f",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-code-puppy-shim.sh",
+      "sha256": "106ce783138376d5350f16c2cc655695bcef37977adbab8103380a07b930d1d7",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-env-shim.sh",
+      "sha256": "043053a223bd680bbe7d7330d5fe7eada65f57a48f48d2bce82c731b340a734b",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-gh-shim.sh",
+      "sha256": "dadf176a8f59cdc51fe19808ee24e8ea705d807e1a9a8901c02299991f699045",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-git-shim.sh",
+      "sha256": "004fcecdb1ecf0e62c0660236bcfd3c574b416d76408bc3a355894ab4a947ec6",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-llxprt-shim.sh",
+      "sha256": "761aef9af2dea626c01feff2fd3323c42325ba66a36cbebf18c97c00aa54818d",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/first-agent-tutorial-tmux-shim.sh",
+      "sha256": "c4f942ec79bc78e06e3eae79de5833badb4b811c38f146bef1ae1369096b2375",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/harness-agent-availability-shim.sh",
+      "sha256": "f31bff2707a86565b2526cf092cfe02a6cc97ba1c981e66f91d6416ecbaef8e6",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/harness-github-scenario-shim.sh",
+      "sha256": "13ce9c73a4ef111c1704a789277513b5685527d7747fc1e9efb95fb7d165d794",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/harness-interactive-agent-shim.sh",
+      "sha256": "28cadd9bff5eb097f0f905cf0471d573e4ebc1f7d8988257a883a74ce0df8bd8",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/harness-repository-prep-git-shim.sh",
+      "sha256": "41db0aff59cd0939d28edba3547db36d0ee41ac0ccf12df5224c0ae3fe0c47b5",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/harness-shell-tools-shim.sh",
+      "sha256": "c5481104a22e5dbeef65a989545eb3bc4722e8b576d4509717323090d3589f28",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/harness-tmux-shim.sh",
+      "sha256": "47a6cb39041b93c7ff6c0ef19dfcedb0ea62db458840b23a4a590d5c369cde11",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-05",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/issue189-gh-shim.sh",
+      "sha256": "d664bb2417dbc4ffac32d6bbfe9beeb86d60f2d6154368f014735213a60dbaf7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue194-gh-shim.sh",
+      "sha256": "4a06a630c2d90bd945ae300bfd8649c3f22a99f167b42a8cba7cab5039d58718",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue230-gh-shim-fixtures.sh",
+      "sha256": "601e95d816bc045a8b6a71e4e0b900fe674ca6ebc7cc3a4ac99207a2259a2912",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue230-gh-shim.sh",
+      "sha256": "9a7ad5ff6b9cff02ed21cbbaf10ee2b8c3053539e5ff330d3254fca922e92425",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue230-git-shim.sh",
+      "sha256": "348b0cc6bcd2a276372298803d681d46bfea8a9969cf356062aaf90da80d3295",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue238-gh-shim.sh",
+      "sha256": "0d1dcda47732fd14b93128d4536dca980439de480d6771ab05d5ac84af80c73b",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue265-gh-shim-fixtures.sh",
+      "sha256": "715fbbf8cfa82ab559a4533c86582f297935f90647aa44ca99b5c2bc860f71e4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue265-gh-shim.sh",
+      "sha256": "8c9562372c1c0f3b4ccc1c9e5d4685147ff99ce7cae22b261f1c018b263137ed",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue351-gh-shim.sh",
+      "sha256": "a490816028100a34e51fe32e13b60d9be6790f5c527a1300def6143f54660e6e",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue376-gh-shim.sh",
+      "sha256": "6c72f5243b013bf0382d67e1639db104ed55130009c58d397691b5f1372e421b",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue382-agent-shim.sh",
+      "sha256": "d970e1dd0d9abacd8449cebc01d15cc5a73efc7b35de72cbe2e9d9402288ed64",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue520-gh-shim.sh",
+      "sha256": "5a0d9ce8d8ace12e38141fc1e563eca44e98aa40a7dfb1a42b8e8d42ae5a9d8b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue520-git-shim.sh",
+      "sha256": "6b9f6816bfcc3a1c5b1aaff1db0fa99a13e5be30da4fdca9efa77dd9d816b291",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue520-tmux-shim.sh",
+      "sha256": "af3630a1525acdb753647ad2c8af4b0a36e400fd9e95a8f38ab97fa4ebdf2b53",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue575-llxprt-shim.sh",
+      "sha256": "ea563d5642bc34eee98f20704fa4e19a695cd7c8fa9b2c9c2493a9f50b9c47a1",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue621-gh-shim.sh",
+      "sha256": "e8119b67ceee69934a448d4dc1a25e2076db324f0d75e428805bea4f62256f2e",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/issue633-slow-probe-shim.sh",
+      "sha256": "4ce597208c333b66ed70649f87607c6fa9e4d147d7d6b5d937877a251bc949bc",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/publish-first-agent-tutorial.py",
+      "sha256": "46027518cc3c940581538e418c7fe52a057da65d037bf514b00767a0bcb3f858",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/regenerate-first-agent-tutorial.sh",
+      "sha256": "c741e6275f95ec535d3346d377aa7aad5e9401a834baeaf91479d753b358b066",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-06",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/run-scenario-manifest.py",
+      "sha256": "40e62d69bd5630477bd7091d1214511770a696eee87573748ccd625f3f1bc1cf",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-05",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "src/app_input/action_handlers.rs",
+      "sha256": "9bed648e84f392aee891eee2e0983deb3f1997e8766d68d71187a085fb5df775",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/app_input/action_handlers_tests.rs",
+      "sha256": "d60248044dfb47e597147ba6dcc89976d3e3f6699b02dda5d19701d6448d4b7f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/app_input/agent_runtime.rs",
+      "sha256": "fe625f181fd58e2becc324d324f583b367a0ef0d06a5810598d46a5995faf4d6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02"
+      ]
+    },
+    {
+      "path": "src/app_input/app_input_tests.rs",
+      "sha256": "1237ccd0d481d29c02ba07032daf5725c452e7bbc03aceeaaa2a5fe0c76ce055",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02"
+      ]
+    },
+    {
+      "path": "src/app_input/new_issue_submit.rs",
+      "sha256": "8a886e248f0cde56389f314143c1b718f00c273ffbc4ef91113017654d47f76d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/app_shell.rs",
+      "sha256": "539d1dddd8a606feab50d4e9cadb1f7e0fde4cc7840823522f7b9fcb2f94bc1d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/app_shell_key_routing_tests.rs",
+      "sha256": "8ebc6315776e4a8068f95734d4ff5530e9592243302faf04d38ca3cc24113893",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/bin/jefe-harness-probe.rs",
+      "sha256": "6f972f2975a2d974daf8493e49a7f92f407a55e5df80d61fe15d4d6827b975ff",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "src/bin/jefe-harness-probe/issue382_acceptance.rs",
+      "sha256": "e265a2522bbeb854a3969c4d2661e9882b6afed8d2c8264565ef715efe132216",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "src/bin/tmux_scenario.rs",
+      "sha256": "9bae3a671a5ef46f613073b7309d2b3f21e2b64df1a2cefeef69053501fb3d86",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-05",
+        "CW00B-06",
+        "CW00B-07",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "src/issue_detail_content_new_issue.rs",
+      "sha256": "97ee092c2ca135037d9967bb0f1b596423d13e06ae7272dcaae6e34f458b6610",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/issue_detail_content_new_issue_tests.rs",
+      "sha256": "71f748989d0bbc94297e980a2a01482aa96888ad4ed857c086154de4ee2bab91",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "src/state/mod.rs",
+      "sha256": "77d671b6acf8baa9e9eb238845af18d163d56f8a89652b50ba0204d179486d09",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/core/multiplexer_socket_scoping_contract.rs",
+      "sha256": "5e855ad83db91461f1dce83404388db21afeafafacd93e177d93626a87e1e365",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "tests/core/tmux_harness_docs_contracts.rs",
+      "sha256": "469fce8513aa03e86bfbdbcf44c1a1e1bbea07ee9ed2ef0846dce05db54320d5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "tests/core/windows_ci_signal_contracts.rs",
+      "sha256": "32261da4c56b15edefb1012c0e3d4253838f8fb0a7d3f584bdcc2d2325c1342a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-05",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/first_agent_tutorial_publication.rs",
+      "sha256": "c317a292e79b507552d66a7c2bcb4e0c684b18347e3a2d6e51ce95879a43ddc9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/first_agent_tutorial_regeneration.rs",
+      "sha256": "fc3bede9a8db321f708e89708dfc20d514f3805d15e83e280d25b6332b9c03d1",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/fixtures/harness_v1/harness-limits.json",
+      "sha256": "51212a0d6ddc704fec0c59bdd14546cc3ef71e678bd75b6b6f61dd660503a1c7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05"
+      ]
+    },
+    {
+      "path": "tests/fixtures/jsp_llxprt_fixture.rs",
+      "sha256": "e77200f844738ccf346a1eb397c6f836914ed8d3fcbf605846428c69b169ac96",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/harness_authority.rs",
+      "sha256": "199ffb631a045ad32612bf62a8aee8b50e92811123c185f3d9858250cb3da255",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "tests/harness_signal_cleanup.rs",
+      "sha256": "50c359608022daf9879b3a7b8fb9c44ce52b515981b4978f4ed919c01858aaf4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03"
+      ]
+    },
+    {
+      "path": "tests/harness_v1.rs",
+      "sha256": "49c4b27aced7ef97a8ecf88f48beebdba188873d3ee7a3e61459feae68d924a9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-05"
+      ]
+    },
+    {
+      "path": "tests/harness_v1_fixtures.rs",
+      "sha256": "dfda357ac3481fd3485acd6326f57432f6c8993ab98b448607975950ddaeba97",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-03",
+        "CW00B-04",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/scenario_manifest.rs",
+      "sha256": "0a7f1834026d81e405f9b360a16d970b415615d1cd29447b82d7c37a64c1c8c5",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-05",
+        "CW00B-06",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "tests/scenario_manifest/driver_tests.rs",
+      "sha256": "ad0a2bccfeda53c4db25a094e94081dcf2f474c1f2957cacc7a58d7ba1af7794",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-05",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "tests/scenario_manifest/projection_tests.rs",
+      "sha256": "2f9dd0631c57e9fda03d67e9bcaa3c2751bbc35f874c3c36aa906d25a70a2294",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-02",
+        "CW00B-05",
+        "CW00B-08"
+      ]
+    },
+    {
+      "path": "tests/ui/mod.rs",
+      "sha256": "e07807d1a86fb2a84339969556d54f8602967be364358f707e4231ca8911754e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    }
+  ],
+  "harness_modules": [
+    {
+      "path": "src/harness/mod.rs",
+      "sha256": "e12f3ae85e21cdfa38d5ba9a78cac2f52c89eda104913ccc992ff2c295e3084a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/lib.rs"
+    },
+    {
+      "path": "src/harness/v1/action_capture.rs",
+      "sha256": "8359e8ecdb71dd05bbcff29e0470796022e422b5aff0741fcfdb9117d2bb79cb",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/action_capture_sink.rs",
+      "sha256": "299faf164c2a11ae99ae70c1b0e3056768fab82606ee2bb5d9bbea5cdd9f6e1f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/action_capture_tests.rs",
+      "sha256": "a206943ca151301b2656630abf10fe44f759af5ba5a82ee13ee545997e6b3448",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/app_socket.rs",
+      "sha256": "29611b4c51b47c9f0cf9ea321e24cb8e874072616d895201ce0c4bb1ebe269dc",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/app_socket_tests.rs",
+      "sha256": "975760d654bfa14a6ca340cfeed3eca54e5e8b947329d3dba9da5e7e1add03ea",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/app_socket.rs"
+    },
+    {
+      "path": "src/harness/v1/capture.rs",
+      "sha256": "43da7a45b2175661d3ff70b0f535dd56f67456e7dac8a24dec0606e5ac562517",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/capture_tests.rs",
+      "sha256": "6110097cd3e7d7a2f0ff0aa7e42d838f15a40b0885d7a0cb24b828f9727b563f",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/capture.rs"
+    },
+    {
+      "path": "src/harness/v1/contract.rs",
+      "sha256": "e7661334a3af7280d00efc2e668a50d50cf21174bc3cbf50ae69c12ee3ba0137",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/env.rs",
+      "sha256": "ca650723d159bad51faa87ab48fe6363ed3c35c9606125aeb9e582689785f4f4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/error.rs",
+      "sha256": "1d956745b512a9c2a23e1c4bee099ce199ec226dc1b8431798237f8acc72a6ac",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/fields.rs",
+      "sha256": "60c51a1f2967eb6450aa35cd79ff065ae502dcb0a2ac6181eb04d522655b0218",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/interp.rs",
+      "sha256": "4b94c5d06dbdded2affbc6d531786a479b46cef5666494e9e6cdbc152b333c53",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/interp_tests.rs",
+      "sha256": "7c236fee66c9a39cc06da9fea05375c06a6f91aa7a7245a0ae26800cf2b71536",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/interp.rs"
+    },
+    {
+      "path": "src/harness/v1/json.rs",
+      "sha256": "984bd9a27c6c67c260ea113bbadcd4fe4b82808be2d44821102cdc5ac774601c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/json_tests.rs",
+      "sha256": "8df366534cee8bb055c04e58f1887fd1b11173e87413750a32f5c10aabe7474b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/json.rs"
+    },
+    {
+      "path": "src/harness/v1/keys.rs",
+      "sha256": "8aa611ab56e28a92fa7055582c4892daf230c7b56d4fc8b01378da5cfe0d73ef",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/limits.rs",
+      "sha256": "7b3239fdbd0b1df3d4531a195ca8a4f4197d18f43fef67d114aee5d393c63fb7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/mod.rs",
+      "sha256": "01915b43d8ef1d4c6989ee2a803f037d0fc9742c699d3f20607100cf17ab96f6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/parse.rs",
+      "sha256": "8ab79fda013b6584f4715ca8a7413cb9cd9a2d0ea1a03d6161544142040f3940",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/parse_step.rs",
+      "sha256": "34fbab1cd4587406804a237533efafee96abe86249e5034c3eb492bcb07c785d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/parse_tests.rs",
+      "sha256": "06e677a7b41ed9dad98b9424ae5a43379286baf8b0ecce23c877fdd4cc9c7880",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/parse.rs"
+    },
+    {
+      "path": "src/harness/v1/pty.rs",
+      "sha256": "afab5566f55b352b9d4da524a83936d84f1755c02002c88fcc43c6af50dffe98",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/pty_tests.rs",
+      "sha256": "7e26b62c87c9fea73fa5b37b915dd9d00857d0745977c7600272d2571a0190e8",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/pty.rs"
+    },
+    {
+      "path": "src/harness/v1/redact.rs",
+      "sha256": "811dc072ca25dc86656b514ed6ce79dec52dd5f3b45c1e47f136abc4890b339d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-04",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/report.rs",
+      "sha256": "b06e8d53c3ad60b0ca2003760decaf261e7d5a267c03a403f8682c04ea2b3c51",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/runner.rs",
+      "sha256": "874fea42c00c3978c9f507fac461e55124ccd9183aadbd24d34de5b18f36ee5e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/semantic.rs",
+      "sha256": "f3328a5d850fe23a703fdb9a453993082a921eeecdbff3457a618c16f959e87d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/signal_cleanup.rs",
+      "sha256": "f51f2ee07f15c956c03d4b9c97171d77de8c39708c89f24253d1e3571b08a714",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-03",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/validate.rs",
+      "sha256": "64e5a84a18c3402a7e5270ebe443cce56a4c640c94f943ba116620355cd583af",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/validate_tests.rs",
+      "sha256": "c9ad53099b0d0b3f55e611bb2439e639aa94ff14cc36ccb1f541b24ba4386f34",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-01",
+        "CW00B-05",
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/validate.rs"
+    },
+    {
+      "path": "src/harness/v1/workspace.rs",
+      "sha256": "95da15a018a66670599dea943ef65f6f3848a99c999602b74e07320cf5933965",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "production",
+      "imported_by": "src/harness/v1/mod.rs"
+    },
+    {
+      "path": "src/harness/v1/workspace_tests.rs",
+      "sha256": "6ed9fd037e791e78694716302923fa8bea3c2c770923aff33c517c33186b4ee7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ],
+      "classification": "test",
+      "imported_by": "src/harness/v1/workspace.rs"
+    }
+  ],
+  "deleted_paths": [
+    {
+      "path": "dev-docs/tmux-scenarios/v1/harness-limits.json",
+      "sha256": "51212a0d6ddc704fec0c59bdd14546cc3ef71e678bd75b6b6f61dd660503a1c7",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue189-run-pr-scenario.sh",
+      "sha256": "38bcfaadf24bde6c270e86de7517c0c82de7d6cd9590dc520b065a51951eebfc",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue194-run-scenario.sh",
+      "sha256": "7d96ec0fc4bb1ab435002efef28b87abace420c346267daef39b6e061fcc7648",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue222-run-scenario.sh",
+      "sha256": "00827aacca10718e7876f7b93bc2d148cae590063c985ed4c557f66c4434aa5c",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue230-run-scenario.sh",
+      "sha256": "aa7f0b9fabd6ab50795e9f8c2038cfd616d3a94ae2f8e35f77d25a8c8affb2d6",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue238-run-scenario.sh",
+      "sha256": "e700f06038f30555efdd73ebbe72b60e9d5498fe41e6403481535acad6ccbf3b",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue241-capture.sh",
+      "sha256": "48b285918cb1cbb7e5bf7e362e749d263afd4368278fd2d2c59f2a7c4aae7935",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "scripts/issue265-run-scenario.sh",
+      "sha256": "5f3df2ce47e922f5b16719ed455d5b50b62c1a4b874efdfc1fb928359a4396b8",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue269-run-scenario.sh",
+      "sha256": "34d5136660df8b20a48f072c83a9d9ed4774204a43fd79b6865f40683b0d8be6",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue351-run-scenario.sh",
+      "sha256": "eba3171eaaa54b1aa05aa9537fef2cbd5ea207ee98b477fdd01167790d570ce1",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue364-manager-run-scenario.sh",
+      "sha256": "d3b48d67ec5a37756463f00e701674f83615baa4100c7dc0baea1d110d4a398c",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "scripts/issue621-run-scenarios.sh",
+      "sha256": "9f2d97cd582680c77f778c7ce88c80c4b3e301028274511d4173869189d9cbdc",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/bin/jefe-tmux-harness.rs",
+      "sha256": "7bd11f58fb0aebb57a6b1c39adadf71be9c046868eb810e1809f4f4f7302b642",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/capture.rs",
+      "sha256": "b7007b7850326ffc9b728a9b9f8f1479a5d1cd9704fae30593d2d76f9b5e243d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/error.rs",
+      "sha256": "38de25e23c447229466e0f89ea6d64c517faa69d409deb8e49686c06b335ebf9",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/psmux_driver.rs",
+      "sha256": "3f0adc342bf0986d9975d7f7bb1671f8a04ca7c8830b6c57c0be98f960ca4d7b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/psmux_driver_tests.rs",
+      "sha256": "238ba4e6c27b2aaa63b2f0e7fa60d013c18292530fb7a85cb6b941d45e0bae14",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/psmux_process.rs",
+      "sha256": "b5319f7fb33ea171dd9043efa39822474fbdad7618fb11c24b449ea6b50c283d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/signal_cleanup.rs",
+      "sha256": "a21a004c9700fd07d2d3f81a09556aee0040439d2f7398751629e25db35fa051",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/signal_cleanup_tests.rs",
+      "sha256": "e66bf06e3458a837bd93d33909fc7d809ce2d0b9657cd0db564ef66c3cc3501d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/tmux_driver.rs",
+      "sha256": "f6c7d41cc47486b6306cc754851e7743f639bb73899ff51c47fe056b69a26909",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/tmux_driver_tests.rs",
+      "sha256": "55723f8e1c792f2eb904e6e2da45abc94695b5f04b343d35ef2150766de91120",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "src/harness/v1/tmux_runner.rs",
+      "sha256": "3bbd8d2ffa1bc250f5ba8945dc70b3580e2f46d1b1306b58fb5ff8d992be1cdc",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06"
+      ]
+    },
+    {
+      "path": "tests/fixtures/first_agent_tutorial/fake-capture.sh",
+      "sha256": "7628195be9cd5fb19560b3a62d11ed2e22e327e90053e9f3cdc13145c445baa6",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/issue241_capture.rs",
+      "sha256": "114eca6ee49d0786c26aff76e117dca7ae9af0fb16fa5a5b39d878987494b01d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-06",
+        "CW00B-07"
+      ]
+    },
+    {
+      "path": "tests/ui/dashboard_reorder_tui.rs",
+      "sha256": "ae8e9b240a28c302f4eff2a46c6c9c13934bd51aabdc5050644aca0c95db361e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-06"
+      ]
+    }
+  ],
+  "criteria": {
+    "CW00B-01": {
+      "paths": [
+        ".github/workflows/ci.yml",
+        "dev-docs/testing/scenario-execution-manifest.json",
+        "dev-docs/testing/tmux-harness.md",
+        "project-plans/issue397-plan.md",
+        "scripts/run-scenario-manifest.py",
+        "src/bin/tmux_scenario.rs",
+        "src/harness/v1/contract.rs",
+        "src/harness/v1/fields.rs",
+        "src/harness/v1/json.rs",
+        "src/harness/v1/json_tests.rs",
+        "src/harness/v1/limits.rs",
+        "src/harness/v1/parse.rs",
+        "src/harness/v1/parse_step.rs",
+        "src/harness/v1/parse_tests.rs",
+        "src/harness/v1/semantic.rs",
+        "src/harness/v1/validate.rs",
+        "src/harness/v1/validate_tests.rs",
+        "tests/core/tmux_harness_docs_contracts.rs",
+        "tests/fixtures/harness_v1/harness-limits.json",
+        "tests/harness_v1.rs",
+        "tests/scenario_manifest.rs",
+        "tests/scenario_manifest/driver_tests.rs",
+        "tests/scenario_manifest/projection_tests.rs"
+      ],
+      "commands": [
+        "cargo test --locked --all-features --test scenario_manifest"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::parse_scenario_v1",
+        "tmux_scenario"
+      ],
+      "deleted_symbols": []
+    },
+    "CW00B-02": {
+      "paths": [
+        ".github/workflows/ci.yml",
+        "dev-docs/testing/scenario-execution-manifest.json",
+        "dev-docs/testing/tmux-harness.md",
+        "dev-docs/tmux-scenarios/actions-mode.json",
+        "dev-docs/tmux-scenarios/actions-pr-filter.json",
+        "dev-docs/tmux-scenarios/agent-runtime-choice.json",
+        "dev-docs/tmux-scenarios/agent-shell-overlay.json",
+        "dev-docs/tmux-scenarios/auth-dialog.json",
+        "dev-docs/tmux-scenarios/code-puppy-chord-passthrough.json",
+        "dev-docs/tmux-scenarios/code-puppy-version-fields.json",
+        "dev-docs/tmux-scenarios/confirm-dialog-focus.json",
+        "dev-docs/tmux-scenarios/dashboard-list-windowing.json",
+        "dev-docs/tmux-scenarios/dashboard-reorder.json",
+        "dev-docs/tmux-scenarios/edit-properties-menu.json",
+        "dev-docs/tmux-scenarios/errors-mode.json",
+        "dev-docs/tmux-scenarios/f12-cross-view-defocus.json",
+        "dev-docs/tmux-scenarios/first-agent-tutorial.json",
+        "dev-docs/tmux-scenarios/fork-issue-pr-repository.json",
+        "dev-docs/tmux-scenarios/help-modal.json",
+        "dev-docs/tmux-scenarios/issue-dirty-copy-confirm.json",
+        "dev-docs/tmux-scenarios/issue265-linux-keys.json",
+        "dev-docs/tmux-scenarios/issue382/agent-claude-evidence-gate.json",
+        "dev-docs/tmux-scenarios/issue382/agent-fresh-issue.json",
+        "dev-docs/tmux-scenarios/issue382/agent-fresh-pr.json",
+        "dev-docs/tmux-scenarios/issue382/agent-incompatible-zero-spawn.json",
+        "dev-docs/tmux-scenarios/issue382/agent-legacy-migration.json",
+        "dev-docs/tmux-scenarios/issue382/agent-local-operation-matrix.json",
+        "dev-docs/tmux-scenarios/issue382/agent-no-product-branches.json",
+        "dev-docs/tmux-scenarios/issue382/agent-probe-negative.json",
+        "dev-docs/tmux-scenarios/issue382/agent-probe-parser.json",
+        "dev-docs/tmux-scenarios/issue382/agent-remote-operation-matrix.json",
+        "dev-docs/tmux-scenarios/issue382/agent-resolver-order.json",
+        "dev-docs/tmux-scenarios/issue382/agent-sandbox-preflight.json",
+        "dev-docs/tmux-scenarios/issue382/agent-stale-generation.json",
+        "dev-docs/tmux-scenarios/issue382/agent-status-cartesian.json",
+        "dev-docs/tmux-scenarios/issue382/agent-terminal-compatibility.json",
+        "dev-docs/tmux-scenarios/issue382/agent-unsupported-ui.json",
+        "dev-docs/tmux-scenarios/issue382/agent-version-selector.json",
+        "dev-docs/tmux-scenarios/issue435/status-bar-error-count.json",
+        "dev-docs/tmux-scenarios/issue519/llxprt-launch-options.json",
+        "dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json",
+        "dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json",
+        "dev-docs/tmux-scenarios/issue621/issues-list-send-agent.json",
+        "dev-docs/tmux-scenarios/issue621/prs-list-send-agent.json",
+        "dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json",
+        "dev-docs/tmux-scenarios/issue687/config-isolation.json",
+        "dev-docs/tmux-scenarios/issue687/session-continuity.json",
+        "dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json",
+        "dev-docs/tmux-scenarios/issues-close-delete.json",
+        "dev-docs/tmux-scenarios/issues-close-reason.json",
+        "dev-docs/tmux-scenarios/issues-composer-textbox.json",
+        "dev-docs/tmux-scenarios/issues-detail-word-wrap.json",
+        "dev-docs/tmux-scenarios/issues-empty-repository.json",
+        "dev-docs/tmux-scenarios/issues-filter-clear-delete.json",
+        "dev-docs/tmux-scenarios/issues-filter-open-close.json",
+        "dev-docs/tmux-scenarios/issues-new-issue-typing.json",
+        "dev-docs/tmux-scenarios/kennel-terminal-select.json",
+        "dev-docs/tmux-scenarios/keymap-projection-consistency.json",
+        "dev-docs/tmux-scenarios/latest-version-fields.json",
+        "dev-docs/tmux-scenarios/liveness-responsiveness.json",
+        "dev-docs/tmux-scenarios/llxprt-terminal-scroll.json",
+        "dev-docs/tmux-scenarios/llxprt-version-fields.json",
+        "dev-docs/tmux-scenarios/navigation-local-unwind.json",
+        "dev-docs/tmux-scenarios/origin-mismatch-confirm.json",
+        "dev-docs/tmux-scenarios/package-panel-lifecycle.json",
+        "dev-docs/tmux-scenarios/paste-enter-escape.json",
+        "dev-docs/tmux-scenarios/pid-commit-corner.json",
+        "dev-docs/tmux-scenarios/plugin-settings-all-states.json",
+        "dev-docs/tmux-scenarios/plugin-settings-generated-config.json",
+        "dev-docs/tmux-scenarios/pr-composer-submit-key.json",
+        "dev-docs/tmux-scenarios/pr-detail-esc-refocus.json",
+        "dev-docs/tmux-scenarios/pr-edit-properties.json",
+        "dev-docs/tmux-scenarios/pr-merge.json",
+        "dev-docs/tmux-scenarios/pr-new-composer.json",
+        "dev-docs/tmux-scenarios/pr-review-newest-first.json",
+        "dev-docs/tmux-scenarios/provider-action-confirmation.json",
+        "dev-docs/tmux-scenarios/provider-action-error.json",
+        "dev-docs/tmux-scenarios/provider-action-health-unavailable.json",
+        "dev-docs/tmux-scenarios/provider-action-lifecycle.json",
+        "dev-docs/tmux-scenarios/provider-action-published.json",
+        "dev-docs/tmux-scenarios/provider-action-recovery.json",
+        "dev-docs/tmux-scenarios/provider-action-small.json",
+        "dev-docs/tmux-scenarios/provider-action-unavailable.json",
+        "dev-docs/tmux-scenarios/repo-github-field-focus.json",
+        "dev-docs/tmux-scenarios/scratch-pr-mode.json",
+        "dev-docs/tmux-scenarios/send-to-agent-details.json",
+        "dev-docs/tmux-scenarios/send-to-agent-slow-probe.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-dirty.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-error.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-focused.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-normal.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-recovery.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-small.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-unavailable.json",
+        "dev-docs/tmux-scenarios/settings-keys-dirty.json",
+        "dev-docs/tmux-scenarios/settings-keys-error.json",
+        "dev-docs/tmux-scenarios/settings-keys-focused.json",
+        "dev-docs/tmux-scenarios/settings-keys-normal.json",
+        "dev-docs/tmux-scenarios/settings-keys-recovery.json",
+        "dev-docs/tmux-scenarios/settings-keys-small.json",
+        "dev-docs/tmux-scenarios/settings-keys-unavailable.json",
+        "dev-docs/tmux-scenarios/settings-screens-dirty.json",
+        "dev-docs/tmux-scenarios/settings-screens-error.json",
+        "dev-docs/tmux-scenarios/settings-screens-focused.json",
+        "dev-docs/tmux-scenarios/settings-screens-normal.json",
+        "dev-docs/tmux-scenarios/settings-screens-recovery.json",
+        "dev-docs/tmux-scenarios/settings-screens-small.json",
+        "dev-docs/tmux-scenarios/settings-screens-unavailable.json",
+        "dev-docs/tmux-scenarios/startup-quit.json",
+        "dev-docs/tmux-scenarios/terminal-manager.json",
+        "dev-docs/tmux-scenarios/terminal-scrollback.json",
+        "dev-docs/tmux-scenarios/theme-override-toggle.json",
+        "dev-docs/tmux-scenarios/transient-agent-options.json",
+        "dev-docs/tmux-scenarios/typed-navigation-push-back.json",
+        "dev-docs/tmux-scenarios/v1/action-capture-evidence.json",
+        "dev-docs/tmux-scenarios/v1/config-ambiguity.json",
+        "dev-docs/tmux-scenarios/v1/config-path-precedence.json",
+        "dev-docs/tmux-scenarios/v1/config-provider-free.json",
+        "dev-docs/tmux-scenarios/v1/custom-screen-active-invalid.json",
+        "dev-docs/tmux-scenarios/v1/custom-screen-enable.json",
+        "dev-docs/tmux-scenarios/v1/custom-screen-inactive-invalid.json",
+        "dev-docs/tmux-scenarios/v1/effect-after-commit.json",
+        "dev-docs/tmux-scenarios/v1/harness-capture.json",
+        "dev-docs/tmux-scenarios/v1/harness-containment.json",
+        "dev-docs/tmux-scenarios/v1/harness-interpolation.json",
+        "dev-docs/tmux-scenarios/v1/harness-redaction.json",
+        "dev-docs/tmux-scenarios/v1/harness-resize-restart.json",
+        "dev-docs/tmux-scenarios/v1/harness-schema-all-ops.json",
+        "dev-docs/tmux-scenarios/v1/harness-timeout.json",
+        "dev-docs/tmux-scenarios/v1/issue575-direct-upgrade-launch.json",
+        "dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json",
+        "dev-docs/tmux-scenarios/v1/jsp-llxprt-preview-native.json",
+        "dev-docs/tmux-scenarios/v1/jsp-llxprt-preview.json",
+        "dev-docs/tmux-scenarios/v1/llxprt-continue-field.json",
+        "dev-docs/tmux-scenarios/v1/panic-capture-errors.json",
+        "dev-docs/tmux-scenarios/v1/pr-delta-review.json",
+        "dev-docs/tmux-scenarios/v1/probe-form.json",
+        "dev-docs/tmux-scenarios/v1/settings-dirty-back.json",
+        "dev-docs/tmux-scenarios/v1/settings-edit.json",
+        "dev-docs/tmux-scenarios/v1/settings-external-edit.json",
+        "dev-docs/tmux-scenarios/v1/settings-format-check.json",
+        "dev-docs/tmux-scenarios/v1/settings-format-migrate.json",
+        "dev-docs/tmux-scenarios/v1/settings-lossless-save.json",
+        "dev-docs/tmux-scenarios/v1/settings-shell.json",
+        "dev-docs/tmux-scenarios/v1/settings-show-effective.json",
+        "dev-docs/tmux-scenarios/v1/settings-unavailable-small.json",
+        "dev-docs/tmux-scenarios/v1/settings-v1-lossless.json",
+        "dev-docs/tmux-scenarios/v1/startup-malformed-state.json",
+        "dev-docs/tmux-scenarios/v1/state-v1-v2.json",
+        "dev-docs/tmux-scenarios/v1/workbench-attach.json",
+        "dev-docs/tmux-scenarios/v1/workbench-cards-native.json",
+        "dev-docs/tmux-scenarios/v1/workbench-cards.json",
+        "dev-docs/tmux-scenarios/v1/workbench-screen.json",
+        "dev-docs/tmux-scenarios/v1/workbench-sort.json",
+        "dev-docs/tmux-scenarios/windows-local-repository-prep.json",
+        "dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json",
+        "dev-docs/tmux-scenarios/windows-remote-linux-config.json",
+        "dev-docs/tmux-scenarios/windows-renderer-viewport.json",
+        "dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json",
+        "scripts/first-agent-tutorial-cat-shim.sh",
+        "scripts/first-agent-tutorial-code-puppy-shim.sh",
+        "scripts/first-agent-tutorial-env-shim.sh",
+        "scripts/first-agent-tutorial-gh-shim.sh",
+        "scripts/first-agent-tutorial-git-shim.sh",
+        "scripts/first-agent-tutorial-llxprt-shim.sh",
+        "scripts/first-agent-tutorial-tmux-shim.sh",
+        "scripts/harness-agent-availability-shim.sh",
+        "scripts/harness-github-scenario-shim.sh",
+        "scripts/harness-interactive-agent-shim.sh",
+        "scripts/harness-repository-prep-git-shim.sh",
+        "scripts/harness-shell-tools-shim.sh",
+        "scripts/harness-tmux-shim.sh",
+        "scripts/issue189-gh-shim.sh",
+        "scripts/issue189-run-pr-scenario.sh",
+        "scripts/issue194-gh-shim.sh",
+        "scripts/issue194-run-scenario.sh",
+        "scripts/issue222-run-scenario.sh",
+        "scripts/issue230-gh-shim-fixtures.sh",
+        "scripts/issue230-gh-shim.sh",
+        "scripts/issue230-git-shim.sh",
+        "scripts/issue230-run-scenario.sh",
+        "scripts/issue238-gh-shim.sh",
+        "scripts/issue238-run-scenario.sh",
+        "scripts/issue241-capture.sh",
+        "scripts/issue265-gh-shim-fixtures.sh",
+        "scripts/issue265-gh-shim.sh",
+        "scripts/issue265-run-scenario.sh",
+        "scripts/issue269-run-scenario.sh",
+        "scripts/issue351-gh-shim.sh",
+        "scripts/issue351-run-scenario.sh",
+        "scripts/issue364-manager-run-scenario.sh",
+        "scripts/issue376-gh-shim.sh",
+        "scripts/issue382-agent-shim.sh",
+        "scripts/issue520-gh-shim.sh",
+        "scripts/issue520-git-shim.sh",
+        "scripts/issue520-tmux-shim.sh",
+        "scripts/issue575-llxprt-shim.sh",
+        "scripts/issue621-gh-shim.sh",
+        "scripts/issue621-run-scenarios.sh",
+        "scripts/issue633-slow-probe-shim.sh",
+        "scripts/regenerate-first-agent-tutorial.sh",
+        "scripts/run-scenario-manifest.py",
+        "src/app_input/action_handlers.rs",
+        "src/app_input/action_handlers_tests.rs",
+        "src/app_input/agent_runtime.rs",
+        "src/app_input/app_input_tests.rs",
+        "src/app_input/new_issue_submit.rs",
+        "src/app_shell.rs",
+        "src/app_shell_key_routing_tests.rs",
+        "src/bin/jefe-harness-probe.rs",
+        "src/bin/jefe-harness-probe/issue382_acceptance.rs",
+        "src/bin/tmux_scenario.rs",
+        "src/issue_detail_content_new_issue.rs",
+        "src/issue_detail_content_new_issue_tests.rs",
+        "src/state/mod.rs",
+        "tests/fixtures/jsp_llxprt_fixture.rs",
+        "tests/harness_v1_fixtures.rs",
+        "tests/scenario_manifest.rs",
+        "tests/scenario_manifest/driver_tests.rs",
+        "tests/scenario_manifest/projection_tests.rs",
+        "tests/ui/dashboard_reorder_tui.rs"
+      ],
+      "commands": [
+        "python3 scripts/run-scenario-manifest.py --platform linux --shard-index 0 --shard-count 2 --tmux-scenario target/debug/tmux_scenario --jefe target/debug/jefe --probe target/debug/jefe-harness-probe --jsp-fixture target/debug/jefe-jsp-llxprt-fixture --shim target/debug/jefe-capture-shim --reports target/tmux-scenarios/linux-0",
+        "python3 scripts/run-scenario-manifest.py --platform macos --shard-index 0 --shard-count 6 --tmux-scenario target/debug/tmux_scenario --jefe target/debug/jefe --probe target/debug/jefe-harness-probe --jsp-fixture target/debug/jefe-jsp-llxprt-fixture --shim target/debug/jefe-capture-shim --reports target/tmux-scenarios/macos-0"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::runner::run",
+        "tmux_scenario"
+      ],
+      "deleted_symbols": []
+    },
+    "CW00B-03": {
+      "paths": [
+        ".github/workflows/ci.yml",
+        "dev-docs/tmux-scenarios/issue382/agent-terminal-compatibility.json",
+        "dev-docs/tmux-scenarios/issue382/agent-unsupported-ui.json",
+        "dev-docs/tmux-scenarios/plugin-settings-all-states.json",
+        "dev-docs/tmux-scenarios/v1/harness-containment.json",
+        "dev-docs/tmux-scenarios/v1/harness-resize-restart.json",
+        "dev-docs/tmux-scenarios/v1/harness-schema-all-ops.json",
+        "dev-docs/tmux-scenarios/v1/harness-timeout.json",
+        "scripts/first-agent-tutorial-env-shim.sh",
+        "scripts/harness-tmux-shim.sh",
+        "scripts/run-scenario-manifest.py",
+        "src/bin/tmux_scenario.rs",
+        "src/harness/v1/error.rs",
+        "src/harness/v1/pty.rs",
+        "src/harness/v1/pty_tests.rs",
+        "src/harness/v1/report.rs",
+        "src/harness/v1/runner.rs",
+        "src/harness/v1/signal_cleanup.rs",
+        "tests/core/multiplexer_socket_scoping_contract.rs",
+        "tests/core/windows_ci_signal_contracts.rs",
+        "tests/harness_signal_cleanup.rs",
+        "tests/harness_v1.rs",
+        "tests/harness_v1_fixtures.rs"
+      ],
+      "commands": [
+        "cargo test --locked --all-features --test harness_signal_cleanup --test harness_v1"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::runner::run"
+      ],
+      "deleted_symbols": []
+    },
+    "CW00B-04": {
+      "paths": [
+        "dev-docs/tmux-scenarios/actions-mode.json",
+        "dev-docs/tmux-scenarios/actions-pr-filter.json",
+        "dev-docs/tmux-scenarios/agent-runtime-choice.json",
+        "dev-docs/tmux-scenarios/agent-shell-overlay.json",
+        "dev-docs/tmux-scenarios/auth-dialog.json",
+        "dev-docs/tmux-scenarios/code-puppy-chord-passthrough.json",
+        "dev-docs/tmux-scenarios/code-puppy-version-fields.json",
+        "dev-docs/tmux-scenarios/confirm-dialog-focus.json",
+        "dev-docs/tmux-scenarios/dashboard-list-windowing.json",
+        "dev-docs/tmux-scenarios/edit-properties-menu.json",
+        "dev-docs/tmux-scenarios/errors-mode.json",
+        "dev-docs/tmux-scenarios/f12-cross-view-defocus.json",
+        "dev-docs/tmux-scenarios/first-agent-tutorial.json",
+        "dev-docs/tmux-scenarios/fork-issue-pr-repository.json",
+        "dev-docs/tmux-scenarios/help-modal.json",
+        "dev-docs/tmux-scenarios/issue-dirty-copy-confirm.json",
+        "dev-docs/tmux-scenarios/issue265-linux-keys.json",
+        "dev-docs/tmux-scenarios/issue382/agent-claude-evidence-gate.json",
+        "dev-docs/tmux-scenarios/issue382/agent-fresh-issue.json",
+        "dev-docs/tmux-scenarios/issue382/agent-fresh-pr.json",
+        "dev-docs/tmux-scenarios/issue382/agent-incompatible-zero-spawn.json",
+        "dev-docs/tmux-scenarios/issue382/agent-legacy-migration.json",
+        "dev-docs/tmux-scenarios/issue382/agent-local-operation-matrix.json",
+        "dev-docs/tmux-scenarios/issue382/agent-no-product-branches.json",
+        "dev-docs/tmux-scenarios/issue382/agent-probe-negative.json",
+        "dev-docs/tmux-scenarios/issue382/agent-probe-parser.json",
+        "dev-docs/tmux-scenarios/issue382/agent-remote-operation-matrix.json",
+        "dev-docs/tmux-scenarios/issue382/agent-resolver-order.json",
+        "dev-docs/tmux-scenarios/issue382/agent-sandbox-preflight.json",
+        "dev-docs/tmux-scenarios/issue382/agent-stale-generation.json",
+        "dev-docs/tmux-scenarios/issue382/agent-status-cartesian.json",
+        "dev-docs/tmux-scenarios/issue382/agent-terminal-compatibility.json",
+        "dev-docs/tmux-scenarios/issue382/agent-unsupported-ui.json",
+        "dev-docs/tmux-scenarios/issue382/agent-version-selector.json",
+        "dev-docs/tmux-scenarios/issue435/status-bar-error-count.json",
+        "dev-docs/tmux-scenarios/issue519/llxprt-launch-options.json",
+        "dev-docs/tmux-scenarios/issue525/windows-npm-wrapper-launch.json",
+        "dev-docs/tmux-scenarios/issue530/windows-agent-working-directory.json",
+        "dev-docs/tmux-scenarios/issue621/issues-list-send-agent.json",
+        "dev-docs/tmux-scenarios/issue621/prs-list-send-agent.json",
+        "dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json",
+        "dev-docs/tmux-scenarios/issue687/config-isolation.json",
+        "dev-docs/tmux-scenarios/issue687/session-continuity.json",
+        "dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json",
+        "dev-docs/tmux-scenarios/issues-close-delete.json",
+        "dev-docs/tmux-scenarios/issues-close-reason.json",
+        "dev-docs/tmux-scenarios/issues-composer-textbox.json",
+        "dev-docs/tmux-scenarios/issues-detail-word-wrap.json",
+        "dev-docs/tmux-scenarios/issues-empty-repository.json",
+        "dev-docs/tmux-scenarios/issues-filter-clear-delete.json",
+        "dev-docs/tmux-scenarios/issues-filter-open-close.json",
+        "dev-docs/tmux-scenarios/issues-new-issue-typing.json",
+        "dev-docs/tmux-scenarios/kennel-terminal-select.json",
+        "dev-docs/tmux-scenarios/keymap-projection-consistency.json",
+        "dev-docs/tmux-scenarios/latest-version-fields.json",
+        "dev-docs/tmux-scenarios/liveness-responsiveness.json",
+        "dev-docs/tmux-scenarios/llxprt-terminal-scroll.json",
+        "dev-docs/tmux-scenarios/llxprt-version-fields.json",
+        "dev-docs/tmux-scenarios/navigation-local-unwind.json",
+        "dev-docs/tmux-scenarios/origin-mismatch-confirm.json",
+        "dev-docs/tmux-scenarios/package-panel-lifecycle.json",
+        "dev-docs/tmux-scenarios/paste-enter-escape.json",
+        "dev-docs/tmux-scenarios/pid-commit-corner.json",
+        "dev-docs/tmux-scenarios/plugin-settings-all-states.json",
+        "dev-docs/tmux-scenarios/plugin-settings-generated-config.json",
+        "dev-docs/tmux-scenarios/pr-composer-submit-key.json",
+        "dev-docs/tmux-scenarios/pr-detail-esc-refocus.json",
+        "dev-docs/tmux-scenarios/pr-edit-properties.json",
+        "dev-docs/tmux-scenarios/pr-merge.json",
+        "dev-docs/tmux-scenarios/pr-new-composer.json",
+        "dev-docs/tmux-scenarios/pr-review-newest-first.json",
+        "dev-docs/tmux-scenarios/provider-action-confirmation.json",
+        "dev-docs/tmux-scenarios/provider-action-error.json",
+        "dev-docs/tmux-scenarios/provider-action-health-unavailable.json",
+        "dev-docs/tmux-scenarios/provider-action-lifecycle.json",
+        "dev-docs/tmux-scenarios/provider-action-published.json",
+        "dev-docs/tmux-scenarios/provider-action-recovery.json",
+        "dev-docs/tmux-scenarios/provider-action-small.json",
+        "dev-docs/tmux-scenarios/provider-action-unavailable.json",
+        "dev-docs/tmux-scenarios/repo-github-field-focus.json",
+        "dev-docs/tmux-scenarios/scratch-pr-mode.json",
+        "dev-docs/tmux-scenarios/send-to-agent-details.json",
+        "dev-docs/tmux-scenarios/send-to-agent-slow-probe.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-dirty.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-error.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-focused.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-normal.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-recovery.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-small.json",
+        "dev-docs/tmux-scenarios/settings-agent-types-unavailable.json",
+        "dev-docs/tmux-scenarios/settings-keys-dirty.json",
+        "dev-docs/tmux-scenarios/settings-keys-error.json",
+        "dev-docs/tmux-scenarios/settings-keys-focused.json",
+        "dev-docs/tmux-scenarios/settings-keys-normal.json",
+        "dev-docs/tmux-scenarios/settings-keys-recovery.json",
+        "dev-docs/tmux-scenarios/settings-keys-small.json",
+        "dev-docs/tmux-scenarios/settings-keys-unavailable.json",
+        "dev-docs/tmux-scenarios/settings-screens-dirty.json",
+        "dev-docs/tmux-scenarios/settings-screens-error.json",
+        "dev-docs/tmux-scenarios/settings-screens-focused.json",
+        "dev-docs/tmux-scenarios/settings-screens-normal.json",
+        "dev-docs/tmux-scenarios/settings-screens-recovery.json",
+        "dev-docs/tmux-scenarios/settings-screens-small.json",
+        "dev-docs/tmux-scenarios/settings-screens-unavailable.json",
+        "dev-docs/tmux-scenarios/startup-quit.json",
+        "dev-docs/tmux-scenarios/terminal-manager.json",
+        "dev-docs/tmux-scenarios/terminal-scrollback.json",
+        "dev-docs/tmux-scenarios/theme-override-toggle.json",
+        "dev-docs/tmux-scenarios/transient-agent-options.json",
+        "dev-docs/tmux-scenarios/typed-navigation-push-back.json",
+        "dev-docs/tmux-scenarios/v1/action-capture-evidence.json",
+        "dev-docs/tmux-scenarios/v1/config-ambiguity.json",
+        "dev-docs/tmux-scenarios/v1/config-path-precedence.json",
+        "dev-docs/tmux-scenarios/v1/config-provider-free.json",
+        "dev-docs/tmux-scenarios/v1/custom-screen-active-invalid.json",
+        "dev-docs/tmux-scenarios/v1/custom-screen-enable.json",
+        "dev-docs/tmux-scenarios/v1/custom-screen-inactive-invalid.json",
+        "dev-docs/tmux-scenarios/v1/effect-after-commit.json",
+        "dev-docs/tmux-scenarios/v1/harness-capture.json",
+        "dev-docs/tmux-scenarios/v1/harness-interpolation.json",
+        "dev-docs/tmux-scenarios/v1/harness-redaction.json",
+        "dev-docs/tmux-scenarios/v1/harness-schema-all-ops.json",
+        "dev-docs/tmux-scenarios/v1/harness-timeout.json",
+        "dev-docs/tmux-scenarios/v1/issue575-direct-upgrade-launch.json",
+        "dev-docs/tmux-scenarios/v1/issue662-unclean-prior-run.json",
+        "dev-docs/tmux-scenarios/v1/jsp-llxprt-preview-native.json",
+        "dev-docs/tmux-scenarios/v1/jsp-llxprt-preview.json",
+        "dev-docs/tmux-scenarios/v1/llxprt-continue-field.json",
+        "dev-docs/tmux-scenarios/v1/pr-delta-review.json",
+        "dev-docs/tmux-scenarios/v1/probe-form.json",
+        "dev-docs/tmux-scenarios/v1/settings-dirty-back.json",
+        "dev-docs/tmux-scenarios/v1/settings-edit.json",
+        "dev-docs/tmux-scenarios/v1/settings-external-edit.json",
+        "dev-docs/tmux-scenarios/v1/settings-format-check.json",
+        "dev-docs/tmux-scenarios/v1/settings-format-migrate.json",
+        "dev-docs/tmux-scenarios/v1/settings-lossless-save.json",
+        "dev-docs/tmux-scenarios/v1/settings-shell.json",
+        "dev-docs/tmux-scenarios/v1/settings-show-effective.json",
+        "dev-docs/tmux-scenarios/v1/settings-unavailable-small.json",
+        "dev-docs/tmux-scenarios/v1/settings-v1-lossless.json",
+        "dev-docs/tmux-scenarios/v1/startup-malformed-state.json",
+        "dev-docs/tmux-scenarios/v1/state-v1-v2.json",
+        "dev-docs/tmux-scenarios/v1/workbench-attach.json",
+        "dev-docs/tmux-scenarios/v1/workbench-cards-native.json",
+        "dev-docs/tmux-scenarios/v1/workbench-cards.json",
+        "dev-docs/tmux-scenarios/v1/workbench-screen.json",
+        "dev-docs/tmux-scenarios/v1/workbench-sort.json",
+        "dev-docs/tmux-scenarios/windows-local-repository-prep.json",
+        "dev-docs/tmux-scenarios/windows-multi-agent-lifecycle.json",
+        "dev-docs/tmux-scenarios/windows-remote-linux-config.json",
+        "dev-docs/tmux-scenarios/windows-renderer-viewport.json",
+        "dev-docs/tmux-scenarios/windows-tilde-agent-workdir.json",
+        "scripts/first-agent-tutorial-cat-shim.sh",
+        "scripts/first-agent-tutorial-code-puppy-shim.sh",
+        "scripts/first-agent-tutorial-env-shim.sh",
+        "scripts/first-agent-tutorial-gh-shim.sh",
+        "scripts/first-agent-tutorial-git-shim.sh",
+        "scripts/first-agent-tutorial-llxprt-shim.sh",
+        "scripts/first-agent-tutorial-tmux-shim.sh",
+        "scripts/harness-agent-availability-shim.sh",
+        "scripts/harness-github-scenario-shim.sh",
+        "scripts/harness-interactive-agent-shim.sh",
+        "scripts/harness-repository-prep-git-shim.sh",
+        "scripts/harness-shell-tools-shim.sh",
+        "scripts/harness-tmux-shim.sh",
+        "scripts/issue189-gh-shim.sh",
+        "scripts/issue194-gh-shim.sh",
+        "scripts/issue230-gh-shim-fixtures.sh",
+        "scripts/issue230-gh-shim.sh",
+        "scripts/issue230-git-shim.sh",
+        "scripts/issue238-gh-shim.sh",
+        "scripts/issue265-gh-shim-fixtures.sh",
+        "scripts/issue265-gh-shim.sh",
+        "scripts/issue351-gh-shim.sh",
+        "scripts/issue376-gh-shim.sh",
+        "scripts/issue382-agent-shim.sh",
+        "scripts/issue520-gh-shim.sh",
+        "scripts/issue520-git-shim.sh",
+        "scripts/issue520-tmux-shim.sh",
+        "scripts/issue575-llxprt-shim.sh",
+        "scripts/issue621-gh-shim.sh",
+        "scripts/issue633-slow-probe-shim.sh",
+        "scripts/publish-first-agent-tutorial.py",
+        "scripts/regenerate-first-agent-tutorial.sh",
+        "scripts/run-scenario-manifest.py",
+        "src/bin/jefe-harness-probe.rs",
+        "src/bin/jefe-harness-probe/issue382_acceptance.rs",
+        "src/bin/tmux_scenario.rs",
+        "src/harness/v1/action_capture.rs",
+        "src/harness/v1/action_capture_sink.rs",
+        "src/harness/v1/action_capture_tests.rs",
+        "src/harness/v1/capture.rs",
+        "src/harness/v1/capture_tests.rs",
+        "src/harness/v1/interp.rs",
+        "src/harness/v1/interp_tests.rs",
+        "src/harness/v1/redact.rs",
+        "tests/first_agent_tutorial_publication.rs",
+        "tests/first_agent_tutorial_regeneration.rs",
+        "tests/harness_v1.rs",
+        "tests/harness_v1_fixtures.rs"
+      ],
+      "commands": [
+        "cargo test --locked --all-features --test first_agent_tutorial_publication --test harness_v1"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::runner::run"
+      ],
+      "deleted_symbols": []
+    },
+    "CW00B-05": {
+      "paths": [
+        ".github/workflows/ci.yml",
+        "dev-docs/testing/scenario-execution-manifest.json",
+        "dev-docs/testing/tmux-harness.md",
+        "dev-docs/tmux-scenarios/v1/issue493-server-loss.json",
+        "scripts/harness-tmux-shim.sh",
+        "scripts/run-scenario-manifest.py",
+        "src/bin/tmux_scenario.rs",
+        "src/harness/v1/contract.rs",
+        "src/harness/v1/fields.rs",
+        "src/harness/v1/json.rs",
+        "src/harness/v1/json_tests.rs",
+        "src/harness/v1/limits.rs",
+        "src/harness/v1/parse.rs",
+        "src/harness/v1/parse_step.rs",
+        "src/harness/v1/parse_tests.rs",
+        "src/harness/v1/semantic.rs",
+        "src/harness/v1/validate.rs",
+        "src/harness/v1/validate_tests.rs",
+        "tests/core/windows_ci_signal_contracts.rs",
+        "tests/fixtures/harness_v1/harness-limits.json",
+        "tests/harness_v1.rs",
+        "tests/scenario_manifest.rs",
+        "tests/scenario_manifest/driver_tests.rs",
+        "tests/scenario_manifest/projection_tests.rs"
+      ],
+      "commands": [
+        "cargo test --locked --all-features --test scenario_manifest"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::parse_scenario_v1"
+      ],
+      "deleted_symbols": []
+    },
+    "CW00B-06": {
+      "paths": [
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        "CONTRIBUTING.md",
+        "dev-docs/testing/tmux-harness.md",
+        "dev-docs/tmux-scenarios/v1/harness-limits.json",
+        "project-plans/issue397-plan.md",
+        "scripts/issue189-run-pr-scenario.sh",
+        "scripts/issue194-run-scenario.sh",
+        "scripts/issue222-run-scenario.sh",
+        "scripts/issue230-run-scenario.sh",
+        "scripts/issue238-run-scenario.sh",
+        "scripts/issue241-capture.sh",
+        "scripts/issue265-run-scenario.sh",
+        "scripts/issue269-run-scenario.sh",
+        "scripts/issue351-run-scenario.sh",
+        "scripts/issue364-manager-run-scenario.sh",
+        "scripts/issue621-run-scenarios.sh",
+        "scripts/regenerate-first-agent-tutorial.sh",
+        "src/bin/jefe-tmux-harness.rs",
+        "src/bin/tmux_scenario.rs",
+        "src/harness/capture.rs",
+        "src/harness/error.rs",
+        "src/harness/mod.rs",
+        "src/harness/psmux_driver.rs",
+        "src/harness/psmux_driver_tests.rs",
+        "src/harness/psmux_process.rs",
+        "src/harness/signal_cleanup.rs",
+        "src/harness/signal_cleanup_tests.rs",
+        "src/harness/tmux_driver.rs",
+        "src/harness/tmux_driver_tests.rs",
+        "src/harness/v1/action_capture.rs",
+        "src/harness/v1/action_capture_sink.rs",
+        "src/harness/v1/action_capture_tests.rs",
+        "src/harness/v1/app_socket.rs",
+        "src/harness/v1/app_socket_tests.rs",
+        "src/harness/v1/capture.rs",
+        "src/harness/v1/capture_tests.rs",
+        "src/harness/v1/contract.rs",
+        "src/harness/v1/env.rs",
+        "src/harness/v1/error.rs",
+        "src/harness/v1/fields.rs",
+        "src/harness/v1/interp.rs",
+        "src/harness/v1/interp_tests.rs",
+        "src/harness/v1/json.rs",
+        "src/harness/v1/json_tests.rs",
+        "src/harness/v1/keys.rs",
+        "src/harness/v1/limits.rs",
+        "src/harness/v1/mod.rs",
+        "src/harness/v1/parse.rs",
+        "src/harness/v1/parse_step.rs",
+        "src/harness/v1/parse_tests.rs",
+        "src/harness/v1/pty.rs",
+        "src/harness/v1/pty_tests.rs",
+        "src/harness/v1/redact.rs",
+        "src/harness/v1/report.rs",
+        "src/harness/v1/runner.rs",
+        "src/harness/v1/semantic.rs",
+        "src/harness/v1/signal_cleanup.rs",
+        "src/harness/v1/tmux_runner.rs",
+        "src/harness/v1/validate.rs",
+        "src/harness/v1/validate_tests.rs",
+        "src/harness/v1/workspace.rs",
+        "src/harness/v1/workspace_tests.rs",
+        "tests/core/multiplexer_socket_scoping_contract.rs",
+        "tests/core/tmux_harness_docs_contracts.rs",
+        "tests/fixtures/first_agent_tutorial/fake-capture.sh",
+        "tests/harness_authority.rs",
+        "tests/issue241_capture.rs",
+        "tests/scenario_manifest.rs",
+        "tests/ui/dashboard_reorder_tui.rs",
+        "tests/ui/mod.rs"
+      ],
+      "commands": [
+        "cargo test --locked --all-features --test harness_authority"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::parse_scenario_v1",
+        "jefe::harness::v1::runner::run",
+        "tmux_scenario"
+      ],
+      "deleted_symbols": [
+        "PsmuxDriver",
+        "TmuxDriver",
+        "jefe-tmux-harness",
+        "run_tmux_v1"
+      ]
+    },
+    "CW00B-07": {
+      "paths": [
+        ".github/workflows/ci.yml",
+        "dev-docs/tmux-scenarios/issue621/issues-list-send-agent.json",
+        "dev-docs/tmux-scenarios/issue621/prs-list-send-agent.json",
+        "dev-docs/tmux-scenarios/package-panel-lifecycle.json",
+        "dev-docs/tmux-scenarios/plugin-settings-all-states.json",
+        "dev-docs/tmux-scenarios/plugin-settings-generated-config.json",
+        "dev-docs/tmux-scenarios/provider-action-confirmation.json",
+        "dev-docs/tmux-scenarios/provider-action-error.json",
+        "dev-docs/tmux-scenarios/provider-action-health-unavailable.json",
+        "dev-docs/tmux-scenarios/provider-action-lifecycle.json",
+        "dev-docs/tmux-scenarios/provider-action-published.json",
+        "dev-docs/tmux-scenarios/provider-action-recovery.json",
+        "dev-docs/tmux-scenarios/provider-action-small.json",
+        "dev-docs/tmux-scenarios/provider-action-unavailable.json",
+        "dev-docs/tmux-scenarios/v1/issue493-server-loss.json",
+        "docs/assets/first-agent-code-puppy.svg",
+        "docs/assets/first-agent-issue-send.svg",
+        "docs/assets/first-agent-issues.svg",
+        "docs/assets/first-agent-new-agent.svg",
+        "docs/assets/first-agent-new-repository.svg",
+        "docs/assets/first-agent-pr-merge.svg",
+        "docs/assets/first-agent-pull-request.svg",
+        "docs/assets/first-agent-result.svg",
+        "docs/assets/first-agent-tutorial.provenance",
+        "scripts/first-agent-tutorial-cat-shim.sh",
+        "scripts/first-agent-tutorial-code-puppy-shim.sh",
+        "scripts/first-agent-tutorial-env-shim.sh",
+        "scripts/first-agent-tutorial-gh-shim.sh",
+        "scripts/first-agent-tutorial-git-shim.sh",
+        "scripts/first-agent-tutorial-llxprt-shim.sh",
+        "scripts/first-agent-tutorial-tmux-shim.sh",
+        "scripts/harness-agent-availability-shim.sh",
+        "scripts/harness-tmux-shim.sh",
+        "scripts/issue241-capture.sh",
+        "scripts/issue621-gh-shim.sh",
+        "scripts/publish-first-agent-tutorial.py",
+        "scripts/regenerate-first-agent-tutorial.sh",
+        "src/app_input/action_handlers.rs",
+        "src/app_input/action_handlers_tests.rs",
+        "src/app_input/new_issue_submit.rs",
+        "src/app_shell.rs",
+        "src/app_shell_key_routing_tests.rs",
+        "src/bin/tmux_scenario.rs",
+        "src/issue_detail_content_new_issue.rs",
+        "src/issue_detail_content_new_issue_tests.rs",
+        "src/state/mod.rs",
+        "tests/core/windows_ci_signal_contracts.rs",
+        "tests/first_agent_tutorial_publication.rs",
+        "tests/first_agent_tutorial_regeneration.rs",
+        "tests/fixtures/first_agent_tutorial/fake-capture.sh",
+        "tests/fixtures/jsp_llxprt_fixture.rs",
+        "tests/harness_v1_fixtures.rs",
+        "tests/issue241_capture.rs"
+      ],
+      "commands": [
+        "cargo test --workspace --all-features --locked",
+        "python3 scripts/run-scenario-manifest.py --platform macos --scenario dev-docs/tmux-scenarios/first-agent-tutorial.json --tmux-scenario target/debug/tmux_scenario --jefe target/debug/jefe --probe target/debug/jefe-harness-probe --jsp-fixture target/debug/jefe-jsp-llxprt-fixture --shim target/debug/jefe-capture-shim --reports target/tmux-scenarios/tutorial"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::runner::run",
+        "tmux_scenario"
+      ],
+      "deleted_symbols": []
+    },
+    "CW00B-08": {
+      "paths": [
+        ".github/workflows/ci.yml",
+        "dev-docs/testing/scenario-execution-manifest.json",
+        "dev-docs/testing/tmux-harness.md",
+        "project-plans/issue397-plan.md",
+        "scripts/run-scenario-manifest.py",
+        "src/bin/tmux_scenario.rs",
+        "tests/harness_authority.rs",
+        "tests/scenario_manifest.rs",
+        "tests/scenario_manifest/driver_tests.rs",
+        "tests/scenario_manifest/projection_tests.rs"
+      ],
+      "commands": [
+        "cargo test --locked --all-features --test scenario_manifest"
+      ],
+      "platforms": [
+        "linux",
+        "macos",
+        "windows"
+      ],
+      "production_symbols": [
+        "jefe::harness::v1::parse_scenario_v1",
+        "jefe::harness::v1::runner::run",
+        "tmux_scenario"
+      ],
+      "deleted_symbols": []
+    }
+  },
+  "production_symbols": [
+    "jefe::harness::v1::parse_scenario_v1",
+    "jefe::harness::v1::runner::run",
+    "tmux_scenario"
+  ],
+  "deleted_symbols": [
+    "PsmuxDriver",
+    "TmuxDriver",
+    "jefe-tmux-harness",
+    "run_tmux_v1"
+  ]
+}

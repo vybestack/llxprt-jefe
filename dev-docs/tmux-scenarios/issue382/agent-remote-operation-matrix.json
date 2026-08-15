@@ -2,31 +2,43 @@
   "schema": 1,
   "name": "agent-remote-operation-matrix",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
       {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
-        "mode": 493
-      },
-      {
         "path": "config/settings.toml",
         "content": {
-          "utf8": "settings_schema = 2\n[repositories.repo]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"/srv/project\"\nremote = { enabled = true, login_user = \"dev\", host = \"example.com\", port = 22, run_as_user = \"runner\" }\n"
+          "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"location\": {\n        \"remote_target\": \"3:dev11:example.com4:22226:runner12:/srv/project\"\n      },\n      \"display_name\": \"Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
         },
         "mode": 384
       }
     ],
     "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
-      { "name": "TERM", "value": "xterm-256color" }
+      {
+        "name": "TERM",
+        "value": "xterm-256color"
+      }
     ]
   },
   "steps": [
@@ -43,15 +55,73 @@
         "spawn_child_hang": false
       }
     },
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "Agent Types", "timeout_ms": 15000 },
-    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agent Types",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "LLxprt  Installed, enabled  [Create enabled]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Remote: Supported",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
-      "contains": ["LLxprt", "Remote"],
-      "absent": ["error"]
+      "contains": [
+        "LLxprt",
+        "Remote"
+      ],
+      "absent": [
+        "error"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

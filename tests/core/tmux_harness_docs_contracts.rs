@@ -33,7 +33,9 @@ fn tmux_harness_guide_documents_native_windows_psmux_contract() {
         "psmux 3.3.7",
         "JEFE_PSMUX_BIN",
         "unique `psmux -L <namespace>`",
-        "multiplexer.txt",
+        "installed-startup-frame.txt",
+        "installed-startup-viewport.txt",
+        "surviving-processes.txt",
         "never invokes bare `psmux kill-server`",
         "WSL, Cygwin, MSYS2, Git Bash, Docker",
     ] {
@@ -42,7 +44,7 @@ fn tmux_harness_guide_documents_native_windows_psmux_contract() {
 }
 
 #[test]
-fn native_windows_ci_gates_psmux_and_startup_scenario() {
+fn native_windows_ci_gates_psmux_without_a_second_schema_runner() {
     let workflow = read_repo_text(".github/workflows/ci.yml");
     for required in [
         "runs-on: windows-latest",
@@ -51,12 +53,11 @@ fn native_windows_ci_gates_psmux_and_startup_scenario() {
         "cargo clippy --workspace --all-targets --all-features -- -D warnings",
         "cargo build --workspace --all-features --locked",
         "cargo test --workspace --all-features --locked",
-        "dev-docs/tmux-scenarios/startup-quit.json",
+        "Run real psmux startup-quit against installed binary",
         "JEFE_REQUIRE_PSMUX: \"1\"",
         "PSMUX_VERSION: \"3.3.7\"",
         "timeout-minutes:",
         "target/psmux-smoke",
-        "target/tmux-harness",
     ] {
         assert!(
             workflow.contains(required),
@@ -93,11 +94,6 @@ fn native_windows_ci_gates_psmux_and_startup_scenario() {
 /// silently taking a second code path.
 #[test]
 fn every_shipped_tmux_scenario_is_strict_schema_1() {
-    // `harness-limits.json` deliberately declares an over-limit terminal so
-    // `limits_fixture_fails_validation_before_any_launch` can prove the bound
-    // is enforced before launch. It is schema-1 and must still be rejected.
-    const REJECTION_FIXTURES: &[&str] = &["harness-limits.json"];
-
     let paths = shipped_scenario_paths();
     assert!(
         paths.len() >= 70,
@@ -111,21 +107,8 @@ fn every_shipped_tmux_scenario_is_strict_schema_1() {
             "{} must be strict schema-1 after the no-shim conversion",
             path.display()
         );
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        let parsed = parse_scenario_v1(json.as_bytes());
-        if REJECTION_FIXTURES.contains(&name) {
-            assert!(
-                parsed.is_err(),
-                "{} is a rejection fixture and must fail validation",
-                path.display()
-            );
-        } else {
-            parsed
-                .unwrap_or_else(|err| panic!("{} should parse as schema-1: {err}", path.display()));
-        }
+        parse_scenario_v1(json.as_bytes())
+            .unwrap_or_else(|err| panic!("{} should parse as schema-1: {err}", path.display()));
     }
 }
 
@@ -147,51 +130,26 @@ fn the_superseded_scenario_parser_is_absent() {
         );
     }
 }
-/// Issue #574: no integration-test source under `tests/` may construct a bare
-/// direct `tmux` process. The harness owns all tmux access through
-/// `TmuxDriver`, which pins every call to the private `-L jefe-harness-<pid>`
-/// socket and scrubs the inherited tmux client env (#171, #173). A bare
-/// command in a test resolves against the socket named by an inherited
-/// `$TMUX` — exactly the bug #574 fixed: the reorder scenario's hand-rolled
-/// cleanup issued a session kill on the outer server while never reaching the
-/// harness session it was written to remove. Integration tests must route
-/// every tmux operation through the driver (or `run_tmux_v1`) so teardown and
-/// isolation stay a single source of truth.
-///
-/// The needle is assembled with `concat!` so its contiguous form never appears
-/// in this file's own source, keeping the scan self-clean.
-///
-/// Scope: like the sibling doc/workflow contracts in this file, this is a
-/// pragmatic source-text scan, not a data-flow analysis. It catches a direct
-/// literal `tmux` `Command` construction (the exact shape of the #574
-/// regression) but not variable indirection such as binding `"tmux"` to a
-/// variable and passing that to `Command::new`. New integration tests must keep
-/// routing tmux access through the driver, which is the real invariant; this
-/// scan is the tripwire that stops the direct form coming back, not a static
-/// analyzer.
+/// The checked execution manifest and canonical CLI own all scenario execution.
+/// No integration test may invoke the multiplexer directly as an alternate
+/// evidence path.
 #[test]
 fn no_test_suite_source_constructs_a_bare_tmux_command() {
     let tests_dir = repo_path("tests");
     let mut rust_files = Vec::new();
     collect_rust_sources(&tests_dir, &mut rust_files);
-    assert!(
-        !rust_files.is_empty(),
-        "expected to find integration-test sources under tests/"
-    );
-
     let needle = concat!("Command::", "new(\"tmux\")");
-    let mut hits = Vec::new();
-    for file in &rust_files {
-        let source = std::fs::read_to_string(file)
-            .unwrap_or_else(|err| panic!("failed to read {}: {err}", file.display()));
-        if source.contains(needle) {
-            hits.push(file.display().to_string());
-        }
-    }
+    let hits: Vec<_> = rust_files
+        .iter()
+        .filter(|file| {
+            std::fs::read_to_string(file)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", file.display()))
+                .contains(needle)
+        })
+        .collect();
     assert!(
         hits.is_empty(),
-        "integration tests must route tmux access through TmuxDriver (issue #574); \
-         found a bare direct tmux command in: {hits:?}"
+        "alternate direct tmux evidence paths: {hits:?}"
     );
 }
 

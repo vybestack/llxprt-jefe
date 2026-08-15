@@ -65,7 +65,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "No terminal attached",
+      "literal": "Agent Types",
       "timeout_ms": 15000
     },
     {

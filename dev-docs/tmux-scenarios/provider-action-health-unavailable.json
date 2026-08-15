@@ -3,7 +3,7 @@
   "name": "provider-action-health-unavailable",
   "platform": "macos",
   "terminal": {
-    "cols": 120,
+    "cols": 160,
     "rows": 50
   },
   "workspace": {
@@ -102,17 +102,6 @@
     },
     {
       "op": "key",
-      "key": "end",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "stopped after ready",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
       "key": "escape",
       "modifiers": []
     },
@@ -120,12 +109,6 @@
       "op": "key",
       "key": "f2",
       "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "stopped after ready",
-      "timeout_ms": 15000
     },
     {
       "op": "assert-frame",

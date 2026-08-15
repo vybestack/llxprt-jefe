@@ -16,6 +16,22 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "work/llx-repo",
+        "mode": 448
+      },
+      {
+        "path": "work/pup-repo",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -25,9 +41,46 @@
           "utf8": "settings_schema = 2\n"
         },
         "mode": 384
+      },
+      {
+        "path": "work/llx-repo/README.md",
+        "content": {
+          "utf8": "# LLxprt repo\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "work/llx-repo/src-change.txt",
+        "content": {
+          "utf8": "uncommitted change\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "work/pup-repo/README.md",
+        "content": {
+          "utf8": "# Code Puppy repo\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo-230\",\n      \"name\": \"repo-230\",\n      \"slug\": \"repo-230\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"owner/repo-230\",\n      \"remote\": {\n        \"enabled\": false,\n        \"login_user\": \"\",\n        \"host\": \"\",\n        \"run_as_user\": \"\",\n        \"setup_env_default\": false\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": [\n        \"agent-alpha\",\n        \"agent-beta\"\n      ]\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent-alpha\",\n      \"display_id\": \"agent-alpha\",\n      \"repository_id\": \"repo-230\",\n      \"shortcut_slot\": null,\n      \"name\": \"alpha\",\n      \"description\": \"\",\n      \"work_dir\": \"llx-repo\",\n      \"profile\": \"ops\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Queued\",\n      \"runtime_binding\": null\n    },\n    {\n      \"id\": \"agent-beta\",\n      \"display_id\": \"agent-beta\",\n      \"repository_id\": \"repo-230\",\n      \"shortcut_slot\": null,\n      \"name\": \"beta\",\n      \"description\": \"\",\n      \"work_dir\": \"pup-repo\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"code_puppy\",\n      \"status\": \"Queued\",\n      \"runtime_binding\": null\n    }\n  ],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": null,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
       }
     ],
-    "env": []
+    "env": [
+      {
+        "name": "GH_SHIM_AUDIT",
+        "value": "${workspace}/private/gh-audit.log"
+      },
+      {
+        "name": "JEFE_GIT_BIN",
+        "value": "${workspace}/bin/git"
+      }
+    ]
   },
   "steps": [
     {
@@ -53,11 +106,23 @@
       "timeout_ms": 15000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "owner/repo-230 @ main *",
+      "timeout_ms": 15000
+    },
+    {
       "op": "assert-frame",
       "contains": [
         "owner/repo-230 @ main *"
       ],
       "absent": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "owner/repo-230 @ feature",
+      "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
@@ -97,7 +162,9 @@
     {
       "op": "key",
       "key": "s",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -141,7 +208,25 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log",
+        "content": {
+          "utf8": "ACCEPTED search\nACCEPTED issue-view\nACCEPTED comments\n"
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "finish"

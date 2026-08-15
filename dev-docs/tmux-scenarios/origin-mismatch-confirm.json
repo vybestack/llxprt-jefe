@@ -16,6 +16,22 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo",
+        "mode": 448
+      },
+      {
+        "path": "work/copies",
+        "mode": 448
+      },
+      {
+        "path": "work/copies/agent-copy",
+        "mode": 448
+      },
+      {
+        "path": "private",
+        "mode": 448
       }
     ],
     "files": [
@@ -25,9 +41,66 @@
           "utf8": "settings_schema = 2\n"
         },
         "mode": 384
+      },
+      {
+        "path": "work/copies/agent-copy/README.md",
+        "content": {
+          "utf8": "fixture working copy\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/gh-state",
+        "content": {
+          "utf8": "open\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "private/git-state",
+        "content": {
+          "utf8": "clean\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"name\": \"LLxprt Jefe\",\n      \"slug\": \"llxprt-jefe\",\n      \"base_dir\": \"repo\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"vybestack/llxprt-jefe\",\n      \"remote\": {\n        \"enabled\": false,\n        \"login_user\": \"\",\n        \"host\": \"\",\n        \"run_as_user\": \"\",\n        \"setup_env_default\": false\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": [\n        \"agent\"\n      ]\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent\",\n      \"display_id\": \"A1\",\n      \"repository_id\": \"repo\",\n      \"shortcut_slot\": null,\n      \"name\": \"Fixture Agent\",\n      \"description\": \"\",\n      \"work_dir\": \"copies/agent-copy\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Queued\",\n      \"runtime_binding\": null\n    }\n  ],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": 0,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
+        },
+        "mode": 384
       }
     ],
-    "env": []
+    "env": [
+      {
+        "name": "GH_SHIM_AUDIT",
+        "value": "${workspace}/private/gh-audit.log"
+      },
+      {
+        "name": "HARNESS_GH_AUDIT",
+        "value": "${workspace}/private/gh-audit.log"
+      },
+      {
+        "name": "HARNESS_GH_STATE",
+        "value": "${workspace}/private/gh-state"
+      },
+      {
+        "name": "HARNESS_GIT_MODE",
+        "value": "origin-mismatch"
+      },
+      {
+        "name": "HARNESS_GIT_STATE",
+        "value": "${workspace}/private/git-state"
+      },
+      {
+        "name": "HARNESS_GIT_AUDIT",
+        "value": "${workspace}/private/git-audit"
+      },
+      {
+        "name": "JEFE_GIT_BIN",
+        "value": "${workspace}/bin/git"
+      }
+    ]
   },
   "steps": [
     {
@@ -58,6 +131,12 @@
       "timeout_ms": 15000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "#352",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "enter",
       "modifiers": []
@@ -65,7 +144,9 @@
     {
       "op": "key",
       "key": "s",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -102,6 +183,47 @@
       "absent": [
         "Wrong Repository"
       ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/git-audit.inside-worktree",
+        "content": {
+          "utf8": ""
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/git-audit.origin",
+        "content": {
+          "utf8": ""
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.issue-search",
+        "content": {
+          "utf8": ""
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/git-audit.rejected",
+        "exists": false
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "private/gh-audit.log.rejected",
+        "exists": false
+      }
     },
     {
       "op": "key",

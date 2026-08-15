@@ -348,7 +348,7 @@ fn truncation_invalid_utf8_and_overlong_line_are_probe_errors() {
 
 #[cfg(unix)]
 #[test]
-fn malformed_framing_and_identity_mismatch_are_probe_errors() {
+fn malformed_framing_is_a_probe_error_and_identity_mismatch_is_incompatible() {
     let mut malformed_definition = shipped("core.codex");
     malformed_definition.probe.framing = ProbeFraming::SingleJson;
     malformed_definition.probe.identity = IdentityRecognizer::JsonPointer {
@@ -362,9 +362,13 @@ fn malformed_framing_and_identity_mismatch_are_probe_errors() {
     assert_probe_error(&malformed.run(13), "framing");
 
     let mismatch = FakeInstallation::new(shipped("core.codex"), b"different 1.2.3\n");
-    // Every AGT-E202 reason now names its phase (issue #553), so an identity
-    // mismatch must be asserted by its own wording rather than by the phase.
-    assert_probe_error(&mismatch.run(14), "unrecognized identity");
+    match mismatch.run(14).availability() {
+        Availability::InstalledIncompatible { reason, generation } => {
+            assert_eq!(*generation, 14);
+            assert!(reason.contains("identity mismatch"), "reason {reason:?}");
+        }
+        other => panic!("expected incompatible identity, got {other:?}"),
+    }
 }
 
 #[cfg(unix)]

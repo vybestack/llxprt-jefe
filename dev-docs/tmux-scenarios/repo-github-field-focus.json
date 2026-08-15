@@ -49,7 +49,9 @@
     {
       "op": "key",
       "key": "n",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "shift"
+      ]
     },
     {
       "op": "wait",
@@ -72,8 +74,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Base Dir         [\u258f]",
+      "literal": "Base Dir         [▏]",
       "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
     },
     {
       "op": "key",
@@ -98,7 +105,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "GitHub Repo     [\u258f]",
+      "literal": "GitHub Repo      [▏]",
       "timeout_ms": 15000
     },
     {
@@ -164,7 +171,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "GitHub Repo     [acme/widgets\u258f]",
+      "literal": "GitHub Repo      [acme/widgets▏]",
       "timeout_ms": 15000
     },
     {

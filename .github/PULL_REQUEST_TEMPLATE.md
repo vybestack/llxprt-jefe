@@ -43,7 +43,7 @@ Or run the aggregate: `cargo xtask ci`.
 
 Optional (only if the change touches runtime/UI):
 
-- [ ] **TUI smoke** — `cargo build --locked --all-features --bin jefe --bin jefe-tmux-harness`, then drive `target/debug/jefe-tmux-harness` with the scenario in `dev-docs/tmux-scenarios/startup-quit.json`
+- [ ] **TUI smoke** — `cargo build --locked --all-features --bin jefe --bin tmux_scenario`, then drive `target/debug/tmux_scenario` with the scenario in `dev-docs/tmux-scenarios/startup-quit.json`
 
 ## Testing notes
 

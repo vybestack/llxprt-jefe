@@ -1,26 +1,22 @@
-# Multiplexer-backed TUI harness
+# Direct-PTY TUI harness
 
-The harness runs `jefe` inside a real terminal session and drives it with
+The harness runs `jefe` inside a real Unix pseudo-terminal and drives it with
 keyboard input. It exists for deterministic end-to-end checks of behavior that is
 hard to validate with reducer or component tests alone: focus changes, terminal
 geometry, alternate-screen rendering, scrollback, process exit, and failure
 artifacts.
 
-Unix uses upstream tmux. Native Windows uses psmux and Windows ConPTY while
-sharing the same strict schema-1 scenario grammar, runner, and artifact model.
-
 The harness is intentionally split by side-effect boundary:
 
 1. **Scenario model** parses strict schema-1 JSON into typed Rust structs.
 2. **Frame evaluation** checks captured text without I/O.
-3. **Multiplexer driver** owns upstream tmux or native psmux process calls.
-4. **Runner/orchestrator** composes the pure layers with the driver seam,
-   bounded polling, and artifact capture.
-5. **CLI and scenarios** provide local/manual entry points and opt-in smoke
-   checks.
+3. **PTY session** owns the launched process group, terminal I/O, and resize.
+4. **Runner/orchestrator** composes those layers with bounded polling, report
+   capture, and identity-scoped cleanup.
+5. **CLI and scenarios** provide the sole local and CI execution entry point.
 
 The production `jefe` binary does not contain test orchestration logic. The
-separate `jefe-tmux-harness` tool starts a real `jefe` binary with an isolated
+separate `tmux_scenario` tool starts a real `jefe` binary with an isolated
 `--config` directory so developer state is never read or mutated.
 
 ## Scenario JSON schema
@@ -73,7 +69,7 @@ to.
 | `capture` / `assert-capture` | see `dev-docs/tmux-scenarios/v1/harness-capture.json` | Record and assert a subprocess invocation. |
 | `assert-file` | `{ "op": "assert-file", "file": { "path": "out.txt" } }` | Assert workspace file state. |
 | `restart` | `{ "op": "restart" }` | Relaunch using the original launch step. |
-| `finish` | `{ "op": "finish" }` | End the scenario and tear down. |
+| `finish` | `{ "op": "finish", "expected_exit_code": 3 }` | End the scenario and tear down. Spontaneous nonzero exits fail unless they match the optional expected code. |
 
 `key` names come from one closed canonical table (`enter`, `escape`, `backspace`,
 `backtab`, `space`, `pageup`, `f1`..`f12`, arrow/navigation names, or a single
@@ -112,66 +108,52 @@ keyboard chord are provably the same action.
 
 ## Running locally
 
-Build the binary and harness, create an isolated config directory, and run a
-scenario:
+Build the schema-1 binaries and run a checked scenario through the sole CLI:
 
 ```bash
-cargo build --workspace --all-features --locked
-mkdir -p /tmp/jefe-harness-config
-cargo run --bin jefe-tmux-harness -- \
+cargo build --locked --all-features \
+  --bin jefe --bin jefe-harness-probe --bin jefe-capture-shim --bin tmux_scenario
+target/debug/tmux_scenario \
   --scenario dev-docs/tmux-scenarios/startup-quit.json \
-  --jefe-bin target/debug/jefe \
-  --config /tmp/jefe-harness-config \
-  --out-dir target/tmux-harness/startup-quit
+  --shim-bin target/debug/jefe-capture-shim \
+  --install jefe=target/debug/jefe > target/startup-quit-report.json
 ```
 
-To debug a failing scenario, add `--keep-session` and inspect the named tmux
-session printed by the scenario file or CLI defaults.
+The runner creates a mode-0700 workspace and copies only declared installs into
+its hermetic `bin/`. It emits one redacted report on stdout.
 
 ### Native Windows with psmux
 
-Install psmux 3.3.7 or newer, then run the same scenario JSON from PowerShell:
+Schema 1 deliberately admits only `macos` and `linux`, and the sole runner
+requires a Unix PTY. The checked execution manifest records Windows as
+unsupported with that deterministic reason; Windows never obtains a second
+parser or runner and an unsupported scenario is never a green skip.
 
-```powershell
-cargo build --workspace --all-features --locked
-$root = (Get-Location).Path
-cargo run --bin jefe-tmux-harness -- `
-  --scenario "$root\dev-docs\tmux-scenarios\startup-quit.json" `
-  --jefe-bin "$root\target\debug\jefe.exe" `
-  --config "$root\target\tmux harness Ω\config" `
-  --out-dir "$root\target\tmux harness Ω\startup-quit"
-```
+Native Windows runtime behavior remains mandatory evidence in the
+`windows_native` CI job. It installs pinned psmux 3.3.7, sets
+`JEFE_PSMUX_BIN`, runs the package lifecycle and Windows-only server-liveness
+contracts, starts the installed Jefe in a unique `psmux -L <namespace>`,
+verifies namespace cleanup, and asserts that no session-host process survives.
+The job uploads `installed-startup-frame.txt`, `installed-startup-viewport.txt`,
+`surviving-processes.txt`, and the package lifecycle logs from
+`target/windows-ci/`. Cleanup never invokes bare `psmux kill-server`. These
+claims use native PowerShell and ConPTY, not WSL, Cygwin, MSYS2, Git Bash, Docker,
+or Unix shell wrappers.
 
-Set `JEFE_PSMUX_BIN` when psmux is not on `PATH`. Each invocation creates a
-unique `psmux -L <namespace>` namespace. Cleanup calls `kill-server` only with
-that owned `-L` namespace; the harness never invokes bare `psmux kill-server`.
-Use `--keep-session` to retain the isolated namespace. The CLI prints the
-session and the path to `multiplexer.txt`, which records the executable,
-qualified version, and namespace needed for safe inspection:
+`v1/issue493-server-loss.json` remains checked as the immutable recovery-modal
+specification, but is not executed on Unix: shared-server loss is a Windows
+psmux condition, while Unix reconciles individual tmux sessions. Its Windows
+ownership is the native job rather than a second schema runner.
 
-```powershell
-psmux -L <namespace> list-sessions
-psmux -L <namespace> capture-pane -p -S -200 -t <session>
-psmux -L <namespace> kill-server
-```
+## Report layout
 
-Missing or older psmux versions produce an actionable error identifying the
-executable, minimum version, and `JEFE_PSMUX_BIN` override. Native-Windows
-claims do not use WSL, Cygwin, MSYS2, Git Bash, Docker, or Unix shell wrappers.
-
-## Artifact layout
-
-When an artifact directory is supplied, the runner may write:
-
-- `final-screen.txt`: final screen capture on failure.
-- `final-scrollback.txt`: final scrollback capture on failure.
-- `error.txt`: structured failure context including step index, step kind, and
-  reason.
-- `multiplexer.txt`: multiplexer executable/version and isolated namespace.
-- `<label>.screen.txt`: named frame captures.
-
-Artifact labels are sanitized before writing, so scenario names cannot escape the
-artifact directory.
+`tmux_scenario` writes exactly one schema-1 JSON report to stdout after parsing
+succeeds. The report records status, current workspace, app exit status, ordered
+step results, and redacted frames. The manifest driver writes that report under
+the requested reports directory and adds one `_completion.json` containing the
+exact selected inventory. Every manifest entry must parse and emit a report; invalid
+parser-boundary fixtures live under `tests/fixtures/`. The CI completion gate rejects
+missing, duplicate, stale, or extra JSON evidence.
 
 ## Deterministic scenario guidance
 
@@ -186,11 +168,12 @@ artifact directory.
 
 ## First-agent tutorial regeneration
 
-The supported Unix-only maintainer command builds the current checkout's locked
-workspace binaries, creates one exclusive run-owned root, executes the real
-first-agent TUI scenario, publication-validates the captures, and promotes eight
-tutorial SVGs directly to `docs/assets`. The selected sequence covers repository
-setup, LLxprt Code, Code Puppy, Issues handoff, and pull-request merge:
+The supported macOS maintainer command builds the current checkout's locked
+workspace binaries, creates one exclusive run-owned publication root, executes
+the real first-agent TUI scenario through the checked manifest and
+`tmux_scenario`, derives named frames from the canonical report, and promotes
+eight tutorial SVGs directly to `docs/assets`. The selected sequence covers
+repository setup, LLxprt Code, Code Puppy, Issues handoff, and pull-request merge:
 
 ```bash
 RUN_ROOT="${TMPDIR:-/tmp}/jefe-first-agent-capture-$$"
@@ -198,18 +181,16 @@ scripts/regenerate-first-agent-tutorial.sh regenerate --root "$RUN_ROOT"
 scripts/regenerate-first-agent-tutorial.sh check
 ```
 
-The root must be an absolute path whose parent exists and which does not already
-exist. Choose a new root for every run. The underlying workflow starts the real
-Jefe binary with isolated HOME, config, runtime socket, and local git repository.
-Deterministic LLxprt Code and Code Puppy shims provide terminal sessions. A
-fail-closed GitHub CLI fixture supplies issue 352, PR 353, and merge behavior; it
-rejects every command outside its exact allowlist and never delegates to real
-`gh`. A narrowly scoped git fixture keeps agent fetches local while preserving
-the canonical GitHub origin identity. The workflow does not use normal Jefe
-state, user configuration, credentials, network resources, or unrelated
-repositories. Missing tools or binaries fail before capture; scenario drift
-reports a non-zero harness failure and retains private diagnostics beneath the
-run root.
+The root must be an absolute path which does not already exist. Choose a new root
+for every run. The schema-1 workspace starts the real Jefe binary with isolated
+HOME, config, runtime socket, and repository fixtures. Deterministic LLxprt Code
+and Code Puppy shims provide terminal sessions. A fail-closed GitHub CLI fixture
+supplies issue 352, PR 353, and merge behavior; it rejects every command outside
+its exact allowlist and never delegates to real `gh`. Narrow git, tmux, env, and
+cat fixtures expose only the commands needed by this narrative. The workflow
+does not use normal Jefe state, user configuration, credentials, network
+resources, or unrelated repositories. Missing tools, unknown fixture commands,
+scenario drift, and missing semantic publication frames fail the command.
 
 Semantic evidence is retained under `evidence/`; publication-validated fixed-size
 SVGs are written under `publication/`; `private/` is diagnostic and is never
@@ -220,21 +201,21 @@ source commit/version, a bounded source-contract fingerprint, and each selected
 asset object ID. The read-only `check` command fails when relevant sources or
 committed asset bytes no longer match that record.
 
-For an already-built checkout, maintainers may explicitly pass both
-`--jefe-bin` and `--harness-bin`; the command validates that both are executable.
-The no-override sequence above is the canonical workflow.
+For an already-built checkout, maintainers may explicitly pass
+`--tmux-scenario`, `--jefe`, `--probe`, `--jsp-fixture`, and `--shim`; all five
+paths must be supplied together and executable. The no-override sequence above
+is the normal workflow.
 
-Preview manifest-scoped cleanup before confirming it:
+Preview sentinel-scoped cleanup before confirming it:
 
 ```bash
-scripts/issue241-capture.sh cleanup --dry-run --root "$RUN_ROOT"
-scripts/issue241-capture.sh cleanup --confirm --root "$RUN_ROOT"
+scripts/regenerate-first-agent-tutorial.sh cleanup --dry-run --root "$RUN_ROOT"
+scripts/regenerate-first-agent-tutorial.sh cleanup --confirm --root "$RUN_ROOT"
 ```
 
-Cleanup removes only exact contained paths recorded by that run. Evidence,
-publication assets, the manifest, and unowned paths are retained. Remove the
-remaining run directory yourself only after preserving or discarding that
-retained evidence.
+Cleanup accepts only an absolute, non-symlink directory carrying the exact
+regeneration sentinel, and removes only that selected run root. Preserve any
+wanted report or evidence before confirming cleanup.
 
 Promotion normally removes its uniquely owned staging and lock directories. An
 uncatchable termination can leave `docs/assets/.first-agent-tutorial.lock` and a
@@ -243,11 +224,10 @@ confirm no regeneration process is active, inspect retained backups if present,
 then remove the empty lock with `rmdir`; remove only the matching staging
 directory after recovery or inspection.
 
-## Tmux availability and skipping
+## Required platform execution
 
-Unit tests use fake drivers for deterministic runner behavior. Guarded real tmux
-smoke tests skip cleanly when `tmux` is unavailable. The optional CI smoke job is
-manual/opt-in and also skips when `tmux` cannot be installed or found.
+Focused unit tests cover deterministic state transitions. The required Linux and macOS jobs fail when their runner dependencies are unavailable.
+There is no optional smoke substitute and no successful skip for a required scenario.
 
 ## Included scenarios
 
@@ -292,30 +272,15 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   `tmux attach-session` client on an isolated socket with the prefix disabled
   exactly as production does (#200).
 - [`kennel-terminal-select.json`](../tmux-scenarios/kennel-terminal-select.json):
-  manual scratch scenario for issue #197 — terminal text selection and copy for
-  Code Puppy (Kennel mode) sessions. It focuses the terminal and captures the
-  focused Kennel terminal screen. It is intentionally not a CI gate because it
-  requires a configured repository with a running Code Puppy agent (which varies
-  by developer machine), and the keyboard-only harness cannot drive mouse
-  drag-select or assert OSC 52 clipboard contents. The behavioral contract
+  schema-1 scenario for issue #197 — terminal text selection and copy for Code
+  Puppy (Kennel mode) sessions. It focuses the terminal and captures the focused
+  Kennel terminal screen. The checked manifest executes its deterministic
+  keyboard assertions; mouse drag-select and OSC 52 clipboard behavior remain
+  owned by the focused unit tests. The behavioral contract
   (plain drag and shift-drag paint a Jefe selection and copy over the snapshot
   for Kennel agents; LLxprt keeps PTY forwarding when mouse reporting is active)
   is covered by unit tests in `tests/runtime/terminal_focus_routing.rs` and
-  `src/selection/terminal_mouse_policy.rs`. Run the scenario manually:
-
-  ```bash
-  cargo run --bin jefe-tmux-harness -- \
-    --scenario dev-docs/tmux-scenarios/kennel-terminal-select.json \
-    --jefe-bin target/debug/jefe \
-    --config /tmp/jefe-harness-config \
-    --out-dir target/tmux-harness/kennel-terminal-select \
-    --keep-session
-  ```
-
-  Then, in the kept session, drag across visible Code Puppy output: the
-  selected cells should highlight (inverse video) and release should copy the
-  highlighted text. Holding Shift while dragging must also highlight and copy
-  (it is no longer a no-op).
+  `src/selection/terminal_mouse_policy.rs`.
 - [`auth-dialog.json`](../tmux-scenarios/auth-dialog.json): manual scenario for
   issue #244 — the in-app device-code auth remediation dialog. It enters Issues
   mode, waits for the "Authenticate with GitHub" dialog to appear (when `gh` is
@@ -368,9 +333,7 @@ connection.
 
 ## Schema-1 deterministic real-process harness (issue #380)
 
-Everything above documents the pre-schema harness, which stays supported
-only until issue #397 migrates the shipped scenarios forward and deletes it.
-New scenarios must use the schema-1 contract below, executed by the
+The shipped corpus uses the schema-1 contract below, executed only by the
 `tmux_scenario` binary. Schema 1 is the only input `tmux_scenario`
 accepts: a missing or wrong `schema` field is `HAR-E001`. Building a legacy
 adapter, lowering pass, compatibility shim, or dual-format detection is
@@ -516,7 +479,7 @@ persisted or printed, and reports the replacement count.
 Feature scenarios must synchronize with bounded literal `wait` operations
 — never sleeps, never unbounded polling. Ledger fixtures live under
 `dev-docs/tmux-scenarios/v1/` and run in CI through
-`tests/harness_v1_fixtures.rs`; run one locally with:
+the checked `dev-docs/testing/scenario-execution-manifest.json`; run one locally with:
 
 ```bash
 cargo build --bins

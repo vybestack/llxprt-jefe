@@ -2,53 +2,169 @@
   "schema": 1,
   "name": "agent-stale-generation",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "bin", "mode": 493 },
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
-    ],
-    "files": [
       {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\nprintf '0.10.0-nightly.260720.d69bda66a\\n'\n" },
+        "path": "repo",
         "mode": 493
-      },
-      {
-        "path": "config/settings.toml",
-        "content": {
-          "utf8": "settings_schema = 2\n[[repositories]]\nid = \"repo\"\nname = \"Repo\"\nslug = \"repo\"\nbase_dir = \"${workspace}/repo\"\n"
-        },
-        "mode": 384
       }
     ],
-    "env": [
-      { "name": "PATH", "value": "${workspace}/bin:/usr/bin:/bin" },
-      { "name": "TERM", "value": "xterm-256color" }
-    ]
+    "files": [],
+    "env": []
   },
   "steps": [
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "LLxprt", "timeout_ms": 15000 },
     {
-      "op": "write",
-      "file": {
-        "path": "bin/llxprt",
-        "content": { "utf8": "#!/bin/sh\n# executable changed after probe: must trigger AGT-E203\nprintf '0.10.0-nightly.260720.changedafterprobe\\n'\n" },
-        "mode": 493
+      "op": "capture",
+      "name": "git-clone",
+      "path": "bin/git",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
       }
     },
-    { "op": "key", "key": "enter", "modifiers": [] },
-    { "op": "wait", "source": "frame", "literal": "AGT-E203", "timeout_ms": 15000 },
+    {
+      "op": "capture",
+      "name": "prompt-write",
+      "path": "bin/prompt-write",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "capture",
+      "name": "tmux-effect",
+      "path": "bin/tmux",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "capture",
+      "name": "ssh",
+      "path": "bin/ssh",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "capture",
+      "name": "agent-spawn",
+      "path": "bin/agent-spawn",
+      "behavior": {
+        "stdout": "",
+        "stderr": "",
+        "exit_code": 0,
+        "stdin_limit": 0,
+        "hang": false,
+        "spawn_child_hang": false
+      }
+    },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe-harness-probe"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE READY",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "text",
+      "text": "issue382-stale-generation\n"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "AGT-E203: stale probe_generation before execution; reprobe required",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
-      "contains": ["AGT-E203", "no process was started", "Reprobe"],
-      "absent": ["Running", "started"]
+      "contains": [
+        "AGT-E203: stale probe_generation before execution; reprobe required"
+      ],
+      "absent": [
+        "Running",
+        "started"
+      ]
     },
-    { "op": "key", "key": "escape", "modifiers": [] },
-    { "op": "finish" }
+    {
+      "op": "assert-file",
+      "file": {
+        "path": ".captures/git-clone/1.json",
+        "exists": false
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": ".captures/prompt-write/1.json",
+        "exists": false
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": ".captures/tmux-effect/1.json",
+        "exists": false
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": ".captures/ssh/1.json",
+        "exists": false
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": ".captures/agent-spawn/1.json",
+        "exists": false
+      }
+    },
+    {
+      "op": "text",
+      "text": "exit\n"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "PROBE EXITING",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

@@ -817,6 +817,16 @@ fn should_ignore_key_event(key_event: &KeyEvent) -> bool {
         || (key_event.kind == KeyEventKind::Repeat && key_event.code == KeyCode::Enter)
 }
 
+pub fn should_dismiss_warning(state: &AppState, key_event: &KeyEvent) -> bool {
+    key_event.code == KeyCode::Esc
+        && key_event.modifiers.is_empty()
+        && state.provider_requests.is_idle()
+        && state.provider_surface_action.is_none()
+        && (state.warning_message.is_some()
+            || state.issues_state.draft_notice.is_some()
+            || state.prs_state.draft_notice.is_some())
+}
+
 fn handle_key_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -825,6 +835,10 @@ fn handle_key_event(
     key_event: KeyEvent,
 ) {
     if should_ignore_key_event(&key_event) {
+        return;
+    }
+    if should_dismiss_warning(&app_state.read(), &key_event) {
+        dispatch_app_event(app_state, &ctx.cloned(), AppEvent::ClearWarning);
         return;
     }
     normalize_terminal_focus(app_state, ctx);

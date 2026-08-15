@@ -16,6 +16,14 @@
       {
         "path": "work",
         "mode": 448
+      },
+      {
+        "path": "work/repo-0",
+        "mode": 448
+      },
+      {
+        "path": "work/repo-0/agent-0",
+        "mode": 448
       }
     ],
     "files": [
@@ -23,6 +31,13 @@
         "path": "config/settings.toml",
         "content": {
           "utf8": "settings_schema = 2\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"schema_version\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo-0\",\n      \"name\": \"Repository 0\",\n      \"slug\": \"repository-0\",\n      \"base_dir\": \"repo-0\",\n      \"default_profile\": \"\",\n      \"default_code_puppy_model\": \"\",\n      \"github_repo\": \"\",\n      \"remote\": {\n        \"enabled\": false,\n        \"host\": \"\",\n        \"user\": \"\",\n        \"port\": null\n      },\n      \"issue_base_prompt\": \"\",\n      \"default_agent_kind\": \"llxprt\",\n      \"agent_ids\": [\n        \"agent-0\"\n      ]\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent-0\",\n      \"display_id\": \"agent-0\",\n      \"repository_id\": \"repo-0\",\n      \"shortcut_slot\": null,\n      \"name\": \"Agent 0\",\n      \"description\": \"\",\n      \"work_dir\": \"repo-0/agent-0\",\n      \"profile\": \"\",\n      \"code_puppy_model\": \"\",\n      \"code_puppy_yolo\": null,\n      \"code_puppy_quick_resume\": false,\n      \"mode_flags\": [],\n      \"llxprt_debug\": \"\",\n      \"pass_continue\": true,\n      \"sandbox_enabled\": false,\n      \"sandbox_engine\": \"podman\",\n      \"sandbox_flags\": \"\",\n      \"agent_kind\": \"llxprt\",\n      \"status\": \"Dead\",\n      \"runtime_binding\": null\n    }\n  ],\n  \"selected_repository_index\": 0,\n  \"selected_agent_index\": 0,\n  \"hide_idle_repositories\": false,\n  \"last_selected_agent_by_repo\": [],\n  \"pane_focus\": \"\",\n  \"terminal_focused\": false,\n  \"user_preferences\": {}\n}\n"
         },
         "mode": 384
       }
@@ -48,13 +63,15 @@
     },
     {
       "op": "key",
-      "key": "right",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
       "key": "d",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "wait",
@@ -107,13 +124,15 @@
     },
     {
       "op": "key",
-      "key": "right",
+      "key": "tab",
       "modifiers": []
     },
     {
       "op": "key",
       "key": "d",
-      "modifiers": ["shift"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "wait",

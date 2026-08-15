@@ -48,7 +48,7 @@
     },
     {
       "op": "key",
-      "key": "?",
+      "key": "h",
       "modifiers": []
     },
     {
@@ -79,7 +79,9 @@
     {
       "op": "key",
       "key": "q",
-      "modifiers": ["control"]
+      "modifiers": [
+        "control"
+      ]
     },
     {
       "op": "finish"

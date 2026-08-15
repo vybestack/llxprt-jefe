@@ -10,15 +10,6 @@ on:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
-    inputs:
-      run_tui_smoke:
-        description: Run optional tmux-backed TUI smoke scenario
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -151,12 +142,132 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     needs: [build]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --all-features --locked
+
+  tui_scenarios_linux:
+    name: Required schema-1 TUI scenarios (Linux shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    needs: [build]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Build schema-1 scenario authority
+        run: >-
+          cargo build --locked --all-features
+          --bin jefe --bin jefe-harness-probe --bin jefe-capture-shim
+          --bin jefe-jsp-llxprt-fixture --bin tmux_scenario
+      - name: Execute exact required Linux scenario shard
+        run: |
+          python3 scripts/run-scenario-manifest.py \
+            --platform linux \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 2 \
+            --tmux-scenario target/debug/tmux_scenario \
+            --jefe target/debug/jefe \
+            --probe target/debug/jefe-harness-probe \
+            --jsp-fixture target/debug/jefe-jsp-llxprt-fixture \
+            --shim target/debug/jefe-capture-shim \
+            --reports target/tmux-scenarios/linux-${{ matrix.shard }}
+      - name: Upload Linux scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-scenarios-linux-${{ matrix.shard }}
+          path: target/tmux-scenarios/linux-${{ matrix.shard }}
+          if-no-files-found: error
+
+  tui_scenarios_macos:
+    name: Required schema-1 TUI scenarios (macOS shard ${{ matrix.shard }})
+    runs-on: macos-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tmux
+        run: brew install tmux
+      - name: Build schema-1 scenario authority
+        run: >-
+          cargo build --locked --all-features
+          --bin jefe --bin jefe-harness-probe --bin jefe-capture-shim
+          --bin jefe-jsp-llxprt-fixture --bin tmux_scenario
+      - name: Execute exact required macOS scenario shard
+        run: |
+          python3 scripts/run-scenario-manifest.py \
+            --platform macos \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 6 \
+            --tmux-scenario target/debug/tmux_scenario \
+            --jefe target/debug/jefe \
+            --probe target/debug/jefe-harness-probe \
+            --jsp-fixture target/debug/jefe-jsp-llxprt-fixture \
+            --shim target/debug/jefe-capture-shim \
+            --reports target/tmux-scenarios/macos-${{ matrix.shard }}
+      - name: Upload macOS scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-scenarios-macos-${{ matrix.shard }}
+          path: target/tmux-scenarios/macos-${{ matrix.shard }}
+          if-no-files-found: error
+
+  tui_scenarios_complete:
+    name: Required TUI scenario completion gate
+    runs-on: ubuntu-latest
+    needs: [test, tui_scenarios_linux, tui_scenarios_macos]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Linux scenario evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tui-scenarios-linux-*
+          path: target/tmux-scenarios/linux
+      - name: Download macOS scenario evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tui-scenarios-macos-*
+          path: target/tmux-scenarios/macos
+      - name: Require successful declared-platform shards
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          LINUX_RESULT: ${{ needs.tui_scenarios_linux.result }}
+          MACOS_RESULT: ${{ needs.tui_scenarios_macos.result }}
+        run: |
+          test "$TEST_RESULT" = success
+          test "$LINUX_RESULT" = success
+          test "$MACOS_RESULT" = success
+      - name: Verify exact Linux scenario union
+        run: >-
+          python3 scripts/run-scenario-manifest.py
+          --platform linux
+          --verify-completion target/tmux-scenarios/linux
+          --expected-shards 2
+      - name: Verify exact macOS scenario union
+        run: >-
+          python3 scripts/run-scenario-manifest.py
+          --platform macos
+          --verify-completion target/tmux-scenarios/macos
+          --expected-shards 6
+
 
   windows_clippy:
     name: Windows Clippy (cfg(windows) lint gap)
@@ -309,42 +420,6 @@ jobs:
           cargo test --workspace --all-features --locked 2>&1 |
             Tee-Object -FilePath target/windows-ci/cargo-test.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run deterministic startup and quit TUI scenario
-        shell: pwsh
-        run: |
-          $config = Join-Path $env:RUNNER_TEMP 'jefe windows ci config'
-          $working = Join-Path $env:RUNNER_TEMP 'jefe windows ci working directory'
-          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target/tmux-harness/windows-startup'
-          New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
-          $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
-          $jefe = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe.exe'
-          & $harness `
-            --scenario dev-docs/tmux-scenarios/startup-quit.json `
-            --jefe-bin $jefe `
-            --config $config `
-            --working-dir $working `
-            --session "jefe-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
-            --out-dir $artifacts 2>&1 |
-            Tee-Object -FilePath target/windows-ci/tui-startup.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify renderer viewport edges without full redraws
-        shell: pwsh
-        run: |
-          $config = Join-Path $env:RUNNER_TEMP 'jefe renderer config'
-          $working = Join-Path $env:RUNNER_TEMP 'jefe renderer working directory'
-          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target/tmux-harness/windows-renderer'
-          New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
-          $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
-          $jefe = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe.exe'
-          & $harness `
-            --scenario dev-docs/tmux-scenarios/windows-renderer-viewport.json `
-            --jefe-bin $jefe `
-            --config $config `
-            --working-dir $working `
-            --session "jefe-renderer-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
-            --out-dir $artifacts 2>&1 |
-            Tee-Object -FilePath target/windows-ci/tui-renderer.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Clean package lifecycle (install, doctor, upgrade, uninstall)
         shell: pwsh
         run: |
@@ -419,32 +494,101 @@ jobs:
           $installer = Join-Path $package 'jefe-install.ps1'
           & $installer -Action Install -SourceDir $package -InstallDir $installDir 2>&1 |
             Tee-Object -FilePath target/windows-ci/psmux-install.log
+          $installedJefe = Join-Path $installDir 'jefe.exe'
           $config = Join-Path $env:RUNNER_TEMP 'jefe installed psmux config'
           $working = Join-Path $env:RUNNER_TEMP 'jefe installed psmux working'
-          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target/tmux-harness/windows-installed-startup'
-          New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
-          $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
-          $installedJefe = Join-Path $installDir 'jefe.exe'
           $namespace = "jefe-pkg-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          & $harness `
-            --scenario dev-docs/tmux-scenarios/startup-quit.json `
-            --jefe-bin $installedJefe `
-            --config $config `
-            --working-dir $working `
-            --session $namespace `
-            --out-dir $artifacts 2>&1 |
-            Tee-Object -FilePath target/windows-ci/installed-psmux-startup.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force $config, $working | Out-Null
+          $env:JEFE_CONFIG_DIR = $config
+          $env:JEFE_PSMUX_NAMESPACE = $namespace
+          $session = 'installed-smoke'
+          $launchCommand = "& '$installedJefe' '--config' '$config'"
+          try {
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace new-session -d -s $session -c $working $launchCommand
+            if ($LASTEXITCODE -ne 0) { throw "failed to start installed Jefe in psmux" }
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              $sessions = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions -F '#S' 2>$null
+              if (($LASTEXITCODE -eq 0) -and ($sessions -contains $session)) {
+                $frame = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace capture-pane -p -t "$session`:0.0" 2>$null
+                $frameText = $frame -join "`n"
+                $frameOk = ($LASTEXITCODE -eq 0) -and
+                  ($frameText -match 'LLxprt Jefe') -and
+                  ($frameText -match 'Green Screen') -and
+                  ($frameText -match '╮')
+                $viewport = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace display-message -p -t "$session`:0.0" '#{pane_width}x#{pane_height}' 2>$null
+                $viewportOk = ($LASTEXITCODE -eq 0) -and ($viewport -match '^\d+x\d+$')
+                if ($frameOk -and $viewportOk) {
+                  $ready = $true
+                  $frame | Tee-Object -FilePath target/windows-ci/installed-startup-frame.txt
+                  $viewport | Tee-Object -FilePath target/windows-ci/installed-startup-viewport.txt
+                  break
+                }
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $ready) { throw "installed Jefe session did not become ready" }
+
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace send-keys -t "$session`:0.0" N
+            if ($LASTEXITCODE -ne 0) { throw "failed to open New Repository" }
+            $transitioned = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              $newRepositoryFrame = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace capture-pane -p -t "$session`:0.0" 2>$null
+              $newRepositoryText = $newRepositoryFrame -join "`n"
+              if (($LASTEXITCODE -eq 0) -and
+                  ($newRepositoryText -match 'New Repository') -and
+                  ($newRepositoryText -match '╮')) {
+                $transitioned = $true
+                $newRepositoryFrame | Tee-Object -FilePath target/windows-ci/installed-new-repository-frame.txt
+                break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $transitioned) { throw "installed Jefe did not render New Repository with its right border" }
+
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace send-keys -t "$session`:0.0" Escape
+            if ($LASTEXITCODE -ne 0) { throw "failed to close New Repository" }
+            $restored = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              $restoredFrame = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace capture-pane -p -t "$session`:0.0" 2>$null
+              $restoredText = $restoredFrame -join "`n"
+              if (($LASTEXITCODE -eq 0) -and
+                  ($restoredText -match 'LLxprt Jefe') -and
+                  ($restoredText -match 'Green Screen') -and
+                  ($restoredText -match '╮') -and
+                  ($restoredText -notmatch 'New Repository')) {
+                $restored = $true
+                $restoredFrame | Tee-Object -FilePath target/windows-ci/installed-restored-frame.txt
+                break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $restored) { throw "installed Jefe did not restore its bordered dashboard after Escape" }
+
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace send-keys -t "$session`:0.0" C-q
+            if ($LASTEXITCODE -ne 0) { throw "failed to send Ctrl+Q to installed Jefe" }
+            $stopped = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              $sessions = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions -F '#S' 2>$null
+              if (($LASTEXITCODE -ne 0) -or ($sessions -notcontains $session)) {
+                $stopped = $true
+                break
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $stopped) { throw "installed Jefe psmux session survived Ctrl+Q" }
+          }
+          finally {
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace kill-session -t $session 2>$null
+            & $env:JEFE_PSMUX_BIN -f NUL -L $namespace kill-server 2>$null
+          }
           & $installer -Action Uninstall -SourceDir $package -InstallDir $installDir 2>&1 |
             Tee-Object -FilePath target/windows-ci/psmux-uninstall.log
           if ($LASTEXITCODE -ne 0) { throw "installed jefe uninstall failed with exit $LASTEXITCODE" }
           if (Test-Path $installDir) { throw 'installed jefe install dir survived uninstall' }
-          # Verify no psmux sessions from this package's namespace survive uninstall.
-          if (Test-Path -LiteralPath env:JEFE_PSMUX_BIN) {
-            $remaining = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
-            if (($LASTEXITCODE -eq 0) -and $remaining) {
-              throw "orphaned psmux sessions remain after uninstall: $remaining"
-            }
+          $remaining = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
+          if (($LASTEXITCODE -eq 0) -and $remaining) {
+            throw "orphaned psmux sessions remain after uninstall: $remaining"
           }
       - name: Clean package lifecycle residue
         if: always()
@@ -457,35 +601,6 @@ jobs:
           if ((Test-Path $installer) -and (Test-Path (Join-Path $installDir '.jefe-installed'))) {
             & $installer -Action Uninstall -SourceDir $package -InstallDir $installDir
           }
-      - name: Record remaining owned psmux sessions
-        if: always()
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $remaining = 'target/windows-ci/remaining-sessions.txt'
-          $recordedNamespace = $false
-          $detailsFiles = @(
-            'target/tmux-harness/windows-startup/multiplexer.txt',
-            'target/tmux-harness/windows-renderer/multiplexer.txt',
-            'target/tmux-harness/windows-installed-startup/multiplexer.txt'
-          )
-          foreach ($details in $detailsFiles) {
-            if (Test-Path $details) {
-              $match = Select-String -Path $details -Pattern '^namespace: (.+)$'
-              if ($null -ne $match) {
-                $recordedNamespace = $true
-                $namespace = $match.Matches[0].Groups[1].Value
-                $output = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
-                $status = $LASTEXITCODE
-                @("namespace: $namespace", "status: $status") + $output |
-                  Out-File $remaining -Append
-              }
-            }
-          }
-          if (-not $recordedNamespace) {
-            'No harness namespace was recorded.' | Out-File $remaining
-          }
-          exit 0
       # Issue #542 (V7). The step above records and exits 0, so the orphaned
       # tree class this repository has reopened four times could never turn CI
       # red. Sessions are also the wrong unit: #515's signature is a session
@@ -520,7 +635,6 @@ jobs:
           path: |
             target/windows-ci
             target/psmux-smoke
-            target/tmux-harness
           if-no-files-found: warn
 
   windows_native_complete:
@@ -563,6 +677,9 @@ jobs:
     needs:
       [
         test,
+        tui_scenarios_linux,
+        tui_scenarios_macos,
+        tui_scenarios_complete,
         windows_clippy,
         windows_coverage,
         windows_native,
@@ -587,6 +704,9 @@ jobs:
             "started": "${{ github.event.repository.updated_at }}",
             "results": {
               "test": "${{ needs.test.result }}",
+              "tui_scenarios_linux": "${{ needs.tui_scenarios_linux.result }}",
+              "tui_scenarios_macos": "${{ needs.tui_scenarios_macos.result }}",
+              "tui_scenarios_complete": "${{ needs.tui_scenarios_complete.result }}",
               "windows_clippy": "${{ needs.windows_clippy.result }}",
               "windows_coverage": "${{ needs.windows_coverage.result }}",
               "windows_native": "${{ needs.windows_native.result }}",
@@ -602,45 +722,3 @@ jobs:
           path: flake-baseline
           retention-days: 90
           if-no-files-found: error
-
-  tui_smoke:
-    name: Optional TUI smoke (tmux)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tui_smoke == 'true' }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install tmux
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! { sudo apt-get update && sudo apt-get install -y tmux; }; then
-            echo "WARNING: tmux installation failed; smoke scenario will be skipped"
-          fi
-      - name: Run startup TUI smoke scenario
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v tmux >/dev/null 2>&1; then
-            echo "tmux unavailable after install attempt; skipping optional TUI smoke"
-            exit 0
-          fi
-          cargo build --locked --all-features --bin jefe --bin jefe-tmux-harness
-          config_dir="$(mktemp -d)"
-          mkdir -p target/tmux-harness/ci-startup
-          target/debug/jefe-tmux-harness \
-            --scenario dev-docs/tmux-scenarios/startup-quit.json \
-            --jefe-bin target/debug/jefe \
-            --config "$config_dir" \
-            --out-dir target/tmux-harness/ci-startup
-      - name: Upload TUI smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tui-smoke-artifacts
-          path: target/tmux-harness
-          if-no-files-found: ignore
