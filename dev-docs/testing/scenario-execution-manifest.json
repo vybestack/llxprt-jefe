@@ -3800,7 +3800,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 123,
+        "steps_total": 126,
         "operations": [
           "assert-frame",
           "finish",

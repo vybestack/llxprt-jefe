@@ -58,6 +58,12 @@
       "timeout_ms": 15000
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Code Puppy  Installed, enabled",
+      "timeout_ms": 15000
+    },
+    {
       "op": "key",
       "key": "n",
       "modifiers": [
@@ -68,6 +74,12 @@
       "op": "wait",
       "source": "frame",
       "literal": "New Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default YOLO     [x]",
       "timeout_ms": 15000
     },
     {
@@ -253,6 +265,11 @@
     {
       "op": "key",
       "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
       "modifiers": []
     },
     {
