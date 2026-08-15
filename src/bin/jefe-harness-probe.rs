@@ -20,6 +20,9 @@ use std::process::ExitCode;
 #[path = "../panic_capture.rs"]
 mod panic_capture;
 
+#[path = "jefe-harness-probe/issue382_acceptance.rs"]
+mod issue382_acceptance;
+
 fn init_diagnostics() {
     jefe::logging::init();
     panic_capture::install_panic_hook();
@@ -102,6 +105,14 @@ fn handle_line(line: &str, run_sequence: &mut u64) -> Result<bool, String> {
             let name = parts.next().unwrap_or_default();
             let value = std::env::var(name).unwrap_or_else(|_| "<unset>".to_string());
             print_line(&format!("ENV {name}={value}"))?;
+        }
+        Some("issue382-stale-generation") => {
+            let diagnostic = issue382_acceptance::stale_generation_diagnostic()?;
+            print_line(&diagnostic)?;
+        }
+        Some("issue382-preflight") => {
+            let diagnostic = issue382_acceptance::preflight_diagnostic()?;
+            print_line(&diagnostic)?;
         }
         Some("panic-errors") => render_panic_errors()?,
         Some(_) | None => print_line(&format!("INPUT: {line}"))?,

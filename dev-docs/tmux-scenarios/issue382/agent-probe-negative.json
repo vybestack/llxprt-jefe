@@ -65,9 +65,47 @@
       "timeout_ms": 15000
     },
     {
+      "op": "assert-frame",
+      "contains": [
+        "Probe error",
+        "AGT-E202",
+        "identity probe"
+      ],
+      "absent": [
+        "Running",
+        "started"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
       "op": "wait",
       "source": "frame",
-      "literal": "Reprobe",
+      "literal": "> Codex CLI",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "AGT-E202",
       "timeout_ms": 15000
     },
     {
@@ -75,10 +113,11 @@
       "contains": [
         "Probe error",
         "AGT-E202",
-        "Reprobe"
+        "identity probe"
       ],
       "absent": [
-        "enabled"
+        "Running",
+        "started"
       ]
     },
     {

@@ -61,8 +61,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 6,
-          "assert-frame": 13
+          "assert-frame": 13,
+          "assert-file": 6
         },
         "captures": 0,
         "capture_names": [],
@@ -129,8 +129,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 6,
-          "assert-frame": 3
+          "assert-frame": 3,
+          "assert-file": 6
         },
         "captures": 0,
         "capture_names": [],
@@ -338,8 +338,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -712,8 +712,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -913,8 +913,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 16
+          "assert-frame": 16,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -1109,8 +1109,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 8,
-          "assert-frame": 7
+          "assert-frame": 7,
+          "assert-file": 8
         },
         "captures": 0,
         "capture_names": [],
@@ -1182,8 +1182,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -1296,12 +1296,16 @@
             "source": "repo:scripts/issue382-agent-shim.sh"
           },
           {
+            "name": "env",
+            "source": "repo:scripts/first-agent-tutorial-env-shim.sh"
+          },
+          {
             "name": "jefe",
             "source": "cargo-bin:jefe"
           },
           {
             "name": "llxprt",
-            "source": "repo:scripts/issue382-agent-shim.sh"
+            "source": "cargo-bin:jefe-jsp-llxprt-fixture"
           },
           {
             "name": "tmux",
@@ -1317,16 +1321,19 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 9,
+        "steps_total": 39,
         "operations": [
+          "assert-file",
           "assert-frame",
           "finish",
           "key",
           "launch",
+          "text",
           "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -1370,12 +1377,16 @@
             "source": "repo:scripts/issue382-agent-shim.sh"
           },
           {
+            "name": "env",
+            "source": "repo:scripts/first-agent-tutorial-env-shim.sh"
+          },
+          {
             "name": "jefe",
             "source": "cargo-bin:jefe"
           },
           {
             "name": "llxprt",
-            "source": "repo:scripts/issue382-agent-shim.sh"
+            "source": "cargo-bin:jefe-jsp-llxprt-fixture"
           },
           {
             "name": "tmux",
@@ -1391,16 +1402,19 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 9,
+        "steps_total": 39,
         "operations": [
+          "assert-file",
           "assert-frame",
           "finish",
           "key",
           "launch",
+          "text",
           "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -1460,9 +1474,9 @@
           "wait"
         ],
         "assertions": {
+          "assert-frame": 1,
           "assert-capture": 1,
-          "assert-file": 1,
-          "assert-frame": 1
+          "assert-file": 1
         },
         "captures": 1,
         "capture_names": [
@@ -1586,7 +1600,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 9,
+        "steps_total": 13,
         "operations": [
           "assert-frame",
           "finish",
@@ -1725,15 +1739,16 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 6,
+        "steps_total": 12,
         "operations": [
           "assert-frame",
           "finish",
+          "key",
           "launch",
           "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-frame": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -1859,11 +1874,12 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 6,
+        "steps_total": 12,
         "operations": [
           "assert-frame",
           "capture",
           "finish",
+          "key",
           "launch",
           "wait"
         ],
@@ -1969,24 +1985,8 @@
         "binary": "tmux_scenario",
         "installs": [
           {
-            "name": "jefe",
-            "source": "cargo-bin:jefe"
-          },
-          {
-            "name": "llxprt",
-            "source": "repo:scripts/issue382-agent-shim.sh"
-          },
-          {
-            "name": "podman",
-            "source": "repo:scripts/issue382-agent-shim.sh"
-          },
-          {
-            "name": "tmux",
-            "source": "repo:scripts/harness-tmux-shim.sh"
-          },
-          {
-            "name": "tmux-real",
-            "source": "host-path:tmux"
+            "name": "jefe-harness-probe",
+            "source": "cargo-bin:jefe-harness-probe"
           }
         ]
       },
@@ -1994,23 +1994,27 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 10,
+        "steps_total": 18,
         "operations": [
+          "assert-file",
           "assert-frame",
           "capture",
           "finish",
-          "key",
           "launch",
+          "text",
           "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 5
         },
-        "captures": 3,
+        "captures": 5,
         "capture_names": [
           "git-clone",
+          "prompt-write",
+          "tmux-effect",
           "ssh",
-          "tmux"
+          "agent-spawn"
         ],
         "failed_step": null
       }
@@ -2040,20 +2044,8 @@
         "binary": "tmux_scenario",
         "installs": [
           {
-            "name": "jefe",
-            "source": "cargo-bin:jefe"
-          },
-          {
-            "name": "llxprt",
-            "source": "repo:scripts/issue382-agent-shim.sh"
-          },
-          {
-            "name": "tmux",
-            "source": "repo:scripts/harness-tmux-shim.sh"
-          },
-          {
-            "name": "tmux-real",
-            "source": "host-path:tmux"
+            "name": "jefe-harness-probe",
+            "source": "cargo-bin:jefe-harness-probe"
           }
         ]
       },
@@ -2061,20 +2053,28 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 8,
+        "steps_total": 18,
         "operations": [
+          "assert-file",
           "assert-frame",
+          "capture",
           "finish",
-          "key",
           "launch",
-          "wait",
-          "write"
+          "text",
+          "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 5
         },
-        "captures": 0,
-        "capture_names": [],
+        "captures": 5,
+        "capture_names": [
+          "git-clone",
+          "prompt-write",
+          "tmux-effect",
+          "ssh",
+          "agent-spawn"
+        ],
         "failed_step": null
       }
     },
@@ -2173,12 +2173,16 @@
         "binary": "tmux_scenario",
         "installs": [
           {
+            "name": "env",
+            "source": "repo:scripts/first-agent-tutorial-env-shim.sh"
+          },
+          {
             "name": "jefe",
             "source": "cargo-bin:jefe"
           },
           {
             "name": "llxprt",
-            "source": "repo:scripts/issue382-agent-shim.sh"
+            "source": "cargo-bin:jefe-jsp-llxprt-fixture"
           },
           {
             "name": "tmux",
@@ -2194,17 +2198,20 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 10,
+        "steps_total": 40,
         "operations": [
+          "assert-file",
           "assert-frame",
           "finish",
           "key",
           "launch",
           "resize",
+          "text",
           "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -2266,8 +2273,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 2
         },
         "captures": 1,
         "capture_names": [
@@ -2301,8 +2308,24 @@
         "binary": "tmux_scenario",
         "installs": [
           {
+            "name": "claude",
+            "source": "repo:scripts/issue382-agent-shim.sh"
+          },
+          {
+            "name": "env",
+            "source": "repo:scripts/first-agent-tutorial-env-shim.sh"
+          },
+          {
             "name": "jefe",
             "source": "cargo-bin:jefe"
+          },
+          {
+            "name": "npm",
+            "source": "repo:scripts/issue382-agent-shim.sh"
+          },
+          {
+            "name": "python3",
+            "source": "host-path:python3"
           },
           {
             "name": "tmux",
@@ -2318,22 +2341,20 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 8,
+        "steps_total": 28,
         "operations": [
-          "assert-frame",
-          "capture",
+          "assert-file",
           "finish",
           "key",
           "launch",
+          "text",
           "wait"
         ],
         "assertions": {
-          "assert-frame": 1
+          "assert-file": 4
         },
-        "captures": 1,
-        "capture_names": [
-          "claude"
-        ],
+        "captures": 0,
+        "capture_names": [],
         "failed_step": null
       }
     },
@@ -2631,8 +2652,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 5,
-          "assert-frame": 3
+          "assert-frame": 3,
+          "assert-file": 5
         },
         "captures": 0,
         "capture_names": [],
@@ -2700,8 +2721,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 6,
-          "assert-frame": 3
+          "assert-frame": 3,
+          "assert-file": 6
         },
         "captures": 0,
         "capture_names": [],
@@ -2984,8 +3005,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -3052,8 +3073,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -3179,8 +3200,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -3247,8 +3268,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -3925,8 +3946,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 5,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 5
         },
         "captures": 0,
         "capture_names": [],
@@ -4298,8 +4319,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 4,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 4
         },
         "captures": 0,
         "capture_names": [],
@@ -4366,8 +4387,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -4434,8 +4455,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -4502,8 +4523,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -5295,8 +5316,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 6
+          "assert-frame": 6,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -5379,8 +5400,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -6841,8 +6862,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -7253,8 +7274,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -7316,8 +7337,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -7687,8 +7708,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -7748,9 +7769,9 @@
           "write"
         ],
         "assertions": {
+          "assert-frame": 1,
           "assert-capture": 1,
-          "assert-file": 2,
-          "assert-frame": 1
+          "assert-file": 2
         },
         "captures": 1,
         "capture_names": [
@@ -8285,8 +8306,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -8405,8 +8426,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -8467,8 +8488,8 @@
         ],
         "assertions": {
           "assert-capture": 1,
-          "assert-file": 1,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 1,
         "capture_names": [
@@ -8530,8 +8551,8 @@
           "write"
         ],
         "assertions": {
-          "assert-file": 2,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 2
         },
         "captures": 0,
         "capture_names": [],
@@ -8765,8 +8786,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 2
+          "assert-frame": 2,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -8825,8 +8846,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 1,
         "capture_names": [
@@ -9001,8 +9022,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 1
+          "assert-frame": 1,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],

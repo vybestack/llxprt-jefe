@@ -74,7 +74,39 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt",
+      "literal": "LLxprt  Installed, enabled  [Create enabled]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Remote: Supported",
       "timeout_ms": 15000
     },
     {

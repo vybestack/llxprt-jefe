@@ -61,7 +61,28 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt",
+      "literal": "LLxprt  Installed, enabled  [Create enabled]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> LLxprt",
       "timeout_ms": 15000
     },
     {
@@ -82,11 +103,6 @@
       "timeout_ms": 15000
     },
     {
-      "op": "key",
-      "key": "escape",
-      "modifiers": []
-    },
-    {
       "op": "assert-frame",
       "contains": [
         "Normal",
@@ -95,6 +111,11 @@
       "absent": [
         "Unsupported"
       ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
     },
     {
       "op": "finish"

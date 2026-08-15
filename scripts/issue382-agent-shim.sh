@@ -23,7 +23,7 @@ fi
 
 if [ "$mode" = resolver ]; then
     if [ "$name" = claude ]; then
-        printf 'path-claude\n'
+        printf '2.1.212 (Claude Code)\n'
         exit 0
     fi
     printf 'unexpected resolver executable: %s\n' "$name" >&2
@@ -40,6 +40,29 @@ if [ "$mode" = status-cartesian ]; then
             exit 64
             ;;
     esac
+    exit 0
+fi
+
+if [ "$name" = npm ]; then
+    workspace=${0%/bin/npm}
+    printf '%s\n' "$*" >> "$workspace/npm-argv.txt"
+    if [ "$1" = view ]; then
+        printf '2.1.212\n'
+        exit 0
+    fi
+    python3 -c '
+from pathlib import Path
+binary = Path("node_modules/.bin/claude")
+binary.parent.mkdir(parents=True)
+binary.write_text("""#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+    printf "2.1.212 (Claude Code)\\n"
+    exit 0
+fi
+printf "%s\\n" "$*" > "$ISSUE382_CLAUDE_WITNESS"
+""")
+binary.chmod(0o755)
+'
     exit 0
 fi
 

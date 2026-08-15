@@ -2,12 +2,21 @@
   "schema": 1,
   "name": "agent-legacy-migration",
   "platform": "linux",
-  "terminal": { "cols": 120, "rows": 36 },
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
   "workspace": {
     "mode": 448,
     "dirs": [
-      { "path": "config", "mode": 448 },
-      { "path": "repo", "mode": 493 }
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "repo",
+        "mode": 493
+      }
     ],
     "files": [
       {
@@ -28,14 +37,36 @@
     "env": []
   },
   "steps": [
-    { "op": "launch", "argv": ["jefe", "--config", "${workspace}/config"], "env": [], "cwd": "repo" },
-    { "op": "wait", "source": "frame", "literal": "Code Puppy", "timeout_ms": 15000 },
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Legacy Puppy",
+      "timeout_ms": 15000
+    },
     {
       "op": "assert-frame",
-      "contains": ["Code Puppy", "Legacy Puppy"],
-      "absent": ["error", "dormant"]
+      "contains": [
+        "Legacy Puppy",
+        "/srv/project/work"
+      ],
+      "absent": [
+        "error",
+        "dormant"
+      ]
     },
-    { "op": "finish" }
+    {
+      "op": "finish"
+    }
   ],
   "secrets": []
 }

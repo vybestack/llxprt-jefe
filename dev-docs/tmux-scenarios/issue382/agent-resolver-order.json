@@ -10,16 +10,20 @@
     "mode": 448,
     "dirs": [
       {
-        "path": "repo/.llxprt/bin",
-        "mode": 493
+        "path": "config",
+        "mode": 448
       },
       {
         "path": "repo",
         "mode": 493
       },
       {
-        "path": "config",
-        "mode": 448
+        "path": "repo/.llxprt",
+        "mode": 493
+      },
+      {
+        "path": "repo/.llxprt/bin",
+        "mode": 493
       }
     ],
     "files": [
@@ -33,7 +37,7 @@
       {
         "path": "config/state.json",
         "content": {
-          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"location\": {\n        \"local_path\": \"${workspace}/repo\"\n      },\n      \"display_name\": \"Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
         },
         "mode": 384
       }
@@ -51,7 +55,7 @@
       "name": "repo-llxprt",
       "path": "repo/.llxprt/bin/llxprt",
       "behavior": {
-        "stdout": "repo-local-llxprt\n",
+        "stdout": "0.10.0-nightly.260720.d69bda66a\n",
         "stderr": "",
         "exit_code": 0,
         "stdin_limit": 0,
@@ -64,7 +68,7 @@
       "name": "path-llxprt",
       "path": "bin/llxprt",
       "behavior": {
-        "stdout": "path-llxprt\n",
+        "stdout": "0.10.0-nightly.260720.d69bda66a\n",
         "stderr": "",
         "exit_code": 0,
         "stdin_limit": 0,
@@ -91,7 +95,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt",
+      "literal": "LLxprt  Installed, enabled",
       "timeout_ms": 15000
     },
     {
@@ -100,11 +104,12 @@
         "name": "repo-llxprt",
         "invocation": 1,
         "argv": [
-          "repo/.llxprt/bin/llxprt"
+          "${workspace}/repo/.llxprt/bin/llxprt",
+          "--version"
         ],
         "env": [],
         "cwd": "${workspace}/repo",
-        "stdout": "repo-local-llxprt\n",
+        "stdout": "0.10.0-nightly.260720.d69bda66a\n",
         "exit_code": 0
       }
     },
@@ -116,7 +121,6 @@
         "enabled"
       ],
       "absent": [
-        "Not found",
         "error"
       ]
     },

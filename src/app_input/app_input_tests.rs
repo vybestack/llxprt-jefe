@@ -218,6 +218,11 @@ fn mark_and_clear_runtime_attachment_flags() {
     state.agents.push(second);
 
     mark_agent_runtime_attached(&mut state, &agent_a, true);
+    assert_eq!(
+        state.agents[0].status,
+        AgentStatus::Running,
+        "a successfully attached generated agent must leave its queued construction state"
+    );
     assert!(
         state.agents[0]
             .runtime_binding

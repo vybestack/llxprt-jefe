@@ -16,6 +16,10 @@
       {
         "path": "repo",
         "mode": 493
+      },
+      {
+        "path": "repo/llxprt",
+        "mode": 448
       }
     ],
     "files": [
@@ -29,7 +33,7 @@
       {
         "path": "config/state.json",
         "content": {
-          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"location\": {\n        \"local_path\": \"${workspace}/repo\"\n      },\n      \"display_name\": \"Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
         },
         "mode": 384
       }
@@ -49,13 +53,47 @@
         "--config",
         "${workspace}/config"
       ],
-      "env": [],
+      "env": [
+        {
+          "name": "JEFE_LOG_FILE",
+          "value": "${workspace}/jefe.log"
+        },
+        {
+          "name": "JEFE_LOG",
+          "value": "trace"
+        },
+        {
+          "name": "JSP_FIXTURE_ARGV_FILE",
+          "value": "${workspace}/launch-argv.json"
+        }
+      ],
       "cwd": "repo"
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt",
+      "literal": "LLxprt  Installed, enabled  [Create enabled]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> LLxprt",
       "timeout_ms": 15000
     },
     {
@@ -66,7 +104,126 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "terminal",
+      "literal": "New Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "> Sandbox Engine: [▏]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "text",
+      "text": "podman"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Sandbox Engine: [podman▏]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 unfocus",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Status: Working",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f12",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "F12 unfocus",
       "timeout_ms": 15000
     },
     {
@@ -77,33 +234,48 @@
       }
     },
     {
-      "op": "wait",
-      "source": "frame",
-      "literal": "terminal",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "c",
-      "modifiers": [
-        "control"
-      ]
-    },
-    {
       "op": "key",
       "key": "f12",
       "modifiers": []
     },
     {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Status: Working",
+      "timeout_ms": 15000
+    },
+    {
       "op": "assert-frame",
       "contains": [
-        "LLxprt",
-        "terminal"
+        "Status: Working"
       ],
       "absent": [
-        "stopped",
-        "unknown"
+        "No terminal attached"
       ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": []
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "launch-argv.json",
+        "content": {
+          "utf8": "{\"argv\":[\"--yolo\",\"--prompt-interactive\",\"--continue\",\"--sandbox-engine\",\"podman\"]}"
+        }
+      }
     },
     {
       "op": "finish"

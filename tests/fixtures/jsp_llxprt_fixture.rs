@@ -37,6 +37,7 @@ fn main() {
     if handle_probe(&args) {
         return;
     }
+    record_launch_argv(&args);
     let bootstrap = load_bootstrap();
     register_snapshot(&bootstrap);
     // Keep the producer lease alive. Without this the observation goes stale
@@ -44,6 +45,19 @@ fn main() {
     // opens the workbench immediately but not for one that drives more UI
     // first.
     heartbeat_forever(&bootstrap);
+}
+
+fn record_launch_argv(args: &[String]) {
+    let Ok(path) = std::env::var("JSP_FIXTURE_ARGV_FILE") else {
+        return;
+    };
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .unwrap_or_else(|error| panic!("create launch argv artifact {path}: {error}"));
+    serde_json::to_writer(file, &serde_json::json!({ "argv": args }))
+        .unwrap_or_else(|error| panic!("write launch argv artifact {path}: {error}"));
 }
 
 /// Publish a heartbeat every five seconds so the producer lease never lapses.
