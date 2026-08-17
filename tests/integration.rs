@@ -7,6 +7,8 @@
 #[path = "selection/model.rs"]
 mod selection_model;
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
 mod core;
 mod e2e;
 mod runtime;

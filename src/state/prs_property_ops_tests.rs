@@ -32,15 +32,14 @@ fn make_state_with_detail() -> AppState {
         mergeable: Some(true),
         merge_state_status: None,
     };
-    AppState {
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: PrFocus::PrDetail,
-            pr_detail: Some(detail),
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.prs_state = PullRequestsState {
+        active: true,
+        pr_focus: PrFocus::PrDetail,
+        pr_detail: Some(detail),
+        ..PullRequestsState::default()
+    };
+    state
 }
 
 fn add_repo(state: &mut AppState) {

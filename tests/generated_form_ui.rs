@@ -1,5 +1,8 @@
 //! Behavioral tests for issue #382 S6's generated agent form UI state.
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use jefe::agent_status_view::AgentAvailabilityObservation;
 use jefe::domain::agent_definition::{AgentDefinition, Availability, FieldValue, Operation};
 use jefe::state::generated_agent_form::{
@@ -24,14 +27,15 @@ fn compatible() -> Availability {
 
 fn generated_state() -> AppState {
     let definition = claude_definition();
-    AppState {
-        pane_focus: PaneFocus::Repositories,
-        agent_type_availability: vec![AgentAvailabilityObservation::new(
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.pane_focus = PaneFocus::Repositories;
+        state.agent_type_availability = vec![AgentAvailabilityObservation::new(
             &definition,
             true,
             compatible(),
-        )],
-        ..AppState::default()
+        )];
+        state
     }
     .apply(AppEvent::OpenAgentTypeForm(definition.id))
     .committed_pure()

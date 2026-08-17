@@ -3,7 +3,7 @@
 use crate::domain::Id;
 use crate::workbench::{
     ActivationError, ActivationValue, ActivationValues, NavCode, RouteId, ScreenId,
-    ScreenInstanceId, ScreenRegistry, screen_registry,
+    ScreenInstanceId, ScreenRegistry, builtin_screens,
 };
 
 use super::navigation::{
@@ -11,12 +11,13 @@ use super::navigation::{
     SuspendedInstance, reduce_navigation,
 };
 
-fn registry() -> &'static ScreenRegistry {
-    screen_registry().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
+fn registry() -> ScreenRegistry {
+    builtin_screens().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
 }
 
 fn route_of(screen: ScreenId) -> RouteId {
-    let Some(descriptor) = registry().get(screen) else {
+    let registry = registry();
+    let Some(descriptor) = registry.get(screen) else {
         unreachable!("every compiled screen has a descriptor");
     };
     descriptor.route
@@ -32,7 +33,7 @@ fn request(state: &NavState, screen: ScreenId) -> Activation {
 }
 
 fn apply(state: NavState, intent: NavIntent) -> (NavState, NavOutcome) {
-    let transition = reduce_navigation(state, registry(), NavMessage::Navigate(intent));
+    let transition = reduce_navigation(state, &registry(), NavMessage::Navigate(intent));
     (transition.state, transition.outcome)
 }
 
@@ -84,7 +85,8 @@ fn push_suspends_the_exact_current_instance_and_enters_a_fresh_one() {
 #[test]
 fn a_pushed_instance_starts_focused_where_its_descriptor_says() {
     let (after, _) = push(rooted(ScreenId::Dashboard), ScreenId::Issues);
-    let Some(descriptor) = registry().get(ScreenId::Issues) else {
+    let registry = registry();
+    let Some(descriptor) = registry.get(ScreenId::Issues) else {
         unreachable!("every compiled screen has a descriptor");
     };
     assert_eq!(after.current().panel_focus, descriptor.initial_focus);
@@ -374,7 +376,7 @@ fn every_persisted_screen_restores_one_clean_instance_and_no_stack() {
     // is long gone.
     for (legacy, _) in crate::workbench::LEGACY_SCREEN_VALUES {
         let Some(outcome) =
-            crate::workbench::migrate_persisted_screen_value(Some(legacy), registry())
+            crate::workbench::migrate_persisted_screen_value(Some(legacy), &registry())
         else {
             panic!("every legacy screen value maps to a screen");
         };
@@ -394,7 +396,7 @@ fn every_persisted_screen_restores_one_clean_instance_and_no_stack() {
 
 #[test]
 fn an_unreadable_persisted_screen_restores_the_home_screen() {
-    let outcome = crate::workbench::migrate_persisted_screen_value(Some("nonesuch"), registry());
+    let outcome = crate::workbench::migrate_persisted_screen_value(Some("nonesuch"), &registry());
     let screen = outcome.map_or_else(
         ScreenId::default,
         crate::workbench::MigrationOutcome::screen_id,

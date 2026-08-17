@@ -6,29 +6,19 @@
 
 use iocraft::prelude::*;
 
-use crate::action_projection::{FooterProjectionInput, project_footer};
-use crate::domain::action_registry::ActionRegistrySnapshot;
-use crate::domain::default_action_inventory::display::FooterMode;
+#[cfg(test)]
+use crate::action_projection::{FooterProjectionInput, project_footer_effective};
+#[cfg(test)]
+use crate::domain::action_registry::{ActionRegistrySnapshot, AvailabilityGeneration};
+#[cfg(test)]
 use crate::state::{ActionsFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the keybind bar component.
 #[derive(Default, Props)]
 pub struct KeybindBarProps {
-    /// Current active screen.
-    pub screen: ScreenId,
-    /// Whether terminal is focused.
-    pub terminal_focused: bool,
-    /// Whether the embedded agent shell overlay is visible (issue #222/#361).
-    pub shell_overlay_active: bool,
-    /// Whether the selected agent owns a hidden shell that F10 can resume
-    /// (issue #361 PR A).
-    pub shell_resume_available: bool,
-    /// Active Actions pane when Actions mode is rendered.
-    /// Immutable action/binding/availability authority for this render.
-    pub action_registry_snapshot: Option<ActionRegistrySnapshot>,
-    pub actions_focus: Option<ActionsFocus>,
-    pub mode_override: Option<FooterMode>,
+    /// Footer text projected at the mandatory committed-workbench boundary.
+    pub hints: String,
     /// Process-identity label (pid + commit) shown in the lower-right corner
     /// (issue #223).
     pub identity_label: String,
@@ -36,6 +26,7 @@ pub struct KeybindBarProps {
     pub colors: ThemeColors,
 }
 
+#[cfg(test)]
 /// Context-sensitive footer projection from the immutable registry snapshot.
 #[must_use]
 pub fn keybind_hints_for(
@@ -44,8 +35,22 @@ pub fn keybind_hints_for(
     terminal_focused: bool,
     actions_focus: Option<ActionsFocus>,
 ) -> String {
-    project_footer(
+    keybind_hints_for_effective(snapshot, None, screen, terminal_focused, actions_focus)
+}
+
+#[cfg(test)]
+/// Context-sensitive footer projection with generation-bound runtime availability.
+#[must_use]
+pub fn keybind_hints_for_effective(
+    snapshot: &ActionRegistrySnapshot,
+    runtime: Option<&AvailabilityGeneration>,
+    screen: ScreenId,
+    terminal_focused: bool,
+    actions_focus: Option<ActionsFocus>,
+) -> String {
+    project_footer_effective(
         snapshot,
+        runtime,
         FooterProjectionInput {
             screen,
             terminal_focused,
@@ -61,23 +66,7 @@ pub fn keybind_hints_for(
 #[component]
 pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-
-    let hints = props
-        .action_registry_snapshot
-        .as_ref()
-        .map_or_else(String::new, |snapshot| {
-            project_footer(
-                snapshot,
-                FooterProjectionInput {
-                    screen: props.screen,
-                    terminal_focused: props.terminal_focused,
-                    shell_overlay_active: props.shell_overlay_active,
-                    shell_resume_available: props.shell_resume_available,
-                    actions_focus: props.actions_focus,
-                    mode_override: props.mode_override,
-                },
-            )
-        });
+    let hints = props.hints.clone();
 
     element! {
         Box(
@@ -184,12 +173,18 @@ mod tests {
         let mut element = element! {
             Box(width: 80u32, height: 1u32) {
                 KeybindBar(
-                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen: ScreenId::Dashboard,
-                    terminal_focused: true,
-                    shell_overlay_active: true,
-                    shell_resume_available: false,
-                    actions_focus: None,
+                    hints: project_footer_effective(
+                        crate::test_support::published_workbench().actions(),
+                        None,
+                        FooterProjectionInput {
+                            screen: ScreenId::Dashboard,
+                            terminal_focused: true,
+                            shell_overlay_active: true,
+                            shell_resume_available: false,
+                            actions_focus: None,
+                            mode_override: None,
+                        },
+                    ),
                     identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
                 )
@@ -212,12 +207,18 @@ mod tests {
         let mut element = element! {
             Box(width: 180u32, height: 1u32) {
                 KeybindBar(
-                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen: ScreenId::Dashboard,
-                    terminal_focused: false,
-                    shell_overlay_active: false,
-                    shell_resume_available: true,
-                    actions_focus: None,
+                    hints: project_footer_effective(
+                        crate::test_support::published_workbench().actions(),
+                        None,
+                        FooterProjectionInput {
+                            screen: ScreenId::Dashboard,
+                            terminal_focused: false,
+                            shell_overlay_active: false,
+                            shell_resume_available: true,
+                            actions_focus: None,
+                            mode_override: None,
+                        },
+                    ),
                     identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
                 )
@@ -240,10 +241,12 @@ mod tests {
         let mut element = element! {
             Box(width: 151u32, height: 1u32) {
                 KeybindBar(
-                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen: ScreenId::Actions,
-                    terminal_focused: false,
-                    actions_focus: Some(ActionsFocus::RunList),
+                    hints: keybind_hints_for(
+                        crate::test_support::published_workbench().actions(),
+                        ScreenId::Actions,
+                        false,
+                        Some(ActionsFocus::RunList),
+                    ),
                     identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
                 )
@@ -267,10 +270,12 @@ mod tests {
         let mut element = element! {
             Box(width: 151u32, height: 1u32) {
                 KeybindBar(
-                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen: ScreenId::Actions,
-                    terminal_focused: false,
-                    actions_focus: Some(ActionsFocus::Detail),
+                    hints: keybind_hints_for(
+                        crate::test_support::published_workbench().actions(),
+                        ScreenId::Actions,
+                        false,
+                        Some(ActionsFocus::Detail),
+                    ),
                     identity_label: "pid:1 abc".to_string(),
                     colors: ThemeColors::default(),
                 )
@@ -294,10 +299,12 @@ mod tests {
         let mut element = element! {
             Box(width: 360u32, height: 1u32) {
                 KeybindBar(
-                    action_registry_snapshot: Some(crate::action_projection::test_snapshot()),
-                    screen: ScreenId::Dashboard,
-                    terminal_focused: false,
-                    actions_focus: None,
+                    hints: keybind_hints_for(
+                        crate::test_support::published_workbench().actions(),
+                        ScreenId::Dashboard,
+                        false,
+                        None,
+                    ),
                     identity_label: identity.clone(),
                     colors: ThemeColors::default(),
                 )

@@ -33,7 +33,8 @@ impl AppState {
         }
         self.error_message = None;
         if let Some(repository) = Self::create_repository_from_fields(fields) {
-            self.sticky_empty_repository_ids
+            self.sticky_visibility
+                .empty_repositories
                 .insert(repository.id.clone());
             self.repositories.push(repository);
             self.selected_repository_index = Some(self.repositories.len() - 1);

@@ -46,14 +46,12 @@ fn state_with_one_agent() -> AppState {
         "runner".to_owned(),
         PathBuf::from("/work/alpha/wt1"),
     );
-    let mut state = AppState {
-        repositories: vec![repository],
-        agents: vec![agent],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        durable_revision: 4,
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repository];
+    state.agents = vec![agent];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+    state.durable_revision = 4;
     state.rebuild_repository_agent_ids();
     state
 }

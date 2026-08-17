@@ -24,14 +24,15 @@ use crate::workbench::descriptor::{LayoutNode, ScreenDescriptor};
 
 use super::AppState;
 use super::agent_types_editor::AgentIntent;
-use super::keys_editor_project::{
-    self, CaptureOutcome, ChordText, KeyIntent, classify_capture, project_keys,
-};
+use super::keys_editor_project::{self, CaptureOutcome, ChordText, KeyIntent, classify_capture};
 use super::layout_editor::{LayoutEditorState, NodeDialog};
 use super::screens_editor::{self, CompositionStatus, ScreenEditorRow, ScreenIntent};
-use super::settings::{ADD_CHORD_PROMPT, CAPTURE_PROMPT, step};
+use super::settings::{ADD_CHORD_PROMPT, CAPTURE_PROMPT};
+use super::settings_tail::step;
 use super::settings_types::{CaptureMode, ChordCapture};
 use super::settings_view::{self, SettingsActivation};
+
+const NO_OPEN_DRAFT_REASON: &str = "Settings key editing requires an open draft";
 
 /// What a reorder did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,10 +147,7 @@ impl AppState {
     /// of how the arrays are built rather than because something checks them
     /// afterwards.
     pub(super) fn draft_screen(&mut self, intent: ScreenIntent) -> bool {
-        let Ok(registry) = crate::workbench::screen_registry() else {
-            self.settings_state.notice = Some("the screen registry is unavailable".to_owned());
-            return true;
-        };
+        let registry = self.published_workbench().screen_registry();
         let Some(published) = self
             .settings_state
             .draft
@@ -237,7 +235,8 @@ impl AppState {
     where
         F: Fn(&settings_view::SettingsRow) -> Option<SettingsActivation>,
     {
-        let rows = settings_view::detail_rows(&self.settings_state);
+        let rows =
+            settings_view::detail_rows(&self.settings_state, self.settings_projection_authority());
         let Some(activation) = rows.get(self.settings_state.selected_row).and_then(ask) else {
             return false;
         };
@@ -246,7 +245,8 @@ impl AppState {
 
     /// Move the focused screen one place earlier or later in the order.
     pub(super) fn reorder_row(&mut self, direction: NavDir) -> bool {
-        let rows = settings_view::detail_rows(&self.settings_state);
+        let rows =
+            settings_view::detail_rows(&self.settings_state, self.settings_projection_authority());
         let index = self.settings_state.selected_row;
         let Some(screen_id) = rows
             .get(index)
@@ -280,9 +280,7 @@ impl AppState {
         // The cursor follows the screen it names, and only when the screen
         // actually moved: moving it after a refusal would leave the user
         // pointing at whatever happened to be there.
-        let Ok(registry) = crate::workbench::screen_registry() else {
-            return false;
-        };
+        let registry = self.published_workbench().screen_registry();
         let Some(published) = self
             .settings_state
             .draft
@@ -315,7 +313,7 @@ impl AppState {
             .layout_editor
             .as_ref()
             .map(|editor| editor.screen_id.clone())
-            .and_then(|id| Self::settings_screen(&id))
+            .and_then(|id| self.settings_screen(&id))
         else {
             return false;
         };
@@ -388,18 +386,25 @@ impl AppState {
     /// whole array back, and the only ways to do that are to drop the text the
     /// user wrote or to write it again as something it is not.
     fn bound_chords(&self, context: &ContextId, action: &ActionId) -> Result<Vec<Chord>, String> {
-        let Some(snapshot) = self.settings_state.actions.as_ref() else {
-            return Ok(Vec::new());
-        };
-        let Some(draft) = self.settings_state.draft.as_ref() else {
-            return Ok(Vec::new());
-        };
-        let Some(row) = project_keys(snapshot, draft.published())
-            .into_iter()
-            .find(|row| &row.context == context && &row.action == action)
-        else {
-            return Ok(Vec::new());
-        };
+        let draft = self
+            .settings_state
+            .draft
+            .as_ref()
+            .ok_or_else(|| NO_OPEN_DRAFT_REASON.to_owned())?;
+        let row = keys_editor_project::project_keys_effective(
+            self.action_registry(),
+            self.action_availability_generation(),
+            draft.published(),
+        )
+        .into_iter()
+        .find(|row| &row.context == context && &row.action == action)
+        .ok_or_else(|| {
+            format!(
+                "committed action declarations contain no binding for {}/{}",
+                context.as_str(),
+                action.as_str()
+            )
+        })?;
         row.chords
             .into_iter()
             .map(|text| match text {
@@ -465,7 +470,7 @@ impl AppState {
 
     /// Open the layout tree editor on one screen's current layout.
     fn open_layout_editor(&mut self, screen_id: &Id) -> bool {
-        let Some(screen) = Self::settings_screen(screen_id) else {
+        let Some(screen) = self.settings_screen(screen_id) else {
             self.settings_state.notice = Some(format!("{screen_id} is not a known screen"));
             return true;
         };
@@ -492,7 +497,7 @@ impl AppState {
         let Some(editor) = self.settings_state.layout_editor.clone() else {
             return false;
         };
-        let Some(screen) = Self::settings_screen(&editor.screen_id) else {
+        let Some(screen) = self.settings_screen(&editor.screen_id) else {
             return false;
         };
         match editor.complete(&screen) {
@@ -526,10 +531,10 @@ impl AppState {
         true
     }
 
-    /// The descriptor of one screen the registry knows.
-    fn settings_screen(screen_id: &Id) -> Option<ScreenDescriptor> {
-        crate::workbench::screen_registry()
-            .ok()?
+    /// The descriptor of one screen the committed registry knows.
+    fn settings_screen(&self, screen_id: &Id) -> Option<ScreenDescriptor> {
+        self.published_workbench()
+            .screen_registry()
             .screens()
             .iter()
             .find(|screen| screen.id.as_str() == screen_id.as_str())
@@ -592,17 +597,18 @@ impl AppState {
 
     /// Why this binding is read-only, when the registry says it is.
     fn protected_reason(&self, context: &ContextId, action: &ActionId) -> Option<String> {
-        let snapshot = self.action_registry_snapshot.as_ref()?;
-        let published = self
-            .settings_state
-            .draft
-            .as_ref()
-            .map(|draft| draft.published().clone())
-            .unwrap_or_default();
-        keys_editor_project::project_keys(snapshot, &published)
-            .into_iter()
-            .find(|row| &row.context == context && &row.action == action)
-            .and_then(|row| row.protected)
+        let Some(draft) = self.settings_state.draft.as_ref() else {
+            return Some(NO_OPEN_DRAFT_REASON.to_owned());
+        };
+        let published = draft.published();
+        keys_editor_project::project_keys_effective(
+            self.action_registry(),
+            self.action_availability_generation(),
+            published,
+        )
+        .into_iter()
+        .find(|row| &row.context == context && &row.action == action)
+        .and_then(|row| row.protected)
     }
 }
 
@@ -683,21 +689,24 @@ fn choose_panel(editor: &mut LayoutEditorState, screen: &ScreenDescriptor, direc
 /// publishes but composes into no keymap or an unusable screen is one a save
 /// would make the session unable to start from. Each owner is asked, and each
 /// answers in its own words.
-pub(super) fn registry_refusals(candidate: &SettingsCandidate) -> Vec<Diagnostic> {
+pub(super) fn registry_refusals(
+    candidate: &SettingsCandidate,
+    registry: &crate::workbench::ScreenRegistry,
+) -> Vec<Diagnostic> {
     let mut refusals = Vec::new();
     if let Err(diagnostic) = compose_published(candidate.published(), "settings") {
         refusals.push(diagnostic.as_settings_diagnostic());
     }
-    refusals.extend(screen_refusals(candidate));
+    refusals.extend(screen_refusals(candidate, registry));
     refusals.sort();
     refusals
 }
 
 /// Every screen whose candidate layout the descriptor validator refuses.
-fn screen_refusals(candidate: &SettingsCandidate) -> Vec<Diagnostic> {
-    let Ok(registry) = crate::workbench::screen_registry() else {
-        return Vec::new();
-    };
+fn screen_refusals(
+    candidate: &SettingsCandidate,
+    registry: &crate::workbench::ScreenRegistry,
+) -> Vec<Diagnostic> {
     screens_editor::project_screens(registry, candidate.published())
         .into_iter()
         .filter_map(|row| match row.composition {

@@ -28,6 +28,7 @@ impl TmuxRuntimeManager {
         work_dir: &Path,
         launch_signature: LaunchSignatureV1,
     ) -> Result<RuntimeBinding, RuntimeError> {
+        self.ensure_initial_geometry()?;
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }

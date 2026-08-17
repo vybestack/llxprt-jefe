@@ -31,15 +31,14 @@ fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 }
 
 fn prs_base_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: PrFocus::PrList,
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        pr_focus: PrFocus::PrList,
+        ..PullRequestsState::default()
+    };
+    state
 }
 
 fn prs_state_with_focus(focus: PrFocus) -> AppState {
@@ -105,7 +104,7 @@ fn prs_state_with_filter_open(field_index: usize) -> AppState {
 /// @pseudocode component-003 lines 01-09
 #[test]
 fn test_p_from_dashboard_emits_enter_prs_mode() {
-    let state = AppState::default();
+    let state = crate::test_app_state();
     for event in [
         key(KeyCode::Char('p')),
         key_with_mods(KeyCode::Char('P'), KeyModifiers::SHIFT),

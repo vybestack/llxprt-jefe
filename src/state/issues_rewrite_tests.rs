@@ -8,7 +8,7 @@ use crate::state::{NewIssueFormFocus, NewIssueFormState};
 /// seeded with `draft`. Issue #454: the rendered draft lives on the form, so
 /// the test harness must populate `new_issue_form` (not inline_state.text).
 fn state_with_new_issue_composer(draft: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueDetail;
     state.issues_state.inline_state = InlineState::Composer {
@@ -58,7 +58,7 @@ fn request_rewrite_is_idempotent_when_already_pending() {
 
 #[test]
 fn request_rewrite_noop_outside_new_issue_composer() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.inline_state = InlineState::None;
     let state = state.apply(AppEvent::RequestIssueRewrite).committed_pure();
     assert!(!state.issues_state.rewrite_pending);
@@ -100,7 +100,7 @@ fn rewrite_succeeded_replaces_composer_text_and_drops_pending() {
 #[test]
 fn rewrite_succeeded_preserves_other_composer_targets_unchanged() {
     // A NewComment composer must not be overwritten by a stray success.
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.rewrite_pending = true;
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
@@ -162,7 +162,7 @@ fn rewrite_succeeded_stale_when_composer_closed_clears_pending_only() {
     // The user closed the composer while the agent was running. The success
     // must not set a misleading notice or modify any other view — only the
     // pending flag is cleared so the state is never stuck.
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.rewrite_pending = true;
     state.issues_state.inline_state = InlineState::None;
     let state = state
@@ -176,7 +176,7 @@ fn rewrite_succeeded_stale_when_composer_closed_clears_pending_only() {
 
 #[test]
 fn rewrite_failed_stale_when_composer_closed_clears_pending_only() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.rewrite_pending = true;
     state.issues_state.inline_state = InlineState::None;
     let state = state

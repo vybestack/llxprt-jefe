@@ -69,7 +69,7 @@ fn fork_with_upstream_override() -> Repository {
 }
 
 fn app_state_with_repo(repo: Repository) -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
     state
@@ -223,11 +223,9 @@ fn issue_send_state(repo: Repository) -> AppState {
         ..IssuesState::default()
     };
 
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = issues_state;
     state.agents.push(agent);
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);

@@ -67,13 +67,14 @@ fn create_dashboard_test_state() -> AppState {
     );
     a3.status = AgentStatus::Running;
 
-    AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        repositories: vec![repo1, repo2, repo3],
-        agents: vec![a1, a2, a3],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        ..Default::default()
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.repositories = vec![repo1, repo2, repo3];
+        state.agents = vec![a1, a2, a3];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state
     }
 }
 
@@ -270,13 +271,14 @@ fn create_multi_agent_dashboard_state() -> AppState {
     );
     a3.status = AgentStatus::Running;
 
-    AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        repositories: vec![repo],
-        agents: vec![a1, a2, a3],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        ..Default::default()
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.repositories = vec![repo];
+        state.agents = vec![a1, a2, a3];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state
     }
 }
 
@@ -432,13 +434,14 @@ fn agent_grab_only_affects_agents_within_selected_repository() {
     let b1 = running_agent("b1", "bravo-one", &repo2.id);
     let b2 = running_agent("b2", "bravo-two", &repo2.id);
 
-    let mut state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        repositories: vec![repo1, repo2],
-        agents: vec![a1, a2, b1, b2],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
-        ..Default::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.repositories = vec![repo1, repo2];
+        state.agents = vec![a1, a2, b1, b2];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(1);
+        state
     };
     state.pane_focus = PaneFocus::Agents;
     // Grab alpha-two (local 1) and move up.

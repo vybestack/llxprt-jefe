@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "92985f436c961acb08f33c6a349fe7c7d7dfa02cf5f8cbfd61f227f2aabf058a",
+  "scenario_manifest_sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -544,6 +544,66 @@
       "platform": "macos",
       "ci_job": "tui_scenarios_macos",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/atomic-success.json",
+      "sha256": "d3318da2eaa44fde70ab785bc5af4b1ea170db5af51337a577130e6c319c4de0",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/atomic-success.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/provider-crash.json",
+      "sha256": "e1b59d2456b2d2b87987ce90406728264e374ca5259ec5dd83ac6c4c290dfb77",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/provider-crash.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+      "sha256": "2dd139dd6c072a8759ae57cf44456a0acfafcf6189e6b0b445f12818dfdb1b3a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/required-provider-failure.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/restart-publication.json",
+      "sha256": "2b2fc4619d5a5f1fe8d78c803dc2617807c6d08064e773cca54a7ad6b143aa5a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/restart-publication.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue704/static-failure.json",
+      "sha256": "bb277a9b5b870b4427a68491a9dcb5a6c8d0d9ed0d5d90eea941b237d5f17641",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/static-failure.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
@@ -1935,7 +1995,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "92985f436c961acb08f33c6a349fe7c7d7dfa02cf5f8cbfd61f227f2aabf058a",
+      "sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2356,7 +2416,7 @@
     },
     {
       "path": "src/app_input/action_handlers.rs",
-      "sha256": "9bed648e84f392aee891eee2e0983deb3f1997e8766d68d71187a085fb5df775",
+      "sha256": "3144e384348b8a52fdc10a6bb2fba74451e8b84cc1db54d8f064739b82eca2e6",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2365,7 +2425,7 @@
     },
     {
       "path": "src/app_input/action_handlers_tests.rs",
-      "sha256": "d60248044dfb47e597147ba6dcc89976d3e3f6699b02dda5d19701d6448d4b7f",
+      "sha256": "9652fe7bffa41424a26c46ebfb60b0bbf79201162e420c05f7107853c25ad17c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2382,7 +2442,7 @@
     },
     {
       "path": "src/app_input/app_input_tests.rs",
-      "sha256": "1237ccd0d481d29c02ba07032daf5725c452e7bbc03aceeaaa2a5fe0c76ce055",
+      "sha256": "76b57ed04e29406c7d36212248ba9950e40bf53e7133f70c7d6b966806bae900",
       "mode": "100644",
       "criteria": [
         "CW00B-02"
@@ -2399,7 +2459,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "539d1dddd8a606feab50d4e9cadb1f7e0fde4cc7840823522f7b9fcb2f94bc1d",
+      "sha256": "5d4ce85af8bd4a109696f502125f897a3bf18522202dbad969fee7ee4a920496",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2408,7 +2468,7 @@
     },
     {
       "path": "src/app_shell_key_routing_tests.rs",
-      "sha256": "8ebc6315776e4a8068f95734d4ff5530e9592243302faf04d38ca3cc24113893",
+      "sha256": "21102723456bde9e463f9183d9c1ff64704aed6e2242233b740edb99ecc23fdf",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2417,7 +2477,7 @@
     },
     {
       "path": "src/bin/jefe-harness-probe.rs",
-      "sha256": "6f972f2975a2d974daf8493e49a7f92f407a55e5df80d61fe15d4d6827b975ff",
+      "sha256": "a4d6ef404de99010d1675d225194dab744d7d474cd7b65c80be31c8b82033221",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2468,7 +2528,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "a4a2a4f7b17b68a9d082c11d052b2f1583fac97388f63ce68f735a7ff82dcd72",
+      "sha256": "f07fbc4f86fc84491b33612cbc5c4942b45fba59f4fba5f5b5db4e6094290689",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2592,7 +2652,7 @@
     },
     {
       "path": "tests/scenario_manifest/driver_tests.rs",
-      "sha256": "ad0a2bccfeda53c4db25a094e94081dcf2f474c1f2957cacc7a58d7ba1af7794",
+      "sha256": "aba912ecb29205b4e9ea9170dfe678d435821169463201a7a4c377fe08cc45d2",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -3305,6 +3365,11 @@
         "dev-docs/tmux-scenarios/issue687/config-isolation.json",
         "dev-docs/tmux-scenarios/issue687/session-continuity.json",
         "dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json",
+        "dev-docs/tmux-scenarios/issue704/atomic-success.json",
+        "dev-docs/tmux-scenarios/issue704/provider-crash.json",
+        "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+        "dev-docs/tmux-scenarios/issue704/restart-publication.json",
+        "dev-docs/tmux-scenarios/issue704/static-failure.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3579,6 +3644,11 @@
         "dev-docs/tmux-scenarios/issue687/config-isolation.json",
         "dev-docs/tmux-scenarios/issue687/session-continuity.json",
         "dev-docs/tmux-scenarios/issue687/socket-override-fail-closed.json",
+        "dev-docs/tmux-scenarios/issue704/atomic-success.json",
+        "dev-docs/tmux-scenarios/issue704/provider-crash.json",
+        "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
+        "dev-docs/tmux-scenarios/issue704/restart-publication.json",
+        "dev-docs/tmux-scenarios/issue704/static-failure.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",

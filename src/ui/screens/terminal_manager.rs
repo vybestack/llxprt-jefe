@@ -252,12 +252,18 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen: state.map_or(ScreenId::Terminals, |s| {
-                    s.compiled_screen().unwrap_or(ScreenId::Terminals)
-                }),
-                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
-                terminal_focused: live_shell_active,
-                actions_focus: None,
+                hints: state
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: state.map_or(ScreenId::Terminals, |s| {
+                            s.compiled_screen().unwrap_or(ScreenId::Terminals)
+                        }),
+                        terminal_focused: live_shell_active,
+                        shell_overlay_active: false,
+                        shell_resume_available: false,
+                        actions_focus: None,
+                        mode_override: None,
+                    }),
                 colors: colors.clone(),
             )
         }
@@ -340,7 +346,7 @@ mod tests {
 
     #[test]
     fn build_preview_content_dead_shows_close_only_placeholder() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.repositories.push(Repository::new(
             RepositoryId("r".into()),
             crate::domain::shipped_agent_type(3),

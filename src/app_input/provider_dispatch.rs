@@ -138,7 +138,7 @@ pub(super) fn dispatch_provider_messages(
 
 /// Initiate a provider action invocation from a keybind dispatch.
 ///
-/// Looks up the descriptor from the coordinator's catalog, builds the
+/// Looks up the descriptor from the committed workbench catalog, builds the
 /// `ProviderMessage::Invoke` with the exact action policy, and dispatches it
 /// through [`dispatch_provider_messages`]. Returns `false` if the action is not
 /// in the catalog (nothing was dispatched).
@@ -159,11 +159,15 @@ pub fn invoke_provider_action(
             tracing::warn!(action_id = %action_id.as_str(), "provider dispatch could not acquire the application context");
             return false;
         };
-        let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
+        if ctx_guard.provider_coordinator.is_none() {
             tracing::warn!(action_id = %action_id.as_str(), "provider dispatch has no runtime coordinator");
             return false;
-        };
-        coordinator.catalog().get(action_id).cloned()
+        }
+        ctx_guard
+            .workbench
+            .provider_catalog()
+            .get(action_id)
+            .cloned()
     };
     let Some(descriptor) = descriptor else {
         tracing::warn!(action_id = %action_id.as_str(), "provider dispatch action is absent from the runtime catalog");
@@ -413,7 +417,7 @@ fn prepare_provider_navigation(
     if !request.policy().allows_route(route_id) {
         return Err("provider requested a route not declared by its package".to_owned());
     }
-    let registry = jefe::workbench::screen_registry().map_err(|error| error.to_string())?;
+    let registry = state.published_workbench().screen_registry();
     let descriptor = registry
         .screens()
         .iter()
@@ -560,7 +564,7 @@ mod host_outcome_tests {
 
     #[test]
     fn accepted_notice_applies_only_while_exact_screen_instance_is_current() {
-        let mut state = jefe::state::AppState::default();
+        let mut state = crate::test_app_state();
         let key = active_request(&mut state);
         let notice = ProviderNotice {
             severity: ProviderNoticeSeverity::Info,
@@ -613,7 +617,7 @@ mod host_outcome_tests {
 
     #[test]
     fn refresh_requires_the_exact_current_resource_and_supported_screen() {
-        let mut state = jefe::state::AppState::default();
+        let mut state = crate::test_app_state();
         state.show_screen(ScreenId::Issues);
         let key = active_request(&mut state);
 
@@ -654,7 +658,7 @@ mod host_outcome_tests {
             false,
         )
         .with_declared_routes(vec![declared.clone()]);
-        let mut state = jefe::state::AppState::default();
+        let mut state = crate::test_app_state();
         let key = active_request_with_policy(&mut state, policy);
 
         for route in ["actions", "local.open", "vendor.other.open"] {
@@ -691,7 +695,7 @@ mod host_outcome_tests {
     fn provider_navigation_refuses_to_bypass_the_dirty_guard() {
         use jefe::state::navigation_dirty::{DraftToken, SaveIntent};
 
-        let mut state = jefe::state::AppState::default();
+        let mut state = crate::test_app_state();
         let key = active_request(&mut state);
         let original_screen = state.screen();
         state.mark_screen_dirty(
@@ -718,7 +722,7 @@ mod host_outcome_tests {
 
     #[test]
     fn outcome_completion_closes_the_ledger_before_navigation_changes_generation() {
-        let mut state = jefe::state::AppState::default();
+        let mut state = crate::test_app_state();
         let route = Id::parse("actions").unwrap_or_else(|error| panic!("declared route: {error}"));
         let policy = ActionPolicy::new(
             ActionConfirmation::None,

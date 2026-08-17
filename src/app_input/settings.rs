@@ -434,8 +434,8 @@ fn read_source(ctx: &SharedContext) -> Result<SettingsSource, String> {
         revision: context.settings_revision,
         active_theme: context.theme_manager.active_theme_id(),
         themes,
-        plugin_configs: context.plugin_configs.clone(),
-        installed_plugin_configs: context.installed_plugin_configs.clone(),
+        plugin_configs: context.workbench.selected_plugin_configs(),
+        installed_plugin_configs: context.workbench.installed_plugin_configs(),
         environment: SettingsEnvironment {
             settings_path: path,
             state_path: context.persistence.paths_ref().state_path.clone(),
@@ -512,7 +512,7 @@ fn run_pending_migration(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let request = compose_migration_request(
-            &context.plugin_packages,
+            context.workbench.inventory().packages(),
             &pending.owner,
             &pending.target_package_version,
             jefe::domain::plugin::HostTriple::current(),
@@ -578,7 +578,6 @@ pub fn write_pending(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     if let SettingsSaveOutcome::Written { hash, .. } = &outcome {
         guard.settings_revision = revision;
         guard.settings_expected_hash = ExpectedHash::Present(*hash);
-        guard.published_settings = candidate.published().clone();
     }
     drop(guard);
     dispatch(app_state, SettingsMessage::SaveCompleted(Box::new(outcome)));

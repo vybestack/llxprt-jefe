@@ -1,7 +1,7 @@
 //! Integration tests for provider effect worker execution
 //! (issue #390 CW-10, Slice D).
 //!
-//! These drive the real one-shot supervisor through the coordinator and
+//! These drive the real one-shot supervisor through the request builder and
 //! effect-worker translation pipeline, proving the full flow:
 //! descriptor → OneShotRequest → supervisor → typed ProviderMessages.
 //!
@@ -17,11 +17,13 @@ use jefe::domain::plugin::provider::ProviderMode;
 use jefe::domain::{CanonicalSemver, Id, TypedMap};
 use jefe::messages::ProviderMessage;
 use jefe::runtime::provider::coordinator::{
-    ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator, build_invocation_payload,
+    ProviderActionDescriptor, ProviderCatalog, build_invocation_payload, build_one_shot_request,
 };
 use jefe::runtime::provider::environment::{HostEnv, ProcessHostEnv, ProviderEnvironment};
 use jefe::runtime::provider::protocol::{ConfigurePayload, EnvName, Outcome};
-use jefe::runtime::provider::supervisor::{SupervisorBounds, run_one_shot};
+use jefe::runtime::provider::supervisor::{
+    OneShotOutcome, SupervisorBounds, SupervisorFailure, run_one_shot,
+};
 use jefe::services::provider_effect_worker::build_execution_result;
 use jefe::state::provider_requests::ActionPolicy;
 
@@ -131,22 +133,19 @@ fn fast_bounds() -> SupervisorBounds {
     }
 }
 
-/// The coordinator builds a valid OneShotRequest from a descriptor + invocation,
-/// and the request-id is unique per call (monotonic counter, not generation).
+/// The request builder creates a valid OneShotRequest from a descriptor and
+/// invocation, preserving the caller's unique monotonic request IDs.
 #[test]
-fn coordinator_builds_one_shot_with_unique_request_ids() {
+fn request_builder_preserves_unique_request_ids() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
-    let coordinator = ProviderCoordinator::empty();
     let inv1 = Scene::invocation(1);
     let inv2 = Scene::invocation(2);
 
-    let req1 = coordinator
-        .build_one_shot(&descriptor, &inv1)
+    let req1 = build_one_shot_request(&descriptor, &inv1, 0)
         .unwrap_or_else(|e| panic!("build_one_shot 1: {e:?}"));
-    let req2 = coordinator
-        .build_one_shot(&descriptor, &inv2)
+    let req2 = build_one_shot_request(&descriptor, &inv2, 1)
         .unwrap_or_else(|e| panic!("build_one_shot 2: {e:?}"));
 
     assert_ne!(
@@ -157,6 +156,77 @@ fn coordinator_builds_one_shot_with_unique_request_ids() {
     assert_eq!(req2.generation, 2);
 }
 
+/// One-shot containment remains absent through startup composition and is
+/// materialized only at the invocation side-effect boundary, before spawn.
+#[test]
+fn one_shot_invocation_creates_its_containment_before_spawn() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let mut descriptor = scene.descriptor("happy");
+    let containment = scene.home.path().join("deferred-containment");
+    descriptor.working_dir = containment.join("work");
+    descriptor.home = containment.join("home");
+    descriptor.tmpdir = containment.join("tmp");
+    let invocation = Scene::invocation(1);
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
+        .unwrap_or_else(|error| panic!("build one-shot request: {error:?}"));
+
+    assert!(
+        !containment.exists(),
+        "request construction must not create containment"
+    );
+
+    let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
+
+    assert!(
+        !matches!(
+            result.outcome,
+            OneShotOutcome::Failed(SupervisorFailure::Spawn(_))
+        ),
+        "the invocation boundary must create containment before spawn: {:?}",
+        result.outcome
+    );
+    for directory in [&request.working_dir, &request.home, &request.tmpdir] {
+        assert!(
+            directory.is_dir(),
+            "invocation must materialize {}",
+            directory.display()
+        );
+    }
+}
+
+/// Containment creation failures identify the exact path and occur before any
+/// child can be spawned.
+#[test]
+fn one_shot_containment_failure_is_typed_and_path_bearing() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let mut descriptor = scene.descriptor("happy");
+    let containment = scene.home.path().join("blocked-containment");
+    descriptor.working_dir = containment.join("work");
+    descriptor.home = containment.join("home");
+    descriptor.tmpdir = containment.join("tmp");
+    std::fs::create_dir_all(&containment)
+        .unwrap_or_else(|error| panic!("create containment parent: {error}"));
+    std::fs::write(&descriptor.home, b"not a directory")
+        .unwrap_or_else(|error| panic!("block home directory: {error}"));
+    let request = build_one_shot_request(&descriptor, &Scene::invocation(1), 0)
+        .unwrap_or_else(|error| panic!("build one-shot request: {error:?}"));
+
+    let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
+
+    match result.outcome {
+        OneShotOutcome::Failed(SupervisorFailure::Containment { path, .. }) => {
+            assert_eq!(path, descriptor.home);
+            assert!(
+                result.transcript.entries().is_empty(),
+                "containment failure is pre-spawn"
+            );
+        }
+        other => panic!("expected typed containment failure, got: {other:?}"),
+    }
+}
+
 /// A happy-path one-shot produces a Navigate outcome and progress messages
 /// through the full pipeline: descriptor → build_one_shot → run_one_shot →
 /// build_execution_result → typed ProviderMessages.
@@ -165,11 +235,9 @@ fn happy_path_produces_progress_and_navigate_outcome() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("happy");
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
@@ -217,11 +285,9 @@ fn error_mode_produces_error_terminal() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("error");
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
@@ -247,11 +313,9 @@ fn never_ready_produces_generation_failed() {
     let _budget = super::persistent_support::process_budget();
     let scene = Scene::new();
     let descriptor = scene.descriptor("never-ready");
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
@@ -292,32 +356,6 @@ fn catalog_stores_and_retrieves_descriptors() {
     assert_eq!(retrieved.mode, ProviderMode::OneShot);
 }
 
-/// The coordinator's catalog is accessible and returns the registered actions.
-#[test]
-fn coordinator_catalog_is_accessible() {
-    let _budget = super::persistent_support::process_budget();
-    let scene = Scene::new();
-    let descriptor = scene.descriptor("happy");
-    let action_id = descriptor.action_id.clone();
-
-    let mut catalog = ProviderCatalog::new();
-    catalog.insert(action_id.clone(), descriptor);
-    let coordinator = ProviderCoordinator::from_startup(
-        jefe::runtime::provider::PersistentStartupResult::Failed(
-            jefe::runtime::provider::PersistentStartupFailure {
-                failure: jefe::runtime::provider::StartupFailure::DuplicatePluginId {
-                    plugin_id: Id::parse("test").unwrap_or_else(|e| panic!("id: {e:?}")),
-                },
-                rollback: Vec::new(),
-            },
-        ),
-        catalog,
-    );
-
-    assert!(!coordinator.has_persistent());
-    assert!(!coordinator.catalog().is_empty());
-}
-
 /// Secrets never appear in the execution result messages or retained stderr.
 #[test]
 fn secrets_never_appear_in_execution_messages() {
@@ -331,11 +369,9 @@ fn secrets_never_appear_in_execution_messages() {
         EnvName::parse("HOST_DEPLOY_KEY").unwrap_or_else(|e| panic!("env name: {e:?}")),
     );
 
-    let coordinator = ProviderCoordinator::empty();
     let invocation = Scene::invocation(1);
 
-    let request = coordinator
-        .build_one_shot(&descriptor, &invocation)
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
         .unwrap_or_else(|e| panic!("build_one_shot: {e:?}"));
 
     let result = run_one_shot(&request, &fast_bounds(), &SecretEnv(secret_value));

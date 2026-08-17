@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, ModalState, PaneFocus, ScreenId};
 
 // =============================================================================
 // Domain Invariants (REQ-FUNC-003, REQ-FUNC-004)
@@ -49,7 +49,7 @@ fn agent_status_defaults_to_queued() {
 fn repository_slug_must_be_unique() {
     // This is an invariant that must be enforced at the AppState level
     // when adding repositories
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     let repo1 = Repository::new(
         RepositoryId("r1".into()),
         jefe::domain::shipped_agent_type(3),
@@ -81,7 +81,7 @@ fn repository_slug_must_be_unique() {
 
 #[test]
 fn navigate_up_decrements_selection() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
         jefe::domain::shipped_agent_type(3),
@@ -112,7 +112,7 @@ fn navigate_up_decrements_selection() {
 
 #[test]
 fn navigate_up_at_zero_stays_at_zero() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
         jefe::domain::shipped_agent_type(3),
@@ -135,7 +135,7 @@ fn navigate_up_at_zero_stays_at_zero() {
 
 #[test]
 fn navigate_down_increments_selection() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
         jefe::domain::shipped_agent_type(3),
@@ -166,7 +166,7 @@ fn navigate_down_increments_selection() {
 
 #[test]
 fn navigate_down_at_end_stays_at_end() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".into()),
         jefe::domain::shipped_agent_type(3),
@@ -213,19 +213,20 @@ fn contract_agent(id: &str, repository: &str, status: AgentStatus) -> Agent {
 
 #[test]
 fn toggle_hide_idle_repositories_filters_to_running_repositories() {
-    let state = AppState {
-        repositories: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             contract_repository("r1"),
             contract_repository("r2"),
             contract_repository("r3"),
-        ],
-        agents: vec![
+        ];
+        state.agents = vec![
             contract_agent("a1", "r1", AgentStatus::Queued),
             contract_agent("a2", "r2", AgentStatus::Running),
-        ],
-        selected_repository_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state
     };
 
     let next = state
@@ -253,16 +254,17 @@ fn toggle_hide_idle_repositories_filters_to_running_repositories() {
 
 #[test]
 fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
-    let state = AppState {
-        repositories: vec![Repository::new(
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![Repository::new(
             RepositoryId("r1".into()),
             jefe::domain::shipped_agent_type(3),
             jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
-        )],
-        agents: vec![
+        )];
+        state.agents = vec![
             Agent::new(
                 AgentId("idle".into()),
                 RepositoryId("r1".into()),
@@ -283,11 +285,11 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
                 running.status = AgentStatus::Running;
                 running
             },
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state
     };
 
     let hidden = state
@@ -312,20 +314,21 @@ fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
 
 #[test]
 fn repository_navigation_skips_idle_repositories_when_hidden() {
-    let state = AppState {
-        repositories: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             contract_repository("r1"),
             contract_repository("r2"),
             contract_repository("r3"),
-        ],
-        agents: vec![
+        ];
+        state.agents = vec![
             contract_agent("a1", "r1", AgentStatus::Running),
             contract_agent("a2", "r2", AgentStatus::Queued),
             contract_agent("a3", "r3", AgentStatus::Running),
-        ],
-        selected_repository_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state
     };
 
     let next = state
@@ -342,8 +345,9 @@ fn repository_navigation_skips_idle_repositories_when_hidden() {
 
 #[test]
 fn toggling_hide_idle_off_restores_selectable_repository() {
-    let state = AppState {
-        repositories: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             Repository::new(
                 RepositoryId("r1".into()),
                 jefe::domain::shipped_agent_type(3),
@@ -360,8 +364,8 @@ fn toggling_hide_idle_off_restores_selectable_repository() {
                 "r2".into(),
                 PathBuf::from("/r2"),
             ),
-        ],
-        agents: vec![
+        ];
+        state.agents = vec![
             Agent::new(
                 AgentId("a1".into()),
                 RepositoryId("r1".into()),
@@ -378,9 +382,9 @@ fn toggling_hide_idle_off_restores_selectable_repository() {
                 "Idle A2".into(),
                 PathBuf::from("/r2/a2"),
             ),
-        ],
-        selected_repository_index: Some(1),
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(1);
+        state
     };
 
     let hidden = state
@@ -398,9 +402,10 @@ fn toggling_hide_idle_off_restores_selectable_repository() {
 
 #[test]
 fn toggle_terminal_focus_sets_terminal_focused() {
-    let state = AppState {
-        terminal_focused: false,
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.terminal_focused = false;
+        state
     };
 
     let next = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
@@ -413,8 +418,9 @@ fn toggle_terminal_focus_sets_terminal_focused() {
 
 #[test]
 fn select_repository_ignores_hidden_repository_when_filter_enabled() {
-    let state = AppState {
-        repositories: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             Repository::new(
                 RepositoryId("r1".into()),
                 jefe::domain::shipped_agent_type(3),
@@ -431,8 +437,8 @@ fn select_repository_ignores_hidden_repository_when_filter_enabled() {
                 "r2".into(),
                 PathBuf::from("/r2"),
             ),
-        ],
-        agents: vec![{
+        ];
+        state.agents = vec![{
             let mut running = Agent::new(
                 AgentId("a1".into()),
                 RepositoryId("r1".into()),
@@ -443,9 +449,9 @@ fn select_repository_ignores_hidden_repository_when_filter_enabled() {
             );
             running.status = AgentStatus::Running;
             running
-        }],
-        selected_repository_index: Some(0),
-        ..AppState::default()
+        }];
+        state.selected_repository_index = Some(0);
+        state
     };
 
     let filtered = state
@@ -461,9 +467,10 @@ fn select_repository_ignores_hidden_repository_when_filter_enabled() {
 
 #[test]
 fn toggle_terminal_focus_clears_terminal_focused() {
-    let state = AppState {
-        terminal_focused: true,
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.terminal_focused = true;
+        state
     };
 
     let next = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
@@ -476,9 +483,10 @@ fn toggle_terminal_focus_clears_terminal_focused() {
 
 #[test]
 fn enter_split_mode_changes_active_screen() {
-    let state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state
     };
 
     let next = state.apply(AppEvent::EnterSplitMode).committed_pure();
@@ -492,9 +500,10 @@ fn enter_split_mode_changes_active_screen() {
 
 #[test]
 fn exit_split_mode_returns_to_dashboard() {
-    let state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Repositories),
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state
     };
 
     let next = state.apply(AppEvent::ExitSplitMode).committed_pure();
@@ -508,7 +517,7 @@ fn exit_split_mode_returns_to_dashboard() {
 
 #[test]
 fn open_help_sets_modal_to_help() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
 
     let next = state.apply(AppEvent::OpenHelp).committed_pure();
 
@@ -520,9 +529,10 @@ fn open_help_sets_modal_to_help() {
 
 #[test]
 fn close_modal_clears_modal() {
-    let state = AppState {
-        modal: ModalState::Help,
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.modal = ModalState::Help;
+        state
     };
 
     let next = state.apply(AppEvent::CloseModal).committed_pure();
@@ -535,9 +545,10 @@ fn close_modal_clears_modal() {
 
 #[test]
 fn cycle_pane_focus_rotates_through_panes() {
-    let state = AppState {
-        pane_focus: PaneFocus::Repositories,
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.pane_focus = PaneFocus::Repositories;
+        state
     };
 
     let next = state.apply(AppEvent::CyclePaneFocus).committed_pure();
@@ -571,7 +582,7 @@ fn cycle_pane_focus_rotates_through_panes() {
 
 #[test]
 fn agent_status_changed_updates_agent() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     let agent_id = AgentId("agent-1".into());
     state.agents.push(Agent::new(
         agent_id.clone(),
@@ -603,7 +614,7 @@ fn agent_status_changed_updates_agent() {
 
 #[test]
 fn kill_agent_sets_status_to_dead() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     let agent_id = AgentId("agent-1".into());
     let mut agent = Agent::new(
         agent_id.clone(),
@@ -634,7 +645,7 @@ fn kill_agent_sets_status_to_dead() {
 
 #[test]
 fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     let repo_a = Repository::new(
         RepositoryId("repo-a".into()),
         jefe::domain::shipped_agent_type(3),
@@ -689,7 +700,7 @@ fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
 
 #[test]
 fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     let repo_a = Repository::new(
         RepositoryId("repo-a".into()),
         jefe::domain::shipped_agent_type(3),
@@ -746,7 +757,7 @@ fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
 
 #[test]
 fn repository_navigation_restores_last_selected_agent_per_repo() {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     let repo_a = Repository::new(
         RepositoryId("repo-a".into()),
         jefe::domain::shipped_agent_type(3),
@@ -810,7 +821,7 @@ fn repository_navigation_restores_last_selected_agent_per_repo() {
 
 #[test]
 fn persistence_load_failed_sets_error() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
 
     let next = state
         .apply(AppEvent::PersistenceLoadFailed("file not found".into()))
@@ -831,9 +842,10 @@ fn persistence_load_failed_sets_error() {
 
 #[test]
 fn clear_error_clears_error_message() {
-    let state = AppState {
-        error_message: Some("some error".into()),
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.error_message = Some("some error".into());
+        state
     };
 
     let next = state.apply(AppEvent::ClearError).committed_pure();
@@ -846,7 +858,7 @@ fn clear_error_clears_error_message() {
 
 #[test]
 fn theme_resolve_failed_sets_warning() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
 
     let next = state
         .apply(AppEvent::ThemeResolveFailed("theme not found".into()))
@@ -868,9 +880,10 @@ fn form_created_agent_has_running_status() {
         "repo-one".into(),
         PathBuf::from("/tmp/repo-one"),
     );
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repo];
+        state
     };
 
     state = state

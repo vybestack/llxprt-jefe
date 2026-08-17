@@ -6,7 +6,6 @@ use crate::AppContext;
 use jefe::domain::AgentId;
 use jefe::github::GhClient;
 use jefe::persistence::FilePersistenceManager;
-use jefe::persistence::settings_document::PublishedSettings;
 use jefe::runtime::TmuxRuntimeManager;
 use jefe::services::capture_worker::CaptureHandle;
 use jefe::services::persist_worker::PersistHandle;
@@ -35,15 +34,11 @@ fn minimal_test_ctx() -> (CtxArc, tempfile::TempDir) {
     let jsp_host = jefe::jsp_host::JspHostRuntime::start(runtime_dir.path().to_owned())
         .unwrap_or_else(|error| panic!("test JSP host should start: {error}"));
     let ctx = Arc::new(Mutex::new(AppContext {
-        keymap_snapshot: Some(startup.keymap_snapshot),
+        workbench: std::sync::Arc::clone(crate::test_published_workbench()),
         settings_expected_hash: startup.settings_expected_hash,
         settings_revision: 0,
         config_isolated: false,
         persistence: FilePersistenceManager::default(),
-        published_settings: PublishedSettings::default(),
-        plugin_configs: std::collections::BTreeMap::new(),
-        installed_plugin_configs: std::collections::BTreeMap::new(),
-        plugin_packages: Vec::new(),
         provider_containment: jefe::runtime::provider::Containment {
             home: runtime_dir.path().to_owned(),
             tmpdir: runtime_dir.path().to_owned(),

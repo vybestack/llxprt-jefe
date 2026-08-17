@@ -318,7 +318,7 @@ mod tests {
     }
 
     fn state_with_two_shells() -> AppState {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         let repo = make_repo("repo-1", "Fixture Repo");
         state.repositories.push(repo);
         let alpha = make_agent("agent-1", "Alpha Agent", "repo-1", AgentStatus::Running);
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn project_rows_keeps_unknown_owner_close_only() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.record_shell_window(AgentId("orphan".into()));
 
         let rows = project_managed_shell_rows(&state);

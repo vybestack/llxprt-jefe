@@ -17,20 +17,20 @@ fn seed_repository() -> Repository {
 
 #[test]
 fn default_state_has_no_selection() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert!(state.selected_repository_index.is_none());
     assert!(state.selected_agent_index.is_none());
 }
 
 #[test]
 fn default_state_is_dashboard_mode() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 #[test]
 fn default_state_terminal_unfocused() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert!(!state.terminal_focused);
 }
 
@@ -44,10 +44,8 @@ fn open_new_agent_copies_repository_code_puppy_model() {
         serde_json::Value::String("repo/default-model".to_owned()),
     )
     .unwrap_or_else(|error| panic!("valid model fixture: {error}"));
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -73,14 +71,12 @@ fn open_new_agent_keeps_repository_version_on_its_runtime() {
         serde_json::Value::String("0.9.0".to_owned()),
     )
     .unwrap_or_else(|error| panic!("valid version fixture: {error}"));
-    let mut state = AppState {
-        repositories: vec![repo],
-        available_agent_type_ids: vec![
-            crate::domain::shipped_agent_type(3),
-            crate::domain::shipped_agent_type(1),
-        ],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
+    state.available_agent_type_ids = vec![
+        crate::domain::shipped_agent_type(3),
+        crate::domain::shipped_agent_type(1),
+    ];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -97,14 +93,12 @@ fn open_new_agent_keeps_repository_version_on_its_runtime() {
 fn open_new_agent_defaults_to_repo_kind_when_installed() {
     let mut repo = seed_repository();
     repo.default_type_id = crate::domain::shipped_agent_type(1);
-    let mut state = AppState {
-        repositories: vec![repo],
-        available_agent_type_ids: vec![
-            crate::domain::shipped_agent_type(3),
-            crate::domain::shipped_agent_type(1),
-        ],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
+    state.available_agent_type_ids = vec![
+        crate::domain::shipped_agent_type(3),
+        crate::domain::shipped_agent_type(1),
+    ];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -123,12 +117,10 @@ fn open_new_agent_defaults_to_repo_kind_when_installed() {
 fn open_new_agent_falls_back_to_first_installed_when_repo_default_not_installed() {
     let mut repo = seed_repository();
     repo.default_type_id = crate::domain::shipped_agent_type(1);
-    let mut state = AppState {
-        repositories: vec![repo],
-        // Only LLxprt is installed locally.
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
+    // Only LLxprt is installed locally.
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -152,12 +144,10 @@ fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_instal
         host: "build.example.com".to_owned(),
         ..Default::default()
     };
-    let mut state = AppState {
-        repositories: vec![repo],
-        // Only LLxprt installed locally, but remote is authoritative.
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
+    // Only LLxprt installed locally, but remote is authoritative.
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -172,17 +162,15 @@ fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_instal
 
 #[test]
 fn open_new_repository_defaults_to_llxprt_when_installed() {
-    let mut state = AppState {
-        // Preference-ordered snapshot as published by the startup probe
-        // (LLxprt, Code Puppy, Claude Code, Codex).
-        available_agent_type_ids: vec![
-            crate::domain::shipped_agent_type(3),
-            crate::domain::shipped_agent_type(1),
-            crate::domain::shipped_agent_type(0),
-            crate::domain::shipped_agent_type(2),
-        ],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    // Preference-ordered snapshot as published by the startup probe
+    // (LLxprt, Code Puppy, Claude Code, Codex).
+    state.available_agent_type_ids = vec![
+        crate::domain::shipped_agent_type(3),
+        crate::domain::shipped_agent_type(1),
+        crate::domain::shipped_agent_type(0),
+        crate::domain::shipped_agent_type(2),
+    ];
 
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
 
@@ -194,7 +182,7 @@ fn open_new_repository_defaults_to_llxprt_when_installed() {
 
 #[test]
 fn open_new_repository_falls_back_to_llxprt_when_none_installed() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
 
@@ -208,10 +196,8 @@ fn open_new_repository_falls_back_to_llxprt_when_none_installed() {
 fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     let repository = seed_repository();
     let expected = repository.base_dir.join("api--worker");
-    let mut state = AppState {
-        repositories: vec![repository],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repository];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -234,10 +220,8 @@ fn new_agent_work_dir_slug_excludes_slashes_from_name() {
 fn automatic_agent_work_dir_joins_normalized_windows_repository_once() {
     let mut repository = seed_repository();
     repository.base_dir = std::path::PathBuf::from(r"C:\Users\Acoli Ω\somedir");
-    let mut state = AppState {
-        repositories: vec![repository],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repository];
 
     state = state
         .apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())))
@@ -522,11 +506,9 @@ fn llxprt_sandbox_values_survive_create_and_edit_projection() {
     );
 
     let id = agent.id.clone();
-    let mut state = AppState {
-        repositories: vec![repository],
-        agents: vec![agent],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repository];
+    state.agents = vec![agent];
     state = state.apply(AppEvent::OpenEditAgent(id)).committed_pure();
     let ModalState::EditAgent { fields, .. } = state.modal else {
         panic!("expected edit-agent modal");
@@ -538,10 +520,8 @@ fn llxprt_sandbox_values_survive_create_and_edit_projection() {
 
 #[test]
 fn repository_checkbox_toggle_updates_remote_fields() {
-    let mut state = AppState {
-        repositories: vec![seed_repository()],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![seed_repository()];
     state = state.apply(AppEvent::OpenNewRepository).committed_pure();
     state = state.apply(AppEvent::FormNextField).committed_pure(); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField).committed_pure(); // BaseDir → DefaultProfile
@@ -855,15 +835,13 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
 
 #[test]
 fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
-    let mut state = AppState {
-        repositories: vec![Repository {
-            github_repo: "owner/existing".to_owned(),
-            github_issue_pr_repo: String::new(),
-            ..seed_repository()
-        }],
-        selected_repository_index: Some(0),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![Repository {
+        github_repo: "owner/existing".to_owned(),
+        github_issue_pr_repo: String::new(),
+        ..seed_repository()
+    }];
+    state.selected_repository_index = Some(0);
 
     state = state
         .apply(AppEvent::OpenEditRepository(RepositoryId(
@@ -883,15 +861,13 @@ fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
 
 #[test]
 fn submit_edit_repository_closes_modal_when_github_repo_valid() {
-    let mut state = AppState {
-        repositories: vec![Repository {
-            github_repo: "owner/existing".to_owned(),
-            github_issue_pr_repo: String::new(),
-            ..seed_repository()
-        }],
-        selected_repository_index: Some(0),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![Repository {
+        github_repo: "owner/existing".to_owned(),
+        github_issue_pr_repo: String::new(),
+        ..seed_repository()
+    }];
+    state.selected_repository_index = Some(0);
 
     state = state
         .apply(AppEvent::OpenEditRepository(RepositoryId(

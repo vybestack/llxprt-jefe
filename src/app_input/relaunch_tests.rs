@@ -54,12 +54,11 @@ fn bound_agent_state(agent_id: &AgentId) -> AppState {
         lifecycle_generation: 0,
         worker_identities: Vec::new(),
     });
-    AppState {
-        agents: vec![agent],
-        terminal_focused: true,
-        pane_focus: PaneFocus::Terminal,
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.agents = vec![agent];
+    state.terminal_focused = true;
+    state.pane_focus = PaneFocus::Terminal;
+    state
 }
 
 #[test]
@@ -136,11 +135,9 @@ fn batch_recovery_keeps_failures_server_lost_and_reports_partial_success() {
     first.status = AgentStatus::ServerLost;
     let mut second = bound_agent_state(&second_id).agents.remove(0);
     second.status = AgentStatus::ServerLost;
-    let mut state = AppState {
-        agents: vec![first, second],
-        warning_message: Some("Keep this warning.".to_owned()),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.agents = vec![first, second];
+    state.warning_message = Some("Keep this warning.".to_owned());
 
     apply_server_lost_recovery_outcomes(
         &mut state,
@@ -194,11 +191,9 @@ fn selected_server_lost_agent_opens_cancel_focused_batch_confirmation() {
         transient_max_concurrent: 0,
         agent_ids: vec![first_id.clone(), second_id.clone()],
     };
-    let mut state = AppState {
-        repositories: vec![repository],
-        agents: vec![first, second],
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.repositories = vec![repository];
+    state.agents = vec![first, second];
 
     assert!(open_server_lost_recovery(&mut state, &first_id));
     assert!(matches!(

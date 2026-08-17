@@ -443,8 +443,20 @@ impl AvailabilityGeneration {
         Self(correlation, entries)
     }
 
+    pub(crate) const fn correlation(&self) -> &Correlation {
+        &self.0
+    }
+
     pub(crate) fn entries(&self) -> &[ActionAvailability] {
         &self.1
+    }
+
+    #[must_use]
+    pub(crate) fn availability_of(&self, action: &ActionId) -> Option<&Availability> {
+        self.entries()
+            .iter()
+            .find(|entry| entry.action() == action)
+            .map(ActionAvailability::availability)
     }
 }
 
@@ -576,6 +588,24 @@ impl ActionRegistrySnapshot {
             .map(ActionAvailability::availability)
     }
 
+    /// Resolve one action's effective availability without replacing the
+    /// committed declaration graph. A committed refusal is monotonic; runtime
+    /// health can only refine actions committed as available.
+    #[must_use]
+    pub(crate) fn effective_availability_of<'a>(
+        &'a self,
+        runtime: Option<&'a AvailabilityGeneration>,
+        action: &ActionId,
+    ) -> Option<&'a Availability> {
+        let committed = self.availability_of(action);
+        if matches!(committed, Some(Availability::Unavailable { .. })) {
+            return committed;
+        }
+        runtime
+            .and_then(|generation| generation.availability_of(action))
+            .or(committed)
+    }
+
     #[must_use]
     pub(crate) fn actions(&self) -> &[Action] {
         &self.actions
@@ -596,20 +626,24 @@ impl ActionRegistrySnapshot {
         self.availability.entries()
     }
 
-    pub(crate) fn publish_availability(
+    /// Validate a runtime-only availability generation against this committed
+    /// action and binding graph without cloning or replacing that graph.
+    pub(crate) fn validate_availability_generation(
         &self,
-        generation: AvailabilityGeneration,
-    ) -> Result<Self, RegistryDiagnostic> {
-        let availability = validate_availability(&self.actions, generation)?;
-        validate_protected(&self.actions, &self.bindings, &availability)?;
-        let resolved = build_resolved(&self.actions, &self.bindings, &availability)?;
-        Ok(Self {
-            actions: self.actions.clone(),
-            availability,
-            bindings: self.bindings.clone(),
-            context_stacks: self.context_stacks.clone(),
-            resolved,
-        })
+        generation: &AvailabilityGeneration,
+    ) -> Result<(), RegistryDiagnostic> {
+        let availability = validate_availability(&self.actions, generation.clone())?;
+        if let Some(promoted) = availability.entries().iter().find(|entry| {
+            matches!(
+                self.availability_of(entry.action()),
+                Some(Availability::Unavailable { .. })
+            ) && matches!(entry.availability(), Availability::Available)
+        }) {
+            return Err(RegistryDiagnostic(
+                RegistryDiagnosticKind::StaticAvailabilityPromotion(promoted.action().clone()),
+            ));
+        }
+        validate_protected(&self.actions, &self.bindings, &availability)
     }
 
     #[must_use]
@@ -668,6 +702,7 @@ pub enum RegistryDiagnosticKind {
     DuplicateAvailability(ActionId),
     MissingAvailability(ActionId),
     UnknownAvailability(ActionId),
+    StaticAvailabilityPromotion(ActionId),
 }
 
 /// Complete typed registry diagnostic; composition errors use `KEY-E401`.

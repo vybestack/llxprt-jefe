@@ -28,7 +28,7 @@ fn pr(number: u64, created_at: &str, updated_at: &str) -> PullRequest {
 }
 
 fn state_with_prs(prs: Vec<PullRequest>) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.prs_state.list.replace_items(prs);
     state.prs_state.list.set_selected_index(Some(0));
     state

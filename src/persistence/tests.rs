@@ -914,12 +914,10 @@ fn verify_mode_entry_restore(loaded: &State) {
     use crate::domain::IssueFilterState;
     use crate::state::{AppEvent, AppState};
 
-    let state = AppState {
-        repositories: loaded.repositories.clone(),
-        user_preferences: loaded.user_preferences.clone(),
-        selected_repository_index: Some(0),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = loaded.repositories.clone();
+    state.user_preferences = loaded.user_preferences.clone();
+    state.selected_repository_index = Some(0);
 
     // repo-1 → Closed.
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
@@ -964,12 +962,10 @@ fn restart_hydration_legacy_state_gives_open_defaults_on_mode_entry() {
     let loaded: State =
         serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
 
-    let state = AppState {
-        repositories: loaded.repositories.clone(),
-        user_preferences: loaded.user_preferences.clone(),
-        selected_repository_index: Some(0),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = loaded.repositories.clone();
+    state.user_preferences = loaded.user_preferences.clone();
+    state.selected_repository_index = Some(0);
 
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(

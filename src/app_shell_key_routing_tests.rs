@@ -34,23 +34,14 @@ fn assert_handler(state: &AppState, event: &KeyEvent, expected: HandlerKey) {
     );
 }
 
-fn with_submit_override(mut state: AppState, context: &str, action: &str) -> AppState {
-    let dir = tempfile::tempdir();
-    let Ok(dir) = dir else {
-        panic!("composer route config directory must be created: {dir:?}");
-    };
+fn with_submit_override(
+    context: &str,
+    action: &str,
+    customize: impl FnOnce(AppState) -> AppState,
+) -> AppState {
     let settings =
         format!("settings_schema = 2\n[keymap.\"{context}\"]\n\"{action}\" = [\"F8\"]\n");
-    let result = std::fs::write(dir.path().join("settings.toml"), settings);
-    if let Err(error) = result {
-        panic!("composer route settings must be written: {error}");
-    }
-    let startup = jefe::startup::build_persistence(Some(dir.path()));
-    let Ok(startup) = startup else {
-        panic!("composer route fixture must compose: {startup:?}");
-    };
-    state.action_registry_snapshot = Some(startup.keymap_snapshot);
-    state
+    customize(crate::test_app_state_from_settings(settings.as_bytes()))
 }
 
 fn assert_replaced_submit_route(state: AppState, expected: HandlerKey) {
@@ -62,16 +53,7 @@ fn assert_replaced_submit_route(state: AppState, expected: HandlerKey) {
     ));
 }
 
-fn with_projected_availability(mut state: AppState) -> AppState {
-    let dir = tempfile::tempdir();
-    let Ok(dir) = dir else {
-        panic!("availability config directory must be created: {dir:?}");
-    };
-    let startup = jefe::startup::build_persistence(Some(dir.path()));
-    let Ok(startup) = startup else {
-        panic!("availability fixture must compose: {startup:?}");
-    };
-    state.action_registry_snapshot = Some(startup.keymap_snapshot);
+fn with_projected_availability(state: AppState) -> AppState {
     let transition = state.apply_message(AppMessage::RepositoryAgent(
         RepositoryAgentMessage::ProjectActionAvailability,
     ));
@@ -129,12 +111,10 @@ fn assert_list_send_unavailable(mut state: AppState, reason: &str) {
 
 #[test]
 fn escape_consumes_an_active_warning_before_other_routing() {
-    let mut state = AppState {
-        modal: ModalState::ConfirmDeleteRepository {
-            id: jefe::domain::RepositoryId("repo".to_owned()),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::ConfirmDeleteRepository {
+        id: jefe::domain::RepositoryId("repo".to_owned()),
+        confirm_focus: ConfirmFocus::Confirm,
     };
     state.issues_state.draft_notice = Some("No agents available".to_owned());
     state.prs_state.draft_notice = Some("No agents available".to_owned());
@@ -148,17 +128,15 @@ fn escape_consumes_an_active_warning_before_other_routing() {
         &key(KeyCode::Enter)
     ));
     assert!(!crate::app_shell::should_dismiss_warning(
-        &AppState::default(),
+        &crate::test_app_state(),
         &key(KeyCode::Esc)
     ));
 
     let provider_action = jefe::domain::action_registry::ActionId::parse("vendor.deploy.ship")
         .unwrap_or_else(|error| panic!("provider action id: {error}"));
-    let provider_state = AppState {
-        warning_message: Some("provider unavailable".to_owned()),
-        provider_surface_action: Some(provider_action),
-        ..AppState::default()
-    };
+    let mut provider_state = crate::test_app_state();
+    provider_state.warning_message = Some("provider unavailable".to_owned());
+    provider_state.provider_surface_action = Some(provider_action);
     assert!(!crate::app_shell::should_dismiss_warning(
         &provider_state,
         &key(KeyCode::Esc)
@@ -177,10 +155,8 @@ fn escape_consumes_an_active_warning_before_other_routing() {
 
 #[test]
 fn unavailable_dispatch_records_exact_notice_and_stages_no_effect() {
-    let mut state = AppState {
-        warning_message: Some("prior".to_owned()),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.warning_message = Some("prior".to_owned());
     let pending_before = state.pending_effects.clone();
     let repository_count = state.repositories.len();
     let agent_count = state.agents.len();
@@ -202,30 +178,28 @@ fn unavailable_dispatch_records_exact_notice_and_stages_no_effect() {
 
 #[test]
 fn issue_list_send_without_selection_resolves_unavailable_without_side_effects() {
-    let state = with_projected_availability(AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueList,
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    });
+    let mut state = crate::test_app_state();
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueList,
+        ..IssuesState::default()
+    };
+    let state = with_projected_availability(state);
 
     assert_list_send_unavailable(state, "No issue selected");
 }
 
 #[test]
 fn pr_list_send_without_selection_resolves_unavailable_without_side_effects() {
-    let state = with_projected_availability(AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: PrFocus::PrList,
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
-    });
+    let mut state = crate::test_app_state();
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        pr_focus: PrFocus::PrList,
+        ..PullRequestsState::default()
+    };
+    let state = with_projected_availability(state);
 
     assert_list_send_unavailable(state, "No pull request selected");
 }
@@ -233,14 +207,12 @@ fn pr_list_send_without_selection_resolves_unavailable_without_side_effects() {
 #[test]
 fn dashboard_and_split_use_registry_handlers() {
     assert_handler(
-        &AppState::default(),
+        &crate::test_app_state(),
         &key(KeyCode::Down),
         HandlerKey::NavigateDown,
     );
-    let split = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
-        ..AppState::default()
-    };
+    let mut split = crate::test_app_state();
+    split.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
     assert_handler(
         &split,
         &key(KeyCode::PageDown),
@@ -256,10 +228,8 @@ fn dashboard_and_split_use_registry_handlers() {
 
 #[test]
 fn errors_reverse_cycle_and_detail_scroll_use_registry_handlers() {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Errors),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Errors);
     assert_handler(&state, &key(KeyCode::Left), HandlerKey::ErrorsCyclePane);
     state.errors_state.focus = ErrorsFocus::ErrorDetail;
     assert_handler(&state, &key(KeyCode::Char('j')), HandlerKey::ErrorsDown);
@@ -267,20 +237,16 @@ fn errors_reverse_cycle_and_detail_scroll_use_registry_handlers() {
 
 #[test]
 fn terminal_and_actions_pre_mode_use_registry_handlers() {
-    let terminal = AppState {
-        pane_focus: PaneFocus::Terminal,
-        terminal_focused: true,
-        ..AppState::default()
-    };
+    let mut terminal = crate::test_app_state();
+    terminal.pane_focus = PaneFocus::Terminal;
+    terminal.terminal_focused = true;
     assert_handler(
         &terminal,
         &key(KeyCode::End),
         HandlerKey::TerminalScrollTail,
     );
-    let actions = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Actions),
-        ..AppState::default()
-    };
+    let mut actions = crate::test_app_state();
+    actions.nav = crate::state::navigation::NavState::rooted(ScreenId::Actions);
     assert_handler(
         &actions,
         &key(KeyCode::F(12)),
@@ -289,7 +255,7 @@ fn terminal_and_actions_pre_mode_use_registry_handlers() {
 }
 #[test]
 fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
-    let mut search = AppState::default();
+    let mut search = crate::test_app_state();
     search.dashboard_search.input_focused = true;
     assert_handler(
         &search,
@@ -301,22 +267,18 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
         Resolution::Unbound
     ));
 
-    let modal = AppState {
-        modal: ModalState::ConfirmDeleteRepository {
-            id: jefe::domain::RepositoryId("repo".to_owned()),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ..AppState::default()
+    let mut modal = crate::test_app_state();
+    modal.modal = ModalState::ConfirmDeleteRepository {
+        id: jefe::domain::RepositoryId("repo".to_owned()),
+        confirm_focus: ConfirmFocus::Confirm,
     };
     for screen in [
         ScreenId::Dashboard,
         ScreenId::Repositories,
         ScreenId::Actions,
     ] {
-        let state = AppState {
-            nav: jefe::state::navigation::NavState::rooted(screen),
-            ..modal.clone()
-        };
+        let mut state = modal.clone();
+        state.nav = jefe::state::navigation::NavState::rooted(screen);
         assert_handler(
             &state,
             &key(KeyCode::F(12)),
@@ -328,10 +290,8 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
         ));
     }
     for screen in [ScreenId::Issues, ScreenId::PullRequests] {
-        let state = AppState {
-            nav: jefe::state::navigation::NavState::rooted(screen),
-            ..modal.clone()
-        };
+        let mut state = modal.clone();
+        state.nav = jefe::state::navigation::NavState::rooted(screen);
         assert!(matches!(
             resolve_compiled_registry_key(&state, &key(KeyCode::F(12))).resolution,
             Resolution::Unbound
@@ -341,26 +301,24 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
 
 #[test]
 fn full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound() {
-    let mut state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            property_editor: Some(IssuePropertyEditorState {
-                kind: IssuePropertyKind::Title,
-                options: Vec::new(),
-                selected_index: 0,
-                title_text: String::new(),
-                title_cursor: 0,
-                error: None,
-                baseline: Vec::new(),
-                loading_failed: false,
-                options_loading: false,
-                load_request_id: 0,
-            }),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        property_editor: Some(IssuePropertyEditorState {
+            kind: IssuePropertyKind::Title,
+            options: Vec::new(),
+            selected_index: 0,
+            title_text: String::new(),
+            title_cursor: 0,
+            error: None,
+            baseline: Vec::new(),
+            loading_failed: false,
+            options_loading: false,
+            load_request_id: 0,
+        }),
+        ..IssuesState::default()
     };
     assert_handler(&state, &key(KeyCode::Esc), HandlerKey::IssuesChooserCancel);
     let text = resolve_compiled_registry_key(&state, &key(KeyCode::Char('x')));
@@ -383,63 +341,69 @@ fn full_s4_special_contexts_resolve_controls_and_leave_raw_text_unbound() {
 
 #[test]
 fn new_issue_submit_override_uses_state_derived_production_context() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            inline_state: InlineState::Composer {
-                target: ComposerTarget::NewIssue,
-                text: String::new(),
-                cursor: 0,
-            },
-            new_issue_form: Some(NewIssueFormState::default()),
-            ..IssuesState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        inline_state: InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            text: String::new(),
+            cursor: 0,
         },
-        ..AppState::default()
+        new_issue_form: Some(NewIssueFormState::default()),
+        ..IssuesState::default()
     };
-    let state = with_submit_override(state, "issues.new-form", "issues.new-submit");
+    let state = with_submit_override("issues.new-form", "issues.new-submit", |mut base| {
+        base.nav = state.nav;
+        base.issues_state = state.issues_state;
+        base
+    });
 
     assert_replaced_submit_route(state, HandlerKey::IssuesSubmitInline);
 }
 
 #[test]
 fn issue_inline_submit_override_uses_state_derived_production_context() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            inline_state: InlineState::Composer {
-                target: ComposerTarget::NewComment,
-                text: String::new(),
-                cursor: 0,
-            },
-            ..IssuesState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        inline_state: InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: String::new(),
+            cursor: 0,
         },
-        ..AppState::default()
+        ..IssuesState::default()
     };
-    let state = with_submit_override(state, "issues.inline", "issues.inline-submit");
+    let state = with_submit_override("issues.inline", "issues.inline-submit", |mut base| {
+        base.nav = state.nav;
+        base.issues_state = state.issues_state;
+        base
+    });
 
     assert_replaced_submit_route(state, HandlerKey::IssuesSubmitInline);
 }
 
 #[test]
 fn pr_inline_submit_override_uses_state_derived_production_context() {
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            inline_state: InlineState::Composer {
-                target: ComposerTarget::NewComment,
-                text: String::new(),
-                cursor: 0,
-            },
-            ..PullRequestsState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        inline_state: InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: String::new(),
+            cursor: 0,
         },
-        ..AppState::default()
+        ..PullRequestsState::default()
     };
-    let state = with_submit_override(state, "prs.inline", "prs.inline-submit");
+    let state = with_submit_override("prs.inline", "prs.inline-submit", |mut base| {
+        base.nav = state.nav;
+        base.prs_state = state.prs_state;
+        base
+    });
 
     assert_replaced_submit_route(state, HandlerKey::PullRequestsSubmitInline);
 }

@@ -11,7 +11,8 @@ use super::settings_syntax::{SyntaxNode, SyntaxOverlay};
 use super::sha256::Sha256;
 
 pub use super::settings_publish::{
-    DormantSettings, PublishedAppearance, PublishedOwner, PublishedSettings, PublishedWorkbench,
+    DormantSettings, PublishedAppearance, PublishedOwner, PublishedSettings,
+    PublishedWorkbenchSettings,
 };
 
 /// Parsed settings document whose original bytes are the formatting authority.

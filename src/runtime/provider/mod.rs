@@ -49,11 +49,12 @@ mod candidate;
 // drive repeated same-PID invocations on ready candidates.
 mod persistent_session;
 
+pub use persistent_session::PersistentOwnerStartFailure;
 pub use persistent_session::{PersistentInvocation, PersistentInvokeError, PersistentSessionOwner};
 
 pub use composition::{
     CompositionRequest, Containment, MigrationInputs, ProviderComposition, compose,
-    compose_migration_request,
+    compose_migration_request, validate_selected_configuration,
 };
 pub use coordinator::{ProviderActionDescriptor, ProviderCatalog, ProviderCoordinator};
 pub use environment::ProcessHostEnv;

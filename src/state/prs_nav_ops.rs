@@ -175,6 +175,7 @@ impl AppState {
             return;
         }
         if !crate::state::screen_relationships::couples_list_to_detail(
+            self.published_workbench().screen_registry(),
             crate::workbench::ScreenId::PullRequests,
         ) {
             return;

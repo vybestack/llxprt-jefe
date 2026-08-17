@@ -410,7 +410,7 @@ fn help_modal(
 ) -> AnyElement<'static> {
     element! {
         HelpModal(
-            action_registry_snapshot: snapshot.action_registry_snapshot.clone(),
+            content: snapshot.help_content_lines(),
             colors: colors.clone(),
             scroll_offset: scroll_offset,
             available_rows: available_rows,

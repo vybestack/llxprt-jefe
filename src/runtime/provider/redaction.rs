@@ -288,6 +288,10 @@ pub(super) fn redact_supervisor_failure(
         SupervisorFailure::Io(message) => {
             SupervisorFailure::Io(redactor.redact(&message).into_owned())
         }
+        SupervisorFailure::Containment { path, error } => SupervisorFailure::Containment {
+            path,
+            error: redactor.redact(&error).into_owned(),
+        },
         SupervisorFailure::Protocol(error) => {
             SupervisorFailure::Protocol(redact_provider_error(error, redactor))
         }

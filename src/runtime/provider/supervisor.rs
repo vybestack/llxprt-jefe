@@ -140,39 +140,14 @@ pub fn run_one_shot<E: HostEnv>(
     host_env: &E,
 ) -> OneShotResult {
     let mut transcript = LifecycleTranscript::default();
-
-    let env = match build_process_env(
-        &request.environment,
-        &request.home,
-        &request.tmpdir,
-        &request.locale,
-        host_env,
-    ) {
-        Ok(env) => env,
-        Err(err) => return OneShotResult::pre_spawn(SupervisorFailure::Environment(err)),
+    let (env, configure, redactor) = match prepare_invocation(request, host_env) {
+        Prepared::Ready {
+            env,
+            configure,
+            redactor,
+        } => (env, configure, redactor),
+        Prepared::Failed(result) => return result,
     };
-    let configure_secrets = match resolve_configure_secrets(&request.environment, host_env) {
-        Ok(secrets) => secrets,
-        Err(err) => return OneShotResult::pre_spawn(SupervisorFailure::Environment(err)),
-    };
-    let redactor = env.redactor();
-
-    // The supervisor is the sole Configure-secret resolver: every Configure
-    // secret must come from a declared host source. Reject any caller-supplied
-    // secret rather than forwarding it or letting a resolved value overwrite it
-    // silently.
-    if let Some((binding, _)) = request.configure.secrets.first_key_value() {
-        return OneShotResult::pre_spawn(SupervisorFailure::Environment(
-            EnvironmentError::UndeclaredConfigureSecret {
-                binding: binding.to_string(),
-            },
-        ));
-    }
-
-    let mut configure = request.configure.clone();
-    for (binding, value) in configure_secrets {
-        configure.secrets.insert(binding, value);
-    }
 
     let live = LiveHooks {
         redactor: &redactor,
@@ -267,6 +242,14 @@ fn prepare_invocation<E: HostEnv>(request: &OneShotRequest, host_env: &E) -> Pre
     let mut configure = request.configure.clone();
     for (binding, value) in configure_secrets {
         configure.secrets.insert(binding, value);
+    }
+    for directory in [&request.working_dir, &request.home, &request.tmpdir] {
+        if let Err(error) = std::fs::create_dir_all(directory) {
+            return Prepared::Failed(OneShotResult::pre_spawn(SupervisorFailure::Containment {
+                path: directory.clone(),
+                error: error.to_string(),
+            }));
+        }
     }
     Prepared::Ready {
         env,

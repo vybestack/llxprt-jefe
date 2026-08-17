@@ -12,7 +12,7 @@ use crate::workbench_view::{StatusBucket, StatusFilterMask};
 
 #[test]
 fn default_status_filter_is_all_on() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let mask = state.workbench.status_filter.mask();
     assert!(mask.allows(StatusBucket::NeedsYou));
     assert!(mask.allows(StatusBucket::Working));
@@ -23,7 +23,7 @@ fn default_status_filter_is_all_on() {
 
 #[test]
 fn toggling_a_bucket_flips_only_that_bucket() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let after = state
         .apply(AppEvent::ToggleWorkbenchStatusBucket(StatusBucket::Ready))
         .committed_pure();
@@ -43,13 +43,11 @@ fn toggling_a_bucket_flips_only_that_bucket() {
 
 #[test]
 fn toggling_a_bucket_resets_page_to_zero() {
-    let state = AppState {
-        workbench: WorkbenchUiState {
+    let mut state = AppState::test_fixture();
+    state.workbench = WorkbenchUiState {
             page: 5,
             ..WorkbenchUiState::default()
-        },
-        ..AppState::default()
-    };
+        };
     let after = state
         .apply(AppEvent::ToggleWorkbenchStatusBucket(StatusBucket::Working))
         .committed_pure();
@@ -61,7 +59,7 @@ fn toggling_a_bucket_resets_page_to_zero() {
 
 #[test]
 fn next_page_advances_page() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
     assert_eq!(after.workbench.page, 1);
 }
@@ -74,13 +72,11 @@ fn next_page_advances_page() {
 /// future reader does not mistake the missing upper bound for an oversight.
 #[test]
 fn next_page_increments_without_an_upper_bound_and_saturates() {
-    let state = AppState {
-        workbench: WorkbenchUiState {
+    let mut state = AppState::test_fixture();
+    state.workbench = WorkbenchUiState {
             page: usize::MAX,
             ..WorkbenchUiState::default()
-        },
-        ..AppState::default()
-    };
+        };
     let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
     assert_eq!(
         after.workbench.page,
@@ -160,7 +156,7 @@ fn filter_cursor_keys_resolve_in_the_workbench_context() {
 /// cursor landed on, not the one it started on.
 #[test]
 fn cursor_move_then_toggle_affects_the_second_bucket() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let after = state
         .apply(AppEvent::WorkbenchFilterCursorNext)
         .committed_pure();
@@ -210,7 +206,7 @@ fn enter_attaches_on_the_workbench() {
 /// with a focused terminal and no agent.
 #[test]
 fn attach_without_a_selection_is_inert() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let after = state.apply(AppEvent::WorkbenchAttach).committed_pure();
     assert!(
         !after.terminal_focused,
@@ -220,7 +216,7 @@ fn attach_without_a_selection_is_inert() {
 
 #[test]
 fn prev_page_clamps_at_zero() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let after = state.apply(AppEvent::WorkbenchPrevPage).committed_pure();
     assert_eq!(
         after.workbench.page, 0,
@@ -230,20 +226,18 @@ fn prev_page_clamps_at_zero() {
 
 #[test]
 fn prev_page_decrements_from_positive() {
-    let state = AppState {
-        workbench: WorkbenchUiState {
+    let mut state = AppState::test_fixture();
+    state.workbench = WorkbenchUiState {
             page: 3,
             ..WorkbenchUiState::default()
-        },
-        ..AppState::default()
-    };
+        };
     let after = state.apply(AppEvent::WorkbenchPrevPage).committed_pure();
     assert_eq!(after.workbench.page, 2);
 }
 
 #[test]
 fn next_page_then_prev_returns_to_start() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let mid = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
     let after = mid.apply(AppEvent::WorkbenchPrevPage).committed_pure();
     assert_eq!(after.workbench.page, 0);
@@ -251,7 +245,7 @@ fn next_page_then_prev_returns_to_start() {
 
 #[test]
 fn toggling_all_buckets_off_yields_all_off_mask() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let mut after = state;
     for bucket in [
         StatusBucket::NeedsYou,
@@ -271,7 +265,7 @@ fn toggling_all_buckets_off_yields_all_off_mask() {
 
 #[test]
 fn toggling_a_bucket_back_on_restores_all_on() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let off = state
         .apply(AppEvent::ToggleWorkbenchStatusBucket(StatusBucket::Stale))
         .committed_pure();

@@ -10,13 +10,13 @@
 use std::path::Path;
 
 use crate::config_owners::owner_catalog_with_packages;
-use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::keymap_edit::{KeymapDiagnostic, LoadedKeymap, load_bytes};
 use crate::persistence::migration::migrate_state;
 use crate::persistence::paths::{
     ImportDecision, InspectedSource, PathError, PhysicalIdentity, ResolvedFile, ResolvedPaths,
-    SourceValidity, decide_import, import_state_source, physical_identity, resolve,
+    SourceValidity, StateImportPlan, decide_import, physical_identity, plan_state_import_source,
+    resolve,
 };
 use crate::persistence::settings_document::{PublishedSettings, SettingsDocument};
 use crate::persistence::writer::ExpectedHash;
@@ -27,24 +27,34 @@ use crate::persistence::{FilePersistenceManager, PersistencePaths};
 pub struct StartupPersistence {
     pub paths: ResolvedPaths,
     pub settings: PublishedSettings,
-    pub keymap_snapshot: ActionRegistrySnapshot,
     pub settings_document: SettingsDocument,
     pub settings_expected_hash: ExpectedHash,
     keymap_diagnostic: Option<KeymapDiagnostic>,
     pub manager: FilePersistenceManager,
-    /// The plugin package inventory found in the ordered roots (issue #389).
-    ///
-    /// Scanned exactly once here, at the boundary that already owns path
-    /// resolution. Nothing downstream rescans, so what the Settings section
-    /// shows and what the session composed are the same moment.
-    pub plugin_inventory: Vec<crate::state::plugins_editor::PluginSnapshotRow>,
-    /// The installed packages behind [`Self::plugin_inventory`], carrying the
-    /// validated manifests provider composition needs (issue #390).
-    ///
-    /// Carried rather than rescanned for the same reason the projection is:
-    /// a second scan could see a different directory than the one the operator
-    /// is looking at.
-    pub plugin_packages: Vec<crate::persistence::plugin_inventory::InstalledPackage>,
+    pub(crate) inventory: crate::persistence::plugin_inventory::PluginInventory,
+    pub(crate) state_import: Option<StateImportPlan>,
+}
+
+/// Runtime-only persistence values retained after startup publication.
+///
+/// Static settings, their source document, the scanned package inventory, and
+/// the deferred import plan intentionally have no representation here. The
+/// committed [`crate::published_workbench::PublishedWorkbench`] is their sole
+/// post-commit authority.
+#[derive(Debug)]
+pub struct StartupRuntime {
+    pub paths: ResolvedPaths,
+    pub settings_expected_hash: ExpectedHash,
+    keymap_diagnostic: Option<String>,
+    pub manager: FilePersistenceManager,
+}
+
+impl StartupRuntime {
+    /// Render the startup keymap warning without retaining its declaration input.
+    #[must_use]
+    pub fn keymap_diagnostic_message(&self) -> Option<String> {
+        self.keymap_diagnostic.clone()
+    }
 }
 
 impl StartupPersistence {
@@ -60,6 +70,19 @@ impl StartupPersistence {
     #[must_use]
     pub fn keymap_diagnostic_message(&self) -> Option<String> {
         self.keymap_diagnostic.as_ref().map(ToString::to_string)
+    }
+
+    /// Consume precommit staging and retain only runtime persistence values.
+    #[must_use]
+    pub fn into_runtime(self) -> StartupRuntime {
+        StartupRuntime {
+            paths: self.paths,
+            settings_expected_hash: self.settings_expected_hash,
+            keymap_diagnostic: self
+                .keymap_diagnostic
+                .map(|diagnostic| diagnostic.to_string()),
+            manager: self.manager,
+        }
     }
 }
 
@@ -81,20 +104,17 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
             .and_then(crate::runtime::MultiplexerPlan::isolation_for_installation),
     )?;
     report_namespace_drift(&paths.state.path);
-    apply_state_import(&paths.state)?;
+    let state_import = plan_state_import(&paths.state)?;
     // Scanned before settings are published: a package's trust lives under
     // `plugins.<id>`, and an owner the catalog has never heard of publishes as
     // dormant. Reading trust therefore requires knowing which packages are
     // installed first (issue #390).
     let scanned = scan_plugin_inventory(&paths);
-    let plugin_inventory = crate::persistence::plugin_inventory::snapshot(
-        &scanned,
-        &crate::domain::plugin::HostTriple::current(),
-    );
-    let plugin_packages = scanned.packages().to_vec();
     let (keymap, settings_document, settings_expected_hash) =
-        validate_settings(&paths.settings.path, &plugin_packages)?;
-    validate_state(&paths.state.path)?;
+        validate_settings(&paths.settings.path, scanned.packages())?;
+    if state_import.is_none() {
+        validate_state(&paths.state.path)?;
+    }
     let manager = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: paths.settings.path.clone(),
         state_path: paths.state.path.clone(),
@@ -102,13 +122,12 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
     Ok(StartupPersistence {
         paths,
         settings: keymap.settings,
-        keymap_snapshot: keymap.composed.snapshot().clone(),
         settings_document,
         settings_expected_hash,
         keymap_diagnostic: keymap.diagnostic,
         manager,
-        plugin_inventory,
-        plugin_packages,
+        inventory: scanned,
+        state_import,
     })
 }
 
@@ -119,7 +138,11 @@ pub fn build_persistence(config_dir: Option<&Path>) -> Result<StartupPersistence
 /// package directory is not a reason to refuse to start. The scan starts no
 /// process, which is what keeps `jefe config`/`jefe recovery` provider-free
 /// (issue #390 CW10-12).
-fn scan_plugin_inventory(
+///
+/// The workbench candidate calls this same scan (via
+/// [`crate::startup_candidate::scan_inventory`]) so the candidate and its
+/// consumers retain one inventory rather than two that can disagree.
+pub(crate) fn scan_plugin_inventory(
     paths: &ResolvedPaths,
 ) -> crate::persistence::plugin_inventory::PluginInventory {
     use crate::persistence::plugin_inventory::scan;
@@ -135,15 +158,25 @@ fn scan_plugin_inventory(
     scan(&roots)
 }
 
-fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
+fn plan_state_import(file: &ResolvedFile) -> Result<Option<StateImportPlan>, PathError> {
     let target = existing_identity(&file.path)?;
     let sources = inspect_sources(file)?;
     match decide_import(target.is_some(), target.as_ref(), &sources)? {
-        ImportDecision::Empty => Ok(()),
-        ImportDecision::Import { source } => import_state_source(&source, &file.path)
-            .map(|_| ())
+        ImportDecision::Empty => Ok(None),
+        ImportDecision::Import { source } => plan_state_import_source(&source, &file.path)
+            .map(Some)
             .map_err(|error| import_error(&file.path, &error)),
     }
+}
+
+#[cfg(test)]
+fn apply_state_import(file: &ResolvedFile) -> Result<(), PathError> {
+    let Some(plan) = plan_state_import(file)? else {
+        return Ok(());
+    };
+    crate::persistence::paths::commit_state_import(plan)
+        .map(|_| ())
+        .map_err(|error| import_error(&file.path, &error))
 }
 
 fn existing_identity(path: &Path) -> Result<Option<PhysicalIdentity>, PathError> {
@@ -596,9 +629,6 @@ mod tests {
 
     #[test]
     fn malformed_initial_keymap_retains_bytes_and_uses_compiled_defaults() {
-        use crate::domain::{
-            action_registry::Resolution, input_context::ContextStack, keymap::Chord,
-        };
         let dir = unique_dir("malformed-keymap");
         let source = br#"settings_schema = 2
 [appearance]
@@ -641,13 +671,6 @@ enabled = false
             Some(false)
         );
         assert!(startup.settings.keymap.is_empty());
-        let chord = Chord::parse("j").value_or_panic("default chord");
-        let stack = ContextStack::from_ordered(["dashboard", "global"], false)
-            .value_or_panic("dashboard stack");
-        assert!(matches!(
-            startup.keymap_snapshot.resolve(&chord, &stack),
-            Resolution::Dispatch { .. }
-        ));
         assert_eq!(
             std::fs::read(dir.join("settings.toml")).value_or_panic("retained settings"),
             source
@@ -668,6 +691,23 @@ enabled = false
             std::fs::read(dir.join("settings.toml")).value_or_panic("retained settings"),
             source
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn runtime_handoff_drops_every_precommit_declaration_authority() {
+        let dir = unique_dir("runtime-handoff");
+        let startup =
+            build_persistence(Some(&dir)).value_or_panic("startup should build persistence");
+
+        let StartupRuntime {
+            paths,
+            settings_expected_hash: _,
+            keymap_diagnostic: _,
+            manager: _,
+        } = startup.into_runtime();
+
+        assert_eq!(paths.settings.path, dir.join("settings.toml"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

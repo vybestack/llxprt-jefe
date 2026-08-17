@@ -37,16 +37,12 @@ fn new_agent_state(root: &Path) -> (AppState, PathBuf) {
         cursor: AgentFormCursor::default(),
         work_dir_manual: true,
     };
-    (
-        AppState {
-            repositories: vec![repository],
-            selected_repository_index: Some(0),
-            modal,
-            available_agent_type_ids: vec![jefe::domain::shipped_agent_type(3)],
-            ..AppState::default()
-        },
-        work_dir,
-    )
+    let mut state = crate::test_app_state();
+    state.repositories = vec![repository];
+    state.selected_repository_index = Some(0);
+    state.modal = modal;
+    state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];
+    (state, work_dir)
 }
 
 fn submit_with_probe<F>(state: &mut AppState, probe: F) -> bool
@@ -172,35 +168,32 @@ fn pinned_code_puppy_new_agent_plans_exact_selected_package_probe() {
 fn repository_and_edit_agent_forms_do_not_execute_package_probe() {
     let probe_calls = Cell::new(0);
     let mut states = Vec::new();
-    states.push(AppState {
-        modal: ModalState::NewRepository {
-            fields: RepositoryFormFields::default(),
-            focus: RepositoryFormFocus::Name,
-            cursor: RepositoryFormCursor::default(),
+    let mut new_repository = crate::test_app_state();
+    new_repository.modal = ModalState::NewRepository {
+        fields: RepositoryFormFields::default(),
+        focus: RepositoryFormFocus::Name,
+        cursor: RepositoryFormCursor::default(),
+    };
+    states.push(new_repository);
+    let mut edit_repository = crate::test_app_state();
+    edit_repository.modal = ModalState::EditRepository {
+        id: RepositoryId("repo-edit".to_owned()),
+        fields: RepositoryFormFields::default(),
+        focus: RepositoryFormFocus::Name,
+        cursor: RepositoryFormCursor::default(),
+    };
+    states.push(edit_repository);
+    let mut edit_agent = crate::test_app_state();
+    edit_agent.modal = ModalState::EditAgent {
+        id: AgentId("agent-edit".to_owned()),
+        fields: AgentFormFields {
+            llxprt_version: "nightly".to_owned(),
+            ..AgentFormFields::default()
         },
-        ..AppState::default()
-    });
-    states.push(AppState {
-        modal: ModalState::EditRepository {
-            id: RepositoryId("repo-edit".to_owned()),
-            fields: RepositoryFormFields::default(),
-            focus: RepositoryFormFocus::Name,
-            cursor: RepositoryFormCursor::default(),
-        },
-        ..AppState::default()
-    });
-    states.push(AppState {
-        modal: ModalState::EditAgent {
-            id: AgentId("agent-edit".to_owned()),
-            fields: AgentFormFields {
-                llxprt_version: "nightly".to_owned(),
-                ..AgentFormFields::default()
-            },
-            focus: AgentFormFocus::LlxprtVersion,
-            cursor: AgentFormCursor::default(),
-        },
-        ..AppState::default()
-    });
+        focus: AgentFormFocus::LlxprtVersion,
+        cursor: AgentFormCursor::default(),
+    };
+    states.push(edit_agent);
 
     for state in &mut states {
         let plan = new_agent_package_probe_plan(state);

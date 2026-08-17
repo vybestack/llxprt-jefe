@@ -9,8 +9,7 @@ use crate::app_input::{
 };
 use crate::app_shell::{CtxArc, HookState};
 use crate::pty_encoding::PasteEnterSuppression;
-
-use jefe::domain::action_registry::{ActionRegistrySnapshot, HandlerKey, Resolution};
+use jefe::domain::action_registry::{HandlerKey, Resolution};
 use jefe::domain::keymap::{Chord, ChordError};
 use jefe::input::{InputMode, canonical_chord, input_mode_for_state};
 use jefe::list_viewport::PageItemCount;
@@ -46,8 +45,8 @@ struct RouteHandles<'a> {
     suppress_next_enter: &'a mut HookState<PasteEnterSuppression>,
 }
 
-fn resolve_in_context(
-    snapshot: &ActionRegistrySnapshot,
+fn resolve_state_in_context(
+    state: &AppState,
     context: ActionContext,
     key_event: &KeyEvent,
 ) -> Result<ResolvedRegistryKey, RegistryKeyError> {
@@ -55,7 +54,7 @@ fn resolve_in_context(
         source,
         scope: context.scope,
     })?;
-    let resolution = snapshot.resolve(&chord, &context.stack);
+    let resolution = state.resolve_action(&chord, &context.stack);
     Ok(ResolvedRegistryKey {
         chord,
         scope: context.scope,
@@ -115,17 +114,12 @@ pub fn route_registry_key(
             return true;
         }
     };
-    let snapshot = state.action_registry_snapshot.clone();
-    drop(state);
     let scope = context.scope;
-    let Some(snapshot) = snapshot else {
-        app_state.write().warning_message = Some("Action registry is unavailable.".to_owned());
-        return scope != DispatchScope::PreModeOnly;
-    };
+    let resolved = resolve_state_in_context(&state, context, key_event);
+    drop(state);
     let Some(_ctx_arc) = ctx else {
         return scope != DispatchScope::PreModeOnly;
     };
-    let resolved = resolve_in_context(&snapshot, context, key_event);
     let mut handles = RouteHandles {
         ctx,
         app_state,
@@ -371,19 +365,11 @@ pub fn resolve_compiled_registry_key(
     state: &AppState,
     key_event: &KeyEvent,
 ) -> ResolvedRegistryKey {
-    let snapshot = state.action_registry_snapshot.clone().unwrap_or_else(|| {
-        let dir = std::env::temp_dir().join(format!("jefe_s3_route_{}", std::process::id()));
-        let result = jefe::startup::build_persistence(Some(&dir));
-        let Ok(startup) = result else {
-            panic!("compiled S3 snapshot should compose, got {result:?}");
-        };
-        startup.keymap_snapshot
-    });
     let context = derive_action_context(state, input_mode_for_state(state));
     let Ok(context) = context else {
         panic!("S3 context should derive, got {context:?}");
     };
-    let result = resolve_in_context(&snapshot, context, key_event);
+    let result = resolve_state_in_context(state, context, key_event);
     let Ok(resolved) = result else {
         panic!("S3 key should resolve, got {result:?}");
     };

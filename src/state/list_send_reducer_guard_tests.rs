@@ -12,7 +12,7 @@ use crate::state::{
 
 fn eligible_state() -> AppState {
     let repository_id = RepositoryId("repo-1".to_owned());
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         repository_id.clone(),
         crate::domain::shipped_agent_type(3),

@@ -32,7 +32,7 @@ fn definition_under_test() -> AgentDefinition {
 /// mode, with `available_agent_type_ids` deliberately EMPTY (the probe has not
 /// reported a compatible verdict yet).
 fn state_with_unprobed_agent() -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let mut repository = Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),

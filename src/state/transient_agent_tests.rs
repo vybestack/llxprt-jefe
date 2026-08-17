@@ -51,7 +51,7 @@ fn make_agent(repo_id: &RepositoryId, name: &str, status: AgentStatus) -> Agent 
 #[test]
 fn is_transient_available_true_when_github_repo_set_and_kinds_installed() {
     let repo = make_repo_with_github("acme/widgets");
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
     state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
@@ -61,7 +61,7 @@ fn is_transient_available_true_when_github_repo_set_and_kinds_installed() {
 #[test]
 fn is_transient_available_false_when_installed_kinds_dont_match_default() {
     let repo = make_repo_with_github("acme/widgets");
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
     // repo.default_type_id is Llxprt (the default); installing only
@@ -73,7 +73,7 @@ fn is_transient_available_false_when_installed_kinds_dont_match_default() {
 #[test]
 fn is_transient_available_false_when_no_github_repo() {
     let repo = make_repo_with_github("");
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
     state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
@@ -84,7 +84,7 @@ fn is_transient_available_false_when_no_github_repo() {
 fn is_transient_available_false_when_no_installed_kinds_and_not_remote() {
     let mut repo = make_repo_with_github("acme/widgets");
     repo.remote.enabled = false;
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
     state.available_agent_type_ids = vec![];
@@ -95,7 +95,7 @@ fn is_transient_available_false_when_no_installed_kinds_and_not_remote() {
 fn is_transient_available_true_for_remote_repo_even_without_installed_kinds() {
     let mut repo = make_repo_with_github("acme/widgets");
     repo.remote.enabled = true;
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
     state.available_agent_type_ids = vec![];
@@ -105,14 +105,14 @@ fn is_transient_available_true_for_remote_repo_even_without_installed_kinds() {
 #[test]
 fn running_transient_count_zero_on_empty_state() {
     let repo_id = RepositoryId("repo-1".to_owned());
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert_eq!(state.running_transient_count(&repo_id), 0);
 }
 
 #[test]
 fn running_transient_count_counts_only_running_transient_agents_for_repo() {
     let repo_id = RepositoryId("repo-1".to_owned());
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Running transient agent for repo-1
     let mut t1 = Agent::new_transient(
@@ -168,7 +168,7 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
     let max_index = chooser.agents.len() + usize::from(chooser.transient_available) - 1;
     assert_eq!(max_index, 2);
     // Navigate down within bounds, asserting each intermediate step.
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.agent_chooser = Some(chooser);
     state = state
         .apply(AppEvent::AgentChooserNavigateDown)
@@ -218,7 +218,7 @@ fn agent_chooser_navigation_bounds_without_transient_slot() {
         ],
         transient_available: false,
     };
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.agent_chooser = Some(chooser);
     // Without transient slot, max index is agents.len() - 1 = 1.
     state = state
@@ -259,7 +259,7 @@ fn agent_chooser_navigation_up_from_transient_slot() {
         ],
         transient_available: true,
     };
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.agent_chooser = Some(chooser);
     // Navigate up: transient slot (2) -> agent a2 (1).
     state = state
@@ -301,7 +301,7 @@ fn agent_chooser_navigation_up_from_transient_slot() {
 
 #[test]
 fn transient_agent_queued_event_sets_draft_notice() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state = state
         .apply(AppEvent::TransientAgentQueued { queue_position: 2 })
         .committed_pure();
@@ -317,7 +317,7 @@ fn transient_agent_queued_event_sets_draft_notice() {
 
 #[test]
 fn transient_agent_dequeued_event_clears_draft_notice() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.draft_notice = Some("queued".to_string());
     state = state
         .apply(AppEvent::TransientAgentDequeued)

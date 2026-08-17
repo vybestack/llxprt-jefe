@@ -6,7 +6,7 @@
 use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use jefe::input::{InputMode, SearchKeyRoute, input_mode_for_state, route_search_key};
-use jefe::state::{AppState, ModalState, PaneFocus};
+use jefe::state::{ModalState, PaneFocus};
 
 fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     let mut event = KeyEvent::new(KeyEventKind::Press, code);
@@ -16,13 +16,14 @@ fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 #[test]
 fn mode_prefers_search_over_terminal_capture() {
-    let mut state = AppState {
-        terminal_focused: true,
-        pane_focus: PaneFocus::Terminal,
-        modal: ModalState::Search {
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.terminal_focused = true;
+        state.pane_focus = PaneFocus::Terminal;
+        state.modal = ModalState::Search {
             query: String::from("abc"),
-        },
-        ..AppState::default()
+        };
+        state
     };
 
     assert_eq!(input_mode_for_state(&state), InputMode::Search);
@@ -33,11 +34,12 @@ fn mode_prefers_search_over_terminal_capture() {
 
 #[test]
 fn mode_for_terminal_focused_without_terminal_pane_is_normal() {
-    let state = AppState {
-        terminal_focused: true,
-        pane_focus: PaneFocus::Agents,
-        modal: ModalState::None,
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.terminal_focused = true;
+        state.pane_focus = PaneFocus::Agents;
+        state.modal = ModalState::None;
+        state
     };
 
     assert_eq!(input_mode_for_state(&state), InputMode::Normal);

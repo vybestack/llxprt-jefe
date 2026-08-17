@@ -27,7 +27,10 @@ use crate::workbench::{MigrationOutcome, ScreenId};
 ///
 /// Returns [`ProjectionError`] when a record references an unknown repository
 /// or a stored value cannot be decoded into its runtime type.
-pub fn from_durable_state(state: &StateV2) -> Projected<RestoredState> {
+pub fn from_durable_state(
+    state: &StateV2,
+    screens: &crate::workbench::ScreenRegistry,
+) -> Projected<RestoredState> {
     let mut repositories = Vec::with_capacity(state.repositories.len());
     for record in &state.repositories {
         repositories.push(restore_repository(record)?);
@@ -73,7 +76,7 @@ pub fn from_durable_state(state: &StateV2) -> Projected<RestoredState> {
         last_selected_agent_by_repo,
         user_preferences,
         hide_idle_repositories: state.preferences.hide_idle_repositories,
-        screen: restore_screen(state),
+        screen: restore_screen(state, screens),
         pane_focus: pane_focus_from_text(&state.preferences.pane_focus),
         terminal_focused: state.preferences.terminal_focused,
         dormant_records: state.dormant_records.clone(),
@@ -86,11 +89,9 @@ pub fn from_durable_state(state: &StateV2) -> Projected<RestoredState> {
 /// legacy variant name. Either way the translation happens in exactly one
 /// place, and an unreadable value costs the user only which screen opens, not
 /// the rest of the restored session.
-fn restore_screen(state: &StateV2) -> ScreenId {
+fn restore_screen(state: &StateV2, screens: &crate::workbench::ScreenRegistry) -> ScreenId {
     let persisted = state.selection.screen_id.as_ref().map(Id::as_str);
-    crate::workbench::screen_registry()
-        .ok()
-        .and_then(|registry| crate::workbench::migrate_persisted_screen_value(persisted, registry))
+    crate::workbench::migrate_persisted_screen_value(persisted, screens)
         .map_or_else(ScreenId::default, MigrationOutcome::screen_id)
 }
 

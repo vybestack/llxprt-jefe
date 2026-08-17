@@ -7,8 +7,10 @@
 //! candidate and refuses it with `KEY-E401`, and this only says what the rows
 //! are and what the user asked for.
 
+use crate::action_projection::effective_action_availability;
 use crate::domain::action_registry::{
-    ActionId, ActionRegistrySnapshot, Availability, PROTECTED_ACTION_REASON, Provenance,
+    ActionId, ActionRegistrySnapshot, Availability, AvailabilityGeneration,
+    PROTECTED_ACTION_REASON, Provenance,
 };
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::{Chord, Key, ModifierSet};
@@ -163,7 +165,7 @@ fn exit_chord() -> Chord {
     )
 }
 
-/// Project one registry snapshot and one candidate document into editor rows.
+/// Project committed declarations and a candidate document into editor rows.
 ///
 /// Every action the inventory declares gets a row, bound or not, because an
 /// action with no chord is exactly the thing a user opens this editor to fix.
@@ -172,6 +174,17 @@ fn exit_chord() -> Chord {
 #[must_use]
 pub fn project_keys(
     snapshot: &ActionRegistrySnapshot,
+    published: &PublishedSettings,
+) -> Vec<KeyEditorRow> {
+    project_keys_effective(snapshot, None, published)
+}
+
+/// Project committed declarations with one validated runtime availability
+/// generation into editor rows.
+#[must_use]
+pub fn project_keys_effective(
+    snapshot: &ActionRegistrySnapshot,
+    runtime: Option<&AvailabilityGeneration>,
     published: &PublishedSettings,
 ) -> Vec<KeyEditorRow> {
     let mut rows: Vec<KeyEditorRow> = snapshot
@@ -185,7 +198,7 @@ pub fn project_keys(
         })
         .map(|(context, action)| KeyEditorRow {
             chords: effective_chords(snapshot, published, &context, &action.id),
-            availability: availability(snapshot, &action.id),
+            availability: availability(snapshot, runtime, &action.id),
             protected: action.protected.then(|| PROTECTED_ACTION_REASON.to_owned()),
             provenance: provenance(snapshot, published, &context, &action.id),
             label: action.label.clone(),
@@ -317,15 +330,15 @@ fn binding<'snapshot>(
 /// happens to be fine. Calling it available would let the editor offer a
 /// control the owner never approved, so the row reports what is actually
 /// known, which is nothing.
-fn availability(snapshot: &ActionRegistrySnapshot, action: &ActionId) -> Availability {
-    snapshot
-        .availability_entries()
-        .iter()
-        .find(|entry| entry.action() == action)
-        .map_or_else(
-            || Availability::Unavailable {
-                reason: "the action registry published no availability for this action".to_owned(),
-            },
-            |entry| entry.availability().clone(),
-        )
+fn availability(
+    snapshot: &ActionRegistrySnapshot,
+    runtime: Option<&AvailabilityGeneration>,
+    action: &ActionId,
+) -> Availability {
+    effective_action_availability(snapshot, runtime, action).map_or_else(
+        || Availability::Unavailable {
+            reason: "the action registry published no availability for this action".to_owned(),
+        },
+        Clone::clone,
+    )
 }

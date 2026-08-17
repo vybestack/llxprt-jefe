@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn text_mutations_remain_raw() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.dashboard_search.input_focused = true;
         state.dashboard_search.query = "al".to_owned();
         assert!(matches!(
@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn apply_and_cancel_are_registry_owned() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.dashboard_search.input_focused = true;
         assert!(resolve_raw_key(&state, &key(KeyCode::Enter)).is_none());
         assert!(resolve_raw_key(&state, &key(KeyCode::Esc)).is_none());

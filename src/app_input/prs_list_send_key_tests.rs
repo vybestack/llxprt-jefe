@@ -3,14 +3,16 @@ use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
 use jefe::state::{AppEvent, AppState, PrFocus, PullRequestsState, ScreenId};
 
 fn selected_pr_list_state() -> AppState {
-    let mut state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: PrFocus::PrList,
-            ..PullRequestsState::default()
-        },
-        ..AppState::default()
+    prs_list_state_from(crate::test_app_state())
+}
+
+fn prs_list_state_from(base: AppState) -> AppState {
+    let mut state = base;
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = PullRequestsState {
+        active: true,
+        pr_focus: PrFocus::PrList,
+        ..PullRequestsState::default()
     };
     state
         .prs_state
@@ -38,11 +40,6 @@ fn selected_pr_list_state() -> AppState {
 }
 
 fn state_with_list_send_override(chords: &[&str]) -> AppState {
-    let mut state = selected_pr_list_state();
-    let dir = tempfile::tempdir();
-    let Ok(dir) = dir else {
-        panic!("PR list-send config directory must be created: {dir:?}");
-    };
     let values = chords
         .iter()
         .map(|chord| format!("\"{chord}\""))
@@ -51,15 +48,7 @@ fn state_with_list_send_override(chords: &[&str]) -> AppState {
     let settings = format!(
         "settings_schema = 2\n[keymap.\"prs.list\"]\n\"prs.list-send-agent\" = [{values}]\n"
     );
-    if let Err(error) = std::fs::write(dir.path().join("settings.toml"), settings) {
-        panic!("PR list-send settings must be written: {error}");
-    }
-    let startup = jefe::startup::build_persistence(Some(dir.path()));
-    let Ok(startup) = startup else {
-        panic!("PR list-send override must compose: {startup:?}");
-    };
-    state.action_registry_snapshot = Some(startup.keymap_snapshot);
-    state
+    prs_list_state_from(crate::test_app_state_from_settings(settings.as_bytes()))
 }
 
 #[test]

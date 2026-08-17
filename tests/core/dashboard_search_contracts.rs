@@ -45,22 +45,23 @@ fn running_agent(id: &str, name: &str, repo_id: &str) -> Agent {
 /// A dashboard with three named repositories, the first of which owns running
 /// agents whose names span distinct fragments.
 fn dashboard_state() -> AppState {
-    let mut state = AppState {
-        repositories: vec![
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             repository("r1", "alpha"),
             repository("r2", "beta"),
             repository("r3", "gamma"),
-        ],
-        agents: vec![
+        ];
+        state.agents = vec![
             running_agent("a1", "zig", "r1"),
             running_agent("a2", "cargo", "r1"),
             running_agent("a3", "rustc", "r1"),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state
     };
     state.normalize_selection_indices();
     state
@@ -117,11 +118,12 @@ fn search_filters_repositories_by_name() {
 
 #[test]
 fn repo_search_is_case_insensitive() {
-    let state = AppState {
-        repositories: vec![repository("r1", "Alpha"), repository("r2", "BETA")],
-        selected_repository_index: Some(0),
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1", "Alpha"), repository("r2", "BETA")];
+        state.selected_repository_index = Some(0);
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state
     };
 
     // Verify case-insensitive matching: 'aLp' matches 'Alpha' but not 'BETA'.
@@ -186,17 +188,18 @@ fn empty_query_disables_search_filter() {
 #[test]
 fn search_composes_with_active_only() {
     // r1 has running agents; r2 and r3 are idle.
-    let mut state = AppState {
-        repositories: vec![
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             repository("r1", "alpha"),
             repository("r2", "beta"),
             repository("r3", "gamma"),
-        ],
-        agents: vec![running_agent("a1", "alpha-agent", "r1")],
-        selected_repository_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Dashboard),
-        ..AppState::default()
+        ];
+        state.agents = vec![running_agent("a1", "alpha-agent", "r1")];
+        state.selected_repository_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state
     };
     state.normalize_selection_indices();
 

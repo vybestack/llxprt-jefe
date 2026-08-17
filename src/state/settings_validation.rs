@@ -1,10 +1,48 @@
+//! Candidate rebuilding and package-config validation for Settings drafts.
+//!
+//! This module is pure composition over explicit draft, schema, and committed
+//! screen-registry inputs. It neither reads ambient Settings nor publishes a
+//! replacement declaration authority.
+
+use std::collections::BTreeMap;
+
+use crate::config_owners::builtin_owner_catalog;
+use crate::domain::plugin::{FieldKind, SecretReference};
+use crate::domain::plugin_config::{ConfigValueError, validate_config};
+use crate::domain::{
+    CanonicalDecimal, ConfigContractError, Id, OwnerCatalog, OwnerDescriptor, OwnerKind, TypedMap,
+    TypedValue,
+};
+use crate::messages::settings::SelectedPluginConfig;
+use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
+use crate::persistence::migration::SettingsMigration;
+use crate::persistence::settings_document::PublishedSettings;
+use crate::persistence::settings_edit::load_settings_base;
+use crate::persistence::writer::ExpectedHash;
+use crate::persistence::{PluginConfigEditValue, SettingsCandidate, SettingsEdit, SyntaxPath};
+
+use super::settings_types::{
+    DraftCandidate, DraftStatus, PluginConfigChange, PluginConfigDiffRow, PluginConfigMigration,
+    SettingsDraft,
+};
+
 /// Rebuild the complete candidate and the status the edits imply.
-fn revalidate(draft: &mut SettingsDraft, schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>) {
+pub(super) fn revalidate(
+    draft: &mut SettingsDraft,
+    schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>,
+    registry: &crate::workbench::ScreenRegistry,
+) {
     let edits = draft
         .edited_paths()
         .filter_map(|path| draft.edit(path).cloned())
         .collect::<Vec<_>>();
-    let candidate = build_candidate(draft.base(), &edits, draft.base_expected(), schemas);
+    let candidate = build_candidate(
+        draft.base(),
+        &edits,
+        draft.base_expected(),
+        schemas,
+        registry,
+    );
     let unchanged = candidate
         .valid()
         .is_some_and(|candidate| candidate.bytes() == draft.base().document().original_bytes());
@@ -25,7 +63,7 @@ fn revalidate(draft: &mut SettingsDraft, schemas: &BTreeMap<Id, Vec<SelectedPlug
 }
 
 /// Apply the reset-then-edit cutover for one approved plugin-config migration.
-fn apply_migration_edits(
+pub(super) fn apply_migration_edits(
     draft: &mut SettingsDraft,
     owner: &Id,
     reset_fields: Vec<Id>,
@@ -47,11 +85,12 @@ fn apply_migration_edits(
 }
 
 /// Build the complete candidate one edit set describes.
-fn build_candidate(
+pub(super) fn build_candidate(
     base: &SettingsMigration,
     edits: &[SettingsEdit],
     expected: ExpectedHash,
     schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>,
+    registry: &crate::workbench::ScreenRegistry,
 ) -> DraftCandidate {
     // The package-aware catalog recognizes installed plugin owners, so their
     // config tables publish into `PublishedSettings.plugins` rather than being
@@ -63,7 +102,8 @@ fn build_candidate(
     };
     match SettingsCandidate::from_edits(base, &catalog, edits, expected) {
         Ok(candidate) => {
-            let mut diagnostics = super::settings_registry_ops::registry_refusals(&candidate);
+            let mut diagnostics =
+                super::settings_registry_ops::registry_refusals(&candidate, registry);
             // Validate active selected owners' plugin config against their
             // immutable selected-package ConfigSchema. Dormant and disabled
             // owners are absent from `published.plugins` (dormant) or have
@@ -215,7 +255,7 @@ fn config_error_detail(reason: crate::domain::plugin_config::ConfigValueErrorKin
 }
 
 /// Load one settings base, or the diagnostics that stop it being editable.
-fn load_base(
+pub(super) fn load_base(
     bytes: Option<&[u8]>,
     schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>,
 ) -> Result<SettingsMigration, Vec<Diagnostic>> {
@@ -239,7 +279,7 @@ fn internal_diagnostic(detail: &str) -> Diagnostic {
     diagnostic
 }
 
-fn parse_plugin_config_edit(
+pub(super) fn parse_plugin_config_edit(
     kind: FieldKind,
     text: &str,
 ) -> Result<PluginConfigEditValue, &'static str> {
@@ -268,7 +308,7 @@ fn parse_plugin_config_edit(
     }
 }
 
-fn migration_requirement(
+pub(super) fn migration_requirement(
     draft: &SettingsDraft,
     source_schemas: &BTreeMap<Id, SelectedPluginConfig>,
     installed_schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>,
@@ -324,7 +364,7 @@ fn selected_config<'a>(
         .find(|selected| selected.version == *version)
 }
 
-fn selected_schema<'a>(
+pub(super) fn selected_schema<'a>(
     schemas: &'a BTreeMap<Id, Vec<SelectedPluginConfig>>,
     owner: &Id,
     version: &crate::domain::CanonicalSemver,
@@ -332,7 +372,7 @@ fn selected_schema<'a>(
     selected_config(schemas, owner, version).map(|selected| &selected.schema)
 }
 
-fn redacted_config_diff(
+pub(super) fn redacted_config_diff(
     owner: &Id,
     source: &TypedMap,
     target: &TypedMap,
@@ -361,7 +401,7 @@ fn redacted_config_diff(
         .collect()
 }
 
-fn plugin_config_edit_value(value: TypedValue) -> Option<PluginConfigEditValue> {
+pub(super) fn plugin_config_edit_value(value: TypedValue) -> Option<PluginConfigEditValue> {
     match value {
         TypedValue::Bool(value) => Some(PluginConfigEditValue::Boolean(value)),
         TypedValue::String(value) => Some(PluginConfigEditValue::String(value)),

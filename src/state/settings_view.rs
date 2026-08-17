@@ -8,7 +8,7 @@
 //! slug, name, selection and active marker, plus the availability the picker
 //! could not express because it only ever listed installed themes.
 
-use crate::domain::action_registry::ActionId;
+use crate::domain::action_registry::{ActionId, ActionRegistrySnapshot, AvailabilityGeneration};
 use crate::domain::agent_definition::AgentTypeId;
 use crate::domain::input_context::ContextId;
 use crate::domain::plugin::FieldKind;
@@ -21,12 +21,39 @@ use crate::persistence::{PluginConfigEditValue, SettingsEdit, SyntaxPath};
 use crate::workbench::ScreenId;
 
 use super::agent_types_editor::{AgentAvailability, AgentIntent, project_agent_types};
-use super::keys_editor_project::{KeyIntent, project_keys};
+use super::keys_editor_project::{KeyIntent, project_keys_effective};
 use super::screens_editor::{CompositionStatus, ScreenIntent, project_screens};
 use super::settings_types::{
     CaptureMode, DraftStatus, PluginConfigChange, PluginConfigMigrationState, SettingsDraft,
     SettingsState,
 };
+
+/// Declaration authority for one Settings projection.
+///
+/// Production constructs this only by borrowing the committed workbench and
+/// its validated runtime-only availability generation from the same
+/// [`super::types::AppState`].
+#[derive(Clone, Copy)]
+pub struct SettingsProjectionAuthority<'a> {
+    registry: &'a crate::workbench::ScreenRegistry,
+    actions: &'a ActionRegistrySnapshot,
+    runtime: Option<&'a AvailabilityGeneration>,
+}
+
+impl<'a> SettingsProjectionAuthority<'a> {
+    /// Borrow all Settings declarations from one committed workbench.
+    #[must_use]
+    pub fn committed(
+        workbench: &'a crate::published_workbench::PublishedWorkbench,
+        runtime: Option<&'a AvailabilityGeneration>,
+    ) -> Self {
+        Self {
+            registry: workbench.screen_registry(),
+            actions: workbench.actions(),
+            runtime,
+        }
+    }
+}
 
 /// Value-free Settings projection of the pre-save plugin migration lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,14 +496,17 @@ pub struct SectionRow {
 
 /// Project the section list.
 #[must_use]
-pub fn section_rows(state: &SettingsState) -> Vec<SectionRow> {
+pub fn section_rows(
+    state: &SettingsState,
+    authority: SettingsProjectionAuthority<'_>,
+) -> Vec<SectionRow> {
     let diagnostics = diagnostic_count(state);
     SettingsSection::ALL
         .into_iter()
         .map(|section| SectionRow {
             section,
             title: section.title(),
-            count: section_count(state, section, diagnostics),
+            count: section_count(state, section, diagnostics, authority),
         })
         .collect()
 }
@@ -494,8 +524,12 @@ pub struct SectionWindow {
 
 /// Window the section navigator around its selected section.
 #[must_use]
-pub fn section_window(state: &SettingsState, content_rows: usize) -> SectionWindow {
-    let rows = section_rows(state);
+pub fn section_window(
+    state: &SettingsState,
+    content_rows: usize,
+    authority: SettingsProjectionAuthority<'_>,
+) -> SectionWindow {
+    let rows = section_rows(state, authority);
     let selected = rows.iter().position(|row| row.section == state.section);
     let viewport = ListViewport::uniform(
         rows.len(),
@@ -526,6 +560,7 @@ fn section_count(
     state: &SettingsState,
     section: SettingsSection,
     diagnostics: usize,
+    authority: SettingsProjectionAuthority<'_>,
 ) -> Option<usize> {
     match section {
         SettingsSection::Diagnostics if diagnostics > 0 => Some(diagnostics),
@@ -533,7 +568,7 @@ fn section_count(
         SettingsSection::Screens | SettingsSection::Keys | SettingsSection::Plugins => {
             let mut showing = state.clone();
             showing.section = section;
-            Some(detail_rows(&showing).len())
+            Some(detail_rows(&showing, authority).len())
         }
         SettingsSection::General | SettingsSection::Appearance | SettingsSection::Diagnostics => {
             None
@@ -543,13 +578,16 @@ fn section_count(
 
 /// Project the focused section's rows.
 #[must_use]
-pub fn detail_rows(state: &SettingsState) -> Vec<SettingsRow> {
+pub fn detail_rows(
+    state: &SettingsState,
+    authority: SettingsProjectionAuthority<'_>,
+) -> Vec<SettingsRow> {
     match state.section {
         SettingsSection::General => general_rows(state),
         SettingsSection::Appearance => appearance_rows(state),
         SettingsSection::AgentTypes => agent_type_rows(state),
-        SettingsSection::Screens => screen_rows(state),
-        SettingsSection::Keys => key_rows(state),
+        SettingsSection::Screens => screen_rows(state, authority.registry),
+        SettingsSection::Keys => key_rows(state, authority),
         SettingsSection::Plugins => plugin_rows(state),
         SettingsSection::Diagnostics => diagnostic_rows(state),
     }
@@ -574,8 +612,12 @@ pub struct DetailWindow {
 
 /// Window one section's rows around the selection.
 #[must_use]
-pub fn detail_window(state: &SettingsState, content_rows: usize) -> DetailWindow {
-    let rows = detail_rows(state);
+pub fn detail_window(
+    state: &SettingsState,
+    content_rows: usize,
+    authority: SettingsProjectionAuthority<'_>,
+) -> DetailWindow {
+    let rows = detail_rows(state, authority);
     let viewport = ListViewport::uniform(
         rows.len(),
         Some(state.selected_row),
@@ -677,10 +719,10 @@ fn agent_status(availability: &AgentAvailability) -> String {
     }
 }
 
-fn screen_rows(state: &SettingsState) -> Vec<SettingsRow> {
-    let Ok(registry) = crate::workbench::screen_registry() else {
-        return Vec::new();
-    };
+fn screen_rows(
+    state: &SettingsState,
+    registry: &crate::workbench::ScreenRegistry,
+) -> Vec<SettingsRow> {
     let published = published(state);
     project_screens(registry, &published)
         .into_iter()
@@ -713,12 +755,9 @@ fn composition_status(composition: &CompositionStatus) -> String {
     }
 }
 
-fn key_rows(state: &SettingsState) -> Vec<SettingsRow> {
-    let Some(snapshot) = state.actions.as_ref() else {
-        return Vec::new();
-    };
+fn key_rows(state: &SettingsState, authority: SettingsProjectionAuthority<'_>) -> Vec<SettingsRow> {
     let published = published(state);
-    project_keys(snapshot, &published)
+    project_keys_effective(authority.actions, authority.runtime, &published)
         .into_iter()
         .map(|row| SettingsRow {
             label: format!("{} {}", row.context.as_str(), row.label),

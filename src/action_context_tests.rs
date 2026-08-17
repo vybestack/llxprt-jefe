@@ -23,10 +23,8 @@ fn context_names(state: &AppState) -> (DispatchScope, Vec<String>) {
 
 #[test]
 fn shell_overlay_has_absolute_context_precedence() {
-    let mut state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Errors),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Errors);
     state.open_shell_overlay(AgentId("agent-shell".to_owned()));
 
     assert_eq!(
@@ -40,11 +38,9 @@ fn shell_overlay_has_absolute_context_precedence() {
 
 #[test]
 fn terminal_capture_uses_terminal_then_global() {
-    let state = AppState {
-        pane_focus: PaneFocus::Terminal,
-        terminal_focused: true,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.pane_focus = PaneFocus::Terminal;
+    state.terminal_focused = true;
 
     assert_eq!(
         context_names(&state),
@@ -57,10 +53,8 @@ fn terminal_capture_uses_terminal_then_global() {
 
 #[test]
 fn dashboard_grab_uses_focused_child_before_dashboard() {
-    let state = AppState {
-        dashboard_grab: Some(DashboardGrabPane::Repository { visible_index: 0 }),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
 
     assert_eq!(
         context_names(&state),
@@ -78,10 +72,8 @@ fn dashboard_grab_uses_focused_child_before_dashboard() {
 
 #[test]
 fn actions_mode_is_full_s4_after_s4_migration() {
-    let state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Actions),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Actions);
     let result = derive_action_context(&state, InputMode::ActionsNormal);
     let Ok(context) = result else {
         panic!("actions S4 context should derive, got {result:?}");
@@ -99,10 +91,8 @@ fn actions_mode_is_full_s4_after_s4_migration() {
 
 #[test]
 fn issues_special_state_precedes_focused_panel_and_screen() {
-    let mut state = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Issues);
     state.issues_state.issue_focus = jefe::state::IssueFocus::IssueDetail;
     state.issues_state.property_editor = Some(jefe::state::IssuePropertyEditorState {
         kind: jefe::state::IssuePropertyKind::Title,
@@ -127,7 +117,7 @@ fn issues_special_state_precedes_focused_panel_and_screen() {
 }
 #[test]
 fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
-    let mut search = AppState::default();
+    let mut search = crate::test_app_state();
     search.dashboard_search.input_focused = true;
     assert_eq!(
         context_names(&search),
@@ -141,12 +131,10 @@ fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
         )
     );
 
-    let modal = AppState {
-        modal: ModalState::ConfirmDeleteRepository {
-            id: jefe::domain::RepositoryId("repo".to_owned()),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ..AppState::default()
+    let mut modal = crate::test_app_state();
+    modal.modal = ModalState::ConfirmDeleteRepository {
+        id: jefe::domain::RepositoryId("repo".to_owned()),
+        confirm_focus: ConfirmFocus::Confirm,
     };
     assert_eq!(
         context_names(&modal),
@@ -163,10 +151,8 @@ fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
 
 #[test]
 fn pr_changes_and_actions_focus_are_full_s4_contexts() {
-    let mut prs = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        ..AppState::default()
-    };
+    let mut prs = crate::test_app_state();
+    prs.nav = jefe::state::navigation::NavState::rooted(ScreenId::PullRequests);
     prs.prs_state.pr_focus = jefe::state::PrFocus::PrChanges;
     assert_eq!(
         context_names(&prs),
@@ -180,10 +166,8 @@ fn pr_changes_and_actions_focus_are_full_s4_contexts() {
         )
     );
 
-    let mut actions = AppState {
-        nav: jefe::state::navigation::NavState::rooted(ScreenId::Actions),
-        ..AppState::default()
-    };
+    let mut actions = crate::test_app_state();
+    actions.nav = jefe::state::navigation::NavState::rooted(ScreenId::Actions);
     actions.actions_state.focus = jefe::state::ActionsFocus::Detail;
     assert_eq!(
         context_names(&actions),
@@ -198,58 +182,12 @@ fn pr_changes_and_actions_focus_are_full_s4_contexts() {
     );
 }
 
-/// Compose the shipped inventory into a snapshot, as the app does at startup.
-fn compiled_snapshot() -> jefe::domain::action_registry::ActionRegistrySnapshot {
-    use jefe::domain::Id;
-    use jefe::domain::action_registry::{
-        ActionAvailability, Availability, AvailabilityGeneration, RegistryCandidate,
-    };
-    use jefe::domain::effects::{Correlation, CorrelationId, EffectFamily, SemanticKey};
-    use jefe::domain::input_context::ContextStack;
-
-    let inventory = jefe::domain::default_action_inventory::compiled_inventory()
-        .unwrap_or_else(|error| panic!("compiled inventory: {error}"));
-    let entries = inventory
-        .actions
-        .iter()
-        .map(|action| ActionAvailability::new(action.id.clone(), Availability::Available))
-        .collect();
-    let owner = Id::parse("core.keymap").unwrap_or_else(|error| panic!("owner: {error}"));
-    let correlation_id = CorrelationId::new(1);
-    let generation = AvailabilityGeneration::new(
-        Correlation {
-            correlation_id,
-            owner,
-            screen_generation: 0,
-            activation_generation: 0,
-            semantic_key: SemanticKey::new(EffectFamily::Provider, "action-availability"),
-        },
-        entries,
-    );
-    let stacks = inventory
-        .bindings
-        .iter()
-        .filter_map(|binding| ContextStack::from_ordered([binding.context.as_str()], false).ok())
-        .collect();
-    RegistryCandidate::new(
-        inventory.actions,
-        inventory.bindings,
-        Vec::new(),
-        stacks,
-        generation,
-    )
-    .compose()
-    .unwrap_or_else(|error| panic!("compiled snapshot: {error}"))
-}
-
 /// The Keys editor consumes its own input, but it deliberately lets `Ctrl+Q`
 /// fall through so the protected emergency exit stays reachable. That only
 /// works if the modal derives a valid context: a stack that repeats `global`
 /// is rejected as a duplicate, which would swallow the exit instead.
 #[test]
 fn a_modal_context_keeps_the_protected_exit_reachable() {
-    let snapshot = compiled_snapshot();
-
     for screen in [
         ScreenId::Dashboard,
         ScreenId::Repositories,
@@ -259,11 +197,8 @@ fn a_modal_context_keeps_the_protected_exit_reachable() {
         ScreenId::Errors,
         ScreenId::Terminals,
     ] {
-        let mut state = AppState {
-            nav: jefe::state::navigation::NavState::rooted(screen),
-            ..AppState::default()
-        };
-        state.action_registry_snapshot = Some(snapshot.clone());
+        let mut state = crate::test_app_state();
+        state.nav = jefe::state::navigation::NavState::rooted(screen);
         state.modal = ModalState::Help;
 
         let result = derive_action_context(&state, jefe::input::input_mode_for_state(&state));

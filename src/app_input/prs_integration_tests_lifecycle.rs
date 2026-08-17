@@ -400,7 +400,7 @@ fn assert_remembered_selections_match_source(persisted: &jefe::domain::StateV2, 
 /// pull_requests non-empty, selected_pr_index Some, pr_detail Some, non-default
 /// pr_focus) AND realistic persisted fields, then asserts (a) the persisted
 /// fields equal the source AppState's values, (b) a serde_json round-trip of
-/// the PersistedState carries NO PR data, and (c) a fresh `AppState::default()`
+/// the PersistedState carries NO PR data, and (c) a fresh `crate::test_app_state()`
 /// has `prs_state.active == false` and default `prs_state` (PR state is
 /// transient and never rehydrated from the persisted form).
 ///
@@ -434,7 +434,7 @@ fn it_persisted_state_excludes_prs_state() {
         serde_json::from_str(&json).unwrap_or_else(|e| panic!("persisted should deserialize: {e}"));
     assert_no_pr_data_in_persisted(&reloaded);
 
-    let fresh = AppState::default();
+    let fresh = crate::test_app_state();
     assert!(
         !fresh.prs_state.active,
         "fresh AppState prs_state must be inactive"

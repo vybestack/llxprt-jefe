@@ -213,8 +213,11 @@ fn migrated_version_selector_restores_generic_values() {
     let temp = tempfile::tempdir().unwrap_ctx("temporary repository root");
     let source = schema1_source(temp.path());
     let migrated = migrate_state(&source).unwrap_ctx("schema-1 state must migrate");
-    let restored =
-        jefe::state::durable_restore::from_durable_state(migrated.state()).unwrap_ctx("restore");
+    let restored = jefe::state::durable_restore::from_durable_state(
+        migrated.state(),
+        crate::common_app_state::published_workbench().screen_registry(),
+    )
+    .unwrap_ctx("restore");
     let llxprt = restored
         .agents
         .iter()

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::domain::Id;
 use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection};
-use crate::persistence::settings_document::{PublishedSettings, PublishedWorkbench};
+use crate::persistence::settings_document::{PublishedSettings, PublishedWorkbenchSettings};
 
 /// The worked example, as it sits on disk.
 const REVIEW_SOURCE: &str = include_str!("testdata/local-review.screen.toml");
@@ -45,7 +45,7 @@ pub fn unreadable_candidate(member: &str, rejection: ScreenFileRejection) -> Scr
 /// Published settings enabling exactly the given members.
 pub fn enabled(members: &[&str]) -> PublishedSettings {
     PublishedSettings {
-        workbench: PublishedWorkbench {
+        workbench: PublishedWorkbenchSettings {
             enabled_screens: members
                 .iter()
                 .map(|member| {
@@ -54,7 +54,7 @@ pub fn enabled(members: &[&str]) -> PublishedSettings {
                     })
                 })
                 .collect(),
-            ..PublishedWorkbench::default()
+            ..PublishedWorkbenchSettings::default()
         },
         ..PublishedSettings::default()
     }

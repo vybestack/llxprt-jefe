@@ -44,21 +44,17 @@ pub(super) fn try_up_click(
         return false;
     }
     let down = click_state.write().take();
-    let (snapshot, state, cols, rows) = {
+    let (state, cols, rows) = {
         let state = app_state.read();
-        let Some(snapshot) = state.action_registry_snapshot.clone() else {
-            return false;
-        };
         let (cols, rows) = super::terminal_size();
-        (snapshot, state.clone(), cols, rows)
+        (state.clone(), cols, rows)
     };
     let click = super::mouse_action_routing::MouseClickInput {
         down,
         up: (mouse_event.column, mouse_event.row),
         terminal: (cols, rows),
     };
-    let Some(route) = super::mouse_action_routing::resolve_action_click(&state, &snapshot, click)
-    else {
+    let Some(route) = super::mouse_action_routing::resolve_action_click(&state, click) else {
         return false;
     };
     crate::action_capture_emit::record_mouse(

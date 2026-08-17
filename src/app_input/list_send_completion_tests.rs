@@ -27,7 +27,7 @@ fn repository() -> Repository {
 
 fn eligible_state() -> AppState {
     let repository_id = RepositoryId("repo-1".to_owned());
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.repositories.push(repository());
     state.selected_repository_index = Some(0);
     state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];

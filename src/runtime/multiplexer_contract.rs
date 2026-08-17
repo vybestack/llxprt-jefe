@@ -274,12 +274,6 @@ static CONTRACT: &[ContractItem] = &[
         ContractCapability::Always,
         "identifies windows in the dashboard",
     ),
-    format(
-        "history_size",
-        false,
-        ContractCapability::Always,
-        "sizes scrollback reads",
-    ),
     // --- server options ---
     server_option(
         "exit-empty",

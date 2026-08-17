@@ -29,7 +29,7 @@ pub struct PublishedAppearance {
 
 /// Published workbench settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PublishedWorkbench {
+pub struct PublishedWorkbenchSettings {
     pub initial_screen: Option<Id>,
     pub enabled_screens: Vec<Id>,
     pub screen_order: Vec<Id>,
@@ -64,7 +64,7 @@ pub struct DormantSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PublishedSettings {
     pub appearance: PublishedAppearance,
-    pub workbench: PublishedWorkbench,
+    pub workbench: PublishedWorkbenchSettings,
     pub agents: BTreeMap<Id, PublishedOwner>,
     pub keymap: BTreeMap<String, BTreeMap<String, Vec<String>>>,
     pub plugins: BTreeMap<Id, PublishedOwner>,

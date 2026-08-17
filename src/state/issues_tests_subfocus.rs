@@ -10,10 +10,9 @@ use crate::state::transition::TransitionExt;
 use crate::state::types::{DetailSubfocus, ScreenId};
 
 fn dashboard_issues_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    }
+        let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state
 }
 
 fn p15_detail(number: u64) -> IssueDetail {

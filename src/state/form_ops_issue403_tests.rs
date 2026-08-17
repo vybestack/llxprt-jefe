@@ -44,7 +44,7 @@ fn existing_agent(repo_id: &RepositoryId, name: &str, work_dir: &str) -> Agent {
 }
 
 fn open_new_agent_form(state: &mut AppState, repo_id: &RepositoryId) {
-    *state = std::mem::take(state)
+    *state = std::mem::replace(state, AppState::test_fixture())
         .apply(AppEvent::OpenNewAgent(repo_id.clone()))
         .committed_pure();
 }
@@ -60,10 +60,8 @@ fn set_form_fields(modal: &mut ModalState, name: &str, work_dir: &str) {
 #[test]
 fn submit_new_agent_rejects_duplicate_name_same_repository() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
     state.agents.push(existing_agent(
         &RepositoryId("repo-1".to_owned()),
         "main",
@@ -93,10 +91,8 @@ fn submit_new_agent_rejects_duplicate_name_same_repository() {
 #[test]
 fn submit_new_agent_rejects_duplicate_name_case_insensitive() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
     state.agents.push(existing_agent(
         &RepositoryId("repo-1".to_owned()),
         "Main",
@@ -124,10 +120,8 @@ fn submit_new_agent_rejects_duplicate_name_case_insensitive() {
 fn submit_new_agent_allows_same_name_in_different_repository() {
     let repo1 = seed_repository();
     let repo2 = seed_second_repository();
-    let mut state = AppState {
-        repositories: vec![repo1, repo2],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo1, repo2];
     state.agents.push(existing_agent(
         &RepositoryId("repo-1".to_owned()),
         "main",
@@ -154,10 +148,8 @@ fn submit_new_agent_allows_colliding_work_dir_across_different_repositories() {
     // does not silently break cross-repo workflows.
     let repo1 = seed_repository();
     let repo2 = seed_second_repository();
-    let mut state = AppState {
-        repositories: vec![repo1, repo2],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo1, repo2];
     state.agents.push(existing_agent(
         &RepositoryId("repo-1".to_owned()),
         "alpha",
@@ -180,10 +172,8 @@ fn submit_new_agent_allows_colliding_work_dir_across_different_repositories() {
 #[test]
 fn submit_new_agent_rejects_colliding_work_dir() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
     state.agents.push(existing_agent(
         &RepositoryId("repo-1".to_owned()),
         "alpha",
@@ -211,10 +201,8 @@ fn submit_new_agent_rejects_colliding_work_dir() {
 #[test]
 fn submit_new_agent_with_whitespace_version_sets_error() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
 
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
@@ -243,14 +231,12 @@ fn submit_new_agent_with_whitespace_version_sets_error() {
 #[test]
 fn submit_new_agent_with_code_puppy_whitespace_version_sets_error() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        available_agent_type_ids: vec![
-            crate::domain::shipped_agent_type(3),
-            crate::domain::shipped_agent_type(1),
-        ],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
+    state.available_agent_type_ids = vec![
+        crate::domain::shipped_agent_type(3),
+        crate::domain::shipped_agent_type(1),
+    ];
 
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
@@ -279,10 +265,8 @@ fn submit_new_agent_with_code_puppy_whitespace_version_sets_error() {
 #[test]
 fn submit_new_agent_clean_version_succeeds() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
 
     open_new_agent_form(&mut state, &RepositoryId("repo-1".to_owned()));
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
@@ -306,10 +290,8 @@ fn submit_new_agent_clean_version_succeeds() {
 #[test]
 fn submit_new_agent_clears_stale_error_on_success() {
     let repo = seed_repository();
-    let mut state = AppState {
-        repositories: vec![repo],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repo];
     state.agents.push(existing_agent(
         &RepositoryId("repo-1".to_owned()),
         "main",

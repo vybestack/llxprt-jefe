@@ -1,6 +1,9 @@
 //! Issue #382 definition-cutover acceptance tests for all seventeen behavioral rows.
 //! Fixture bytes are captured release provenance, never a runtime version allow-list.
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 mod issue382;
 
 use std::collections::BTreeSet;
@@ -321,14 +324,15 @@ fn stale_availability_completion_is_a_no_op() {
         .into_iter()
         .find(|definition| definition.id.as_str() == "core.codex")
         .unwrap_or_else(|| panic!("Codex definition must be shipped"));
-    let state = jefe::state::AppState {
-        agent_type_availability: vec![AgentAvailabilityObservation::pending(
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.agent_type_availability = vec![AgentAvailabilityObservation::pending(
             &definition,
             true,
             1,
             CandidateResolution::NotFound(Vec::new()),
-        )],
-        ..jefe::state::AppState::default()
+        )];
+        state
     };
     let first = state
         .apply_message(AppMessage::RepositoryAgent(

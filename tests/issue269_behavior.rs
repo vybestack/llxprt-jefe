@@ -1,3 +1,6 @@
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use std::path::PathBuf;
 
 use jefe::domain::canonical_values::{required_id, typed_field};
@@ -48,14 +51,15 @@ fn remote_repository() -> Repository {
 }
 
 fn state_with_repository(repository: Repository) -> AppState {
-    AppState {
-        repositories: vec![repository],
-        selected_repository_index: Some(0),
-        available_agent_type_ids: vec![
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository];
+        state.selected_repository_index = Some(0);
+        state.available_agent_type_ids = vec![
             jefe::domain::shipped_agent_type(3),
             jefe::domain::shipped_agent_type(1),
-        ],
-        ..AppState::default()
+        ];
+        state
     }
 }
 

@@ -114,6 +114,7 @@ pub mod durable_projection;
 mod durable_projection_tests;
 /// Restoration of runtime state from the durable schema-2 document.
 pub mod durable_restore;
+mod interaction_types;
 /// Pure projection of the Keys editor into rows (issue #388).
 pub mod keys_editor_project;
 /// The layout tree editor's state and pure transitions (issue #388).
@@ -164,11 +165,13 @@ mod settings_registry_ops;
 #[cfg(test)]
 #[path = "settings_registry_tests.rs"]
 mod settings_registry_tests;
+mod settings_tail;
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod settings_tests;
 /// The Settings shell's draft and screen state (issue #387).
 pub mod settings_types;
+mod settings_validation;
 /// Pure projection of the Settings screen into renderable rows (issue #387).
 pub mod settings_view;
 #[cfg(test)]
@@ -294,14 +297,14 @@ impl AppState {
     fn has_visible_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
         self.agents.iter().any(|agent| {
             &agent.repository_id == repository_id
-                && (agent.is_running() || self.sticky_dead_agent_ids.contains(&agent.id))
+                && (agent.is_running() || self.sticky_visibility.dead_agents.contains(&agent.id))
         })
     }
 
     fn is_agent_visible_with_idle_filter(&self, agent: &Agent) -> bool {
         (!self.hide_idle_repositories
             || agent.is_running()
-            || self.sticky_dead_agent_ids.contains(&agent.id))
+            || self.sticky_visibility.dead_agents.contains(&agent.id))
             && self.dashboard_search_matches(&agent.name)
     }
 
@@ -564,8 +567,8 @@ impl AppState {
                 | UiNavigationMessage::JumpToAgentByShortcut(_)
         );
         if changes_selection {
-            self.sticky_dead_agent_ids.clear();
-            self.sticky_empty_repository_ids.clear();
+            self.sticky_visibility.dead_agents.clear();
+            self.sticky_visibility.empty_repositories.clear();
             self.dashboard_grab = None;
         }
     }

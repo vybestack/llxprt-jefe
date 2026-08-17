@@ -77,20 +77,29 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
             Box(flex_direction: FlexDirection::Row, flex_grow: 1.0_f32, background_color: rc.bg) {
                 #(section_pane(props.state.as_ref(), &settings, &rc))
                 #(detail_pane(props.state.as_ref(), &settings, &rc))
-                #(layout_pane(&settings, &rc))
+                #(layout_pane(props.state.as_ref(), &settings, &rc))
             }
             #(notice_row(&settings, &rc))
             KeybindBar(
-                screen: props.state.as_ref().map_or(
-                    crate::state::ScreenId::Settings,
-                    |state| state.compiled_screen().unwrap_or(crate::state::ScreenId::Settings),
-                ),
-                action_registry_snapshot: props
+                hints: props
                     .state
                     .as_ref()
-                    .and_then(|state| state.action_registry_snapshot.clone()),
-                terminal_focused: false,
-                actions_focus: None,
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: props.state.as_ref().map_or(
+                            crate::state::ScreenId::Settings,
+                            |state| {
+                                state
+                                    .compiled_screen()
+                                    .unwrap_or(crate::state::ScreenId::Settings)
+                            },
+                        ),
+                        terminal_focused: false,
+                        shell_overlay_active: false,
+                        shell_resume_available: false,
+                        actions_focus: None,
+                        mode_override: None,
+                    }),
                 colors: colors.clone(),
             )
         }
@@ -104,7 +113,15 @@ fn section_pane(
     rc: &ResolvedColors,
 ) -> AnyElement<'static> {
     let focused = settings.focus == SettingsFocus::Sections;
-    let rows = section_window(settings, detail_geometry(state, settings).rows).rows;
+    let Some(state) = state else {
+        panic!("Settings screen requires the committed workbench");
+    };
+    let rows = section_window(
+        settings,
+        detail_geometry(Some(state), settings).rows,
+        state.settings_projection_authority(),
+    )
+    .rows;
     element! {
         Box(
             flex_direction: FlexDirection::Column,
@@ -146,8 +163,15 @@ fn detail_pane(
 ) -> AnyElement<'static> {
     let focused = settings.focus == SettingsFocus::Detail;
     let title = settings.section.title().to_owned();
-    let geometry = detail_geometry(state, settings);
-    let window = detail_window(settings, geometry.rows);
+    let Some(state) = state else {
+        panic!("Settings screen requires the committed workbench");
+    };
+    let geometry = detail_geometry(Some(state), settings);
+    let window = detail_window(
+        settings,
+        geometry.rows,
+        state.settings_projection_authority(),
+    );
     let width = geometry.columns;
     let selected_row = settings.selected_row;
     let above = window.above;
@@ -300,16 +324,18 @@ fn plugin_config_migration_row(
 ///
 /// Everything drawn here is decided by `state::layout_editor`; this only puts
 /// the tree, the open dialog, and whatever was refused on the screen.
-fn layout_pane(settings: &SettingsState, rc: &ResolvedColors) -> Option<AnyElement<'static>> {
+fn layout_pane(
+    state: Option<&AppState>,
+    settings: &SettingsState,
+    rc: &ResolvedColors,
+) -> Option<AnyElement<'static>> {
     let editor = settings.layout_editor.as_ref()?;
-    let screen = crate::workbench::screen_registry()
-        .ok()
-        .and_then(|registry| {
-            registry
-                .screens()
-                .iter()
-                .find(|screen| screen.id.as_str() == editor.screen_id.as_str())
-        })?;
+    let screen = state?
+        .published_workbench()
+        .screen_registry()
+        .screens()
+        .iter()
+        .find(|screen| screen.id.as_str() == editor.screen_id.as_str())?;
     let lines = layout_lines(&editor.tree, &editor.selected, &[], 0);
     let dialog = editor
         .dialog

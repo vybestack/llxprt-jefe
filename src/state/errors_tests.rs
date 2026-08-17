@@ -8,14 +8,14 @@ use crate::state::{AppState, ErrorsFocus, ScreenId};
 
 /// In-place apply helper to avoid the take/replace dance on owned AppState.
 fn apply_in_place(state: &mut AppState, event: AppEvent) {
-    let old = std::mem::take(state);
+    let old = std::mem::replace(state, AppState::test_fixture());
     *state = old.apply(event).committed_pure();
 }
 
 /// A fresh `ErrorsState` starts empty with no selection.
 #[test]
 fn default_errors_state_is_empty() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     assert!(state.errors_state.is_empty());
     assert_eq!(state.errors_state.count(), 0);
     assert!(state.errors_state.selected_index.is_none());
@@ -24,7 +24,7 @@ fn default_errors_state_is_empty() {
 /// Pushing an error adds it at the head and selects it.
 #[test]
 fn push_adds_to_head_and_selects() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "First error".to_string(),
         "detail one".to_string(),
@@ -62,7 +62,7 @@ fn push_adds_to_head_and_selects() {
 /// Pushing more than `ERROR_STORE_CAPACITY` errors evicts the oldest.
 #[test]
 fn push_evicts_oldest_at_capacity() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     for i in 0..crate::domain::ERROR_STORE_CAPACITY + 5 {
         state.errors_state.push(
             format!("error {i}"),
@@ -107,7 +107,7 @@ fn push_evicts_oldest_at_capacity() {
 /// `EnterErrorsMode` switches active screen, activates state, and focuses list.
 #[test]
 fn enter_errors_mode_sets_screen_and_focus() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
     assert_eq!(state.screen(), ScreenId::Errors);
     assert!(state.errors_state.active);
@@ -117,7 +117,7 @@ fn enter_errors_mode_sets_screen_and_focus() {
 /// `EnterErrorsMode` saves prior focus; `ExitErrorsMode` restores it.
 #[test]
 fn enter_exit_restores_focus() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.pane_focus = crate::state::PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
 
@@ -134,7 +134,7 @@ fn enter_exit_restores_focus() {
 /// Navigation down/up moves the selected error index.
 #[test]
 fn navigate_down_up_moves_selection() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     for i in 0..5 {
         state.errors_state.push(
             format!("err {i}"),
@@ -166,7 +166,7 @@ fn navigate_down_up_moves_selection() {
 /// Navigation clamps at the last item.
 #[test]
 fn navigate_clamps_at_end() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "a".into(),
         "da".into(),
@@ -194,7 +194,7 @@ fn navigate_clamps_at_end() {
 /// Navigation home goes to index 0.
 #[test]
 fn navigate_home_goes_to_first() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     for i in 0..3 {
         state.errors_state.push(
             format!("e{i}"),
@@ -214,7 +214,7 @@ fn navigate_home_goes_to_first() {
 /// Cycle focus rotates ErrorList -> ErrorDetail -> RepoList -> ErrorList.
 #[test]
 fn cycle_focus_rotates() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "e".into(),
         "d".into(),
@@ -238,7 +238,7 @@ fn cycle_focus_rotates() {
 /// Enter on the error list moves focus to detail.
 #[test]
 fn enter_on_list_moves_to_detail() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "e".into(),
         "d".into(),
@@ -255,7 +255,7 @@ fn enter_on_list_moves_to_detail() {
 /// ClearAll empties the error log and resets selection.
 #[test]
 fn clear_all_empties_errors() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "e1".into(),
         "d1".into(),
@@ -279,7 +279,7 @@ fn clear_all_empties_errors() {
 /// Capture dedup: same error text doesn't create duplicate entries.
 #[test]
 fn capture_global_dedup() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let pushed1 = state
         .errors_state
         .capture_global("disk full", ErrorSource::Persistence, "ts1");
@@ -304,7 +304,7 @@ fn capture_global_dedup() {
 /// `capture_global` resets the tracker when called with `reset_*_tracker`.
 #[test]
 fn reset_global_tracker_allows_recapture() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state
         .errors_state
         .capture_global("err", ErrorSource::Other, "ts");
@@ -319,7 +319,7 @@ fn reset_global_tracker_allows_recapture() {
 /// Sequence numbers are monotonically increasing.
 #[test]
 fn seq_numbers_increase() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "a".into(),
         "da".into(),
@@ -341,7 +341,7 @@ fn seq_numbers_increase() {
 /// Scroll detail clamps at bounds.
 #[test]
 fn scroll_detail_clamps() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     let long_detail = (0..50)
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
@@ -377,7 +377,7 @@ fn scroll_detail_clamps() {
 /// preserves the selection and scroll position (CodeRabbit review finding).
 #[test]
 fn push_preserves_selection_when_active() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "first".into(),
         "d1".into(),
@@ -439,7 +439,7 @@ fn push_preserves_selection_when_active() {
 /// (CodeRabbit review finding).
 #[test]
 fn nav_while_repo_focused_does_not_move_error_selection() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     for i in 0..3 {
         state.errors_state.push(
             format!("e{i}"),
@@ -465,7 +465,7 @@ fn nav_while_repo_focused_does_not_move_error_selection() {
 
 #[test]
 fn silent_panic_is_stored_without_changing_visible_error_or_navigation() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.nav = crate::state::navigation::NavState::rooted(ScreenId::Errors);
     state.pane_focus = crate::state::PaneFocus::Repositories;
     state.errors_state.active = true;
@@ -517,7 +517,7 @@ fn silent_panic_is_stored_without_changing_visible_error_or_navigation() {
 
 #[test]
 fn silent_capacity_preserves_the_visible_banner_entry() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "visible failure".into(),
         "visible detail".into(),
@@ -557,7 +557,7 @@ fn silent_capacity_preserves_the_visible_banner_entry() {
 
 #[test]
 fn evicting_selected_silent_error_selects_the_adjacent_older_entry() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.errors_state.push(
         "oldest visible".into(),
         "oldest detail".into(),

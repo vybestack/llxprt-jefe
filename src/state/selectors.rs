@@ -28,7 +28,10 @@ impl AppState {
             .filter_map(|(idx, repository)| {
                 (!self.hide_idle_repositories
                     || self.has_visible_agent_in_repository(&repository.id)
-                    || self.sticky_empty_repository_ids.contains(&repository.id))
+                    || self
+                        .sticky_visibility
+                        .empty_repositories
+                        .contains(&repository.id))
                 .then_some(repository)
                 .filter(|repository| self.dashboard_search_matches(&repository.name))
                 .map(|_| idx)

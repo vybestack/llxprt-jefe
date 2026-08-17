@@ -3,7 +3,7 @@
 
 use crate::domain::effects::{Correlation, CorrelationId, EffectError, EffectFamily, SemanticKey};
 use crate::domain::{Id, effects::EffectErrorKind};
-use crate::workbench::{ActivationValues, PanelId, ScreenId, ScreenRegistry, screen_registry};
+use crate::workbench::{ActivationValues, PanelId, ScreenId, ScreenRegistry, builtin_screens};
 
 use super::navigation::{
     Activation, NavIntent, NavMessage, NavOutcome, NavState, NavTransition, reduce_navigation,
@@ -12,8 +12,8 @@ use super::navigation_dirty::{
     DirtyChoice, DirtyState, DraftAction, DraftToken, GuardPhase, SaveIntent,
 };
 
-fn registry() -> &'static ScreenRegistry {
-    screen_registry().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
+fn registry() -> ScreenRegistry {
+    builtin_screens().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
 }
 
 fn rooted(screen: ScreenId) -> NavState {
@@ -21,7 +21,8 @@ fn rooted(screen: ScreenId) -> NavState {
 }
 
 fn push_to(state: &NavState, screen: ScreenId) -> NavIntent {
-    let Some(descriptor) = registry().get(screen) else {
+    let registry = registry();
+    let Some(descriptor) = registry.get(screen) else {
         unreachable!("every compiled screen has a descriptor");
     };
     NavIntent::Push(Activation::from_source(
@@ -32,7 +33,7 @@ fn push_to(state: &NavState, screen: ScreenId) -> NavIntent {
 }
 
 fn send(state: NavState, message: NavMessage) -> NavTransition {
-    reduce_navigation(state, registry(), message)
+    reduce_navigation(state, &registry(), message)
 }
 
 fn owner_key() -> SemanticKey {
@@ -432,7 +433,8 @@ fn cancelling_keeps_the_draft_and_drops_the_navigation() {
 #[test]
 fn cancelling_restores_the_exact_focus_the_guard_interrupted() {
     let mut state = savable();
-    let Some(descriptor) = registry().get(ScreenId::Dashboard) else {
+    let registry = registry();
+    let Some(descriptor) = registry.get(ScreenId::Dashboard) else {
         unreachable!("every compiled screen has a descriptor");
     };
     let Some(other) = descriptor

@@ -1,3 +1,6 @@
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use jefe::domain::{
     Agent, AgentId, AgentStatus, PaneProcessIdentity, RepositoryId, ServerProcessIdentity,
     WorkerProcessIdentity,
@@ -7,8 +10,8 @@ use jefe::runtime::{
     ServerLivenessObservation, classify_server_health, classify_server_liveness,
     parse_server_identity_output,
 };
+use jefe::state::AppEvent;
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState};
 use std::path::PathBuf;
 
 fn identity(pid: u32, started_at: u64) -> ServerIdentity {
@@ -220,7 +223,7 @@ fn server_lost_preserves_runtime_binding_when_transitioned() {
     });
 
     let agent_id = agent.id.clone();
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.agents.push(agent);
 
     let state = state

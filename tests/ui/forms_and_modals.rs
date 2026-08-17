@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 /// Create a test state with form-related fields.
 fn create_form_test_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
 
     let repo = Repository::new(
         RepositoryId("repo-1".into()),

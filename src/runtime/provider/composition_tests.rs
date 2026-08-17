@@ -7,7 +7,7 @@ use super::*;
 use crate::domain::Id;
 use crate::domain::action_registry::Availability;
 use crate::domain::plugin::HostTriple;
-use crate::persistence::plugin_inventory::{MANIFEST_FILE_NAME, scan};
+use crate::persistence::plugin_inventory::{MANIFEST_FILE_NAME, scan, selected_packages};
 use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
 
 /// A manifest declaring one provider of `mode` and one action.
@@ -112,7 +112,11 @@ fn compose_for(root: &Path, base: &Path, trusted: &[&str]) -> ProviderCompositio
     let inventory = scan(&[PluginRoot::new(root.to_path_buf(), PluginRootKind::User)]);
     let selections: Vec<(&str, Option<&str>)> = trusted.iter().map(|id| (*id, None)).collect();
     let settings = published_settings(inventory.packages(), &selections);
-    compose_with_settings(inventory.packages(), base, &settings)
+    let selected = selected_packages(inventory.packages(), &settings)
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    compose_with_settings(&selected, base, &settings)
 }
 
 fn availability_of(composition: &ProviderComposition, action: &str) -> Option<Availability> {
@@ -152,6 +156,37 @@ fn one_shot_package_publishes_action_and_starts_no_process() {
     );
     assert_eq!(
         availability_of(&composition, "vendor.oneshot.run"),
+        Some(Availability::Available)
+    );
+}
+
+/// Package selection belongs to the startup candidate. Composition consumes
+/// that exact set and must not independently reinterpret Settings.
+#[test]
+fn composition_consumes_caller_selected_packages_without_reselecting() {
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    write_package(
+        &root,
+        "vendor.selected",
+        "1.0.0",
+        &manifest_json(
+            "vendor.selected",
+            "1.0.0",
+            "one-shot",
+            &host_binaries(&host, "bin/provider"),
+        ),
+    );
+    let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
+    let settings = published_settings(inventory.packages(), &[]);
+
+    let composition = compose_with_settings(inventory.packages(), temp.path(), &settings);
+
+    assert_eq!(composition.actions().len(), 1);
+    assert_eq!(composition.catalog().len(), 1);
+    assert_eq!(
+        availability_of(&composition, "vendor.selected.run"),
         Some(Availability::Available)
     );
 }
@@ -294,8 +329,12 @@ fn composition_uses_only_the_exact_settings_selected_package_version() {
     }
     let inventory = scan(&[PluginRoot::new(root, PluginRootKind::User)]);
     let settings = published_settings(inventory.packages(), &[("vendor.selected", Some("1.0.0"))]);
+    let selected = selected_packages(inventory.packages(), &settings)
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
 
-    let composition = compose_with_settings(inventory.packages(), temp.path(), &settings);
+    let composition = compose_with_settings(&selected, temp.path(), &settings);
 
     assert_eq!(composition.actions().len(), 1);
     assert_eq!(composition.catalog().len(), 1);
@@ -434,59 +473,5 @@ fn resolved_binary_is_contained_under_the_package_directory() {
     assert!(
         descriptor.binary.starts_with(&directory),
         "the selected binary must stay inside its own package directory"
-    );
-}
-
-#[test]
-fn failed_persistent_startup_discards_only_persistent_contributions() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
-    let root = temp.path().join("packages");
-    let host = HostTriple::current();
-    write_package(
-        &root,
-        "vendor.oneshot",
-        "1.0.0",
-        &manifest_json(
-            "vendor.oneshot",
-            "1.0.0",
-            "one-shot",
-            &host_binaries(&host, "bin/p"),
-        ),
-    );
-    write_package(
-        &root,
-        "vendor.resident",
-        "1.0.0",
-        &manifest_json(
-            "vendor.resident",
-            "1.0.0",
-            "persistent",
-            &host_binaries(&host, "bin/p"),
-        ),
-    );
-
-    let mut composition = compose_for(&root, temp.path(), &["vendor.oneshot", "vendor.resident"]);
-    composition.discard_persistent_contributions();
-
-    assert_eq!(
-        availability_of(&composition, "vendor.oneshot.run"),
-        Some(Availability::Available)
-    );
-    assert_eq!(
-        availability_of(&composition, "vendor.resident.run"),
-        None,
-        "the failed atomic persistent set must publish no action metadata"
-    );
-    assert!(
-        composition
-            .catalog()
-            .get(
-                &crate::domain::action_registry::ActionId::parse("vendor.resident.run")
-                    .unwrap_or_else(|error| panic!("action id must parse: {error}"))
-            )
-            .is_none(),
-        "a failed persistent package must leave no runnable catalog entry"
     );
 }

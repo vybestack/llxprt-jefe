@@ -10,7 +10,7 @@ use crate::state::{AppEvent, AppState};
 /// `SendToAgentFailed` (the launch itself succeeded).
 #[test]
 fn test_issue_self_assignment_failed_sets_warning_not_error() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = true;
     state.warning_message = None;
     state.issues_state.error = None;
@@ -50,7 +50,7 @@ fn test_issue_self_assignment_failed_sets_warning_not_error() {
 /// #186). The launch remains a success.
 #[test]
 fn test_issue_self_assignment_failed_warns_without_owner_repo() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = true;
     state.warning_message = None;
     state.issues_state.error = None;
@@ -85,7 +85,7 @@ fn test_issue_self_assignment_failed_warns_without_owner_repo() {
 /// change to the reducer cannot silently regress the behavior.
 #[test]
 fn test_issue_self_assignment_failed_overwrites_prior_warning() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = true;
     state.warning_message = Some("an earlier unrelated warning".to_string());
 
@@ -117,7 +117,7 @@ fn test_issue_self_assignment_failed_overwrites_prior_warning() {
 /// panicking or spuriously activating issues mode.
 #[test]
 fn test_issue_self_assignment_failed_outside_issues_mode_is_safe() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = false;
     state.issues_state.error = None;
 

@@ -108,7 +108,7 @@ struct PersistentSession {
     panel_rx: mpsc::Receiver<PanelDelivery>,
     control_tx: Option<mpsc::SyncSender<ControlCommand>>,
     available: Arc<Mutex<bool>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<JoinHandle<Option<super::persistent::ReapedCandidate>>>,
 }
 
 /// The sole owner of every persistent candidate session.
@@ -122,18 +122,64 @@ pub struct PersistentSessionOwner {
     sessions: Vec<PersistentSession>,
 }
 
+/// A ready provider could not be transferred into its runtime owner thread.
+#[derive(Debug)]
+pub struct PersistentOwnerStartFailure {
+    plugin_id: Id,
+    cause: PersistentOwnerStartCause,
+    reaped: Vec<super::persistent::ReapedCandidate>,
+}
+
+#[derive(Debug)]
+enum PersistentOwnerStartCause {
+    Thread(std::io::Error),
+    CandidateHandoff,
+}
+
+impl std::fmt::Display for PersistentOwnerStartFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cause = match &self.cause {
+            PersistentOwnerStartCause::Thread(error) => {
+                format!("runtime owner thread creation failed: {error}")
+            }
+            PersistentOwnerStartCause::CandidateHandoff => {
+                "runtime owner thread rejected its ready candidate".to_owned()
+            }
+        };
+        let cleanup_complete = self.reaped.iter().all(|candidate| candidate.reaped);
+        write!(
+            formatter,
+            "required provider {} owner-transfer failed: {cause}; cleanup_complete={cleanup_complete}",
+            self.plugin_id
+        )
+    }
+}
+
+impl std::error::Error for PersistentOwnerStartFailure {}
+
 impl PersistentSessionOwner {
     /// Construct from ready candidates and bounds, spawning one owner thread
     /// per candidate.
     pub(super) fn from_candidates(
         candidates: Vec<OwnedCandidate>,
         bounds: SupervisorBounds,
-    ) -> Self {
-        let sessions = candidates
-            .into_iter()
-            .map(|candidate| spawn_owner_thread(candidate, bounds))
-            .collect();
-        Self { sessions }
+    ) -> Result<Self, PersistentOwnerStartFailure> {
+        let mut candidates = candidates.into_iter();
+        let mut sessions = Vec::new();
+        while let Some(candidate) = candidates.next() {
+            match spawn_owner_thread(candidate, bounds) {
+                Ok(session) => sessions.push(session),
+                Err(mut failure) => {
+                    failure
+                        .reaped
+                        .extend(candidates.map(|candidate| reap_owned(candidate, &bounds)));
+                    let mut started = Self { sessions };
+                    failure.reaped.extend(started.shutdown_with_evidence());
+                    return Err(failure);
+                }
+            }
+        }
+        Ok(Self { sessions })
     }
 
     /// Construct an empty owner (no sessions).
@@ -339,16 +385,24 @@ impl PersistentSessionOwner {
     /// Explicitly shut down every candidate. Idempotent. Sends `Shutdown` to
     /// each owner thread and joins it so all processes are reaped.
     pub fn shutdown(&mut self) {
+        let _ = self.shutdown_with_evidence();
+    }
+
+    fn shutdown_with_evidence(&mut self) -> Vec<super::persistent::ReapedCandidate> {
+        let mut reaped = Vec::new();
         for session in &mut self.sessions {
             let _ = session.invocation_tx.take();
             let _ = session.panel_tx.take();
             if let Some(control_tx) = session.control_tx.take() {
                 let _ = control_tx.send(ControlCommand::Shutdown);
             }
-            if let Some(thread) = session.thread.take() {
-                let _ = thread.join();
+            if let Some(thread) = session.thread.take()
+                && let Ok(Some(candidate)) = thread.join()
+            {
+                reaped.push(candidate);
             }
         }
+        reaped
     }
 }
 

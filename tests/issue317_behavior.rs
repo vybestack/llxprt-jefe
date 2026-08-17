@@ -1,11 +1,12 @@
 //! Repository-form behavior tests for transient launch defaults (issue #317).
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use jefe::domain::canonical_values::{required_id, typed_field};
 use jefe::domain::{Repository, RepositoryId, TypedMap, TypedValue};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{
-    AppEvent, AppState, ModalState, RepositoryFormFocus, is_repository_field_visible,
-};
+use jefe::state::{AppEvent, ModalState, RepositoryFormFocus, is_repository_field_visible};
 
 fn set_yolo(values: &mut TypedMap, value: bool) {
     let id = required_id("yolo").unwrap_or_else(|error| panic!("valid yolo field id: {error}"));
@@ -28,9 +29,10 @@ fn yolo_value(values: &TypedMap) -> Option<bool> {
 
 #[test]
 fn new_repository_defaults_transient_yolo_for_both_runtimes() {
-    let state = AppState {
-        available_agent_type_ids: vec![jefe::domain::shipped_agent_type(3)],
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];
+        state
     }
     .apply(AppEvent::OpenNewRepository)
     .committed_pure();
@@ -44,7 +46,7 @@ fn new_repository_defaults_transient_yolo_for_both_runtimes() {
 
 #[test]
 fn repository_form_normalizes_and_persists_llxprt_mode_flags() {
-    let mut state = AppState::default()
+    let mut state = crate::common_app_state::app_state()
         .apply(AppEvent::OpenNewRepository)
         .committed_pure();
     let ModalState::NewRepository { fields, .. } = &mut state.modal else {
@@ -90,9 +92,10 @@ fn edit_repository_loads_mode_and_code_puppy_yolo_choices() {
     );
     set_yolo(&mut repository.default_values, false);
     set_mode(&mut repository.default_values, "--fast");
-    let state = AppState {
-        repositories: vec![repository],
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository];
+        state
     }
     .apply(AppEvent::OpenEditRepository(RepositoryId(
         "repo-317".to_owned(),
@@ -109,9 +112,10 @@ fn edit_repository_loads_mode_and_code_puppy_yolo_choices() {
 
 #[test]
 fn repository_mode_field_supports_character_and_backspace_editing() {
-    let mut state = AppState {
-        available_agent_type_ids: vec![jefe::domain::shipped_agent_type(3)],
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.available_agent_type_ids = vec![jefe::domain::shipped_agent_type(3)];
+        state
     }
     .apply(AppEvent::OpenNewRepository)
     .committed_pure();

@@ -1,7 +1,7 @@
 //! Help modal - keyboard shortcut reference.
 //!
 //! Renders a scrollable, comprehensive keyboard reference. The content lives
-//! in the pure `help_content_lines()` projection (single source of truth); the
+//! in the pure runtime-aware Help projection (single source of truth); the
 //! modal windows it through the shared `ScrollableText` viewport using the
 //! `scroll_offset` prop. Scroll actions are applied by the typed action executor
 //! (app_input); this component only renders the projection.
@@ -11,7 +11,9 @@
 
 use iocraft::prelude::*;
 
+#[cfg(test)]
 use crate::action_projection::{project_help_lines, project_provider_help_lines};
+#[cfg(test)]
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::selection::TextSelection;
 use crate::theme::{ResolvedColors, ThemeColors};
@@ -23,6 +25,7 @@ use crate::ui::components::ScrollableText;
 /// not exist when this binary was built, so they are not in the compiled
 /// display table, and an operator who cannot find a package action anywhere in
 /// Help has no way to learn it exists or why it will not run.
+#[cfg(test)]
 #[must_use]
 pub fn help_content_lines(snapshot: &ActionRegistrySnapshot) -> Vec<String> {
     let mut lines = project_help_lines(snapshot);
@@ -40,9 +43,9 @@ pub struct HelpModalProps {
     /// Terminal rows available, used to size the scroll viewport so the modal
     /// never overflows the screen.
     pub available_rows: u16,
+    /// Content projected at the mandatory committed-workbench boundary.
+    pub content: Vec<String>,
     /// Active text selection for drag-highlight (issue #178).
-    /// Immutable action/binding/availability authority for this render.
-    pub action_registry_snapshot: Option<ActionRegistrySnapshot>,
     pub selection: Option<TextSelection>,
 }
 
@@ -142,12 +145,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
     // `HELP_CHROME_ROWS` implicitly).
     let viewport_height = u32::try_from(viewport_rows).unwrap_or(0);
 
-    let content = props
-        .action_registry_snapshot
-        .as_ref()
-        .map_or_else(String::new, |snapshot| {
-            help_content_lines(snapshot).join("\n")
-        });
+    let content = props.content.join("\n");
 
     element! {
         Box(

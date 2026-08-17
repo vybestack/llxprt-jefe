@@ -33,13 +33,14 @@ fn agent(id: &str, name: &str, status: AgentStatus) -> Agent {
 }
 
 fn visibility_state(agents: Vec<Agent>, selected_agent_index: usize) -> AppState {
-    AppState {
-        repositories: vec![repository("r1")],
-        agents,
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(selected_agent_index),
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+    {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = agents;
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(selected_agent_index);
+        state.pane_focus = PaneFocus::Agents;
+        state
     }
 }
 
@@ -110,16 +111,17 @@ fn selected_agent_local_index_matches_visible_agents_position() {
 
 #[test]
 fn visible_agents_returns_all_when_filter_disabled() {
-    let state = AppState {
-        repositories: vec![Repository::new(
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![Repository::new(
             RepositoryId("r1".into()),
             jefe::domain::shipped_agent_type(3),
             jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
-        )],
-        agents: vec![
+        )];
+        state.agents = vec![
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r1".into()),
@@ -140,12 +142,12 @@ fn visible_agents_returns_all_when_filter_disabled() {
                 running.status = AgentStatus::Running;
                 running
             },
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        hide_idle_repositories: false,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state.hide_idle_repositories = false;
+        state
     };
 
     let repo_id = RepositoryId("r1".into());
@@ -159,17 +161,18 @@ fn visible_agents_returns_all_when_filter_disabled() {
 
 #[test]
 fn delete_targets_correct_agent_when_idle_hidden() {
-    let state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![
             agent("idle1", "Idle A", AgentStatus::Queued),
             agent("target", "Target Agent", AgentStatus::Running),
             agent("other", "Other Agent", AgentStatus::Running),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(1);
+        state.pane_focus = PaneFocus::Agents;
+        state
     };
 
     let hidden = state
@@ -204,16 +207,17 @@ fn delete_targets_correct_agent_when_idle_hidden() {
 
 #[test]
 fn visible_agent_count_includes_all_when_filter_off() {
-    let state = AppState {
-        repositories: vec![Repository::new(
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![Repository::new(
             RepositoryId("r1".into()),
             jefe::domain::shipped_agent_type(3),
             jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
-        )],
-        agents: vec![
+        )];
+        state.agents = vec![
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r1".into()),
@@ -234,11 +238,11 @@ fn visible_agent_count_includes_all_when_filter_off() {
                 a.status = AgentStatus::Running;
                 a
             },
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state
     };
 
     assert_eq!(state.visible_agent_count(), 2);
@@ -250,16 +254,17 @@ fn visible_agent_count_includes_all_when_filter_off() {
 
 #[test]
 fn visible_agent_count_excludes_inactive_when_filter_on() {
-    let state = AppState {
-        repositories: vec![Repository::new(
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![Repository::new(
             RepositoryId("r1".into()),
             jefe::domain::shipped_agent_type(3),
             jefe::domain::TypedMap::new(),
             "R1".into(),
             "r1".into(),
             PathBuf::from("/r1"),
-        )],
-        agents: vec![
+        )];
+        state.agents = vec![
             Agent::new(
                 AgentId("idle1".into()),
                 RepositoryId("r1".into()),
@@ -280,11 +285,11 @@ fn visible_agent_count_excludes_inactive_when_filter_on() {
                 a.status = AgentStatus::Running;
                 a
             },
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
-        pane_focus: PaneFocus::Agents,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(1);
+        state.pane_focus = PaneFocus::Agents;
+        state
     };
 
     let hidden = state
@@ -299,8 +304,9 @@ fn visible_agent_count_excludes_inactive_when_filter_on() {
 
 #[test]
 fn visible_repo_count_matches_visible_repository_indices() {
-    let state = AppState {
-        repositories: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             Repository::new(
                 RepositoryId("r1".into()),
                 jefe::domain::shipped_agent_type(3),
@@ -317,8 +323,8 @@ fn visible_repo_count_matches_visible_repository_indices() {
                 "r2".into(),
                 PathBuf::from("/r2"),
             ),
-        ],
-        agents: vec![
+        ];
+        state.agents = vec![
             {
                 let mut a = Agent::new(
                     AgentId("run1".into()),
@@ -339,11 +345,11 @@ fn visible_repo_count_matches_visible_repository_indices() {
                 "Idle B".into(),
                 PathBuf::from("/r2/idle1"),
             ),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state
     };
 
     // Filter off: both repos visible
@@ -383,14 +389,15 @@ fn running_agent(id: &str, name: &str, repo_id: &str) -> Agent {
 /// be in visible_repository_indices.
 #[test]
 fn kill_agent_in_active_only_mode_stays_visible() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -425,17 +432,18 @@ fn kill_agent_in_active_only_mode_stays_visible() {
 /// list and the dead agent should be filtered out.
 #[test]
 fn navigate_after_kill_filters_dead_agent() {
-    let mut state = AppState {
-        repositories: vec![repository("r1"), repository("r2")],
-        agents: vec![
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1"), repository("r2")];
+        state.agents = vec![
             running_agent("a1", "Agent One", "r1"),
             running_agent("a2", "Agent Two", "r2"),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        hide_idle_repositories: true,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -458,17 +466,18 @@ fn navigate_after_kill_filters_dead_agent() {
 /// (sticky). After navigating away, the repo should be filtered out.
 #[test]
 fn kill_last_running_agent_keeps_repo_visible() {
-    let mut state = AppState {
-        repositories: vec![repository("r1"), repository("r2")],
-        agents: vec![
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1"), repository("r2")];
+        state.agents = vec![
             running_agent("a1", "Agent One", "r1"),
             running_agent("a2", "Agent Two", "r2"),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -497,14 +506,15 @@ fn kill_last_running_agent_keeps_repo_visible() {
 /// Only an explicit KillAgent action should be sticky.
 #[test]
 fn agent_status_changed_does_not_trigger_sticky() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -530,14 +540,15 @@ fn agent_status_changed_does_not_trigger_sticky() {
 /// actually navigates away.
 #[test]
 fn kill_with_filter_off_then_toggle_on_keeps_sticky() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        hide_idle_repositories: false,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state.hide_idle_repositories = false;
+        state
     };
     state.normalize_selection_indices();
 
@@ -574,17 +585,18 @@ fn kill_with_filter_off_then_toggle_on_keeps_sticky() {
 /// navigation clears them.
 #[test]
 fn multiple_kills_all_sticky() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![
             running_agent("a1", "Agent One", "r1"),
             running_agent("a2", "Agent Two", "r1"),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Agents,
-        hide_idle_repositories: true,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Agents;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -619,17 +631,18 @@ fn multiple_kills_all_sticky() {
 /// clear the sticky list.
 #[test]
 fn sticky_cleared_on_select_repository() {
-    let mut state = AppState {
-        repositories: vec![repository("r1"), repository("r2")],
-        agents: vec![
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1"), repository("r2")];
+        state.agents = vec![
             running_agent("a1", "Agent One", "r1"),
             running_agent("a2", "Agent Two", "r2"),
-        ],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -674,14 +687,15 @@ fn submit_new_repository(mut state: AppState, name: &str) -> AppState {
 #[test]
 fn new_repository_stays_visible_when_active_only_on() {
     // Start with one repo that has a running agent so active-only is useful.
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -707,14 +721,15 @@ fn new_repository_stays_visible_when_active_only_on() {
 /// clear the sticky set and the empty repo should be filtered out.
 #[test]
 fn navigate_after_new_repo_filters_empty_repo() {
-    let mut state = AppState {
-        repositories: vec![repository("r1"), repository("r2")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1"), repository("r2")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -736,14 +751,15 @@ fn navigate_after_new_repo_filters_empty_repo() {
 /// set must persist and the empty repo stays visible.
 #[test]
 fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: false,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = false;
+        state
     };
     state.normalize_selection_indices();
 
@@ -775,14 +791,15 @@ fn new_repo_with_filter_off_then_toggle_on_keeps_sticky() {
 /// message and must clear the sticky set.
 #[test]
 fn sticky_cleared_on_select_repository_after_new_repo() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -805,14 +822,15 @@ fn sticky_cleared_on_select_repository_after_new_repo() {
 /// sticky until navigation clears them.
 #[test]
 fn multiple_new_repos_all_sticky() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 
@@ -845,14 +863,15 @@ fn multiple_new_repos_all_sticky() {
 /// create a new repo (sticky-empty). Both stickies must hold until nav.
 #[test]
 fn new_repo_sticky_coexists_with_sticky_dead_agent() {
-    let mut state = AppState {
-        repositories: vec![repository("r1")],
-        agents: vec![running_agent("a1", "Agent One", "r1")],
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        hide_idle_repositories: true,
-        ..AppState::default()
+    let mut state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![repository("r1")];
+        state.agents = vec![running_agent("a1", "Agent One", "r1")];
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state.hide_idle_repositories = true;
+        state
     };
     state.normalize_selection_indices();
 

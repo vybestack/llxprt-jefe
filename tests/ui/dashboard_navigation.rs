@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 /// Create a test app state with some repositories and agents.
 fn create_test_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
 
     // Add repositories
     let repo1 = Repository::new(

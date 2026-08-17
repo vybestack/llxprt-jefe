@@ -10,7 +10,7 @@ use jefe::messages::{
     RepositoryAgentMessage, RuntimeMessage, UiNavigationMessage,
 };
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
+use jefe::state::{AppEvent, ModalState, PaneFocus};
 
 #[test]
 fn app_events_route_to_domain_channels() {
@@ -112,8 +112,9 @@ fn actions_page_results_route_to_actions_channel() {
 
 #[test]
 fn typed_navigation_message_updates_state_without_global_event_match() {
-    let state = AppState {
-        repositories: vec![
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.repositories = vec![
             Repository::new(
                 RepositoryId("repo-1".into()),
                 jefe::domain::shipped_agent_type(3),
@@ -130,10 +131,10 @@ fn typed_navigation_message_updates_state_without_global_event_match() {
                 "repo-two".into(),
                 PathBuf::from("/repo-two"),
             ),
-        ],
-        selected_repository_index: Some(0),
-        pane_focus: PaneFocus::Repositories,
-        ..AppState::default()
+        ];
+        state.selected_repository_index = Some(0);
+        state.pane_focus = PaneFocus::Repositories;
+        state
     };
 
     let next = state
@@ -145,7 +146,7 @@ fn typed_navigation_message_updates_state_without_global_event_match() {
 
 #[test]
 fn typed_modal_and_repository_messages_route_to_isolated_handlers() {
-    let state = AppState::default()
+    let state = crate::common_app_state::app_state()
         .apply_message(AppMessage::Modal(ModalMessage::OpenHelp))
         .committed_pure();
     assert!(matches!(state.modal, ModalState::Help));
@@ -161,16 +162,17 @@ fn typed_modal_and_repository_messages_route_to_isolated_handlers() {
 #[test]
 fn typed_runtime_message_only_updates_runtime_domain_state() {
     let agent_id = AgentId("agent-1".into());
-    let state = AppState {
-        agents: vec![Agent::new(
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.agents = vec![Agent::new(
             agent_id.clone(),
             RepositoryId("repo-1".into()),
             jefe::domain::shipped_agent_type(3),
             jefe::domain::TypedMap::new(),
             "Agent One".into(),
             PathBuf::from("/repo-one/agent-one"),
-        )],
-        ..AppState::default()
+        )];
+        state
     };
 
     let next = state
@@ -206,9 +208,10 @@ fn typed_kill_agent_clears_runtime_binding() {
         worker_identities: Vec::new(),
     });
 
-    let state = AppState {
-        agents: vec![agent],
-        ..AppState::default()
+    let state = {
+        let mut state = crate::common_app_state::app_state();
+        state.agents = vec![agent];
+        state
     };
 
     // KillAgent stages a bounded KillSession post-commit effect (issue #381);
@@ -223,7 +226,7 @@ fn typed_kill_agent_clears_runtime_binding() {
 
 #[test]
 fn typed_persistence_save_success_clears_stale_errors() {
-    let state = AppState::default()
+    let state = crate::common_app_state::app_state()
         .apply_message(AppMessage::Persistence(PersistenceMessage::SaveFailed(
             "disk full".to_string(),
         )))
@@ -241,7 +244,7 @@ fn typed_persistence_save_success_clears_stale_errors() {
 fn typed_apply_search_commits_query_and_clears_list() {
     use jefe::domain::IssueFilter;
 
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.issues_state.search_input_focused = true;
     state.issues_state.search_query = "  open bug  ".to_string();
     // Establish list state (cursor + selection) with an empty item set so we

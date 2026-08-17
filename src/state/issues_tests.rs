@@ -10,10 +10,9 @@ use crate::state::types::{
 use std::path::PathBuf;
 
 fn dashboard_issues_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    }
+        let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state
 }
 
 /// Helper to create a test issue with the given number.
@@ -72,7 +71,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
 
 /// Helper to set up a state with a selected repository at index 0.
 fn state_with_repo(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -94,7 +93,7 @@ use crate::state::transition::TransitionExt;
 /// @pseudocode component-001 lines 10-15
 #[test]
 fn test_enter_issues_mode_sets_active_screen() {
-    let state = AppState::default();
+    let state = AppState::test_fixture();
     let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert_eq!(new_state.screen(), ScreenId::Issues);
     assert!(new_state.issues_state.active);
@@ -107,12 +106,10 @@ fn test_enter_issues_mode_sets_active_screen() {
 /// @pseudocode component-001 lines 20-25
 #[test]
 fn test_enter_issues_mode_saves_prior_focus() {
-    let state = AppState {
-        pane_focus: PaneFocus::Agents,
-        selected_agent_index: Some(2),
-        selected_repository_index: Some(1),
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.pane_focus = PaneFocus::Agents;
+    state.selected_agent_index = Some(2);
+    state.selected_repository_index = Some(1);
 
     let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
     assert!(new_state.issues_state.prior_agent_focus.is_some());
@@ -444,7 +441,7 @@ fn test_issue_list_loaded_empty() {
 /// @pseudocode component-001 lines 105-110
 #[test]
 fn test_issue_list_loaded_stale_scope_discarded() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Set up repo at index 0 with id "repo-1"
     state.repositories.push(Repository::new(
@@ -894,7 +891,7 @@ fn test_detail_subfocus_tab_no_comments() {
 /// @pseudocode component-001 lines 180-185
 #[test]
 fn test_stale_scope_list_loaded_discarded() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Set up repo "repo-A" at index 0
     state.repositories.push(Repository::new(

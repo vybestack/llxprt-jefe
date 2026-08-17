@@ -29,7 +29,7 @@ use crate::domain::plugin::provider::{ProviderMode, ProviderSelection};
 use crate::domain::plugin::surface::ConfigSchema;
 use crate::domain::plugin::{FieldKind, HostTriple, Manifest};
 use crate::domain::{CanonicalSemver, Id, TypedMap, TypedValue};
-use crate::persistence::plugin_inventory::{InstalledPackage, selected_packages};
+use crate::persistence::plugin_inventory::InstalledPackage;
 use crate::persistence::settings_document::PublishedSettings;
 use crate::runtime::provider::coordinator::{ProviderActionDescriptor, ProviderCatalog};
 use crate::runtime::provider::dto::{Capability, ConfigurePayload};
@@ -83,7 +83,6 @@ pub struct ProviderComposition {
     availability: Vec<ActionAvailability>,
     catalog: ProviderCatalog,
     persistent_candidates: Vec<PersistentCandidate>,
-    persistent_action_ids: Vec<ActionId>,
 }
 
 impl ProviderComposition {
@@ -115,35 +114,19 @@ impl ProviderComposition {
     pub fn into_catalog(self) -> ProviderCatalog {
         self.catalog
     }
-
-    /// Remove every persistent contribution after atomic startup fails.
-    ///
-    /// Persistent actions are not an unavailable publication: CW10-04 requires
-    /// the failed candidate set to publish no contribution at all. Independent
-    /// one-shot actions remain because they require no startup process.
-    pub fn discard_persistent_contributions(&mut self) {
-        for action_id in &self.persistent_action_ids {
-            self.catalog.remove(action_id);
-        }
-        self.actions
-            .retain(|action| !self.persistent_action_ids.contains(&action.id));
-        self.availability
-            .retain(|entry| !self.persistent_action_ids.contains(entry.action()));
-        self.persistent_candidates.clear();
-        self.persistent_action_ids.clear();
-    }
 }
 
-/// Compose the static provider contribution from the package inventory.
+/// Compose the static provider contribution from the exact selected packages.
 ///
-/// Starts nothing. Only the exact Settings-selected installed package version
-/// contributes; a package is skipped when it declares no provider. An action
-/// is skipped when its declaration cannot be expressed as a registry action,
-/// because a half-published action is worse than an absent one.
+/// Starts nothing. Selection belongs to the startup candidate; this boundary
+/// consumes that exact set without independently interpreting Settings. A
+/// package is skipped when it declares no provider. An action is skipped when
+/// its declaration cannot be expressed as a registry action, because a
+/// half-published action is worse than an absent one.
 #[must_use]
 pub fn compose(request: &CompositionRequest<'_>) -> ProviderComposition {
     let mut composition = ProviderComposition::default();
-    for package in selected_packages(request.packages, request.settings) {
+    for package in request.packages {
         compose_package(&mut composition, package, request);
     }
     composition
@@ -317,9 +300,6 @@ fn publish_available_actions(
             Availability::Available,
         ));
         composition.actions.push(action);
-        if provider.mode == ProviderMode::Persistent {
-            composition.persistent_action_ids.push(action_id.clone());
-        }
         composition.catalog.insert(
             action_id.clone(),
             ProviderActionDescriptor {
@@ -362,6 +342,47 @@ fn validate_provider_configuration(manifest: &Manifest, config: &TypedMap) -> Re
     ))
 }
 
+/// Resolve one selected package's effective configuration values.
+///
+/// This is the single owner of "what Settings selected for this package,
+/// defaults applied, schema-validated": [`provider_configuration`] and the
+/// workbench candidate's strict validation both read here, so a config that
+/// would compose can never be reported invalid, and vice versa.
+fn resolve_selected_configuration(
+    settings: &PublishedSettings,
+    manifest: &Manifest,
+) -> Result<TypedMap, String> {
+    let user_config = settings
+        .plugins
+        .get(manifest.id().owner_id())
+        .map_or_else(TypedMap::new, |owner| owner.values.clone());
+    let config = match manifest.config() {
+        Some(schema) => crate::domain::plugin_config::effective_values(schema, &user_config),
+        None => user_config,
+    };
+    validate_provider_configuration(manifest, &config)?;
+    Ok(config)
+}
+
+/// Validate a selected package's configuration without composing payloads.
+///
+/// The workbench candidate calls this before any provider process may exist:
+/// an active selected configuration that does not validate against the
+/// package's schema is a static failure of the whole candidate, not an
+/// unavailable action (issue #704, CWR1-02). The reason string is the same
+/// one runtime composition would produce, so the operator sees one diagnosis.
+///
+/// # Errors
+///
+/// Returns the operator-facing reason when the effective values violate the
+/// package's declared schema.
+pub fn validate_selected_configuration(
+    settings: &PublishedSettings,
+    manifest: &Manifest,
+) -> Result<(), String> {
+    resolve_selected_configuration(settings, manifest).map(|_| ())
+}
+
 /// Build one package's selected configuration and bounded environment.
 ///
 /// Secret-reference fields name host environment variables. Their references
@@ -376,15 +397,7 @@ fn provider_configuration(
     manifest: &Manifest,
     binary: &Path,
 ) -> Result<(ProviderEnvironment, ConfigurePayload), String> {
-    let user_config = settings
-        .plugins
-        .get(manifest.id().owner_id())
-        .map_or_else(TypedMap::new, |owner| owner.values.clone());
-    let mut config = match manifest.config() {
-        Some(schema) => crate::domain::plugin_config::effective_values(schema, &user_config),
-        None => user_config,
-    };
-    validate_provider_configuration(manifest, &config)?;
+    let mut config = resolve_selected_configuration(settings, manifest)?;
     let mut configure_secret_sources = BTreeMap::new();
     if let Some(schema) = manifest.config() {
         for field in schema.fields() {

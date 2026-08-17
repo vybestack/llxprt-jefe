@@ -4,14 +4,19 @@
 //! @requirement CW08-06
 //! @requirement CW08-08
 
-use crate::domain::action_registry::{ActionId, ActionRegistrySnapshot, Availability, Provenance};
+use crate::domain::Id;
+use crate::domain::action_registry::{
+    ActionAvailability, ActionId, ActionRegistrySnapshot, Availability, AvailabilityGeneration,
+    Provenance,
+};
+use crate::domain::effects::{Correlation, CorrelationId, EffectFamily, SemanticKey};
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::Chord;
 use crate::persistence::settings_document::PublishedSettings;
 
 use super::{
     CaptureOutcome, ChordText, EMERGENCY_EXIT_ACTION, KeyEditorRow, classify_capture,
-    conflict_detail, project_keys,
+    conflict_detail, project_keys, project_keys_effective,
 };
 
 fn snapshot(source: &str) -> ActionRegistrySnapshot {
@@ -138,6 +143,39 @@ fn a_chord_the_candidate_does_not_mention_still_comes_from_the_registry() {
     assert!(
         !row(&rows, EMERGENCY_EXIT_ACTION).chords.is_empty(),
         "an untouched binding keeps its compiled chords"
+    );
+}
+
+#[test]
+fn runtime_unavailability_is_projected_into_keys_rows() {
+    const ACTION: &str = "core.open-settings";
+    const REASON: &str = "provider generation is unavailable";
+    let snapshot = snapshot(DEFAULTS);
+    let action = ActionId::parse(ACTION).unwrap_or_else(|error| panic!("action id: {error:?}"));
+    let owner = Id::parse("core.keymap").unwrap_or_else(|error| panic!("owner id: {error:?}"));
+    let generation = AvailabilityGeneration::new(
+        Correlation {
+            correlation_id: CorrelationId::new(92),
+            owner,
+            screen_generation: 7,
+            activation_generation: 12,
+            semantic_key: SemanticKey::new(EffectFamily::Provider, "keys-availability"),
+        },
+        vec![ActionAvailability::new(
+            action,
+            Availability::Unavailable {
+                reason: REASON.to_owned(),
+            },
+        )],
+    );
+
+    let rows = project_keys_effective(&snapshot, Some(&generation), &published(DEFAULTS));
+
+    assert_eq!(
+        row(&rows, ACTION).availability,
+        Availability::Unavailable {
+            reason: REASON.to_owned(),
+        }
     );
 }
 

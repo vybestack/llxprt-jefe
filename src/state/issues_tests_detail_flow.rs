@@ -13,10 +13,9 @@ use super::issues_test_fixtures::begin_issue_list_reload;
 use crate::state::transition::TransitionExt;
 
 fn dashboard_issues_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    }
+        let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state
 }
 
 /// Helper to create a test issue with the given number.
@@ -46,7 +45,7 @@ fn make_test_issue(number: u64) -> Issue {
 
 /// Helper: create a state already in issues mode with a selected repository.
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -112,11 +111,9 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 }
 
 fn state_with_repo_and_agent() -> AppState {
-    let mut state = AppState {
-        selected_repository_index: Some(0),
-        available_agent_type_ids: vec![crate::domain::shipped_agent_type(3)],
-        ..AppState::default()
-    };
+    let mut state = AppState::test_fixture();
+    state.selected_repository_index = Some(0);
+    state.available_agent_type_ids = vec![crate::domain::shipped_agent_type(3)];
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),
@@ -211,7 +208,7 @@ fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draf
         text: "title".to_string(),
         cursor: 5,
     };
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),
@@ -265,7 +262,7 @@ fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draf
 /// @requirement REQ-ISS-005
 #[test]
 fn test_exit_focus_restoration_valid() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Set up repo + 2 agents
     state.repositories.push(Repository::new(
@@ -313,7 +310,7 @@ fn test_exit_focus_restoration_valid() {
 /// @requirement REQ-ISS-005
 #[test]
 fn test_exit_focus_restoration_stale() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Set up repo + 1 agent
     state.repositories.push(Repository::new(
@@ -363,7 +360,7 @@ fn test_exit_focus_restoration_stale() {
 /// @requirement REQ-ISS-001
 #[test]
 fn test_scope_change_invalidation() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Set up two repositories
     state.repositories.push(Repository::new(
@@ -421,7 +418,7 @@ fn test_scope_change_invalidation() {
 /// @requirement REQ-ISS-013
 #[test]
 fn test_stale_scope_response_suppressed() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
@@ -480,7 +477,7 @@ fn test_stale_scope_response_suppressed() {
 /// @requirement REQ-ISS-013
 #[test]
 fn test_draft_discard_on_scope_change() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
@@ -686,7 +683,7 @@ fn test_send_to_agent_no_agents() {
 /// @requirement REQ-ISS-012
 #[test]
 fn test_issue_base_prompt_in_payload() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
 
     // Repository with issue_base_prompt set
     let mut repo = Repository::new(

@@ -314,19 +314,18 @@ mod tests {
     }
 
     fn filter_state() -> AppState {
-        AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-            issues_state: jefe::state::IssuesState {
-                active: true,
-                filter_ui: IssueFilterUiState {
-                    controls_open: true,
-                    field_index: 0,
-                    ..Default::default()
-                },
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+        state.issues_state = jefe::state::IssuesState {
+            active: true,
+            filter_ui: IssueFilterUiState {
+                controls_open: true,
+                field_index: 0,
                 ..Default::default()
             },
             ..Default::default()
-        }
+        };
+        state
     }
     fn issue(number: u64, assignees: &str, labels: &str) -> Issue {
         Issue {

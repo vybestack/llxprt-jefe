@@ -533,13 +533,18 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 vec![element! {
                     Box(height: 1u32, width: 100pct) {
                         KeybindBar(
-                            screen: state.map_or(ScreenId::PullRequests, |s| {
-                                s.compiled_screen().unwrap_or(ScreenId::PullRequests)
-                            }),
-                action_registry_snapshot: state.and_then(|state| state.action_registry_snapshot.clone()),
-                            terminal_focused: state.is_some_and(|s| s.terminal_focused),
-                            actions_focus: None,
-                            mode_override: footer_mode,
+                            hints: state
+                                .unwrap_or_else(|| panic!("screen render requires AppState"))
+                                .footer_hints(crate::action_projection::FooterProjectionInput {
+                                    screen: state.map_or(ScreenId::PullRequests, |s| {
+                                        s.compiled_screen().unwrap_or(ScreenId::PullRequests)
+                                    }),
+                                    terminal_focused: state.is_some_and(|s| s.terminal_focused),
+                                    shell_overlay_active: false,
+                                    shell_resume_available: false,
+                                    actions_focus: None,
+                                    mode_override: footer_mode,
+                                }),
                             identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                             colors: colors.clone(),
                         )

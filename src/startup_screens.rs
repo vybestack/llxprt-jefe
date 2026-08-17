@@ -12,8 +12,6 @@
 //! or disable the named file and restart — needs the diagnostic to say which
 //! file and which rule.
 
-use crate::persistence::diagnostic::Diagnostic;
-
 #[cfg(test)]
 #[path = "startup_screens_tests.rs"]
 mod startup_screens_tests;
@@ -25,7 +23,6 @@ use crate::workbench::compose::{
     CompositionRefused, ScreenComposition, compose_screens_with_packages,
 };
 use crate::workbench::screens::{RegistryError, builtin_screens};
-use crate::workbench::{RegistryAlreadyPublished, publish_screen_registry};
 
 /// Why startup could not publish a screen registry.
 #[derive(Debug)]
@@ -36,21 +33,18 @@ pub enum ScreenStartupError {
     Definitions(DefinitionsUnreadable),
     /// An enabled definition was unusable, so the candidate was refused.
     Refused(Box<CompositionRefused>),
-    /// A registry was already published, which is an ordering mistake here.
-    AlreadyPublished(RegistryAlreadyPublished),
 }
 
 impl ScreenStartupError {
     /// The process exit code this failure should produce.
     ///
-    /// A malformed compiled table or a double publication is this program's
-    /// mistake, so it exits `EX_SOFTWARE`-adjacent `78` like the other
-    /// compiled-configuration failures. Anything traceable to a file on disk
-    /// exits `2`, matching every other configuration diagnostic.
+    /// A malformed compiled table is this program's mistake, so it exits
+    /// `EX_SOFTWARE`-adjacent `78`. Anything traceable to a file on disk exits
+    /// `2`, matching every other configuration diagnostic.
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
-            Self::Compiled(_) | Self::AlreadyPublished(_) => 78,
+            Self::Compiled(_) => 78,
             Self::Definitions(_) | Self::Refused(_) => 2,
         }
     }
@@ -62,7 +56,6 @@ impl std::fmt::Display for ScreenStartupError {
             Self::Compiled(error) => write!(formatter, "{error}"),
             Self::Definitions(error) => write!(formatter, "{error}"),
             Self::Refused(refusal) => write!(formatter, "{refusal}"),
-            Self::AlreadyPublished(error) => write!(formatter, "{error}"),
         }
     }
 }
@@ -73,7 +66,6 @@ impl std::error::Error for ScreenStartupError {
             Self::Compiled(error) => Some(error),
             Self::Definitions(error) => Some(error),
             Self::Refused(refusal) => Some(refusal.as_ref()),
-            Self::AlreadyPublished(error) => Some(error),
         }
     }
 }
@@ -96,23 +88,4 @@ pub fn compose(
     let candidates = discover(&paths.definitions).map_err(ScreenStartupError::Definitions)?;
     compose_screens_with_packages(&compiled, &candidates, packages, settings)
         .map_err(|refusal| ScreenStartupError::Refused(Box::new(refusal)))
-}
-
-/// Compose the registry and publish it as the program's authority.
-///
-/// Returns the warnings composition produced — one per preserved, omitted
-/// definition — so the caller can surface them without them being fatal.
-///
-/// # Errors
-///
-/// Returns [`ScreenStartupError`] for any composition failure, or when a
-/// registry was already published. Nothing is published in any of those cases.
-pub fn compose_and_publish(
-    paths: &ResolvedPaths,
-    packages: &[InstalledPackage],
-    settings: &PublishedSettings,
-) -> Result<Vec<Diagnostic>, ScreenStartupError> {
-    let composition = compose(paths, packages, settings)?;
-    publish_screen_registry(composition.registry).map_err(ScreenStartupError::AlreadyPublished)?;
-    Ok(composition.warnings)
 }

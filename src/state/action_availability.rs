@@ -1,8 +1,9 @@
 //! Deterministic action-availability reduction and publication.
 //!
-//! Current capability predicates are evaluated once into a complete closed
-//! effect request. Only an exact correlated completion may replace the one
-//! root-owned immutable registry snapshot.
+//! Current capability predicates are evaluated into a complete closed effect
+//! request. An exact correlated completion may replace only the runtime
+//! availability generation; the committed action graph and its static refusals
+//! remain immutable.
 
 use crate::domain::Id;
 use crate::domain::action_registry::{
@@ -28,13 +29,9 @@ impl AppState {
         reason: String,
     ) {
         self.provider_surface_action = action_id.filter(|action_id| {
-            self.action_registry_snapshot
-                .as_ref()
-                .is_some_and(|snapshot| {
-                    snapshot
-                        .provider_actions()
-                        .any(|action| action.id == *action_id)
-                })
+            self.action_registry()
+                .provider_actions()
+                .any(|action| action.id == *action_id)
         });
         match self.compiled_screen() {
             Some(super::ScreenId::Issues) => self.issues_state.draft_notice = Some(reason.clone()),
@@ -57,11 +54,8 @@ impl AppState {
     }
 
     pub(super) fn stage_action_availability_projection(&mut self) {
-        let Some(snapshot) = self.action_registry_snapshot.as_ref() else {
-            return;
-        };
-        let entries = availability_entries(self, snapshot.actions());
-        if authoritative_entries_match(snapshot, &entries) {
+        let entries = availability_entries(self, self.action_registry().actions());
+        if authoritative_entries_match(self, &entries) {
             return;
         }
         let Ok(owner) = Id::parse(ACTION_AVAILABILITY_OWNER) else {
@@ -83,26 +77,31 @@ impl AppState {
         correlation: Correlation,
         entries: Vec<ActionAvailability>,
     ) {
-        let Some(snapshot) = self.action_registry_snapshot.as_ref() else {
-            return;
-        };
         let generation = AvailabilityGeneration::new(correlation, entries);
-        match snapshot.publish_availability(generation) {
-            Ok(published) => self.action_registry_snapshot = Some(published),
+        match self
+            .action_registry()
+            .validate_availability_generation(&generation)
+        {
+            Ok(()) => self.action_availability = Some(generation),
             Err(error) => self.error_message = Some(error.to_string()),
         }
     }
 }
 
-fn authoritative_entries_match(
-    snapshot: &crate::domain::action_registry::ActionRegistrySnapshot,
-    entries: &[ActionAvailability],
-) -> bool {
-    let correlation = snapshot.availability_correlation();
+fn authoritative_entries_match(state: &AppState, entries: &[ActionAvailability]) -> bool {
+    let (correlation, authoritative) = state.action_availability.as_ref().map_or_else(
+        || {
+            (
+                state.action_registry().availability_correlation(),
+                state.action_registry().availability_entries(),
+            )
+        },
+        |generation| (generation.correlation(), generation.entries()),
+    );
     correlation.owner.as_str() == ACTION_AVAILABILITY_OWNER
         && correlation.semantic_key.family() == EffectFamily::Provider
         && correlation.semantic_key.subject() == ACTION_AVAILABILITY_SUBJECT
-        && snapshot.availability_entries() == entries
+        && authoritative == entries
 }
 
 fn availability_entries(
@@ -138,9 +137,8 @@ fn action_availability(
             };
         }
         return state
-            .action_registry_snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.availability_of(&action.id))
+            .action_registry()
+            .availability_of(&action.id)
             .cloned()
             .unwrap_or(Availability::Available);
     }
@@ -250,22 +248,12 @@ mod tests {
     use crate::state::transition::TransitionExt;
 
     fn state_with_snapshot() -> AppState {
-        let result = crate::persistence::keymap_edit::compose_published(
-            &crate::persistence::settings_document::PublishedSettings::default(),
-            "test",
-        );
-        let Ok(composed) = result else {
-            panic!("test snapshot must compose: {result:?}");
-        };
-        AppState {
-            action_registry_snapshot: Some(composed.snapshot().clone()),
-            ..AppState::default()
-        }
+        AppState::test_fixture()
     }
 
     #[test]
     fn list_send_requires_a_selected_issue_or_pull_request() {
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
         state.issues_state.issue_focus = crate::state::IssueFocus::IssueList;
         assert_eq!(
@@ -287,11 +275,7 @@ mod tests {
         let mut state = state_with_snapshot();
         state.prs_state.pr_focus = PrFocus::PrDetail;
         state.prs_state.pr_detail = None;
-        let actions = state
-            .action_registry_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.actions().to_vec())
-            .unwrap_or_default();
+        let actions = state.action_registry().actions().to_vec();
         let entries = availability_entries(&state, &actions);
         let reason_for = |id: &str| {
             entries
@@ -372,11 +356,7 @@ mod tests {
             "fixture precondition: the compatible list is still unpopulated"
         );
 
-        let actions = state
-            .action_registry_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.actions().to_vec())
-            .unwrap_or_default();
+        let actions = state.action_registry().actions().to_vec();
         let entries = availability_entries(&state, &actions);
         let send_agent = entries
             .iter()
@@ -407,7 +387,7 @@ mod tests {
         else {
             panic!("availability must use the closed provider variant");
         };
-        let baseline = transition.next_state.action_registry_snapshot.clone();
+        let baseline = transition.next_state.action_registry().clone();
         let issued_correlation = issued.correlation.clone();
         let mut stale_values = Vec::new();
         let mut mismatch = issued_correlation.clone();
@@ -436,7 +416,7 @@ mod tests {
             state = state
                 .apply_message(AppMessage::EffectCompletion(Box::new(completion)))
                 .committed_pure();
-            assert_eq!(state.action_registry_snapshot, baseline);
+            assert_eq!(state.action_registry(), &baseline);
             assert_eq!(state.pending_effects.len(), 1);
         }
     }

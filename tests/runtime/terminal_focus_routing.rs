@@ -14,7 +14,7 @@ use jefe::domain::agent_definition::{AgentLaunchPlan, RemoteTarget, Target};
 use jefe::domain::{Agent, AgentId, RepositoryId};
 use jefe::runtime::{AuthorizedLaunchPlan, RuntimeError, RuntimeManager, StubRuntimeManager};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, PaneFocus};
+use jefe::state::{AppEvent, PaneFocus};
 
 fn make_agent(id: &str, repo_id: &str) -> Agent {
     Agent::new(
@@ -48,7 +48,7 @@ fn make_signature(agent: &Agent) -> AuthorizedLaunchPlan {
 
 #[test]
 fn terminal_unfocused_by_default() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
     assert!(
         !state.terminal_focused,
         "terminal should be unfocused by default"
@@ -57,7 +57,7 @@ fn terminal_unfocused_by_default() {
 
 #[test]
 fn toggle_terminal_focus_enables_focus() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
     let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(
         state.terminal_focused,
@@ -67,7 +67,7 @@ fn toggle_terminal_focus_enables_focus() {
 
 #[test]
 fn toggle_terminal_focus_twice_disables_focus() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
     let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     let state = state.apply(AppEvent::ToggleTerminalFocus).committed_pure();
     assert!(
@@ -156,7 +156,7 @@ fn resize_succeeds_with_attached_viewer() {
 
 #[test]
 fn pane_focus_can_reach_terminal() {
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 
     let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();
@@ -172,7 +172,7 @@ fn pane_focus_can_reach_terminal() {
 #[test]
 fn terminal_focus_is_independent_of_pane_focus() {
     // terminal_focused flag is separate from pane_focus
-    let state = AppState::default();
+    let state = crate::common_app_state::app_state();
 
     // Cycle to Terminal pane
     let state = state.apply(AppEvent::CyclePaneFocus).committed_pure();

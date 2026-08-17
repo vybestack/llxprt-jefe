@@ -333,12 +333,10 @@ mod tests {
 
     #[test]
     fn confirm_modal_delete_repo_exact_layout_without_checkbox() {
-        let mut state = AppState {
-            modal: ModalState::ConfirmDeleteRepository {
-                id: RepositoryId("r1".to_string()),
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::ConfirmDeleteRepository {
+            id: RepositoryId("r1".to_string()),
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         state.repositories.push(Repository::new(
             RepositoryId("r1".to_string()),
@@ -366,12 +364,10 @@ mod tests {
     fn confirm_modal_kill_agent_exact_layout() {
         let repo_id = RepositoryId("r1".to_string());
         let agent_id = AgentId("a1".to_string());
-        let mut state = AppState {
-            modal: ModalState::ConfirmKillAgent {
-                id: agent_id.clone(),
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::ConfirmKillAgent {
+            id: agent_id.clone(),
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         state.repositories.push(Repository::new(
             repo_id.clone(),
@@ -406,12 +402,10 @@ mod tests {
 
     #[test]
     fn confirm_modal_focus_rendered_as_cancel_default() {
-        let mut state = AppState {
-            modal: ModalState::ConfirmDeleteRepository {
-                id: RepositoryId("r1".to_string()),
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::ConfirmDeleteRepository {
+            id: RepositoryId("r1".to_string()),
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         state.repositories.push(Repository::new(
             RepositoryId("r1".to_string()),
@@ -431,12 +425,10 @@ mod tests {
 
     #[test]
     fn confirm_modal_focus_rendered_as_confirm() {
-        let mut state = AppState {
-            modal: ModalState::ConfirmDeleteRepository {
-                id: RepositoryId("r1".to_string()),
-                confirm_focus: crate::state::ConfirmFocus::Confirm,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::ConfirmDeleteRepository {
+            id: RepositoryId("r1".to_string()),
+            confirm_focus: crate::state::ConfirmFocus::Confirm,
         };
         state.repositories.push(Repository::new(
             RepositoryId("r1".to_string()),
@@ -458,16 +450,14 @@ mod tests {
     fn confirm_modal_preflight_prompt_has_content() {
         use crate::runtime::PreflightIssue;
         let signature = launch_configuration();
-        let state = AppState {
-            modal: ModalState::PreflightPrompt {
-                agent_id: AgentId("a1".to_string()),
-                signature,
-                issue: PreflightIssue::SshAgentNoIdentities,
-                remaining_issues: Vec::new(),
-                issue_self_assignment: None,
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::PreflightPrompt {
+            agent_id: AgentId("a1".to_string()),
+            signature,
+            issue: PreflightIssue::SshAgentNoIdentities,
+            remaining_issues: Vec::new(),
+            issue_self_assignment: None,
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         let content = confirm_modal_lines(&state);
         assert!(
@@ -489,15 +479,13 @@ mod tests {
             issue_number: 42,
             ..Default::default()
         };
-        let state = AppState {
-            modal: ModalState::ConfirmIssueDirtyCopy {
-                agent_id: AgentId("a1".to_string()),
-                work_dir: std::path::PathBuf::from("/tmp"),
-                signature,
-                payload,
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::ConfirmIssueDirtyCopy {
+            agent_id: AgentId("a1".to_string()),
+            work_dir: std::path::PathBuf::from("/tmp"),
+            signature,
+            payload,
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         let content = confirm_modal_lines(&state);
         assert!(!content.lines.is_empty());
@@ -531,17 +519,15 @@ mod tests {
             issue_number: 42,
             ..Default::default()
         };
-        let state = AppState {
-            modal: ModalState::ConfirmIssueOriginMismatch {
-                agent_id: AgentId("a1".to_string()),
-                work_dir: std::path::PathBuf::from("/tmp"),
-                signature,
-                payload,
-                actual: "other/repo".to_string(),
-                expected: "acme/widgets".to_string(),
-                confirm_focus: crate::state::ConfirmFocus::Cancel,
-            },
-            ..Default::default()
+        let mut state = AppState::test_fixture();
+        state.modal = ModalState::ConfirmIssueOriginMismatch {
+            agent_id: AgentId("a1".to_string()),
+            work_dir: std::path::PathBuf::from("/tmp"),
+            signature,
+            payload,
+            actual: "other/repo".to_string(),
+            expected: "acme/widgets".to_string(),
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         let content = confirm_modal_lines(&state);
         assert!(!content.lines.is_empty());
@@ -559,36 +545,34 @@ mod tests {
     #[test]
     fn agent_chooser_empty_has_two_line_empty_state() {
         use crate::domain::{AgentChooserEntry, ChooserRuntimeConfig, DirtyStatus};
-        let state = AppState {
-            issues_state: crate::state::IssuesState {
-                agent_chooser: Some(crate::state::AgentChooserState {
-                    selected_index: 0,
-                    transient_available: false,
-                    agents: vec![
-                        AgentChooserEntry {
-                            agent_id: AgentId("a1".to_string()),
-                            name: "alpha".to_string(),
-                            type_id: crate::domain::shipped_agent_type(3),
-                            type_display_name: "LLxprt".to_owned(),
-                            runtime_config_name: "profile".to_owned(),
-                            runtime_config: ChooserRuntimeConfig::new("ops"),
-                            branch: None,
-                            dirty: DirtyStatus::unknown(),
-                        },
-                        AgentChooserEntry {
-                            agent_id: AgentId("a2".to_string()),
-                            name: "beta".to_string(),
-                            type_id: crate::domain::shipped_agent_type(1),
-                            type_display_name: "Code Puppy".to_owned(),
-                            runtime_config_name: "model".to_owned(),
-                            runtime_config: ChooserRuntimeConfig::new("minimax-m3"),
-                            branch: Some("feature".to_string()),
-                            dirty: DirtyStatus::dirty(),
-                        },
-                    ],
-                }),
-                ..Default::default()
-            },
+        let mut state = AppState::test_fixture();
+        state.issues_state = crate::state::IssuesState {
+            agent_chooser: Some(crate::state::AgentChooserState {
+                selected_index: 0,
+                transient_available: false,
+                agents: vec![
+                    AgentChooserEntry {
+                        agent_id: AgentId("a1".to_string()),
+                        name: "alpha".to_string(),
+                        type_id: crate::domain::shipped_agent_type(3),
+                        type_display_name: "LLxprt".to_owned(),
+                        runtime_config_name: "profile".to_owned(),
+                        runtime_config: ChooserRuntimeConfig::new("ops"),
+                        branch: None,
+                        dirty: DirtyStatus::unknown(),
+                    },
+                    AgentChooserEntry {
+                        agent_id: AgentId("a2".to_string()),
+                        name: "beta".to_string(),
+                        type_id: crate::domain::shipped_agent_type(1),
+                        type_display_name: "Code Puppy".to_owned(),
+                        runtime_config_name: "model".to_owned(),
+                        runtime_config: ChooserRuntimeConfig::new("minimax-m3"),
+                        branch: Some("feature".to_string()),
+                        dirty: DirtyStatus::dirty(),
+                    },
+                ],
+            }),
             ..Default::default()
         };
         let content = agent_chooser_lines(&state);
@@ -611,37 +595,35 @@ mod tests {
     #[test]
     fn agent_chooser_default_and_clean_render() {
         use crate::domain::{AgentChooserEntry, ChooserRuntimeConfig, DirtyStatus};
-        let state = AppState {
-            nav: crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues),
-            issues_state: crate::state::IssuesState {
-                agent_chooser: Some(crate::state::AgentChooserState {
-                    selected_index: 0,
-                    transient_available: false,
-                    agents: vec![
-                        AgentChooserEntry {
-                            agent_id: AgentId("d1".to_string()),
-                            name: "delta".to_string(),
-                            type_id: crate::domain::shipped_agent_type(3),
-                            type_display_name: "LLxprt".to_owned(),
-                            runtime_config_name: "profile".to_owned(),
-                            runtime_config: ChooserRuntimeConfig::default(),
-                            branch: None,
-                            dirty: DirtyStatus::clean(),
-                        },
-                        AgentChooserEntry {
-                            agent_id: AgentId("d2".to_string()),
-                            name: "epsilon".to_string(),
-                            type_id: crate::domain::shipped_agent_type(1),
-                            type_display_name: "Code Puppy".to_owned(),
-                            runtime_config_name: "model".to_owned(),
-                            runtime_config: ChooserRuntimeConfig::default(),
-                            branch: None,
-                            dirty: DirtyStatus::clean(),
-                        },
-                    ],
-                }),
-                ..Default::default()
-            },
+        let mut state = AppState::test_fixture();
+        state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
+        state.issues_state = crate::state::IssuesState {
+            agent_chooser: Some(crate::state::AgentChooserState {
+                selected_index: 0,
+                transient_available: false,
+                agents: vec![
+                    AgentChooserEntry {
+                        agent_id: AgentId("d1".to_string()),
+                        name: "delta".to_string(),
+                        type_id: crate::domain::shipped_agent_type(3),
+                        type_display_name: "LLxprt".to_owned(),
+                        runtime_config_name: "profile".to_owned(),
+                        runtime_config: ChooserRuntimeConfig::default(),
+                        branch: None,
+                        dirty: DirtyStatus::clean(),
+                    },
+                    AgentChooserEntry {
+                        agent_id: AgentId("d2".to_string()),
+                        name: "epsilon".to_string(),
+                        type_id: crate::domain::shipped_agent_type(1),
+                        type_display_name: "Code Puppy".to_owned(),
+                        runtime_config_name: "model".to_owned(),
+                        runtime_config: ChooserRuntimeConfig::default(),
+                        branch: None,
+                        dirty: DirtyStatus::clean(),
+                    },
+                ],
+            }),
             ..Default::default()
         };
         let content = agent_chooser_lines(&state);
@@ -667,7 +649,7 @@ mod tests {
     fn confirm_modal_renders_all_variants() {
         use crate::ui::orchestration::derive_confirm_modal_data;
 
-        let state = AppState::default();
+        let state = AppState::test_fixture();
         for modal in overlay_confirm_modal_samples() {
             assert!(
                 derive_confirm_modal_data(&state, &modal).is_some(),
@@ -750,7 +732,7 @@ mod tests {
     fn property_editor_lines_include_header_and_options() {
         use crate::domain::{IssueDetail, IssueState};
         use crate::state::{IssuePropertyEditorState, IssuePropertyKind, PropertyOption};
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.issues_state.issue_detail = Some(IssueDetail {
             repo_owner_name: "o/r".to_string(),
             number: 42,
@@ -805,7 +787,7 @@ mod tests {
 
     #[test]
     fn property_editor_lines_empty_when_no_editor() {
-        let state = AppState::default();
+        let state = AppState::test_fixture();
         let content = property_editor_lines(&state);
         assert!(
             content.lines.is_empty(),
@@ -816,7 +798,7 @@ mod tests {
     #[test]
     fn property_editor_lines_pr_state() {
         use crate::state::{PrPropertyEditorState, PrPropertyKind, PropertyOption};
-        let mut state = AppState::default();
+        let mut state = AppState::test_fixture();
         state.prs_state.pr_detail = Some(test_pr_detail_for_prop_editor(7));
         state.prs_state.property_editor = Some(PrPropertyEditorState {
             kind: PrPropertyKind::State,

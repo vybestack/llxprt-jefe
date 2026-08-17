@@ -5,10 +5,9 @@ use crate::state::transition::TransitionExt;
 use crate::state::types::{IssueFocus, PaneFocus, ScreenId};
 
 fn dashboard_issues_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        ..AppState::default()
-    }
+        let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state
 }
 
 /// Helper to create a test issue with the given number.

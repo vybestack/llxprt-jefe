@@ -29,77 +29,72 @@ fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 // ─── State construction helpers ─────────────────────────────────────────
 
 fn issues_base_state() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueList,
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueList,
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn issues_state_with_focus(focus: IssueFocus) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: focus,
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: focus,
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn issues_state_with_inline(inline: InlineState) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueList,
-            inline_state: inline,
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueList,
+        inline_state: inline,
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn issues_state_with_chooser() -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueList,
-            agent_chooser: Some(AgentChooserState {
-                selected_index: 0,
-                agents: vec![AgentChooserEntry::new(
-                    AgentId(String::from("a1")),
-                    String::from("Agent 1"),
-                    jefe::domain::shipped_agent_type(3),
-                    "LLxprt".to_owned(),
-                    "profile".to_owned(),
-                    jefe::domain::ChooserRuntimeConfig::default(),
-                )],
-                transient_available: false,
-            }),
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueList,
+        agent_chooser: Some(AgentChooserState {
+            selected_index: 0,
+            agents: vec![AgentChooserEntry::new(
+                AgentId(String::from("a1")),
+                String::from("Agent 1"),
+                jefe::domain::shipped_agent_type(3),
+                "LLxprt".to_owned(),
+                "profile".to_owned(),
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
+            transient_available: false,
+        }),
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn issues_state_with_detail_subfocus(subfocus: DetailSubfocus) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            detail_subfocus: subfocus,
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        detail_subfocus: subfocus,
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn add_agent(state: &mut AppState) {

@@ -15,16 +15,15 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn issues_state_with_detail_subfocus(subfocus: DetailSubfocus) -> AppState {
-    AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state: IssuesState {
-            active: true,
-            issue_focus: IssueFocus::IssueDetail,
-            detail_subfocus: subfocus,
-            ..IssuesState::default()
-        },
-        ..AppState::default()
-    }
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = IssuesState {
+        active: true,
+        issue_focus: IssueFocus::IssueDetail,
+        detail_subfocus: subfocus,
+        ..IssuesState::default()
+    };
+    state
 }
 
 fn issues_detail_body_state() -> AppState {

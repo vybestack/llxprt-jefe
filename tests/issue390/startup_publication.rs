@@ -11,8 +11,7 @@ use std::path::Path;
 
 use jefe::domain::action_registry::{ActionId, Availability};
 use jefe::domain::plugin::HostTriple;
-use jefe::runtime::provider::Containment;
-use jefe::startup_providers::{ProviderPublicationRequest, publish_providers};
+use jefe::startup_commit::{StartupCommit, commit_startup};
 
 fn manifest(id: &str, triple: &str) -> String {
     format!(
@@ -65,14 +64,8 @@ fn stage(root: &Path, id: &str, triple: &str, trusted: bool) {
         .unwrap_or_else(|e| panic!("write settings: {e}"));
 }
 
-fn containment(base: &Path) -> Containment {
-    Containment {
-        home: base.join("home"),
-        tmpdir: base.join("tmp"),
-        working_dir: base.join("work"),
-        locale: "C".to_owned(),
-        host_api: "test".to_owned(),
-    }
+fn publish(startup: &mut jefe::startup::StartupPersistence) -> StartupCommit {
+    commit_startup(startup).unwrap_or_else(|error| panic!("startup commit must succeed: {error}"))
 }
 
 fn action(value: &str) -> ActionId {
@@ -98,34 +91,29 @@ fn a_trusted_package_publishes_its_action_into_the_session_registry() {
         true,
     );
 
-    let startup = match jefe::startup::build_persistence(Some(&config)) {
+    let mut startup = match jefe::startup::build_persistence(Some(&config)) {
         Ok(value) => value,
         Err(error) => panic!("startup must resolve: {error:?}"),
     };
+    let published = publish(&mut startup);
     assert_eq!(
-        startup.plugin_packages.len(),
+        published.workbench.inventory().packages().len(),
         1,
-        "the package must be scanned at the startup boundary"
+        "the committed aggregate must retain the startup inventory"
     );
-
-    let published = publish_providers(&ProviderPublicationRequest {
-        packages: &startup.plugin_packages,
-        settings: &startup.settings,
-        base_snapshot: &startup.keymap_snapshot,
-        containment: containment(temp.path()),
-    });
 
     assert_eq!(
         published
-            .snapshot
+            .workbench
+            .actions()
             .availability_of(&action("vendor.deploy.ship")),
         Some(&Availability::Available),
         "a trusted one-shot package must publish its action as available"
     );
     assert!(
         published
-            .coordinator
-            .catalog()
+            .workbench
+            .provider_catalog()
             .get(&action("vendor.deploy.ship"))
             .is_some(),
         "the published action must be invocable"
@@ -147,20 +135,16 @@ fn an_untrusted_package_publishes_nothing() {
         false,
     );
 
-    let startup = match jefe::startup::build_persistence(Some(&config)) {
+    let mut startup = match jefe::startup::build_persistence(Some(&config)) {
         Ok(value) => value,
         Err(error) => panic!("startup must resolve: {error:?}"),
     };
-    let published = publish_providers(&ProviderPublicationRequest {
-        packages: &startup.plugin_packages,
-        settings: &startup.settings,
-        base_snapshot: &startup.keymap_snapshot,
-        containment: containment(temp.path()),
-    });
+    let published = publish(&mut startup);
 
     assert_eq!(
         published
-            .snapshot
+            .workbench
+            .actions()
             .availability_of(&action("vendor.deploy.ship")),
         None
     );
@@ -176,20 +160,16 @@ fn an_unsupported_package_publishes_the_reason_the_operator_will_read() {
     fs::create_dir_all(&config).unwrap_or_else(|e| panic!("config dir: {e}"));
     stage(&config, "vendor.alien", "powerpc64-unknown-linux-gnu", true);
 
-    let startup = match jefe::startup::build_persistence(Some(&config)) {
+    let mut startup = match jefe::startup::build_persistence(Some(&config)) {
         Ok(value) => value,
         Err(error) => panic!("startup must resolve: {error:?}"),
     };
-    let published = publish_providers(&ProviderPublicationRequest {
-        packages: &startup.plugin_packages,
-        settings: &startup.settings,
-        base_snapshot: &startup.keymap_snapshot,
-        containment: containment(temp.path()),
-    });
+    let published = publish(&mut startup);
 
     assert_eq!(
         published
-            .snapshot
+            .workbench
+            .actions()
             .availability_of(&action("vendor.alien.ship")),
         Some(&Availability::Unavailable {
             reason: format!("no binary for {}", HostTriple::current().as_str())
@@ -197,8 +177,8 @@ fn an_unsupported_package_publishes_the_reason_the_operator_will_read() {
     );
     assert!(
         published
-            .coordinator
-            .catalog()
+            .workbench
+            .provider_catalog()
             .get(&action("vendor.alien.ship"))
             .is_none(),
         "an unsupported action must never be invocable"
@@ -221,18 +201,13 @@ fn a_published_package_action_is_visible_in_the_help_the_operator_opens() {
         true,
     );
 
-    let startup = match jefe::startup::build_persistence(Some(&config)) {
+    let mut startup = match jefe::startup::build_persistence(Some(&config)) {
         Ok(value) => value,
         Err(error) => panic!("startup must resolve: {error:?}"),
     };
-    let published = publish_providers(&ProviderPublicationRequest {
-        packages: &startup.plugin_packages,
-        settings: &startup.settings,
-        base_snapshot: &startup.keymap_snapshot,
-        containment: containment(temp.path()),
-    });
+    let published = publish(&mut startup);
 
-    let help = jefe::ui::modals::help_content_lines(&published.snapshot);
+    let help = jefe::ui::modals::effective_help_content_lines(published.workbench.actions(), None);
 
     assert!(
         help.iter().any(|line| line == "Packages:"),
@@ -255,30 +230,24 @@ fn help_quotes_the_snapshot_reason_for_an_unsupported_package() {
     fs::create_dir_all(&config).unwrap_or_else(|e| panic!("config dir: {e}"));
     stage(&config, "vendor.alien", "powerpc64-unknown-linux-gnu", true);
 
-    let startup = match jefe::startup::build_persistence(Some(&config)) {
+    let mut startup = match jefe::startup::build_persistence(Some(&config)) {
         Ok(value) => value,
         Err(error) => panic!("startup must resolve: {error:?}"),
     };
-    let published = publish_providers(&ProviderPublicationRequest {
-        packages: &startup.plugin_packages,
-        settings: &startup.settings,
-        base_snapshot: &startup.keymap_snapshot,
-        containment: containment(temp.path()),
-    });
+    let published = publish(&mut startup);
 
     let expected = format!("no binary for {}", HostTriple::current().as_str());
-    let help = jefe::ui::modals::help_content_lines(&published.snapshot);
+    let help = jefe::ui::modals::effective_help_content_lines(published.workbench.actions(), None);
     assert!(
         help.iter().any(|line| line.contains(&expected)),
         "Help must quote the snapshot reason verbatim: {help:?}"
     );
 }
 
-/// A provider is spawned with `current_dir(working_dir)`, and `Command::spawn`
-/// fails outright if that directory does not exist. Containment directories
-/// must therefore exist by the time composition hands them to a supervisor.
+/// One-shot providers are invocation-only, so committing their declarations
+/// must not prepare process containment during startup.
 #[test]
-fn containment_directories_exist_before_any_provider_is_spawned() {
+fn one_shot_publication_creates_no_startup_containment() {
     let Ok(temp) = tempfile::tempdir() else {
         return;
     };
@@ -291,20 +260,14 @@ fn containment_directories_exist_before_any_provider_is_spawned() {
         true,
     );
 
-    let startup = match jefe::startup::build_persistence(Some(&config)) {
+    let mut startup = match jefe::startup::build_persistence(Some(&config)) {
         Ok(value) => value,
         Err(error) => panic!("startup must resolve: {error:?}"),
     };
-    let containment = containment(temp.path());
-    let published = publish_providers(&ProviderPublicationRequest {
-        packages: &startup.plugin_packages,
-        settings: &startup.settings,
-        base_snapshot: &startup.keymap_snapshot,
-        containment: containment.clone(),
-    });
+    let published = publish(&mut startup);
 
     let action = action("vendor.deploy.ship");
-    let Some(descriptor) = published.coordinator.catalog().get(&action) else {
+    let Some(descriptor) = published.workbench.provider_catalog().get(&action) else {
         panic!("the action must be published");
     };
     for (label, dir) in [
@@ -313,8 +276,8 @@ fn containment_directories_exist_before_any_provider_is_spawned() {
         ("tmpdir", &descriptor.tmpdir),
     ] {
         assert!(
-            dir.is_dir(),
-            "{label} {} must exist before spawn, or Command::spawn fails",
+            !dir.exists(),
+            "{label} {} must remain absent until one-shot invocation",
             dir.display()
         );
     }

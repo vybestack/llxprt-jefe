@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn workspace_page_capacity_uses_layout_bands_and_shared_geometry() {
-        let state = AppState::default();
+        let state = crate::test_app_state();
         assert_eq!(
             issues_page_item_count(&state, 120, 22),
             PageItemCount::new(3)
@@ -122,10 +122,8 @@ mod tests {
 
     #[test]
     fn split_page_capacity_uses_the_actual_sidebar_pane() {
-        let state = AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::Repositories),
-            ..AppState::default()
-        };
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
         let layout = jefe::layout::split_layout_for_render_size(100, 25);
         let expected = ListGeometry::bordered_padded(RowsPerItem::new(1))
             .page_item_count(PaneRows::new(usize::from(layout.sidebar_rows)));
@@ -140,7 +138,7 @@ mod tests {
 
     #[test]
     fn split_page_capacity_saturates_with_tiny_terminal() {
-        let state = AppState::default();
+        let state = crate::test_app_state();
         let layout = jefe::layout::split_layout_for_render_size(2, 6);
         let expected = ListGeometry::bordered_padded(RowsPerItem::new(1))
             .page_item_count(PaneRows::new(usize::from(layout.sidebar_rows)));
@@ -155,7 +153,7 @@ mod tests {
 
     #[test]
     fn all_page_capacities_use_effective_render_size() {
-        let state = AppState::default();
+        let state = crate::test_app_state();
         let raw = (102, 27);
         let effective = effective_render_size(raw.0, raw.1);
 

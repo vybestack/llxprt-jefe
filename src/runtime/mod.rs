@@ -55,6 +55,8 @@ pub mod launch_gates;
 mod liveness;
 /// Jefe-managed install cache for selector-backed LLxprt launches (issue #425).
 mod manager;
+/// First-frame PTY geometry commitment for pending production runtimes (#704).
+mod manager_geometry;
 /// Pane/worker/server identity accessors, split out of `manager.rs` (issue #543).
 mod manager_identity;
 mod manager_liveness;

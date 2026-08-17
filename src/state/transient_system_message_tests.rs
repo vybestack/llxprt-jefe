@@ -10,7 +10,7 @@ use crate::state::transition::TransitionExt;
 use std::path::PathBuf;
 
 fn state_with_repo() -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_owned()),
         crate::domain::shipped_agent_type(3),

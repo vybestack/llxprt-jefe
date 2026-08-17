@@ -47,7 +47,7 @@
         let panel_type =
             Id::parse("vendor.panel.list").unwrap_or_else(|error| panic!("panel type: {error}"));
         let panel_id = PanelId::from_static("main");
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let allowed_events = [
             EventDeclaration {
                 kind: EventKind::Selected,
@@ -397,7 +397,7 @@
             BodyKind::Form,
             vec![affordance("submit", "vendor.submit", true)],
         );
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let panel = declare_and_accept(
             &mut state,
             (&owner, &panel_type),
@@ -510,7 +510,7 @@
 
     #[test]
     fn mouse_target_without_provider_instance_is_not_consumed() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         let prior_focus = state.nav.current().panel_focus;
 
         let (consumed, staged) = apply_mouse_target(
@@ -630,7 +630,7 @@
         let owner = id("vendor.panel");
         let panel_type = id("vendor.panel.operation");
 
-        let mut retry_state = AppState::default();
+        let mut retry_state = crate::test_app_state();
         let retry_action = action_id("vendor.retry");
         let retry_snapshot = snapshot_with_body(
             PanelInstanceId::from_u64(1),
@@ -653,7 +653,7 @@
         );
         assert_mouse_stages_one(&mut retry_state, retry_panel, PanelHitTarget::Retry);
 
-        let mut cancel_state = AppState::default();
+        let mut cancel_state = crate::test_app_state();
         let cancel_snapshot = snapshot_with_body(
             PanelInstanceId::from_u64(1),
             PanelBody::Progress(jefe::runtime::provider::protocol::ProgressBody {

@@ -11,7 +11,7 @@ use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState, IssueFocus};
 
 fn issues_state_with_list(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.issues_state.active = true;
     state.issues_state.list.replace_items(vec![
         make_issue(1, "I_1"),

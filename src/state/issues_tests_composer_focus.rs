@@ -14,7 +14,7 @@ use crate::state::types::{
 };
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),

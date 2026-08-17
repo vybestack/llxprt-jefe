@@ -21,6 +21,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::domain::{
@@ -43,6 +44,7 @@ struct ActiveRun {
 }
 
 static ACTIVE: Mutex<Option<ActiveRun>> = Mutex::new(None);
+static LAST_HEARTBEAT_UNIX: AtomicU64 = AtomicU64::new(0);
 
 /// Holds the current run open.
 ///
@@ -90,6 +92,7 @@ pub fn begin_run(marker_dir: &Path) -> (RunGuard, Vec<UncleanRun>) {
 
     let pid = std::process::id();
     let now = now_unix();
+    LAST_HEARTBEAT_UNIX.store(now, Ordering::Relaxed);
     let identity = capture_process_identity(pid).unwrap_or(ProcessIdentity {
         pid,
         started_at: None,
@@ -139,8 +142,18 @@ pub fn record_breadcrumb(operation: &str) {
 ///
 /// Without this the marker's `last_seen` would only ever be its start time,
 /// and an unclean shutdown could not say when the run was last known good.
+/// A heartbeat skips a refresh already in flight rather than queueing behind it;
+/// later ticks remain sufficient, while run retirement and breadcrumbs cannot be
+/// starved by redundant marker rewrites.
 pub fn heartbeat() {
-    refresh(None);
+    let now = now_unix();
+    if LAST_HEARTBEAT_UNIX.fetch_max(now, Ordering::Relaxed) >= now {
+        return;
+    }
+    let Ok(mut active) = ACTIVE.try_lock() else {
+        return;
+    };
+    refresh_active_at(&mut active, None, now);
 }
 
 /// Record that the host is tearing this run down, and retire the run.
@@ -192,11 +205,19 @@ fn refresh(breadcrumb: Option<&str>) {
     let Ok(mut active) = ACTIVE.lock() else {
         return;
     };
+    refresh_active(&mut active, breadcrumb);
+}
+
+fn refresh_active(active: &mut Option<ActiveRun>, breadcrumb: Option<&str>) {
+    refresh_active_at(active, breadcrumb, now_unix());
+}
+
+fn refresh_active_at(active: &mut Option<ActiveRun>, breadcrumb: Option<&str>, now: u64) {
     let Some(run) = active.as_mut() else {
         return;
     };
 
-    run.marker.last_seen_unix = now_unix();
+    run.marker.last_seen_unix = now;
     if let Some(operation) = breadcrumb {
         run.marker.breadcrumb = Some(operation.to_string());
     }

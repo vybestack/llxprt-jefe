@@ -267,10 +267,8 @@ fn agent_type_id_is_preserved_in_modal_state() {
     let type_id = llxprt_definition().id;
     let availability = compatible_llxprt();
     let observation = AgentAvailabilityObservation::new(&llxprt_definition(), true, availability);
-    let mut state = crate::state::AppState {
-        agent_type_availability: vec![observation],
-        ..crate::state::AppState::default()
-    };
+    let mut state = crate::state::AppState::test_fixture();
+    state.agent_type_availability = vec![observation];
     state = state
         .apply(crate::state::AppEvent::OpenAgentTypeForm(type_id.clone()))
         .committed_pure();

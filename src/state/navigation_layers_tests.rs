@@ -10,10 +10,9 @@ use crate::domain::RepositoryId;
 use crate::workbench::ScreenId;
 
 fn on(screen: ScreenId) -> AppState {
-    AppState {
-        nav: NavState::rooted(screen),
-        ..AppState::default()
-    }
+    let mut state = AppState::test_fixture();
+    state.nav = NavState::rooted(screen);
+    state
 }
 
 fn issues() -> AppState {

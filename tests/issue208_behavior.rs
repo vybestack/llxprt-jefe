@@ -1,5 +1,8 @@
 //! Behavioral coverage for issue 208 Actions run ordering across reloads and pagination.
 
+#[path = "common/app_state.rs"]
+mod common_app_state;
+
 use jefe::domain::{
     ListRequestId, PageToken, Repository, RepositoryId, WorkflowRun, WorkflowRunStatus,
 };
@@ -8,7 +11,7 @@ use jefe::state::transition::TransitionExt;
 use jefe::state::{ActionsListIdentity, AppState};
 
 fn create_test_state() -> AppState {
-    let mut state = AppState::default();
+    let mut state = crate::common_app_state::app_state();
     state.repositories.push(Repository::new(
         RepositoryId("test_repo".to_string()),
         jefe::domain::shipped_agent_type(3),
@@ -58,7 +61,7 @@ fn make_run_at(id: u64, created_at: &str) -> WorkflowRun {
 fn apply_reload(state: &mut AppState, runs: Vec<WorkflowRun>, has_more: bool) {
     start_reload(state, 1);
     let filter = state.actions_state.committed_filter.clone();
-    *state = std::mem::take(state)
+    *state = std::mem::replace(state, crate::common_app_state::app_state())
         .apply_message(AppMessage::Actions(ActionsMessage::RunsLoaded {
             scope_repo_id: RepositoryId("test_repo".to_string()),
             filter: Box::new(filter),
@@ -77,7 +80,7 @@ fn apply_page(state: &mut AppState, runs: Vec<WorkflowRun>) {
         .actions_state
         .list
         .begin_page(PageToken::PageNumber(2), request_id);
-    *state = std::mem::take(state)
+    *state = std::mem::replace(state, crate::common_app_state::app_state())
         .apply_message(AppMessage::Actions(ActionsMessage::RunsPageLoaded {
             scope_repo_id: RepositoryId("test_repo".to_string()),
             filter: Box::new(filter),

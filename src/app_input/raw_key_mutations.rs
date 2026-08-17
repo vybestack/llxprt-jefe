@@ -90,18 +90,16 @@ mod tests {
 
     #[test]
     fn inline_text_is_raw_but_submit_and_cancel_are_not() {
-        let state = AppState {
-            nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-            issues_state: IssuesState {
-                active: true,
-                inline_state: InlineState::Composer {
-                    target: jefe::state::ComposerTarget::NewComment,
-                    text: String::new(),
-                    cursor: 0,
-                },
-                ..IssuesState::default()
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+        state.issues_state = IssuesState {
+            active: true,
+            inline_state: InlineState::Composer {
+                target: jefe::state::ComposerTarget::NewComment,
+                text: String::new(),
+                cursor: 0,
             },
-            ..AppState::default()
+            ..IssuesState::default()
         };
         assert!(matches!(
             resolve(&state, &key(KeyCode::Char('x'))),
@@ -115,7 +113,7 @@ mod tests {
 
     #[test]
     fn form_cursor_and_text_are_raw_but_navigation_is_not() {
-        let mut state = AppState::default();
+        let mut state = crate::test_app_state();
         state.modal = ModalState::NewRepository {
             fields: jefe::state::RepositoryFormFields::default(),
             focus: jefe::state::RepositoryFormFocus::Name,

@@ -104,7 +104,7 @@ fn repository_focus_toggles_checkbox_for_expected_fields() {
 #[test]
 fn set_agent_runtime_binding_sets_session_and_signature() {
     let agent_id = AgentId(String::from("agent-1"));
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.agents.push(sample_agent(&agent_id));
 
     let signature = sample_launch_signature();
@@ -135,7 +135,7 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
 #[test]
 fn set_agent_runtime_binding_persists_each_identity_in_its_own_role() {
     let agent_id = AgentId(String::from("agent-pid"));
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.agents.push(sample_agent(&agent_id));
 
     // A Windows-shaped topology: the pane leader is the session host and the
@@ -213,7 +213,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         worker_identities: Vec::new(),
     });
 
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.agents.push(first);
     state.agents.push(second);
 
@@ -255,7 +255,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
         worker_identities: Vec::new(),
     });
 
-    let mut state = AppState::default();
+    let mut state = crate::test_app_state();
     state.agents.push(agent);
 
     mark_runtime_session_dead_if_present(&mut state, &agent_id);
@@ -345,11 +345,9 @@ fn state_with_active_prs() -> jefe::state::AppState {
     };
     prs_state.list.replace_items(vec![test_pr(1)]);
     prs_state.list.set_selected_index(Some(0));
-    let mut state = jefe::state::AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = prs_state;
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         jefe::domain::shipped_agent_type(3),
@@ -473,18 +471,16 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
     use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
     use jefe::state::{PullRequestsState, ReadOnlyHintKind, ScreenId};
 
-    let state = AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state: {
-            let mut ps = PullRequestsState {
-                active: true,
-                pr_focus: jefe::state::PrFocus::PrList,
-                ..PullRequestsState::default()
-            };
-            ps.list.set_selected_index(None);
-            ps
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = {
+        let mut ps = PullRequestsState {
+            active: true,
+            pr_focus: jefe::state::PrFocus::PrList,
+            ..PullRequestsState::default()
+        };
+        ps.list.set_selected_index(None);
+        ps
     };
 
     // Drive the `o` key through the REAL handler (the same path the UI uses).
@@ -571,11 +567,9 @@ fn state_for_pr_agent_chooser_confirm(
     };
     prs_state.list.replace_items(vec![test_pr(42)]);
     prs_state.list.set_selected_index(Some(0));
-    let mut state = jefe::state::AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::PullRequests),
-        prs_state,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.prs_state = prs_state;
     state.agents.push(agent);
     state.repositories.push(jefe::domain::Repository::new(
         RepositoryId(String::from("repo-1")),
@@ -813,11 +807,9 @@ fn state_for_issue_agent_chooser_send(
         ..jefe::state::IssuesState::default()
     };
 
-    let mut state = jefe::state::AppState {
-        nav: crate::state::navigation::NavState::rooted(ScreenId::Issues),
-        issues_state,
-        ..AppState::default()
-    };
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.issues_state = issues_state;
     state.agents.push(agent);
     state.repositories.push(jefe::domain::Repository::new(
         RepositoryId(String::from("repo-1")),
@@ -872,15 +864,13 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
 fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
     use jefe::input::input_mode_for_state;
 
-    let state = AppState {
-        modal: ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId(String::from("a1")),
-            work_dir: PathBuf::from("/tmp/x"),
-            signature: sample_signature(),
-            payload: jefe::github::SendPayload::default(),
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
+    let mut state = crate::test_app_state();
+    state.modal = ModalState::ConfirmIssueDirtyCopy {
+        agent_id: AgentId(String::from("a1")),
+        work_dir: PathBuf::from("/tmp/x"),
+        signature: sample_signature(),
+        payload: jefe::github::SendPayload::default(),
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     assert_eq!(

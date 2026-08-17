@@ -22,8 +22,8 @@
 mod screen_relationships_tests;
 
 use crate::workbench::{
-    PortValue, RelationshipState, ScreenId, SourceIntent, master_detail_edge, propagate,
-    screen_descriptor,
+    PortValue, RelationshipState, ScreenId, ScreenRegistry, SourceIntent, master_detail_edge,
+    propagate,
 };
 
 /// What the screen's declared master-detail relationship gives its detail input
@@ -34,13 +34,14 @@ use crate::workbench::{
 /// request that may be stale is always safe, while keeping one that no longer
 /// matches its selection is not.
 #[must_use]
-pub fn detail_target_for(screen: ScreenId, selection: &PortValue) -> Option<PortValue> {
-    let descriptor = match screen_descriptor(screen) {
-        Ok(descriptor) => descriptor,
-        Err(error) => {
-            tracing::error!(%screen, %error, "no compiled descriptor for the active screen");
-            return Some(PortValue::Absent);
-        }
+pub fn detail_target_for(
+    registry: &ScreenRegistry,
+    screen: ScreenId,
+    selection: &PortValue,
+) -> Option<PortValue> {
+    let Some(descriptor) = registry.get(screen) else {
+        tracing::error!(%screen, "no compiled descriptor for the active screen");
+        return Some(PortValue::Absent);
     };
     let (source, target) = master_detail_edge(descriptor)?;
     match propagate(
@@ -61,8 +62,8 @@ pub fn detail_target_for(screen: ScreenId, selection: &PortValue) -> Option<Port
 
 /// Whether the screen declares that its detail pane follows its list selection.
 #[must_use]
-pub fn couples_list_to_detail(screen: ScreenId) -> bool {
-    detail_target_for(screen, &PortValue::Absent).is_some()
+pub fn couples_list_to_detail(registry: &ScreenRegistry, screen: ScreenId) -> bool {
+    detail_target_for(registry, screen, &PortValue::Absent).is_some()
 }
 
 /// The value a list publishes for the subject it has selected.

@@ -36,7 +36,7 @@ fn merge_methods_loaded(state: AppState, allowed_methods: Vec<MergeMethod>) -> A
 
 /// Build an AppState with the given repo selected and seeded preferences.
 fn state_with_repo_and_prefs(repo_id: &str, prefs: RepoPreferences) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo_id.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -59,7 +59,7 @@ fn state_with_two_repos(
     repo2: &str,
     prefs2: RepoPreferences,
 ) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId(repo1.to_string()),
         crate::domain::shipped_agent_type(3),
@@ -111,7 +111,7 @@ fn enter_prs_mode_restores_remembered_pr_filter() {
 
 #[test]
 fn enter_prs_mode_defaults_to_open_when_no_prefs() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),
@@ -271,7 +271,7 @@ fn enter_issues_mode_restores_remembered_issue_filter() {
 
 #[test]
 fn enter_issues_mode_defaults_to_open() {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
         crate::domain::shipped_agent_type(3),

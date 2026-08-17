@@ -56,7 +56,7 @@ fn source(bytes: &[u8]) -> SettingsSource {
 
 /// A state with Settings open over `bytes`.
 fn opened(bytes: &[u8]) -> AppState {
-    let mut state = AppState::default();
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(source(bytes))));
     state
 }
@@ -181,8 +181,8 @@ fn screen_intent(state: &mut AppState, intent: ScreenIntent) {
     state.reduce_settings(SettingsMessage::Screen(Box::new(intent)));
 }
 
-fn registry() -> &'static crate::workbench::screens::ScreenRegistry {
-    crate::workbench::screen_registry()
+fn registry() -> crate::workbench::screens::ScreenRegistry {
+    crate::workbench::builtin_screens()
         .unwrap_or_else(|error| panic!("compiled screen table: {error}"))
 }
 
@@ -192,7 +192,7 @@ fn moving_a_screen_writes_one_order_array_holding_every_enabled_screen_once() {
         b"settings_schema = 2
 ",
     );
-    let rows = project_screens(registry(), &published(&state));
+    let rows = project_screens(&registry(), &published(&state));
     let first = rows[0].screen_id.as_str().to_owned();
     let second = rows[1].screen_id.as_str().to_owned();
 
@@ -236,7 +236,7 @@ fn moving_a_screen_before_the_leader_puts_it_at_the_head() {
         b"settings_schema = 2
 ",
     );
-    let rows = project_screens(registry(), &published(&state));
+    let rows = project_screens(&registry(), &published(&state));
     let first = rows[0].screen_id.as_str().to_owned();
     let last = rows[rows.len() - 1].screen_id.as_str().to_owned();
 
@@ -264,7 +264,7 @@ fn moving_a_screen_onto_itself_is_not_unsaved_work() {
         b"settings_schema = 2
 ",
     );
-    let rows = project_screens(registry(), &published(&state));
+    let rows = project_screens(&registry(), &published(&state));
     let only = rows[0].screen_id.as_str().to_owned();
 
     screen_intent(
@@ -284,7 +284,7 @@ fn moving_a_screen_that_is_not_enabled_says_so_and_changes_nothing() {
         b"settings_schema = 2
 ",
     );
-    let rows = project_screens(registry(), &published(&state));
+    let rows = project_screens(&registry(), &published(&state));
     let anchor = rows[0].screen_id.as_str().to_owned();
 
     screen_intent(
@@ -312,7 +312,7 @@ fn a_compiled_screen_cannot_be_turned_off_and_says_why() {
         b"settings_schema = 2
 ",
     );
-    let rows = project_screens(registry(), &published(&state));
+    let rows = project_screens(&registry(), &published(&state));
     let compiled = rows[0].screen_id.as_str().to_owned();
 
     screen_intent(
@@ -339,7 +339,8 @@ fn replacing_a_layout_writes_one_override_and_leaves_active_geometry_alone() {
 ",
     );
     let before = state.resolved_layout.clone();
-    let descriptor = registry()
+    let registry = registry();
+    let descriptor = registry
         .screens()
         .first()
         .unwrap_or_else(|| panic!("a compiled screen"));
@@ -369,7 +370,8 @@ fn replacing_a_layout_writes_one_override_and_leaves_active_geometry_alone() {
 
 #[test]
 fn resetting_a_layout_removes_the_whole_override() {
-    let descriptor = registry()
+    let registry = registry();
+    let descriptor = registry
         .screens()
         .first()
         .unwrap_or_else(|| panic!("a compiled screen"));
@@ -408,7 +410,8 @@ fn a_layout_override_the_validator_refuses_blocks_the_save_and_keeps_the_draft()
         b"settings_schema = 2
 ",
     );
-    let descriptor = registry()
+    let registry = registry();
+    let descriptor = registry
         .screens()
         .iter()
         .find(|screen| screen.panels.len() >= 2)
@@ -463,18 +466,11 @@ fn key_intent(state: &mut AppState, intent: KeyIntent) {
     state.reduce_settings(SettingsMessage::Key(Box::new(intent)));
 }
 
-/// A state with Settings open and the compiled action registry composed.
+/// A state with Settings open and the composed action registry committed.
 fn opened_with_keys(bytes: &[u8]) -> AppState {
-    let catalog = crate::config_owners::builtin_owner_catalog()
-        .unwrap_or_else(|error| panic!("owner catalog fixture: {error}"));
-    let loaded = crate::persistence::keymap_edit::load_bytes(Some(bytes), &catalog, "settings")
-        .unwrap_or_else(|diagnostics| panic!("keymap fixture: {diagnostics:?}"));
-    // The snapshot is in place before the screen opens, which is the order the
-    // boundary produces: composition happens at startup, Settings binds later.
-    let mut state = AppState {
-        action_registry_snapshot: Some(loaded.composed.snapshot().clone()),
-        ..AppState::default()
-    };
+    // Composition happened at startup (the state's published workbench), and
+    // Settings binds against it later — the fixture keeps that order.
+    let mut state = AppState::test_fixture();
     state.reduce_settings(SettingsMessage::Open(Box::new(source(bytes))));
     state
 }
@@ -485,7 +481,10 @@ fn focus_key_row(state: &mut AppState, action_id: &str) {
         crate::messages::settings::SettingsSection::Keys,
     ));
     state.settings_state.focus = crate::state::SettingsFocus::Detail;
-    let rows = crate::state::settings_view::detail_rows(&state.settings_state);
+    let rows = crate::state::settings_view::detail_rows(
+        &state.settings_state,
+        state.settings_projection_authority(),
+    );
     let index = rows
         .iter()
         .position(|row| match &row.kind {
@@ -628,12 +627,31 @@ fn a_protected_action_refuses_every_change_with_the_registrys_own_reason() {
 }
 
 #[test]
+fn key_edit_without_an_open_draft_is_refused_without_panicking() {
+    let mut state = AppState::test_fixture();
+
+    key_intent(
+        &mut state,
+        KeyIntent::Unbind {
+            context: context("global"),
+            action: action("core.open-settings"),
+        },
+    );
+
+    assert_eq!(
+        state.settings_state.notice.as_deref(),
+        Some("Settings key editing requires an open draft")
+    );
+    assert!(state.settings_state.capture.is_none());
+}
+
+#[test]
 fn a_key_edit_never_touches_the_active_action_registry() {
     let mut state = opened_with_keys(
         b"settings_schema = 2
 ",
     );
-    let before = state.action_registry_snapshot.clone();
+    let before = state.action_registry().clone();
 
     key_intent(
         &mut state,
@@ -644,7 +662,7 @@ fn a_key_edit_never_touches_the_active_action_registry() {
         },
     );
 
-    assert_eq!(state.action_registry_snapshot, before);
+    assert_eq!(state.action_registry(), &before);
 }
 
 #[test]
@@ -714,7 +732,7 @@ fn saving_an_agent_toggle_says_a_restart_is_needed() {
 #[test]
 fn a_refused_reorder_leaves_the_cursor_where_it_was() {
     let mut state = opened(b"settings_schema = 2\n");
-    let rows = project_screens(registry(), &published(&state));
+    let rows = project_screens(&registry(), &published(&state));
     let last = rows[rows.len() - 1].screen_id.as_str().to_owned();
     state.settings_state.section = crate::messages::settings::SettingsSection::Screens;
     state.settings_state.focus = super::settings_types::SettingsFocus::Detail;
@@ -732,7 +750,8 @@ fn a_refused_reorder_leaves_the_cursor_where_it_was() {
 
 #[test]
 fn opening_a_layout_the_grammar_cannot_read_says_so_rather_than_showing_another_tree() {
-    let descriptor = registry()
+    let registry = registry();
+    let descriptor = registry
         .screens()
         .first()
         .unwrap_or_else(|| panic!("a compiled screen"));

@@ -47,7 +47,7 @@ fn test_bare_enter_inserts_newline_not_submit() {
 ///
 /// The fixture is made explicit: `state.agents` is cleared and asserted
 /// empty so the "no agents available" precondition is not merely an
-/// accident of `AppState::default()`.
+/// accident of `crate::test_app_state()`.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @requirement REQ-ISS-011
@@ -56,7 +56,7 @@ fn test_bare_enter_inserts_newline_not_submit() {
 fn shift_s_no_global_agents_still_dispatches_open_agent_chooser() {
     let mut state = issues_state_with_focus(IssueFocus::IssueDetail);
     // Explicitly guarantee the "no global agents" precondition instead of
-    // relying on AppState::default() happening to produce an empty vec.
+    // relying on crate::test_app_state() happening to produce an empty vec.
     state.agents.clear();
     assert!(
         state.agents.is_empty(),

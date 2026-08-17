@@ -29,13 +29,14 @@ use std::sync::Arc;
 use iocraft::prelude::*;
 use tracing::error;
 
-use jefe::layout::{compute_pty_layout, is_fullscreen_enabled};
+use jefe::layout::is_fullscreen_enabled;
 use jefe::runtime::TmuxRuntimeManager;
 use jefe::theme::FileThemeManager;
 
 /// Shared application context passed to the root component.
 struct AppContext {
-    keymap_snapshot: Option<jefe::domain::action_registry::ActionRegistrySnapshot>,
+    /// The exact aggregate returned by the one successful startup commit.
+    workbench: Arc<jefe::published_workbench::PublishedWorkbench>,
     settings_expected_hash: jefe::persistence::writer::ExpectedHash,
     settings_revision: u64,
     /// Whether `--config` isolated this session from the default locations.
@@ -44,16 +45,6 @@ struct AppContext {
     /// first thing to check when an edit appears not to have taken effect.
     config_isolated: bool,
     persistence: jefe::persistence::FilePersistenceManager,
-    published_settings: jefe::persistence::settings_document::PublishedSettings,
-    plugin_configs: std::collections::BTreeMap<
-        jefe::domain::Id,
-        jefe::messages::settings::SelectedPluginConfig,
-    >,
-    installed_plugin_configs: std::collections::BTreeMap<
-        jefe::domain::Id,
-        Vec<jefe::messages::settings::SelectedPluginConfig>,
-    >,
-    plugin_packages: Vec<jefe::persistence::plugin_inventory::InstalledPackage>,
     provider_containment: jefe::runtime::provider::Containment,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
@@ -87,6 +78,108 @@ struct AppContext {
     /// path pushes staged provider effects here; the background `use_future`
     /// drains and executes them via `smol::unblock`.
     provider_effect_handle: jefe::services::provider_effect_worker::ProviderEffectHandle,
+}
+
+#[cfg(test)]
+fn test_app_state() -> jefe::state::AppState {
+    jefe::state::AppState::new(Arc::clone(test_published_workbench()))
+}
+
+#[cfg(test)]
+fn test_published_workbench() -> &'static Arc<jefe::published_workbench::PublishedWorkbench> {
+    use std::sync::OnceLock;
+
+    static WORKBENCH: OnceLock<Arc<jefe::published_workbench::PublishedWorkbench>> =
+        OnceLock::new();
+    WORKBENCH.get_or_init(|| {
+        use jefe::persistence::paths::{PathProvenance, ResolvedFile, ResolvedPaths};
+        use jefe::startup_candidate::{
+            WorkbenchCandidateRequest, build_workbench_candidate, scan_inventory,
+        };
+
+        let root =
+            std::env::temp_dir().join(format!("jefe-bin-test-workbench-{}", std::process::id()));
+        let file = |name: &str| ResolvedFile {
+            path: root.join(name),
+            provenance: PathProvenance::ConfigArgument,
+            sources: Vec::new(),
+        };
+        let paths = ResolvedPaths {
+            settings: file("settings.toml"),
+            state: file("state.json"),
+            definitions: root.join("definitions"),
+            plugins: root.join("plugins"),
+            themes: root.join("themes"),
+        };
+        let inventory = scan_inventory(&paths);
+        let settings = jefe::persistence::settings_document::PublishedSettings::default();
+        let candidate = build_workbench_candidate(&WorkbenchCandidateRequest {
+            paths: &paths,
+            inventory: &inventory,
+            settings: &settings,
+            host: jefe::domain::plugin::HostTriple::current(),
+            containment: jefe::runtime::provider::Containment {
+                home: root.join("provider-home"),
+                tmpdir: root.join("provider-tmp"),
+                working_dir: root.join("provider-work"),
+                locale: "C".to_owned(),
+                host_api: jefe::VERSION.to_owned(),
+            },
+        })
+        .unwrap_or_else(|error| panic!("compose binary-test workbench: {error}"));
+        Arc::new(candidate)
+    })
+}
+
+/// Test state bound to an explicit workbench composed from `settings` bytes,
+/// for tests that need a non-default keymap override active.
+#[cfg(test)]
+fn test_app_state_from_settings(settings: &[u8]) -> jefe::state::AppState {
+    use jefe::persistence::paths::{PathProvenance, ResolvedFile, ResolvedPaths};
+    use jefe::persistence::settings_document::SettingsDocument;
+    use jefe::startup_candidate::{
+        WorkbenchCandidateRequest, build_workbench_candidate, scan_inventory,
+    };
+
+    let root = std::env::temp_dir().join(format!(
+        "jefe-bin-test-workbench-override-{}-{}",
+        std::process::id(),
+        settings.len()
+    ));
+    let file = |name: &str| ResolvedFile {
+        path: root.join(name),
+        provenance: PathProvenance::ConfigArgument,
+        sources: Vec::new(),
+    };
+    let paths = ResolvedPaths {
+        settings: file("settings.toml"),
+        state: file("state.json"),
+        definitions: root.join("definitions"),
+        plugins: root.join("plugins"),
+        themes: root.join("themes"),
+    };
+    let inventory = scan_inventory(&paths);
+    let catalog = jefe::config_owners::builtin_owner_catalog()
+        .unwrap_or_else(|error| panic!("owner catalog fixture: {error}"));
+    let document = SettingsDocument::parse(settings)
+        .unwrap_or_else(|error| panic!("fixture settings must parse: {error:?}"))
+        .publish(&catalog)
+        .unwrap_or_else(|errors| panic!("fixture settings must publish: {errors:?}"));
+    let candidate = build_workbench_candidate(&WorkbenchCandidateRequest {
+        paths: &paths,
+        inventory: &inventory,
+        settings: &document,
+        host: jefe::domain::plugin::HostTriple::current(),
+        containment: jefe::runtime::provider::Containment {
+            home: root.join("provider-home"),
+            tmpdir: root.join("provider-tmp"),
+            working_dir: root.join("provider-work"),
+            locale: "C".to_owned(),
+            host_api: jefe::VERSION.to_owned(),
+        },
+    })
+    .unwrap_or_else(|error| panic!("compose fixture workbench: {error}"));
+    jefe::state::AppState::new(Arc::new(candidate))
 }
 
 /// Parse CLI arguments, handling early-exit flags (`--version`, `--help`).
@@ -267,17 +360,14 @@ fn dispatch_recovery_command(cli_args: &jefe::cli::CliArgs) -> bool {
     true
 }
 
-fn runtime_manager(rows: u16, cols: u16, state_path: &std::path::Path) -> TmuxRuntimeManager {
-    state_path.parent().map_or_else(
-        || TmuxRuntimeManager::new(rows, cols),
-        |parent| {
-            TmuxRuntimeManager::with_session_host_root(
-                rows,
-                cols,
+fn pending_runtime_manager(state_path: &std::path::Path) -> TmuxRuntimeManager {
+    state_path
+        .parent()
+        .map_or_else(TmuxRuntimeManager::pending, |parent| {
+            TmuxRuntimeManager::pending_with_session_host_root(
                 parent.join(jefe::runtime::SESSION_HOST_ROOT_SEGMENT),
             )
-        },
-    )
+        })
 }
 fn init_diagnostics() {
     jefe::logging::init();
@@ -291,7 +381,10 @@ fn init_diagnostics() {
 /// run-end record can name it (issue #662).
 fn run_app(context: Arc<std::sync::Mutex<AppContext>>) -> jefe::domain::RunEndReason {
     smol::block_on(async {
-        let mut app = element!(app_shell::App(context: Some(context)));
+        let mut app = iocraft::Element::<app_shell::App> {
+            key: iocraft::ElementKey::new(()),
+            props: app_shell::AppProps { context },
+        };
         if is_fullscreen_enabled() {
             if let Err(error) = app.fullscreen().await {
                 error!(%error, "fullscreen mode failed");
@@ -319,11 +412,11 @@ fn main() {
         run_doctor_and_exit(cli_args.config_dir.as_deref());
     }
 
-    let startup = build_startup_or_exit(cli_args.config_dir.as_deref());
-    // The screen registry is published before anything renders, so no renderer
-    // can observe it change underneath it.
-    publish_screen_registry_or_exit(&startup);
-    run_tui(cli_args, startup);
+    let mut startup = build_startup_or_exit(cli_args.config_dir.as_deref());
+    init_startup_diagnostics(cli_args.config_dir.as_deref());
+    let commit = commit_startup_or_exit(&mut startup, cli_args.config_dir.as_deref());
+    let startup = startup.into_runtime();
+    run_tui(cli_args, startup, commit);
 }
 
 /// Bring logging up once persistence has validated, and record what it opened.
@@ -340,81 +433,19 @@ fn init_startup_diagnostics(config_dir: Option<&std::path::Path>) {
     );
 }
 
-/// Build the agent runtime and the optional local JSP host it reports to.
+/// Build the pending agent runtime and the optional local JSP host it reports to.
 ///
-/// The PTY viewport is derived from the dashboard geometry here rather than by
-/// the caller, because the two are one decision: the runtime is sized for the
-/// pane it will draw into.
+/// This boundary intentionally supplies no PTY dimensions. The app shell commits
+/// initial geometry only after resolving the first screen frame.
 fn build_runtime(
     state_path: &std::path::Path,
 ) -> (Option<jefe::jsp_host::JspHostRuntime>, TmuxRuntimeManager) {
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let layout = compute_pty_layout(cols, rows);
     let jsp_host = start_jsp_host(state_path);
-    let mut runtime = runtime_manager(layout.pty_rows, layout.pty_cols, state_path);
+    let mut runtime = pending_runtime_manager(state_path);
     if let Some(host) = &jsp_host {
         runtime.install_jsp_launches(host.coordinator());
     }
     (jsp_host, runtime)
-}
-
-/// Start trusted package providers and fold their actions into the registry.
-///
-/// This is the one place a provider process can start (issue #390 CW-10), which
-/// is what keeps `jefe config` and recovery provider-free. A provider that
-/// cannot run never blocks startup: it publishes its actions as unavailable and
-/// the reason is written once, where the operator will see it.
-fn publish_providers_or_warn(
-    packages: &[jefe::persistence::plugin_inventory::InstalledPackage],
-    settings: &jefe::persistence::settings_document::PublishedSettings,
-    base_snapshot: &jefe::domain::action_registry::ActionRegistrySnapshot,
-    paths: &jefe::persistence::paths::ResolvedPaths,
-) -> (
-    jefe::domain::action_registry::ActionRegistrySnapshot,
-    Option<jefe::runtime::provider::ProviderCoordinator>,
-) {
-    let published = jefe::startup_providers::publish_providers(
-        &jefe::startup_providers::ProviderPublicationRequest {
-            packages,
-            settings,
-            base_snapshot,
-            containment: provider_containment(paths),
-        },
-    );
-    write_optional_diagnostic(published.startup_warning);
-    // Logged unconditionally: "my package action is not in the menu" is the
-    // first thing an operator hits, and the answer is almost always that the
-    // package is not trusted or has no binary for this host. Saying how many
-    // packages were seen, trusted and published turns that into one log line.
-    tracing::info!(
-        installed = packages.len(),
-        published = published.snapshot.provider_actions().count(),
-        runnable = published.coordinator.catalog().len(),
-        "composed package providers"
-    );
-    (published.snapshot, Some(published.coordinator))
-}
-
-/// Where every provider process is contained (issue #390 CW-10, row CW10-14).
-///
-/// A provider never sees the operator's real `HOME` or `TMPDIR`. It gets a
-/// per-host directory beside the state file so a package cannot read or write
-/// anything the host did not hand it, and a fixed `C` locale so its output does
-/// not change with the operator's environment.
-fn provider_containment(
-    paths: &jefe::persistence::paths::ResolvedPaths,
-) -> jefe::runtime::provider::Containment {
-    let root = paths.state.path.parent().map_or_else(
-        || std::path::PathBuf::from("providers"),
-        |parent| parent.join("providers"),
-    );
-    jefe::runtime::provider::Containment {
-        home: root.join("home"),
-        tmpdir: root.join("tmp"),
-        working_dir: root.join("work"),
-        locale: "C".to_owned(),
-        host_api: jefe::VERSION.to_owned(),
-    }
 }
 
 /// Start the local JSP host beside the state file.
@@ -435,68 +466,33 @@ fn start_jsp_host(state_path: &std::path::Path) -> Option<jefe::jsp_host::JspHos
     }
 }
 
-type PluginConfigCatalog =
-    std::collections::BTreeMap<jefe::domain::Id, jefe::messages::settings::SelectedPluginConfig>;
-type InstalledPluginConfigCatalog = std::collections::BTreeMap<
-    jefe::domain::Id,
-    Vec<jefe::messages::settings::SelectedPluginConfig>,
->;
-
-fn plugin_config_catalogs(
-    startup: &jefe::startup::StartupPersistence,
-) -> (PluginConfigCatalog, InstalledPluginConfigCatalog) {
-    let packages = &startup.plugin_packages;
-    let selected =
-        jefe::persistence::plugin_inventory::configured_packages(packages, &startup.settings)
-            .into_iter()
-            .filter_map(|package| {
-                package.manifest().config().map(|schema| {
-                    (
-                        package.coordinate().id().owner_id().clone(),
-                        jefe::messages::settings::SelectedPluginConfig {
-                            version: package.coordinate().version().clone(),
-                            schema: schema.clone(),
-                            can_migrate: package.manifest().provider().mode()
-                                != jefe::domain::plugin::ProviderMode::None,
-                        },
-                    )
-                })
-            })
-            .collect();
-    let mut installed = std::collections::BTreeMap::new();
-    for package in packages {
-        let Some(schema) = package.manifest().config() else {
-            continue;
-        };
-        installed
-            .entry(package.coordinate().id().owner_id().clone())
-            .or_insert_with(Vec::new)
-            .push(jefe::messages::settings::SelectedPluginConfig {
-                version: package.coordinate().version().clone(),
-                schema: schema.clone(),
-                can_migrate: package.manifest().provider().mode()
-                    != jefe::domain::plugin::ProviderMode::None,
-            });
+fn run_tui(
+    cli_args: jefe::cli::CliArgs,
+    startup: jefe::startup::StartupRuntime,
+    commit: jefe::startup_commit::StartupCommit,
+) {
+    let jefe::startup_commit::StartupCommit {
+        workbench,
+        providers,
+    } = commit;
+    for warning in workbench.screen_warnings() {
+        write_optional_diagnostic(Some(format!(
+            "{} {}: {}",
+            warning.code.as_str(),
+            warning.path.as_str(),
+            warning.redacted_detail
+        )));
     }
-    (selected, installed)
-}
-
-fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersistence) {
-    let (plugin_configs, installed_plugin_configs) = plugin_config_catalogs(&startup);
     let persist_paths = jefe::persistence::PersistencePaths {
         settings_path: startup.paths.settings.path.clone(),
         state_path: startup.paths.state.path.clone(),
     };
     let themes_dir = startup.paths.themes.clone();
     let keymap_diagnostic = startup.keymap_diagnostic_message();
-    let keymap_snapshot = startup.keymap_snapshot;
     let settings_expected_hash = startup.settings_expected_hash;
-    let published_settings = startup.settings;
-    let plugin_packages = startup.plugin_packages;
     let startup_paths = startup.paths;
     let persistence = startup.manager;
     write_optional_diagnostic(keymap_diagnostic);
-    init_startup_diagnostics(cli_args.config_dir.as_deref());
 
     // Claim the run boundary before anything else can fail: from here on the
     // run either records why it ended or leaves a marker saying it did not
@@ -518,24 +514,15 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
     let capture_handle = jefe::services::capture_worker::CaptureHandle::new();
     let provider_effect_handle =
         jefe::services::provider_effect_worker::ProviderEffectHandle::new();
-    let (keymap_snapshot, provider_coordinator) = publish_providers_or_warn(
-        &plugin_packages,
-        &published_settings,
-        &keymap_snapshot,
-        &startup_paths,
-    );
-    let migration_containment = provider_containment(&startup_paths);
+    let provider_coordinator = Some(providers);
+    let migration_containment = jefe::startup_commit::provider_containment(&startup_paths);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
-        keymap_snapshot: Some(keymap_snapshot),
+        workbench,
         settings_expected_hash,
         settings_revision: 0,
         config_isolated: cli_args.config_dir.is_some(),
         persistence,
-        published_settings,
-        plugin_configs,
-        installed_plugin_configs,
-        plugin_packages,
         provider_containment: migration_containment,
         theme_manager,
         runtime,
@@ -564,26 +551,33 @@ fn run_tui(cli_args: jefe::cli::CliArgs, startup: jefe::startup::StartupPersiste
 ///
 /// Warnings name definitions that were preserved on disk and left out of the
 /// registry, which is not a reason to refuse to start.
-fn publish_screen_registry_or_exit(startup: &jefe::startup::StartupPersistence) {
-    match jefe::startup_screens::compose_and_publish(
-        &startup.paths,
-        &startup.plugin_packages,
-        &startup.settings,
-    ) {
-        Ok(warnings) => {
-            for warning in warnings {
-                write_optional_diagnostic(Some(format!(
-                    "{} {}: {}",
-                    warning.code.as_str(),
-                    warning.path.as_str(),
-                    warning.redacted_detail
-                )));
-            }
-        }
+fn commit_startup_or_exit(
+    startup: &mut jefe::startup::StartupPersistence,
+    config_dir: Option<&std::path::Path>,
+) -> jefe::startup_commit::StartupCommit {
+    match jefe::startup_commit::commit_startup(startup) {
+        Ok(commit) => commit,
         Err(error) => {
+            tracing::error!(
+                startup_error = %error,
+                startup_error_debug = ?error,
+                "startup commit failed"
+            );
+            jefe::logging::flush();
             let stderr = std::io::stderr();
             let mut handle = stderr.lock();
             let _ = writeln!(handle, "jefe: {error}");
+            let suffix =
+                config_dir.map_or_else(String::new, |path| format!(" --config {}", path.display()));
+            match error.recovery() {
+                jefe::startup_commit::StartupRecovery::ValidateConfiguration => {
+                    let _ = writeln!(handle, "jefe config validate{suffix}");
+                }
+                jefe::startup_commit::StartupRecovery::MigrateState => {
+                    let _ = writeln!(handle, "jefe config migrate-state{suffix}");
+                }
+                jefe::startup_commit::StartupRecovery::None => {}
+            }
             std::process::exit(i32::from(error.exit_code()));
         }
     }
