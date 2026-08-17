@@ -79,7 +79,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default YOLO     [x]",
+      "literal": "Default Mode     [--yolo]",
       "timeout_ms": 15000
     },
     {
@@ -265,11 +265,6 @@
     {
       "op": "key",
       "key": "tab",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "space",
       "modifiers": []
     },
     {
