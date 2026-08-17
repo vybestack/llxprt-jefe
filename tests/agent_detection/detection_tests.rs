@@ -3,7 +3,7 @@
 use jefe::agent_detection::compatible_agent_type_ids;
 use jefe::agent_detection::detect_agent_type_ids;
 use jefe::agent_status_view::AgentAvailabilityObservation;
-use jefe::domain::agent_definition::{AgentDefinition, Availability};
+use jefe::domain::agent_definition::{AgentDefinition, AgentTypeId, Availability};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -164,7 +164,15 @@ fn compatible_agent_type_ids_follow_llxprt_first_preference_order() {
 fn compatible_agent_type_ids_skip_missing_llxprt_but_keep_preference_order() {
     let mut observations = installed_observations();
     let definitions = AgentDefinition::shipped();
-    observations[3] = AgentAvailabilityObservation::not_found(&definitions[3], true, 1);
+    // Select LLxprt by id, not by bytewise position, so a future shipped
+    // agent cannot silently retarget which observation goes missing.
+    let llxprt_id = AgentTypeId::parse("core.llxprt")
+        .unwrap_or_else(|error| panic!("core.llxprt must parse: {error}"));
+    let llxprt = definitions
+        .iter()
+        .position(|definition| definition.id == llxprt_id)
+        .unwrap_or_else(|| panic!("shipped definitions must include core.llxprt"));
+    observations[llxprt] = AgentAvailabilityObservation::not_found(&definitions[llxprt], true, 1);
     assert_eq!(
         compatible_agent_type_ids(&observations),
         vec![
