@@ -289,7 +289,7 @@
     },
     {
       "path": "tests/issue704_owner_evidence.rs",
-      "sha256": "75f49c248d5572cad968ba2e5f8bfef9d73f4b908da713e524dc90e841395bec",
+      "sha256": "82635fd477511c9b949c4716f3f05e3a384098c59608aeef5a8fd279a377efae",
       "mode": "100644",
       "criteria": [
         "CWR1-10"

@@ -100,6 +100,13 @@ fn stale_artifact_hash_is_rejected() {
 }
 
 #[test]
+fn artifact_hashes_normalize_checkout_line_endings() {
+    assert_eq!(
+        hex_sha256(b"alpha\nbeta\n"),
+        hex_sha256(b"alpha\r\nbeta\r\n")
+    );
+}
+#[test]
 fn missing_or_duplicate_criteria_are_rejected() {
     let mut missing = load_value();
     remove_object_key(&mut missing["criteria"], "CWR1-10");
@@ -387,7 +394,16 @@ fn repo_path(path: &str) -> PathBuf {
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).to_string()
+    let mut canonical = Vec::with_capacity(bytes.len());
+    let mut offset = 0;
+    while let Some(position) = bytes[offset..].windows(2).position(|pair| pair == b"\r\n") {
+        let newline = offset + position;
+        canonical.extend_from_slice(&bytes[offset..newline]);
+        canonical.push(b'\n');
+        offset = newline + 2;
+    }
+    canonical.extend_from_slice(&bytes[offset..]);
+    Sha256::digest(&canonical).to_string()
 }
 
 fn remove_object_key(value: &mut Value, key: &str) {
