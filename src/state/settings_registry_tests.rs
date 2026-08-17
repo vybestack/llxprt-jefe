@@ -627,6 +627,25 @@ fn a_protected_action_refuses_every_change_with_the_registrys_own_reason() {
 }
 
 #[test]
+fn key_edit_without_an_open_draft_is_refused_without_panicking() {
+    let mut state = AppState::test_fixture();
+
+    key_intent(
+        &mut state,
+        KeyIntent::Unbind {
+            context: context("global"),
+            action: action("core.open-settings"),
+        },
+    );
+
+    assert_eq!(
+        state.settings_state.notice.as_deref(),
+        Some("Settings key editing requires an open draft")
+    );
+    assert!(state.settings_state.capture.is_none());
+}
+
+#[test]
 fn a_key_edit_never_touches_the_active_action_registry() {
     let mut state = opened_with_keys(
         b"settings_schema = 2

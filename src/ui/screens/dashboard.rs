@@ -329,21 +329,18 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
 
             // Bottom keybind bar
             KeybindBar(
-                screen: state.map_or(ScreenId::Dashboard, |s| {
-                    s.compiled_screen().unwrap_or(ScreenId::Dashboard)
-                }),
-                published_workbench: Some(std::sync::Arc::clone(
-                    state
-                        .unwrap_or_else(|| panic!("screen render requires AppState"))
-                        .published_workbench(),
-                )),
-                action_availability: state
-                    .and_then(AppState::action_availability_generation)
-                    .cloned(),
-                terminal_focused: terminal_focused,
-                shell_overlay_active: shell_overlay_active,
-                shell_resume_available: shell_resume_available,
-                actions_focus: None,
+                hints: state
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: state.map_or(ScreenId::Dashboard, |s| {
+                            s.compiled_screen().unwrap_or(ScreenId::Dashboard)
+                        }),
+                        terminal_focused,
+                        shell_overlay_active,
+                        shell_resume_available,
+                        actions_focus: None,
+                        mode_override: None,
+                    }),
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,
             )

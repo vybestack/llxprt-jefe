@@ -232,7 +232,7 @@ fn cw10_04_an_exit_before_ready_has_exact_phase_and_is_reaped() {
             StartupFailure::Candidate(CandidateFailure {
                 plugin_id,
                 phase: PersistentPhase::Ready,
-                failure: SupervisorFailure::Crashed { exit: None },
+                failure: SupervisorFailure::Crashed { exit: Some(1) },
             }) if plugin_id.as_str() == "vendor.alpha"
         ),
         "expected exact Ready-phase exit, got {:?}",

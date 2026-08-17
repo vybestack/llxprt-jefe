@@ -23,7 +23,10 @@ pub fn resolve_invocation() -> (String, Option<String>) {
     let argv_mode = std::env::args().nth(1);
     let argv_record_dir = std::env::args().nth(2);
     let control = if argv_mode.is_none() {
-        read_control_sidecar()
+        match read_control_sidecar() {
+            Ok(control) => control,
+            Err(error) => invalid_control(&error),
+        }
     } else {
         None
     };
@@ -55,15 +58,41 @@ struct ControlSidecar {
 /// Returns `None` when the file is absent (the standalone default). A present
 /// but malformed control file exits loudly: a half-staged trap or mode that
 /// silently falls back to `happy` would turn a regression into a hang.
-fn read_control_sidecar() -> Option<ControlSidecar> {
-    let exe = std::env::current_exe().ok()?;
-    let name = exe.file_name()?.to_str()?;
-    let text = std::fs::read_to_string(exe.with_file_name(format!("{name}.control"))).ok()?;
-    Some(parse_control_sidecar(&text))
+fn read_control_sidecar() -> Result<Option<ControlSidecar>, String> {
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("cannot resolve fixture executable: {error}"))?;
+    read_control_sidecar_from(&exe)
+}
+
+fn read_control_sidecar_from(exe: &std::path::Path) -> Result<Option<ControlSidecar>, String> {
+    let name = exe
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .ok_or_else(|| {
+            format!(
+                "fixture executable has no UTF-8 file name: {}",
+                exe.display()
+            )
+        })?;
+    let path = exe.with_file_name(format!("{name}.control"));
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "cannot read control sidecar {}: {error}",
+                path.display()
+            ));
+        }
+    };
+    parse_control_sidecar(&text).map(Some)
 }
 
 /// Parse `key=value` control lines into a [`ControlSidecar`].
-fn parse_control_sidecar(text: &str) -> ControlSidecar {
+fn parse_control_sidecar(text: &str) -> Result<ControlSidecar, String> {
+    if text.is_empty() {
+        return Err("control sidecar is empty".to_owned());
+    }
     let mut sidecar = ControlSidecar {
         mode: None,
         record_dir: None,
@@ -72,24 +101,30 @@ fn parse_control_sidecar(text: &str) -> ControlSidecar {
     for line in text.lines() {
         let trimmed = line.trim_end_matches('\r');
         let Some((key, value)) = trimmed.split_once('=') else {
-            malformed_control_line(trimmed);
+            return Err(format!("malformed control line: {trimmed}"));
         };
+        if value.is_empty() {
+            return Err(format!("empty control value: {trimmed}"));
+        }
         let slot = match key {
             "mode" => &mut sidecar.mode,
             "record_dir" => &mut sidecar.record_dir,
             "spawn_marker" => &mut sidecar.spawn_marker,
-            _ => malformed_control_line(trimmed),
+            _ => return Err(format!("unknown control key: {key}")),
         };
+        if slot.is_some() {
+            return Err(format!("duplicate control key: {key}"));
+        }
         *slot = Some(value.to_owned());
     }
-    sidecar
+    Ok(sidecar)
 }
 
-/// Reject an unknown or malformed control line by exiting with a distinct
+/// Reject an unreadable or malformed control sidecar by exiting with a distinct
 /// code, so a staging defect is observed instead of silently ignored.
-fn malformed_control_line(line: &str) -> ! {
+fn invalid_control(error: &str) -> ! {
     let mut stderr = std::io::stderr().lock();
-    let _ = writeln!(stderr, "fixture: malformed control line: {line}");
+    let _ = writeln!(stderr, "fixture: invalid control sidecar: {error}");
     std::process::exit(4);
 }
 
@@ -106,5 +141,31 @@ fn touch_spawn_marker(path: &str) {
         let mut stderr = std::io::stderr().lock();
         let _ = writeln!(stderr, "fixture: cannot write spawn marker {path}");
         std::process::exit(4);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_control_sidecar, read_control_sidecar_from};
+
+    #[test]
+    fn empty_duplicate_and_unknown_controls_are_rejected() {
+        for text in ["", "mode=\n", "mode=happy\nmode=other\n", "unknown=value\n"] {
+            assert!(
+                parse_control_sidecar(text).is_err(),
+                "control must be rejected: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn absent_sidecar_is_distinct_from_an_unreadable_present_sidecar() {
+        let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+        let exe = temp.path().join("fixture");
+        assert!(matches!(read_control_sidecar_from(&exe), Ok(None)));
+
+        std::fs::write(exe.with_file_name("fixture.control"), [0xff])
+            .unwrap_or_else(|error| panic!("write invalid control: {error}"));
+        assert!(read_control_sidecar_from(&exe).is_err());
     }
 }

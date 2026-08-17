@@ -381,6 +381,18 @@ pub fn project_provider_help_lines_effective(
     lines
 }
 
+/// Project the complete ordered Help content from committed declarations plus
+/// one validated runtime-only availability generation.
+#[must_use]
+pub fn project_help_content_lines_effective(
+    snapshot: &ActionRegistrySnapshot,
+    runtime: Option<&AvailabilityGeneration>,
+) -> Vec<String> {
+    let mut lines = project_help_lines_effective(snapshot, runtime);
+    lines.extend(project_provider_help_lines_effective(snapshot, runtime));
+    lines
+}
+
 fn render_help_line(
     snapshot: &ActionRegistrySnapshot,
     line: &crate::domain::default_action_inventory::display::HelpDisplayLine,

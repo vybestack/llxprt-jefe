@@ -44,13 +44,37 @@ pub enum StartupCommitFailure {
     StateImport(StateImportError),
 }
 
+/// Provider-free command, if any, that can repair a startup refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartupRecovery {
+    /// The failure is internal or runtime-bound; no config command applies.
+    None,
+    /// Validate the selected settings and declarations.
+    ValidateConfiguration,
+    /// Retry the deferred durable-state migration.
+    MigrateState,
+}
+
 impl StartupCommitFailure {
     /// Stable process exit code for startup refusal.
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
-            Self::Static(_) | Self::Provider(_) | Self::ProviderOwner(_) => 2,
+            Self::Static(error) => error.exit_code(),
+            Self::Provider(_) | Self::ProviderOwner(_) => 2,
             Self::StateImport(error) => error.exit_code(),
+        }
+    }
+
+    /// Provider-free recovery that applies to this exact failure class.
+    #[must_use]
+    pub const fn recovery(&self) -> StartupRecovery {
+        match self {
+            Self::Static(error) if error.is_configuration_failure() => {
+                StartupRecovery::ValidateConfiguration
+            }
+            Self::StateImport(_) => StartupRecovery::MigrateState,
+            Self::Static(_) | Self::Provider(_) | Self::ProviderOwner(_) => StartupRecovery::None,
         }
     }
 }
@@ -145,10 +169,12 @@ pub fn commit_candidate<E: HostEnv>(
 /// Where every selected provider process is contained.
 #[must_use]
 pub fn provider_containment(paths: &crate::persistence::paths::ResolvedPaths) -> Containment {
-    let root = paths.state.path.parent().map_or_else(
-        || std::path::PathBuf::from("providers"),
-        |parent| parent.join("providers"),
-    );
+    let anchor = paths
+        .state
+        .path
+        .parent()
+        .unwrap_or(paths.state.path.as_path());
+    let root = anchor.join("providers");
     Containment {
         home: root.join("home"),
         tmpdir: root.join("tmp"),

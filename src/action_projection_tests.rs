@@ -324,9 +324,10 @@ fn settings_override_replaces_compiled_chord_in_help_and_footer() {
 /// authority lives in the immutable snapshot.
 #[test]
 fn projection_has_no_hardcoded_chord_action_map() {
-    // Scan only the production portion of this file (before #[cfg(test)]).
-    let source = include_str!("action_projection.rs");
-    let prod = source.split("#[cfg(test)]").next().unwrap_or(source);
+    // Scan the complete module: production helpers may legitimately carry
+    // item-level `#[cfg(test)]`, so splitting at the first such attribute can
+    // discard nearly all production code and make this guard vacuous.
+    let prod = include_str!("action_projection.rs");
     // Must not declare a static help-lines const binding.
     assert!(
         !prod.contains("const HELP_LINES"),

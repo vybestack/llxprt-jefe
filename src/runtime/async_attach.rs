@@ -45,16 +45,20 @@ impl TmuxRuntimeManager {
 
     /// Snapshot the minimal inputs needed to build an `AttachedViewer`.
     ///
-    /// Returns `None` if the agent has no tracked session.
-    #[must_use]
-    pub fn attach_inputs(&self, agent_id: &AgentId) -> Option<AttachInputs> {
-        let session = self.sessions.get(agent_id)?;
-        Some(AttachInputs {
+    /// Returns `Ok(None)` if the agent has no tracked session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::InitialGeometryUnavailable`] until the first
+    /// committed frame has supplied nonzero PTY geometry.
+    pub fn attach_inputs(&self, agent_id: &AgentId) -> Result<Option<AttachInputs>, RuntimeError> {
+        self.ensure_initial_geometry()?;
+        Ok(self.sessions.get(agent_id).map(|session| AttachInputs {
             session_name: session.session_name.clone(),
             remote: session.remote.clone(),
             rows: self.rows,
             cols: self.cols,
-        })
+        }))
     }
 
     /// Install a pre-built `AttachedViewer` for `agent_id`.

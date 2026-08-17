@@ -5,7 +5,12 @@ use std::sync::Arc;
 
 use jefe::persistence::State;
 use jefe::persistence::paths::plan_state_import_source;
-use jefe::startup_commit::{StartupCommitFailure, commit_candidate};
+use jefe::startup_candidate::WorkbenchStaticFailure;
+use jefe::startup_commit::{
+    StartupCommitFailure, StartupRecovery, commit_candidate, provider_containment,
+};
+use jefe::startup_screens::ScreenStartupError;
+use jefe::workbench::screens::RegistryError;
 
 use super::support::{build, config_root, publish_settings, resolve_paths, scan_roots};
 use super::transaction_support::{
@@ -20,6 +25,37 @@ fn state_import_plan(root: &std::path::Path) -> jefe::persistence::paths::StateI
     fs::write(&source, bytes).unwrap_or_else(|error| panic!("legacy state write: {error}"));
     plan_state_import_source(&source, &target)
         .unwrap_or_else(|error| panic!("state import plan: {error:?}"))
+}
+
+fn compiled_screen_failure() -> StartupCommitFailure {
+    StartupCommitFailure::Static(WorkbenchStaticFailure::Screens(
+        ScreenStartupError::Compiled(RegistryError::TooManyScreens { count: usize::MAX }),
+    ))
+}
+
+#[test]
+fn compiled_screen_defect_keeps_software_exit_and_has_no_config_recovery_hint() {
+    let error = compiled_screen_failure();
+
+    assert_eq!(error.exit_code(), 78);
+    assert_eq!(error.recovery(), StartupRecovery::None);
+}
+
+#[test]
+fn root_state_path_never_degrades_provider_containment_to_the_current_directory() {
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let mut paths = resolve_paths(&config_root(temp.path()));
+    paths.state.path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR_STR);
+
+    let containment = provider_containment(&paths);
+
+    assert_eq!(
+        containment.working_dir,
+        std::path::PathBuf::from(std::path::MAIN_SEPARATOR_STR)
+            .join("providers")
+            .join("work")
+    );
+    assert!(containment.working_dir.is_absolute());
 }
 
 #[test]

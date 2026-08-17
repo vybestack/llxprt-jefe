@@ -51,6 +51,32 @@ pub enum WorkbenchStaticFailure {
     Actions(crate::persistence::keymap_edit::KeymapDiagnostic),
 }
 
+impl WorkbenchStaticFailure {
+    /// Stable process exit code for this static refusal.
+    #[must_use]
+    pub const fn exit_code(&self) -> u8 {
+        match self {
+            Self::Agents(_) => 78,
+            Self::Screens(error) => error.exit_code(),
+            Self::Selection(_) | Self::Provider(_) | Self::Actions(_) => 2,
+        }
+    }
+
+    /// Whether provider-free configuration validation is an applicable recovery.
+    #[must_use]
+    pub const fn is_configuration_failure(&self) -> bool {
+        match self {
+            Self::Selection(_)
+            | Self::Provider(_)
+            | Self::Actions(_)
+            | Self::Screens(ScreenStartupError::Definitions(_) | ScreenStartupError::Refused(_)) => {
+                true
+            }
+            Self::Agents(_) | Self::Screens(ScreenStartupError::Compiled(_)) => false,
+        }
+    }
+}
+
 impl std::fmt::Display for WorkbenchStaticFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -175,7 +201,7 @@ pub fn build_workbench_candidate(
         .collect::<Vec<_>>();
     let agents = AgentTypeRegistry::shipped().map_err(WorkbenchStaticFailure::Agents)?;
     let screens = compose_screens(request, &packages)?;
-    validate_required_providers(request, &selected)?;
+    validate_selected_providers(request, &selected)?;
     let providers = compose_providers(request, &packages);
     let actions = compose_actions(request, &providers)?;
     Ok(PublishedWorkbench::from_parts(WorkbenchParts {
@@ -206,25 +232,24 @@ fn compose_screens(
         .map_err(WorkbenchStaticFailure::Screens)
 }
 
-/// Prove every required provider can statically serve its declarations.
+/// Prove every selected provider can statically join the candidate.
 ///
-/// Requiredness was decided during selection; this enforces it. A required
-/// provider without a Ready binary for this host, or with a selected
-/// configuration its schema rejects, refuses the candidate before anything
-/// composes runtime state around it.
-fn validate_required_providers(
+/// Requiredness decides whether a missing host binary is fatal. Configuration
+/// is different: every selected provider kind publishes its configuration as
+/// part of this aggregate, so an invalid one-shot or configuration-only owner
+/// must refuse the candidate just as an invalid persistent owner does.
+fn validate_selected_providers(
     request: &WorkbenchCandidateRequest<'_>,
     selected: &[SelectedOwner],
 ) -> Result<(), WorkbenchStaticFailure> {
     for owner in selected {
-        if !matches!(owner.requirement(), ProviderRequirement::Required { .. }) {
-            continue;
-        }
         let manifest = owner.package().manifest();
-        if !matches!(
-            manifest.provider().select(&request.host),
-            ProviderSelection::Ready(_)
-        ) {
+        if matches!(owner.requirement(), ProviderRequirement::Required { .. })
+            && !matches!(
+                manifest.provider().select(&request.host),
+                ProviderSelection::Ready(_)
+            )
+        {
             return Err(WorkbenchStaticFailure::Provider(
                 ProviderStaticRefused::RequiredUnavailable {
                     owner: owner.owner().clone(),

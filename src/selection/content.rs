@@ -29,7 +29,6 @@ use crate::ui::components::pr_list::{
 };
 use crate::ui::components::selectable_list::{ProjectedContentLine, projected_content_lines};
 use crate::ui::components::{SidebarProps, sidebar_list_props, terminal_empty_message};
-use crate::ui::modals::effective_help_content_lines;
 
 use super::projection_context::PaneContentContext;
 use crate::selection::form_content;
@@ -375,10 +374,7 @@ fn help_lines(state: &AppState) -> PaneContent {
     // and its trailing blank are included as content lines 0-1 so the (2,2)
     // content origin maps to the title text.
     let mut lines: Vec<String> = vec![crate::ui::modals::HELP_TITLE.to_string(), String::new()];
-    lines.extend(effective_help_content_lines(
-        state.action_registry(),
-        state.action_availability_generation(),
-    ));
+    lines.extend(state.help_content_lines());
     PaneContent::new(SelectablePane::HelpModal, lines)
 }
 
@@ -413,13 +409,14 @@ fn keybind_bar_lines(state: &AppState) -> PaneContent {
     // package or custom screen has no built-in footer projection yet, so it
     // renders no hints here rather than borrowing another screen's bar.
     let hints = match state.compiled_screen() {
-        Some(screen) => crate::ui::components::keybind_bar::keybind_hints_for_effective(
-            state.action_registry(),
-            state.action_availability_generation(),
+        Some(screen) => state.footer_hints(crate::action_projection::FooterProjectionInput {
             screen,
-            false,
+            terminal_focused: false,
+            shell_overlay_active: false,
+            shell_resume_available: false,
             actions_focus,
-        ),
+            mode_override: None,
+        }),
         None => String::new(),
     };
     let identity = crate::process_identity_label(std::process::id(), crate::GIT_COMMIT);

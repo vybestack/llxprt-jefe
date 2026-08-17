@@ -81,24 +81,25 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
             }
             #(notice_row(&settings, &rc))
             KeybindBar(
-                screen: props.state.as_ref().map_or(
-                    crate::state::ScreenId::Settings,
-                    |state| state.compiled_screen().unwrap_or(crate::state::ScreenId::Settings),
-                ),
-                published_workbench: Some(std::sync::Arc::clone(
-                    props
-                        .state
-                        .as_ref()
-                        .unwrap_or_else(|| panic!("screen render requires AppState"))
-                        .published_workbench(),
-                )),
-                action_availability: props
+                hints: props
                     .state
                     .as_ref()
-                    .and_then(AppState::action_availability_generation)
-                    .cloned(),
-                terminal_focused: false,
-                actions_focus: None,
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: props.state.as_ref().map_or(
+                            crate::state::ScreenId::Settings,
+                            |state| {
+                                state
+                                    .compiled_screen()
+                                    .unwrap_or(crate::state::ScreenId::Settings)
+                            },
+                        ),
+                        terminal_focused: false,
+                        shell_overlay_active: false,
+                        shell_resume_available: false,
+                        actions_focus: None,
+                        mode_override: None,
+                    }),
                 colors: colors.clone(),
             )
         }

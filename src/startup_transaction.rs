@@ -84,6 +84,14 @@ pub enum PreparationCause {
         /// The I/O error observed while resolving it.
         error: std::io::Error,
     },
+    /// The provider binary path could not be inspected for a reason other than
+    /// absence (for example, a symlink loop or permission failure).
+    BinaryMetadata {
+        /// The binary path whose metadata was unreadable.
+        path: std::path::PathBuf,
+        /// The exact metadata I/O failure.
+        error: std::io::Error,
+    },
     /// The selected provider binary is not a regular file.
     BinaryNotAFile {
         /// The binary path that is not a file.
@@ -115,6 +123,11 @@ impl std::fmt::Display for PreparationCause {
                 "provider binary {} is missing: {error}",
                 path.display()
             ),
+            Self::BinaryMetadata { path, error } => write!(
+                formatter,
+                "provider binary {} could not be inspected: {error}",
+                path.display()
+            ),
             Self::BinaryNotAFile { path } => write!(
                 formatter,
                 "provider binary {} is not a regular file",
@@ -141,9 +154,9 @@ impl std::fmt::Display for PreparationCause {
 impl std::error::Error for PreparationCause {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::BinaryMissing { error, .. } | Self::ContainmentDirectory { error, .. } => {
-                Some(error)
-            }
+            Self::BinaryMissing { error, .. }
+            | Self::BinaryMetadata { error, .. }
+            | Self::ContainmentDirectory { error, .. } => Some(error),
             Self::Environment(error) => Some(error),
             Self::BinaryNotAFile { .. } => None,
             #[cfg(unix)]
@@ -285,13 +298,18 @@ fn prepare_candidates<E: HostEnv>(
 /// executable permission.
 fn verify_executable(candidate: &PersistentCandidate) -> Result<(), ProviderTransactionFailure> {
     let metadata = std::fs::metadata(&candidate.binary).map_err(|error| {
-        preparation(
-            candidate,
+        let cause = if error.kind() == std::io::ErrorKind::NotFound {
             PreparationCause::BinaryMissing {
                 path: candidate.binary.clone(),
                 error,
-            },
-        )
+            }
+        } else {
+            PreparationCause::BinaryMetadata {
+                path: candidate.binary.clone(),
+                error,
+            }
+        };
+        preparation(candidate, cause)
     })?;
     if !metadata.is_file() {
         return Err(preparation(

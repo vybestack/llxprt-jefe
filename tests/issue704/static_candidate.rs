@@ -20,9 +20,7 @@ use jefe::startup_selection::{DeclarationKind, NotRequiredReason, ProviderRequir
 /// reach `ready` before anything may spawn (CWR1-00).
 #[test]
 fn a_persistent_provider_owning_actions_is_required() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::persistent_actions("vendor.required");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let paths = resolve_paths(&config_root(temp.path()));
@@ -45,9 +43,7 @@ fn a_persistent_provider_owning_actions_is_required() {
 /// must be ready to serve: settings the operator edits own the provider too.
 #[test]
 fn a_persistent_provider_owning_only_a_config_schema_is_required() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec {
         actions: false,
         config: true,
@@ -74,9 +70,7 @@ fn a_persistent_provider_owning_only_a_config_schema_is_required() {
 /// reach `ready` (CWR1-04 is later slices' trap; classification starts here).
 #[test]
 fn a_one_shot_provider_owns_no_startup_process() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::one_shot("vendor.once");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let paths = resolve_paths(&config_root(temp.path()));
@@ -97,9 +91,7 @@ fn a_one_shot_provider_owns_no_startup_process() {
 /// metadata and defaults alone do not make it required (decision 4).
 #[test]
 fn a_declaration_empty_persistent_provider_owns_no_startup_process() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec {
         actions: false,
         ..PackageSpec::persistent_actions("vendor.quiet")
@@ -122,9 +114,7 @@ fn a_declaration_empty_persistent_provider_owns_no_startup_process() {
 /// A package with no provider at all can never require a process.
 #[test]
 fn a_package_without_a_provider_is_never_required() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec {
         mode: "none",
         actions: false,
@@ -150,9 +140,7 @@ fn a_package_without_a_provider_is_never_required() {
 /// (CWR1-02).
 #[test]
 fn an_invalid_selected_configuration_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec {
         actions: false,
         config: true,
@@ -177,14 +165,45 @@ fn an_invalid_selected_configuration_refuses_the_candidate() {
     }
 }
 
+/// One-shot providers start nothing during startup, but their selected
+/// configuration is still part of the atomic static workbench contract.
+#[test]
+fn an_invalid_one_shot_configuration_refuses_the_candidate() {
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+    let spec = PackageSpec {
+        config: true,
+        ..PackageSpec::one_shot("vendor.bad-once")
+    };
+    let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
+    let paths = resolve_paths(&config_root(temp.path()));
+    let settings = publish_settings(
+        &inventory,
+        r#"settings_schema = 2
+
+[plugins."vendor.bad-once"]
+enabled = true
+
+[plugins."vendor.bad-once".config]
+mode = 42
+"#,
+    );
+
+    match build(&paths, &inventory, &settings, temp.path()) {
+        Err(WorkbenchStaticFailure::Provider(refused)) => {
+            let rendered = refused.to_string();
+            assert!(rendered.contains("vendor.bad-once"), "got: {rendered}");
+            assert!(rendered.contains("mode"), "got: {rendered}");
+        }
+        other => panic!("invalid one-shot config must refuse, got: {other:?}"),
+    }
+}
+
 /// A required provider with no Ready binary for this host is a fatal static
 /// failure, not an unavailable action: the active declarations it owns have
 /// no one to serve them.
 #[test]
 fn a_required_provider_without_a_host_binary_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::persistent_actions("vendor.nobin");
     let inventory = stage_config(temp.path(), &[(&spec, &super::support::alien_binaries())]);
     let paths = resolve_paths(&config_root(temp.path()));
@@ -211,9 +230,7 @@ fn a_required_provider_without_a_host_binary_refuses_the_candidate() {
 /// would be a different workbench (CWR1-02).
 #[test]
 fn an_enabled_screen_definition_that_cannot_lower_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let config = config_root(temp.path());
     let definitions = config.join("definitions");
     std::fs::create_dir_all(&definitions)
@@ -237,9 +254,7 @@ fn an_enabled_screen_definition_that_cannot_lower_refuses_the_candidate() {
 /// preserved and no containment directory is created (CWR1-02 side effects).
 #[test]
 fn candidate_construction_writes_nothing_and_creates_no_containment() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::one_shot("vendor.clean");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let settings_bytes = selection_toml("vendor.clean", None);
@@ -271,9 +286,7 @@ fn candidate_construction_writes_nothing_and_creates_no_containment() {
 /// retains the one inventory, and carries the shipped agents and screens.
 #[test]
 fn the_candidate_composes_one_registry_with_provider_actions_and_the_inventory() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::one_shot("vendor.composed");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let paths = resolve_paths(&config_root(temp.path()));
@@ -299,9 +312,7 @@ fn the_candidate_composes_one_registry_with_provider_actions_and_the_inventory()
 /// feed the candidate without translation.
 #[test]
 fn startup_persistence_feeds_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let config = config_root(temp.path());
     let root = plugins_root(&config);
     let spec = PackageSpec::one_shot("vendor.e2e");

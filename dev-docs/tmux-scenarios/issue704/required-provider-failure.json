@@ -137,7 +137,7 @@
     {
       "op": "wait",
       "source": "stdout",
-      "literal": "Crashed { exit: None }",
+      "literal": "Crashed { exit: Some(23) }",
       "timeout_ms": 15000
     },
     {
@@ -147,21 +147,16 @@
       "timeout_ms": 15000
     },
     {
-      "op": "wait",
-      "source": "stdout",
-      "literal": "jefe config validate --config",
-      "timeout_ms": 15000
-    },
-    {
       "op": "assert-frame",
       "contains": [
         "vendor.panel",
         "Ready",
         "23",
-        "durable data preserved",
-        "jefe config validate --config"
+        "durable data preserved"
       ],
       "absent": [
+        "jefe config validate --config",
+        "jefe config migrate-state --config",
         "LLxprt Jefe",
         "Repositories",
         "Agent Types",
@@ -178,7 +173,8 @@
       }
     },
     {
-      "op": "finish"
+      "op": "finish",
+      "expected_exit_code": 2
     }
   ],
   "secrets": []

@@ -696,6 +696,30 @@ impl AppState {
         self.action_availability.as_ref()
     }
 
+    /// Project presentation-ready footer hints from this state's exact
+    /// committed workbench identity and latest runtime availability.
+    #[must_use]
+    pub(crate) fn footer_hints(
+        &self,
+        input: crate::action_projection::FooterProjectionInput,
+    ) -> String {
+        crate::action_projection::project_footer_effective(
+            self.action_registry(),
+            self.action_availability_generation(),
+            input,
+        )
+    }
+
+    /// Project presentation-ready help lines from this state's exact committed
+    /// workbench identity and latest runtime availability.
+    #[must_use]
+    pub(crate) fn help_content_lines(&self) -> Vec<String> {
+        crate::action_projection::project_help_content_lines_effective(
+            self.action_registry(),
+            self.action_availability_generation(),
+        )
+    }
+
     /// Borrow Settings declarations and runtime availability from this exact
     /// committed state identity.
     #[must_use]

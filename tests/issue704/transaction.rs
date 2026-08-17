@@ -271,6 +271,35 @@ fn cwr1_05_preparation_reports_first_defect_in_plugin_id_order() {
     assert_nothing_spawned(&scene);
 }
 
+#[cfg(unix)]
+#[test]
+fn cwr1_05_binary_metadata_failure_is_not_reported_as_missing() {
+    let _budget = process_budget();
+    let scene = Scene::new();
+    scene.stage_required("vendor.alpha", "persistent-ready");
+    let provider_dir = scene.stage_missing_binary("vendor.zeta");
+    let binary = provider_dir.join("bin").join(provider_exe_name());
+    std::fs::create_dir_all(binary.parent().unwrap_or_else(|| panic!("binary parent")))
+        .unwrap_or_else(|error| panic!("binary parent: {error}"));
+    std::os::unix::fs::symlink(&binary, &binary)
+        .unwrap_or_else(|error| panic!("self-referential binary symlink: {error}"));
+    let workbench = scene.build_workbench(&["vendor.alpha", "vendor.zeta"]);
+
+    let (owner, cause) = expect_preparation_failure(scene.run_transaction(&workbench));
+    assert_eq!(owner.as_str(), "vendor.zeta");
+    match cause {
+        PreparationCause::BinaryMetadata { path, error } => {
+            assert!(
+                path.ends_with("vendor.zeta/1.0.0/bin/provider"),
+                "metadata cause keeps the selected binary path, got {path:?}"
+            );
+            assert_ne!(error.kind(), std::io::ErrorKind::NotFound);
+        }
+        other => panic!("expected BinaryMetadata, got {other:?}"),
+    }
+    assert_nothing_spawned(&scene);
+}
+
 #[test]
 fn cwr1_05_binary_that_is_not_a_file_prepares_before_any_spawn() {
     let _budget = process_budget();
@@ -507,7 +536,7 @@ fn cwr1_03_exit_before_ready_has_exact_phase_cause_and_cleanup() {
             StartupFailure::Candidate(CandidateFailure {
                 plugin_id,
                 phase: PersistentPhase::Ready,
-                failure: SupervisorFailure::Crashed { exit: None },
+                failure: SupervisorFailure::Crashed { exit: Some(1) },
             }) if plugin_id.as_str() == "vendor.alpha"
         ),
         "expected exact Ready-phase exit, got {:?}",

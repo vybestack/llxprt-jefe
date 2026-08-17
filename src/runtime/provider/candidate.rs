@@ -262,11 +262,15 @@ fn finalize_failure(
     };
     let owned = owned_from(candidate, plugin_id.clone(), Vec::new(), spawned, context);
     let reaped = reap_owned(owned, bounds);
+    let failure = match (fault.failure, reaped.exit_code) {
+        (SupervisorFailure::Crashed { exit: None }, exit) => SupervisorFailure::Crashed { exit },
+        (failure, _) => failure,
+    };
     StartOutcome::Failed {
         failure: CandidateFailure {
             plugin_id,
             phase: fault.phase,
-            failure: redaction::redact_supervisor_failure(fault.failure, redactor),
+            failure: redaction::redact_supervisor_failure(failure, redactor),
         },
         reaped: Some(reaped),
     }
@@ -329,7 +333,9 @@ fn failed_after_spawn(
 ) -> StartOutcome {
     drop(stdin);
     let _ = process.force_kill_tree();
-    let reaped = wait_for_exit(&mut process, bounds.final_drain).is_some();
+    let exit_status = wait_for_exit(&mut process, bounds.final_drain);
+    let reaped = exit_status.is_some();
+    let exit_code = exit_status.and_then(|status| status.code());
     let cleanup_failure = if reaped {
         None
     } else {
@@ -344,6 +350,7 @@ fn failed_after_spawn(
         reaped: Some(ReapedCandidate {
             plugin_id,
             reaped,
+            exit_code,
             cleanup_failure,
         }),
     }

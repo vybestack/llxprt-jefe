@@ -35,6 +35,28 @@ pub struct StartupPersistence {
     pub(crate) state_import: Option<StateImportPlan>,
 }
 
+/// Runtime-only persistence values retained after startup publication.
+///
+/// Static settings, their source document, the scanned package inventory, and
+/// the deferred import plan intentionally have no representation here. The
+/// committed [`crate::published_workbench::PublishedWorkbench`] is their sole
+/// post-commit authority.
+#[derive(Debug)]
+pub struct StartupRuntime {
+    pub paths: ResolvedPaths,
+    pub settings_expected_hash: ExpectedHash,
+    keymap_diagnostic: Option<String>,
+    pub manager: FilePersistenceManager,
+}
+
+impl StartupRuntime {
+    /// Render the startup keymap warning without retaining its declaration input.
+    #[must_use]
+    pub fn keymap_diagnostic_message(&self) -> Option<String> {
+        self.keymap_diagnostic.clone()
+    }
+}
+
 impl StartupPersistence {
     /// Stable diagnostic code when startup replaced a malformed keymap with defaults.
     #[must_use]
@@ -48,6 +70,19 @@ impl StartupPersistence {
     #[must_use]
     pub fn keymap_diagnostic_message(&self) -> Option<String> {
         self.keymap_diagnostic.as_ref().map(ToString::to_string)
+    }
+
+    /// Consume precommit staging and retain only runtime persistence values.
+    #[must_use]
+    pub fn into_runtime(self) -> StartupRuntime {
+        StartupRuntime {
+            paths: self.paths,
+            settings_expected_hash: self.settings_expected_hash,
+            keymap_diagnostic: self
+                .keymap_diagnostic
+                .map(|diagnostic| diagnostic.to_string()),
+            manager: self.manager,
+        }
     }
 }
 
@@ -656,6 +691,23 @@ enabled = false
             std::fs::read(dir.join("settings.toml")).value_or_panic("retained settings"),
             source
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn runtime_handoff_drops_every_precommit_declaration_authority() {
+        let dir = unique_dir("runtime-handoff");
+        let startup =
+            build_persistence(Some(&dir)).value_or_panic("startup should build persistence");
+
+        let StartupRuntime {
+            paths,
+            settings_expected_hash: _,
+            keymap_diagnostic: _,
+            manager: _,
+        } = startup.into_runtime();
+
+        assert_eq!(paths.settings.path, dir.join("settings.toml"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

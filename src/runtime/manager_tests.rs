@@ -16,6 +16,18 @@ fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
         Err(RuntimeError::InitialGeometryUnavailable)
     ));
     assert!(matches!(
+        manager.attach_inputs(&AgentId("pending".to_owned())),
+        Err(RuntimeError::InitialGeometryUnavailable)
+    ));
+    assert!(matches!(
+        manager.register_existing_local_session(
+            &AgentId("pending".to_owned()),
+            std::path::Path::new("."),
+            crate::domain::LaunchSignatureV1::default(),
+        ),
+        Err(RuntimeError::InitialGeometryUnavailable)
+    ));
+    assert!(matches!(
         manager.configure_initial_geometry(0, 80),
         Err(RuntimeError::InvalidInitialGeometry { rows: 0, cols: 80 })
     ));

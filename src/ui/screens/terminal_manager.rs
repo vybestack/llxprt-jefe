@@ -252,19 +252,18 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen: state.map_or(ScreenId::Terminals, |s| {
-                    s.compiled_screen().unwrap_or(ScreenId::Terminals)
-                }),
-                published_workbench: Some(std::sync::Arc::clone(
-                    state
-                        .unwrap_or_else(|| panic!("screen render requires AppState"))
-                        .published_workbench(),
-                )),
-                action_availability: state
-                    .and_then(AppState::action_availability_generation)
-                    .cloned(),
-                terminal_focused: live_shell_active,
-                actions_focus: None,
+                hints: state
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: state.map_or(ScreenId::Terminals, |s| {
+                            s.compiled_screen().unwrap_or(ScreenId::Terminals)
+                        }),
+                        terminal_focused: live_shell_active,
+                        shell_overlay_active: false,
+                        shell_resume_available: false,
+                        actions_focus: None,
+                        mode_override: None,
+                    }),
                 colors: colors.clone(),
             )
         }

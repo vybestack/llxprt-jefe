@@ -16,9 +16,7 @@ use jefe::startup_selection::SelectionRefused;
 /// descriptor composed for it names that version's directory (CWR1-00).
 #[test]
 fn an_enabled_pin_selects_exactly_that_installed_version() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let v1 = PackageSpec::persistent_actions("vendor.pinned");
     let v2 = PackageSpec {
         version: "2.0.0",
@@ -60,9 +58,7 @@ fn an_enabled_pin_selects_exactly_that_installed_version() {
 /// deterministically from the single retained inventory.
 #[test]
 fn an_unpinned_enabled_owner_selects_the_highest_installed_version() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let v1 = PackageSpec::persistent_actions("vendor.unpinned");
     let v2 = PackageSpec {
         version: "2.0.0",
@@ -91,9 +87,7 @@ fn an_unpinned_enabled_owner_selects_the_highest_installed_version() {
 /// a lower usable one (CWR1-00).
 #[test]
 fn an_unpinned_owner_with_a_higher_unavailable_version_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let root = plugins_root(&config_root(temp.path()));
     let good = PackageSpec::persistent_actions("vendor.highest");
     stage(&root, &good, &host_binaries());
@@ -134,9 +128,7 @@ fn an_unpinned_owner_with_a_higher_unavailable_version_refuses_the_candidate() {
 /// lower valid version.
 #[test]
 fn an_unpinned_owner_with_a_higher_ambiguous_coordinate_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let root_a = temp.path().join("packages-a");
     let root_b = temp.path().join("packages-b");
     let good = PackageSpec::persistent_actions("vendor.contested");
@@ -174,9 +166,7 @@ fn an_unpinned_owner_with_a_higher_ambiguous_coordinate_refuses_the_candidate() 
 /// the highest discovered coordinate, and it selects when uniquely valid.
 #[test]
 fn an_unpinned_owner_selects_a_higher_valid_version_above_a_lower_unavailable_one() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let root = plugins_root(&config_root(temp.path()));
     let bad = PackageSpec::persistent_actions("vendor.rising");
     let bad_dir = root.join(bad.id).join(bad.version);
@@ -209,9 +199,7 @@ fn an_unpinned_owner_selects_a_higher_valid_version_above_a_lower_unavailable_on
 /// different one would be a different workbench (CWR1-00).
 #[test]
 fn a_pinned_version_that_is_not_installed_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::persistent_actions("vendor.missing");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let paths = resolve_paths(&config_root(temp.path()));
@@ -242,9 +230,7 @@ fn a_pinned_version_that_is_not_installed_refuses_the_candidate() {
 /// and nothing it declares is required (decision 4).
 #[test]
 fn a_disabled_owner_whose_pin_is_not_installed_is_not_active() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::persistent_actions("vendor.off");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let paths = resolve_paths(&config_root(temp.path()));
@@ -269,9 +255,7 @@ fn a_disabled_owner_whose_pin_is_not_installed_is_not_active() {
 /// is fatal when actively selected, not silently skipped.
 #[test]
 fn an_unavailable_pinned_package_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let root = plugins_root(&config_root(temp.path()));
     let good = PackageSpec::persistent_actions("vendor.broken");
     stage(&root, &good, &host_binaries());
@@ -308,9 +292,7 @@ fn an_unavailable_pinned_package_refuses_the_candidate() {
 /// a coin flip between two programs.
 #[test]
 fn an_ambiguous_pinned_coordinate_refuses_the_candidate() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let root_a = temp.path().join("packages-a");
     let root_b = temp.path().join("packages-b");
     let good = PackageSpec::persistent_actions("vendor.two");
@@ -348,9 +330,7 @@ fn an_ambiguous_pinned_coordinate_refuses_the_candidate() {
 /// owners (installed but unselected) never appear.
 #[test]
 fn selection_distinguishes_active_from_dormant_owners() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let on = PackageSpec::one_shot("vendor.on");
     let off = PackageSpec::one_shot("vendor.off");
     let inventory = stage_config(
@@ -373,9 +353,7 @@ fn selection_distinguishes_active_from_dormant_owners() {
 /// selectable binary and the installed package exposes its version text.
 #[test]
 fn staged_packages_expose_their_version_text() {
-    let Ok(temp) = tempfile::tempdir() else {
-        return;
-    };
+    let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let spec = PackageSpec::one_shot("vendor.helper");
     let inventory = stage_config(temp.path(), &[(&spec, &host_binaries())]);
     let packages = inventory.packages();

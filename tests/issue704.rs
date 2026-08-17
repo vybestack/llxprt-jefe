@@ -29,3 +29,6 @@ mod commit;
 
 #[path = "issue704/consumer_cutover.rs"]
 mod consumer_cutover;
+
+#[path = "issue704/startup_failure_diagnostics.rs"]
+mod startup_failure_diagnostics;

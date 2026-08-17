@@ -32,6 +32,8 @@ use super::settings_tail::step;
 use super::settings_types::{CaptureMode, ChordCapture};
 use super::settings_view::{self, SettingsActivation};
 
+const NO_OPEN_DRAFT_REASON: &str = "Settings key editing requires an open draft";
+
 /// What a reorder did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reorder {
@@ -388,7 +390,7 @@ impl AppState {
             .settings_state
             .draft
             .as_ref()
-            .ok_or_else(|| "Settings key editing requires an open draft".to_owned())?;
+            .ok_or_else(|| NO_OPEN_DRAFT_REASON.to_owned())?;
         let row = keys_editor_project::project_keys_effective(
             self.action_registry(),
             self.action_availability_generation(),
@@ -596,7 +598,7 @@ impl AppState {
     /// Why this binding is read-only, when the registry says it is.
     fn protected_reason(&self, context: &ContextId, action: &ActionId) -> Option<String> {
         let Some(draft) = self.settings_state.draft.as_ref() else {
-            panic!("Settings key editing requires an open draft");
+            return Some(NO_OPEN_DRAFT_REASON.to_owned());
         };
         let published = draft.published();
         keys_editor_project::project_keys_effective(

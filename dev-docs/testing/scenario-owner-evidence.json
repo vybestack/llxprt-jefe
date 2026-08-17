@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "bf95c6eff0915f1a411155e4dfdaf70d083451419cdb86384c9546134c90af6c",
+  "scenario_manifest_sha256": "a864634eb7087a2d11134292ae7764f70a2e9eb90eac4aefdad29f6a2dcb34d2",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -571,7 +571,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
-      "sha256": "4d578446f0c5f56a8658ac07dfb76c65a52dddcf3e04ce2db455bb38a44bb11b",
+      "sha256": "0d2f383a55f42776de51534ccd1734d61e225d090012afc48ba665d394efa0fc",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1995,7 +1995,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "bf95c6eff0915f1a411155e4dfdaf70d083451419cdb86384c9546134c90af6c",
+      "sha256": "a864634eb7087a2d11134292ae7764f70a2e9eb90eac4aefdad29f6a2dcb34d2",
       "mode": "100644",
       "criteria": [
         "CW00B-01",

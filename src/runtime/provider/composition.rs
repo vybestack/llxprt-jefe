@@ -29,7 +29,7 @@ use crate::domain::plugin::provider::{ProviderMode, ProviderSelection};
 use crate::domain::plugin::surface::ConfigSchema;
 use crate::domain::plugin::{FieldKind, HostTriple, Manifest};
 use crate::domain::{CanonicalSemver, Id, TypedMap, TypedValue};
-use crate::persistence::plugin_inventory::{InstalledPackage, selected_packages};
+use crate::persistence::plugin_inventory::InstalledPackage;
 use crate::persistence::settings_document::PublishedSettings;
 use crate::runtime::provider::coordinator::{ProviderActionDescriptor, ProviderCatalog};
 use crate::runtime::provider::dto::{Capability, ConfigurePayload};
@@ -116,16 +116,17 @@ impl ProviderComposition {
     }
 }
 
-/// Compose the static provider contribution from the package inventory.
+/// Compose the static provider contribution from the exact selected packages.
 ///
-/// Starts nothing. Only the exact Settings-selected installed package version
-/// contributes; a package is skipped when it declares no provider. An action
-/// is skipped when its declaration cannot be expressed as a registry action,
-/// because a half-published action is worse than an absent one.
+/// Starts nothing. Selection belongs to the startup candidate; this boundary
+/// consumes that exact set without independently interpreting Settings. A
+/// package is skipped when it declares no provider. An action is skipped when
+/// its declaration cannot be expressed as a registry action, because a
+/// half-published action is worse than an absent one.
 #[must_use]
 pub fn compose(request: &CompositionRequest<'_>) -> ProviderComposition {
     let mut composition = ProviderComposition::default();
-    for package in selected_packages(request.packages, request.settings) {
+    for package in request.packages {
         compose_package(&mut composition, package, request);
     }
     composition

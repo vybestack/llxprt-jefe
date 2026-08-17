@@ -329,6 +329,7 @@ fn map_supervisor_failure(
         }
         SupervisorFailure::Io(_)
         | SupervisorFailure::Spawn(_)
+        | SupervisorFailure::Containment { .. }
         | SupervisorFailure::Environment(_) => UnavailableReason::Eof,
         SupervisorFailure::ShutdownTimeout => UnavailableReason::Timeout,
     }

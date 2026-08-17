@@ -413,7 +413,9 @@ fn main() {
     }
 
     let mut startup = build_startup_or_exit(cli_args.config_dir.as_deref());
+    init_startup_diagnostics(cli_args.config_dir.as_deref());
     let commit = commit_startup_or_exit(&mut startup, cli_args.config_dir.as_deref());
+    let startup = startup.into_runtime();
     run_tui(cli_args, startup, commit);
 }
 
@@ -466,7 +468,7 @@ fn start_jsp_host(state_path: &std::path::Path) -> Option<jefe::jsp_host::JspHos
 
 fn run_tui(
     cli_args: jefe::cli::CliArgs,
-    startup: jefe::startup::StartupPersistence,
+    startup: jefe::startup::StartupRuntime,
     commit: jefe::startup_commit::StartupCommit,
 ) {
     let jefe::startup_commit::StartupCommit {
@@ -491,7 +493,6 @@ fn run_tui(
     let startup_paths = startup.paths;
     let persistence = startup.manager;
     write_optional_diagnostic(keymap_diagnostic);
-    init_startup_diagnostics(cli_args.config_dir.as_deref());
 
     // Claim the run boundary before anything else can fail: from here on the
     // run either records why it ended or leaves a marker saying it did not
@@ -557,13 +558,26 @@ fn commit_startup_or_exit(
     match jefe::startup_commit::commit_startup(startup) {
         Ok(commit) => commit,
         Err(error) => {
+            tracing::error!(
+                startup_error = %error,
+                startup_error_debug = ?error,
+                "startup commit failed"
+            );
+            jefe::logging::flush();
             let stderr = std::io::stderr();
             let mut handle = stderr.lock();
             let _ = writeln!(handle, "jefe: {error}");
             let suffix =
                 config_dir.map_or_else(String::new, |path| format!(" --config {}", path.display()));
-            let _ = writeln!(handle, "jefe config validate{suffix}");
-            let _ = writeln!(handle, "jefe config migrate-state{suffix}");
+            match error.recovery() {
+                jefe::startup_commit::StartupRecovery::ValidateConfiguration => {
+                    let _ = writeln!(handle, "jefe config validate{suffix}");
+                }
+                jefe::startup_commit::StartupRecovery::MigrateState => {
+                    let _ = writeln!(handle, "jefe config migrate-state{suffix}");
+                }
+                jefe::startup_commit::StartupRecovery::None => {}
+            }
             std::process::exit(i32::from(error.exit_code()));
         }
     }

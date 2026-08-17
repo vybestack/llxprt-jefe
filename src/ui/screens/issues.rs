@@ -451,20 +451,18 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
             // ── Keybind bar ─────────────────────────────────────────────────
             KeybindBar(
-                screen: state.map_or(ScreenId::Issues, |s| {
-                    s.compiled_screen().unwrap_or(ScreenId::Issues)
-                }),
-                published_workbench: Some(std::sync::Arc::clone(
-                    state
-                        .unwrap_or_else(|| panic!("screen render requires AppState"))
-                        .published_workbench(),
-                )),
-                action_availability: state
-                    .and_then(AppState::action_availability_generation)
-                    .cloned(),
-                terminal_focused: false,
-                actions_focus: None,
-                mode_override: footer_mode,
+                hints: state
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: state.map_or(ScreenId::Issues, |s| {
+                            s.compiled_screen().unwrap_or(ScreenId::Issues)
+                        }),
+                        terminal_focused: false,
+                        shell_overlay_active: false,
+                        shell_resume_available: false,
+                        actions_focus: None,
+                        mode_override: footer_mode,
+                    }),
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors.clone(),
             )

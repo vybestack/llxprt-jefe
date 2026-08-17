@@ -271,6 +271,8 @@ pub struct ReapedCandidate {
     /// stdout reached EOF **and** stderr completed within the bound. A lingering
     /// descendant that holds an inherited pipe makes this `false`.
     pub reaped: bool,
+    /// The leader's observed normal exit code, when cleanup reaped it.
+    pub exit_code: Option<i32>,
     /// Typed cleanup evidence. `None` only when the leader reaped, stdout
     /// reached EOF, and stderr completed within the bound. A lingering
     /// descendant holding the pipes surfaces as `DrainTimeout`, not a clean reap.
@@ -820,11 +822,9 @@ pub(super) fn reap_owned(mut owned: OwnedCandidate, bounds: &SupervisorBounds) -
 
     // Escalate/reap the leader. Both branches collect terminate/force-kill
     // errors (a benign ESRCH is filtered by `signal_cleanup_evidence`).
-    let (leader_reaped, mut signal_errors): (bool, Vec<io::Error>) =
+    let (shutdown_outcome, mut signal_errors): (ShutdownOutcome, Vec<io::Error>) =
         if may_signal_group(owned.exited) {
-            let (outcome, errors) =
-                staged_shutdown(&mut owned.process, owned.stdin.take(), bounds, owned.pid);
-            (matches!(outcome, ShutdownOutcome::Exited(_)), errors)
+            staged_shutdown(&mut owned.process, owned.stdin.take(), bounds, owned.pid)
         } else {
             // The leader PID may have been recycled, so its old process group is
             // never named. Exact descendants captured while parentage was live
@@ -836,8 +836,13 @@ pub(super) fn reap_owned(mut owned: OwnedCandidate, bounds: &SupervisorBounds) -
                 .err()
                 .into_iter()
                 .collect();
-            (true, errors)
+            (ShutdownOutcome::Exited(None), errors)
         };
+    let leader_reaped = matches!(shutdown_outcome, ShutdownOutcome::Exited(_));
+    let exit_code = match shutdown_outcome {
+        ShutdownOutcome::Exited(code) => code,
+        ShutdownOutcome::NotReaped => None,
+    };
     if let Some(error) = descendant_observation_error {
         signal_errors.push(error);
     }
@@ -857,6 +862,7 @@ pub(super) fn reap_owned(mut owned: OwnedCandidate, bounds: &SupervisorBounds) -
     ReapedCandidate {
         plugin_id,
         reaped,
+        exit_code,
         cleanup_failure,
     }
 }

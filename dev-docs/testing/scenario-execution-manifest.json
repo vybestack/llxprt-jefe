@@ -3101,9 +3101,9 @@
       },
       "timeout_ms": 60000,
       "expect": {
-        "exit_code": 4,
-        "report_status": "failed",
-        "steps_total": 10,
+        "exit_code": 0,
+        "report_status": "passed",
+        "steps_total": 9,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3117,11 +3117,7 @@
         },
         "captures": 0,
         "capture_names": [],
-        "failed_step": {
-          "index": 9,
-          "op": "finish",
-          "error_prefix": "HAR-E005: application exited with code 2"
-        }
+        "failed_step": null
       }
     },
     {

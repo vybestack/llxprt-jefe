@@ -21,7 +21,9 @@ use jefe::runtime::provider::coordinator::{
 };
 use jefe::runtime::provider::environment::{HostEnv, ProcessHostEnv, ProviderEnvironment};
 use jefe::runtime::provider::protocol::{ConfigurePayload, EnvName, Outcome};
-use jefe::runtime::provider::supervisor::{SupervisorBounds, run_one_shot};
+use jefe::runtime::provider::supervisor::{
+    OneShotOutcome, SupervisorBounds, SupervisorFailure, run_one_shot,
+};
 use jefe::services::provider_effect_worker::build_execution_result;
 use jefe::state::provider_requests::ActionPolicy;
 
@@ -152,6 +154,77 @@ fn request_builder_preserves_unique_request_ids() {
     );
     assert_eq!(req1.generation, 1);
     assert_eq!(req2.generation, 2);
+}
+
+/// One-shot containment remains absent through startup composition and is
+/// materialized only at the invocation side-effect boundary, before spawn.
+#[test]
+fn one_shot_invocation_creates_its_containment_before_spawn() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let mut descriptor = scene.descriptor("happy");
+    let containment = scene.home.path().join("deferred-containment");
+    descriptor.working_dir = containment.join("work");
+    descriptor.home = containment.join("home");
+    descriptor.tmpdir = containment.join("tmp");
+    let invocation = Scene::invocation(1);
+    let request = build_one_shot_request(&descriptor, &invocation, 0)
+        .unwrap_or_else(|error| panic!("build one-shot request: {error:?}"));
+
+    assert!(
+        !containment.exists(),
+        "request construction must not create containment"
+    );
+
+    let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
+
+    assert!(
+        !matches!(
+            result.outcome,
+            OneShotOutcome::Failed(SupervisorFailure::Spawn(_))
+        ),
+        "the invocation boundary must create containment before spawn: {:?}",
+        result.outcome
+    );
+    for directory in [&request.working_dir, &request.home, &request.tmpdir] {
+        assert!(
+            directory.is_dir(),
+            "invocation must materialize {}",
+            directory.display()
+        );
+    }
+}
+
+/// Containment creation failures identify the exact path and occur before any
+/// child can be spawned.
+#[test]
+fn one_shot_containment_failure_is_typed_and_path_bearing() {
+    let _budget = super::persistent_support::process_budget();
+    let scene = Scene::new();
+    let mut descriptor = scene.descriptor("happy");
+    let containment = scene.home.path().join("blocked-containment");
+    descriptor.working_dir = containment.join("work");
+    descriptor.home = containment.join("home");
+    descriptor.tmpdir = containment.join("tmp");
+    std::fs::create_dir_all(&containment)
+        .unwrap_or_else(|error| panic!("create containment parent: {error}"));
+    std::fs::write(&descriptor.home, b"not a directory")
+        .unwrap_or_else(|error| panic!("block home directory: {error}"));
+    let request = build_one_shot_request(&descriptor, &Scene::invocation(1), 0)
+        .unwrap_or_else(|error| panic!("build one-shot request: {error:?}"));
+
+    let result = run_one_shot(&request, &fast_bounds(), &ProcessHostEnv);
+
+    match result.outcome {
+        OneShotOutcome::Failed(SupervisorFailure::Containment { path, .. }) => {
+            assert_eq!(path, descriptor.home);
+            assert!(
+                result.transcript.entries().is_empty(),
+                "containment failure is pre-spawn"
+            );
+        }
+        other => panic!("expected typed containment failure, got: {other:?}"),
+    }
 }
 
 /// A happy-path one-shot produces a Navigate outcome and progress messages

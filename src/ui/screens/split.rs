@@ -193,17 +193,16 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
 
             // Keybind bar
             KeybindBar(
-                screen: ScreenId::Repositories,
-                published_workbench: Some(std::sync::Arc::clone(
-                    state
-                        .unwrap_or_else(|| panic!("screen render requires AppState"))
-                        .published_workbench(),
-                )),
-                action_availability: state
-                    .and_then(AppState::action_availability_generation)
-                    .cloned(),
-                terminal_focused: false,
-                actions_focus: None,
+                hints: state
+                    .unwrap_or_else(|| panic!("screen render requires AppState"))
+                    .footer_hints(crate::action_projection::FooterProjectionInput {
+                        screen: ScreenId::Repositories,
+                        terminal_focused: false,
+                        shell_overlay_active: false,
+                        shell_resume_available: false,
+                        actions_focus: None,
+                        mode_override: None,
+                    }),
                 identity_label: crate::process_identity_label(std::process::id(), crate::GIT_COMMIT),
                 colors: colors,
             )

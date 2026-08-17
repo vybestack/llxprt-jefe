@@ -14,6 +14,7 @@
 use super::environment::{EnvironmentError, Redactor};
 use super::protocol::MessageKind;
 use super::{dto, error};
+use std::path::PathBuf;
 
 /// The typed terminal result of a one-shot invocation.
 #[derive(Debug, Clone)]
@@ -44,6 +45,13 @@ pub enum SupervisorFailure {
     InvocationTimeout,
     /// The provider did not shut down in time.
     ShutdownTimeout,
+    /// A contained process directory could not be materialized before spawn.
+    Containment {
+        /// The exact directory that could not be created.
+        path: PathBuf,
+        /// The filesystem failure, retained for operator diagnosis.
+        error: String,
+    },
     /// A pipe I/O failure.
     Io(String),
     /// The provider exited or closed stdout before a terminal.
@@ -70,6 +78,7 @@ impl SupervisorFailure {
             | Self::HandshakeTimeout
             | Self::InvocationTimeout
             | Self::ShutdownTimeout
+            | Self::Containment { .. }
             | Self::Io(_)
             | Self::Crashed { .. } => error::RUNTIME_UNAVAILABLE_CODE,
         }

@@ -55,7 +55,17 @@ pub fn perform_async_attach(
             warn!(agent_id = %agent_id.0, "background: ctx mutex poisoned during attach input snapshot");
             return AsyncAttachOutcome::Failed(agent_id);
         };
-        ctx_guard.runtime.attach_inputs(&agent_id)
+        match ctx_guard.runtime.attach_inputs(&agent_id) {
+            Ok(inputs) => inputs,
+            Err(error) => {
+                warn!(
+                    agent_id = %agent_id.0,
+                    error = %error,
+                    "background: attach refused before runtime geometry was committed"
+                );
+                return AsyncAttachOutcome::Failed(agent_id);
+            }
+        }
     };
 
     let Some(inputs) = inputs else {
