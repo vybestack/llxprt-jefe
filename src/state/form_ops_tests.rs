@@ -171,6 +171,40 @@ fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_instal
 }
 
 #[test]
+fn open_new_repository_defaults_to_llxprt_when_installed() {
+    let mut state = AppState {
+        // Preference-ordered snapshot as published by the startup probe
+        // (LLxprt, Code Puppy, Claude Code, Codex).
+        available_agent_type_ids: vec![
+            crate::domain::shipped_agent_type(3),
+            crate::domain::shipped_agent_type(1),
+            crate::domain::shipped_agent_type(0),
+            crate::domain::shipped_agent_type(2),
+        ],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
+
+    let ModalState::NewRepository { fields, .. } = state.modal else {
+        panic!("expected new-repository modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.default_type_id, "core.llxprt");
+}
+
+#[test]
+fn open_new_repository_falls_back_to_llxprt_when_none_installed() {
+    let mut state = AppState::default();
+
+    state = state.apply(AppEvent::OpenNewRepository).committed_pure();
+
+    let ModalState::NewRepository { fields, .. } = state.modal else {
+        panic!("expected new-repository modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.default_type_id, "core.llxprt");
+}
+
+#[test]
 fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     let repository = seed_repository();
     let expected = repository.base_dir.join("api--worker");

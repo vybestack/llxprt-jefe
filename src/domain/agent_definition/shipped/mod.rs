@@ -18,6 +18,7 @@ mod common;
 mod llxprt;
 
 use super::definition::AgentDefinition;
+use super::type_id::AgentTypeId;
 
 /// The four shipped definitions in canonical (bytewise-stable) ID order.
 ///
@@ -32,4 +33,21 @@ pub fn shipped_definitions() -> Vec<AgentDefinition> {
     ];
     defs.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
     defs
+}
+
+/// The four shipped ids in product default-preference order.
+///
+/// LLxprt is the product default agent type, followed by Code Puppy, Claude
+/// Code, and Codex. Default-selection surfaces (form seeds, space-cycling,
+/// availability snapshots) present types in this order. The canonical
+/// bytewise ID order in [`shipped_definitions`] remains the registry order
+/// and the `shipped_agent_type` index contract.
+#[must_use]
+pub fn shipped_preference_order() -> Vec<AgentTypeId> {
+    vec![
+        llxprt::build().id,
+        code_puppy::build().id,
+        claude::build().id,
+        codex::build().id,
+    ]
 }

@@ -37,6 +37,7 @@ pub use probe::{
     ProbeValidateError,
 };
 pub use sha256::DefinitionSha256;
+pub use shipped::shipped_preference_order;
 pub use signature::LaunchSignatureV1;
 pub use type_id::{
     AgentTypeId, AgentTypeIdError, AgentTypeIdErrorReason, CandidateKind, CandidateValidateError,

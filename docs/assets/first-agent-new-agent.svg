@@ -10,7 +10,7 @@
   <text x="24" y="146" xml:space="preserve">│   Description      [Implement issue 352]                                                         │</text>
   <text x="24" y="164" xml:space="preserve">│   Work Dir         [~/projects/llxprt-jefe/tutorial-llxprt]                                      │</text>
   <text x="24" y="182" xml:space="preserve">│   Profile          [tutorial]                                                                    │</text>
-  <text x="24" y="200" xml:space="preserve">│   Agent Runtime    [core.llxprt]  (space cycles: Code Puppy / LLxprt)                            │</text>
+  <text x="24" y="200" xml:space="preserve">│   Agent Runtime    [core.llxprt]  (space cycles: LLxprt / Code Puppy)                            │</text>
   <text x="24" y="218" xml:space="preserve">│   Mode Flags       [--yolo]                                                                      │</text>
   <text x="24" y="236" xml:space="preserve">│   Version          [▏]                                                                           │</text>
   <text x="24" y="254" xml:space="preserve">│   LLXPRT_DEBUG     []                                                                            │</text>

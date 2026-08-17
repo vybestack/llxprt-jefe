@@ -64,6 +64,47 @@
       "timeout_ms": 15000
     },
     {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Default Agent    [core.code-puppy]",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backtab",
+      "modifiers": []
+    },
+    {
       "op": "wait",
       "source": "frame",
       "literal": "Default YOLO     [x]",

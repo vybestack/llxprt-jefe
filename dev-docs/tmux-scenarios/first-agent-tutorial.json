@@ -193,11 +193,6 @@
       "modifiers": []
     },
     {
-      "op": "key",
-      "key": "space",
-      "modifiers": []
-    },
-    {
       "op": "wait",
       "source": "frame",
       "literal": "Default Agent    [core.llxprt]",
