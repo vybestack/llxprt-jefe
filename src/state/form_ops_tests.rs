@@ -205,19 +205,6 @@ fn open_new_repository_falls_back_to_llxprt_when_none_installed() {
 }
 
 #[test]
-fn remote_form_agent_type_choices_follow_preference_order() {
-    assert_eq!(
-        crate::state::effective_agent_type_ids(&[], true),
-        vec![
-            crate::domain::shipped_agent_type(3),
-            crate::domain::shipped_agent_type(1),
-            crate::domain::shipped_agent_type(0),
-            crate::domain::shipped_agent_type(2),
-        ]
-    );
-}
-
-#[test]
 fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     let repository = seed_repository();
     let expected = repository.base_dir.join("api--worker");

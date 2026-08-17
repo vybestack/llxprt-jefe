@@ -31,6 +31,8 @@ mod form_delete_helpers;
 mod form_home_end_ops;
 mod form_ops;
 mod form_projection;
+#[cfg(test)]
+mod form_projection_tests;
 mod form_runtime;
 mod form_submit_ops;
 mod form_validation_issue403;

@@ -1935,7 +1935,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "4b454b74a5b9495429290a47d78823fb10e17abd408ca2387a7d1be25dc96cef",
+      "sha256": "92985f436c961acb08f33c6a349fe7c7d7dfa02cf5f8cbfd61f227f2aabf058a",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -1958,7 +1958,7 @@
     },
     {
       "path": "docs/assets/first-agent-code-puppy.svg",
-      "sha256": "af014e03a1e9b9c22ddbe2f2be8026679779914acc16262772be51396320e845",
+      "sha256": "3fcd80c56f9cff0e2b15f027e23386ff748d63e91d4feb19accd3baa509f4e7c",
       "mode": "100644",
       "criteria": [
         "CW00B-07"
@@ -1966,7 +1966,7 @@
     },
     {
       "path": "docs/assets/first-agent-issue-send.svg",
-      "sha256": "7674aaed712b9f5ba1867f349e1cffe6640d6e3f83b66be55af09391203bbaa5",
+      "sha256": "5f547728aff7edfe03201cd98a9a7d64120f4d6bd5d7460ac212d8fed475e9d0",
       "mode": "100644",
       "criteria": [
         "CW00B-07"
@@ -1982,7 +1982,7 @@
     },
     {
       "path": "docs/assets/first-agent-new-agent.svg",
-      "sha256": "203f81b0d36539c97a0246931d395d6d4baeed2548b22fdbbe2b0d12deab38ee",
+      "sha256": "d11bdf49af752869f78e362f81ef285866688ccfc6e10c9e3b3976fcb262fbd5",
       "mode": "100644",
       "criteria": [
         "CW00B-07"
@@ -1990,7 +1990,7 @@
     },
     {
       "path": "docs/assets/first-agent-new-repository.svg",
-      "sha256": "7e754bb1ec425c53b103c0d370469432fefb2df0972d1e8c6f632009d72b238c",
+      "sha256": "9cc36619057a0ad1d8e89510bd597fc586f860a1dc8995bd929073d0f00b6563",
       "mode": "100644",
       "criteria": [
         "CW00B-07"
@@ -2014,7 +2014,7 @@
     },
     {
       "path": "docs/assets/first-agent-result.svg",
-      "sha256": "5490dd6f7cb76b51e4bc9cfd4abfa39bace097428726336b376ef58e644e31c8",
+      "sha256": "ce2922dc29332e695877946cf24c16086a7584d5f806be1bddfdaa2242379720",
       "mode": "100644",
       "criteria": [
         "CW00B-07"
@@ -2022,7 +2022,7 @@
     },
     {
       "path": "docs/assets/first-agent-tutorial.provenance",
-      "sha256": "ff38a33dccd3bb8037ca68f8074d806bd47d60f814a6d87f0abe90a112107e5e",
+      "sha256": "82728b623a0a32488dd2ab585fb3a3da4adba49d3b6384bc6de577e53481e9a6",
       "mode": "100644",
       "criteria": [
         "CW00B-07"
@@ -2468,7 +2468,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "77d671b6acf8baa9e9eb238845af18d163d56f8a89652b50ba0204d179486d09",
+      "sha256": "a4a2a4f7b17b68a9d082c11d052b2f1583fac97388f63ce68f735a7ff82dcd72",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
