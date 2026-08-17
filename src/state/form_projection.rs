@@ -1,19 +1,18 @@
 //! Definition-driven projections shared by agent and repository forms.
 
-use crate::domain::agent_definition::{AgentDefinition, AgentTypeId};
+use crate::domain::agent_definition::{AgentDefinition, AgentTypeId, shipped_preference_order};
 
 /// Resolve the effective agent-type choices for a form.
 ///
 /// Remote repositories expose every shipped definition because local PATH
-/// observations cannot describe a remote host. Local repositories expose only
-/// enabled, compatible IDs captured by startup probing.
+/// observations cannot describe a remote host; those choices follow the
+/// product default-preference order (LLxprt first). Local repositories
+/// expose only enabled, compatible IDs captured by startup probing, already
+/// published in preference order.
 #[must_use]
 pub fn effective_agent_type_ids(available: &[AgentTypeId], is_remote: bool) -> Vec<AgentTypeId> {
     if is_remote {
-        AgentDefinition::shipped()
-            .into_iter()
-            .map(|definition| definition.id)
-            .collect()
+        shipped_preference_order()
     } else {
         available.to_vec()
     }

@@ -184,14 +184,14 @@ fn edit_agent_runtime_switch_to_code_puppy_and_back_retains_hidden_llxprt_select
     let ModalState::EditAgent { fields, .. } = &state.modal else {
         panic!("edit-agent modal should remain open after runtime switch");
     };
-    assert_eq!(fields.agent_type_id, "core.claude-code");
+    assert_eq!(fields.agent_type_id, "core.code-puppy");
     assert_eq!(fields.llxprt_version, NIGHTLY_SELECTOR);
 
     state = state.apply(AppEvent::FormToggleCheckbox).committed_pure();
     let ModalState::EditAgent { fields, .. } = &state.modal else {
         panic!("edit-agent modal should remain open after switching back");
     };
-    assert_eq!(fields.agent_type_id, "core.code-puppy");
+    assert_eq!(fields.agent_type_id, "core.claude-code");
     assert_eq!(fields.llxprt_version, NIGHTLY_SELECTOR);
 }
 
@@ -297,7 +297,7 @@ fn code_puppy_selection_content_projection_shows_puppy_version_without_llxprt_ve
     assert_eq!(
         &lines[6..11],
         [
-            "  Agent Runtime    [core.code-puppy]  (space cycles: Claude Code / Code Puppy / Codex CLI / LLxprt)",
+            "  Agent Runtime    [core.code-puppy]  (space cycles: LLxprt / Code Puppy / Claude Code / Codex CLI)",
             "  Model            [sonnet]",
             "  Version          [puppy-nightly]",
             "  YOLO             [x]  (space toggles)",
@@ -319,7 +319,7 @@ fn llxprt_selection_content_projection_retains_version_and_omits_code_puppy_rows
     assert_eq!(
         &lines[7..11],
         [
-            "  Agent Runtime    [core.llxprt]  (space cycles: Claude Code / Code Puppy / Codex CLI / LLxprt)",
+            "  Agent Runtime    [core.llxprt]  (space cycles: LLxprt / Code Puppy / Claude Code / Codex CLI)",
             "  Mode Flags       [--yolo]",
             "  Version          [0.10.0-nightly.260712.21cb698b6]",
             "  LLXPRT_DEBUG     [trace]",

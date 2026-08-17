@@ -8,7 +8,7 @@
   <text x="24" y="110" xml:space="preserve">│   Name             [LLxprt Jefe]                                                                 │</text>
   <text x="24" y="128" xml:space="preserve">│   Base Dir         [~/projects/llxprt-jefe]                                                      │</text>
   <text x="24" y="146" xml:space="preserve">│   Default Profile  [tutorial]                                                                    │</text>
-  <text x="24" y="164" xml:space="preserve">│   Default Agent    [core.llxprt]  (space cycles: Code Puppy / LLxprt)                            │</text>
+  <text x="24" y="164" xml:space="preserve">│   Default Agent    [core.llxprt]  (space cycles: LLxprt / Code Puppy)                            │</text>
   <text x="24" y="182" xml:space="preserve">│   Default Mode     [--yolo]                                                                      │</text>
   <text x="24" y="200" xml:space="preserve">│   Default Version  []                                                                            │</text>
   <text x="24" y="218" xml:space="preserve">│   GitHub Repo      [vybestack/llxprt-jefe]                                                       │</text>

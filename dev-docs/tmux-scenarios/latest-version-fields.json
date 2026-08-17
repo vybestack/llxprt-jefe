@@ -302,17 +302,6 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [core.code-puppy]",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "space",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
       "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },

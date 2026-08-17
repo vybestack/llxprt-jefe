@@ -463,7 +463,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 116,
+        "steps_total": 124,
         "operations": [
           "assert-frame",
           "finish",
@@ -902,7 +902,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 733,
+        "steps_total": 732,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3920,7 +3920,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 127,
+        "steps_total": 125,
         "operations": [
           "assert-frame",
           "finish",
@@ -4097,7 +4097,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 126,
+        "steps_total": 125,
         "operations": [
           "assert-frame",
           "finish",
@@ -7217,7 +7217,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 82,
+        "steps_total": 90,
         "operations": [
           "assert-frame",
           "finish",
