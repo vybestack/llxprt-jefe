@@ -152,7 +152,8 @@
         "vendor.panel",
         "Ready",
         "23",
-        "durable data preserved"
+        "durable",
+        "preserved"
       ],
       "absent": [
         "jefe config validate --config",

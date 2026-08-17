@@ -571,7 +571,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
-      "sha256": "0d2f383a55f42776de51534ccd1734d61e225d090012afc48ba665d394efa0fc",
+      "sha256": "2dd139dd6c072a8759ae57cf44456a0acfafcf6189e6b0b445f12818dfdb1b3a",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

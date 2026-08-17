@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "09366649bcc5d30dd1583b9b16675ac727c383776c1d67628a19816374ad837d",
+      "sha256": "86b11239eeeecad5ee8e60ec387bbca8b829b18ef44f8fc3ba69742e361d0aa8",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -54,7 +54,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
-      "sha256": "0d2f383a55f42776de51534ccd1734d61e225d090012afc48ba665d394efa0fc",
+      "sha256": "2dd139dd6c072a8759ae57cf44456a0acfafcf6189e6b0b445f12818dfdb1b3a",
       "mode": "100644",
       "criteria": [
         "CWR1-03",
@@ -224,7 +224,7 @@
     },
     {
       "path": "tests/issue704/commit.rs",
-      "sha256": "ae0cc95faeccba400e4d59f79f8c68c4b6306457b372c55214ebef2c2579892a",
+      "sha256": "7f4feb3f9dbb73000ff71707f21dff8818502e4b14813a19f790c3ba77c8cc1d",
       "mode": "100644",
       "criteria": [
         "CWR1-01",

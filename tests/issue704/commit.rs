@@ -45,15 +45,19 @@ fn compiled_screen_defect_keeps_software_exit_and_has_no_config_recovery_hint() 
 fn root_state_path_never_degrades_provider_containment_to_the_current_directory() {
     let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let mut paths = resolve_paths(&config_root(temp.path()));
-    paths.state.path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR_STR);
+    let filesystem_root = temp
+        .path()
+        .ancestors()
+        .last()
+        .unwrap_or_else(|| panic!("temp path must have a filesystem root"))
+        .to_path_buf();
+    paths.state.path = filesystem_root.clone();
 
     let containment = provider_containment(&paths);
 
     assert_eq!(
         containment.working_dir,
-        std::path::PathBuf::from(std::path::MAIN_SEPARATOR_STR)
-            .join("providers")
-            .join("work")
+        filesystem_root.join("providers").join("work")
     );
     assert!(containment.working_dir.is_absolute());
 }
