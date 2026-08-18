@@ -123,7 +123,7 @@ fn a_versioned_type_splits_into_its_name_and_version() {
 
     assert_eq!(id.as_str(), "github.issue@2");
     assert_eq!(id.name(), "github.issue");
-    assert_eq!(id.version(), "2");
+    assert_eq!(id.version(), 2);
 }
 
 #[test]
@@ -143,6 +143,7 @@ fn a_type_version_must_be_a_positive_integer_with_one_spelling() {
         "github.issue@1.0",
         "github.issue@v1",
         "github.issue@-1",
+        "github.issue@18446744073709551616",
     ] {
         assert_eq!(
             VersionedTypeId::parse(rejected).map(VersionedTypeId::as_str),

@@ -63,6 +63,17 @@ fn an_enabled_definition_joins_the_registry_after_the_compiled_screens() {
 }
 
 #[test]
+fn an_enabled_definition_contributes_its_immutable_resource_schemas() {
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
+
+    assert_eq!(composition.resource_schemas.len(), 1);
+    let schema = &composition.resource_schemas[0];
+    assert_eq!(schema.owner_id().as_str(), "local.review");
+    assert_eq!(schema.type_id().as_str(), "local.review.note");
+    assert_eq!(schema.schema_version(), 1);
+}
+
+#[test]
 fn the_lowered_descriptor_copies_the_definition_without_inventing_anything() {
     let composition = composed(&[candidate("review", &review_definition())], &["review"]);
     let screen = composition

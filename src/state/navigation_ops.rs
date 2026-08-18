@@ -20,9 +20,7 @@ use crate::domain::effects::{Correlation, EffectError};
 use crate::workbench::{ActivationValues, RouteId, ScreenId, ScreenIdentity};
 
 use super::AppState;
-use super::navigation::{
-    Activation, NavIntent, NavMessage, NavOutcome, NavState, reduce_navigation,
-};
+use super::navigation::{Activation, NavIntent, NavMessage, NavOutcome, reduce_navigation};
 use super::navigation_dirty::{DirtyChoice, DraftAction, DraftToken, SaveIntent};
 
 /// Whether an outcome actually changed which instance is current.
@@ -165,8 +163,9 @@ impl AppState {
     fn navigate(&mut self, message: NavMessage) -> DraftAction {
         let workbench = std::sync::Arc::clone(self.published_workbench());
         let registry = workbench.screen_registry();
+        let placeholder = self.nav.clone();
         let transition = reduce_navigation(
-            std::mem::replace(&mut self.nav, NavState::rooted(ScreenId::default())),
+            std::mem::replace(&mut self.nav, placeholder),
             registry,
             message,
         );
@@ -191,6 +190,12 @@ impl AppState {
                 );
             }
             self.update_provider_panel_lifecycle(&transition.outcome, registry);
+            if matches!(
+                &transition.outcome,
+                NavOutcome::Pushed { .. } | NavOutcome::Replaced { .. }
+            ) {
+                self.sync_current_selected_resource();
+            }
         }
         transition.draft
     }
@@ -252,10 +257,11 @@ impl AppState {
     }
 
     fn activate_current_provider_panels(&mut self, registry: &crate::workbench::ScreenRegistry) {
-        let current = self.nav.current().clone();
-        let Some(descriptor) = registry.get_identity(current.screen) else {
+        let screen = self.nav.current().screen;
+        let Some(descriptor) = registry.get_identity(screen) else {
             return;
         };
+        let current = self.nav.current().clone();
         let activation = match activation_typed_map(&current.activation.values) {
             Ok(values) => values,
             Err(reason) => {
@@ -267,49 +273,62 @@ impl AppState {
             let Some(binding) = registry.panel_binding(current.screen, &panel.id) else {
                 continue;
             };
-            let allowed_model_kinds = binding
-                .model_kinds
-                .iter()
-                .copied()
-                .map(protocol_body_kind)
-                .collect::<Vec<_>>();
-            let allowed_events = binding
-                .event_schema
-                .iter()
-                .map(|entry| crate::state::provider_panels::EventDeclaration {
-                    kind: panel_event_kind(entry.kind()),
-                    arguments: entry.arguments().to_vec(),
-                })
-                .collect::<Vec<_>>();
-            let declared =
-                self.provider_panels
-                    .declare(crate::state::provider_panels::DeclareInput {
-                        owner: &binding.owner,
-                        panel_id: &panel.id,
-                        screen_instance_id: current.id.get(),
-                        panel_type: &binding.panel_type,
-                        activation: &activation,
-                        allowed_model_kinds: &allowed_model_kinds,
-                        allowed_events: &allowed_events,
-                        action_authority: &binding.action_authority,
-                        process_generation:
-                            crate::runtime::provider::protocol::INITIAL_PROCESS_GENERATION,
-                    });
-            let declared = match declared {
-                Ok(declared) => declared,
-                Err(error) => {
-                    self.error_message = Some(error.to_string());
-                    continue;
-                }
-            };
-            let activated = match self.provider_panels.activate(declared.instance) {
-                Ok(activated) => activated,
-                Err(error) => {
-                    self.error_message = Some(error.to_string());
-                    continue;
-                }
-            };
-            self.stage_panel_activate(activated.effect);
+            self.activate_provider_panel(&current, panel, binding, &activation);
+        }
+    }
+
+    fn activate_provider_panel(
+        &mut self,
+        current: &crate::state::navigation::ScreenInstance,
+        panel: &crate::workbench::PanelDescriptor,
+        binding: &crate::workbench::PackagePanelBinding,
+        activation: &crate::domain::TypedMap,
+    ) {
+        let allowed_model_kinds = binding
+            .model_kinds
+            .iter()
+            .copied()
+            .map(protocol_body_kind)
+            .collect::<Vec<_>>();
+        let allowed_events = binding
+            .event_schema
+            .iter()
+            .map(|entry| crate::state::provider_panels::EventDeclaration {
+                kind: panel_event_kind(entry.kind()),
+                arguments: entry.arguments().to_vec(),
+            })
+            .collect::<Vec<_>>();
+        let Some(panel_instance) = current
+            .relationships()
+            .and_then(|relationships| relationships.panel_instance_id(&panel.id))
+        else {
+            self.error_message = Some("published panel has no runtime identity".to_owned());
+            return;
+        };
+        let declared = self.provider_panels.declare_instance(
+            panel_instance,
+            crate::state::provider_panels::DeclareInput {
+                owner: &binding.owner,
+                panel_id: &panel.id,
+                screen_instance_id: current.id.get(),
+                panel_type: &binding.panel_type,
+                activation,
+                allowed_model_kinds: &allowed_model_kinds,
+                allowed_events: &allowed_events,
+                action_authority: &binding.action_authority,
+                process_generation: crate::runtime::provider::protocol::INITIAL_PROCESS_GENERATION,
+            },
+        );
+        let declared = match declared {
+            Ok(declared) => declared,
+            Err(error) => {
+                self.error_message = Some(error.to_string());
+                return;
+            }
+        };
+        match self.provider_panels.activate(declared.instance) {
+            Ok(activated) => self.stage_panel_activate(activated.effect),
+            Err(error) => self.error_message = Some(error.to_string()),
         }
     }
 

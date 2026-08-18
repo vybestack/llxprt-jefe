@@ -2,10 +2,7 @@ impl ProviderPanelState {
     /// Construct empty state.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            panels: Vec::new(),
-            next_panel_instance_id: 1,
-        }
+        Self { panels: Vec::new() }
     }
 
     /// Number of tracked panels.
@@ -140,9 +137,22 @@ impl ProviderPanelState {
     ///
     /// # Errors
     ///
-    /// Returns [`PanelError::InstanceExhausted`] when the u64 counter exhausts.
+    /// Returns [`PanelError`] when the declaration is invalid or the allocated
+    /// identity is already active.
     pub fn declare(&mut self, command: DeclareInput) -> Result<DeclareOutcome, PanelError> {
-        let instance = self.allocate_instance()?;
+        let instance =
+            PanelInstanceId::try_next().map_err(|_| PanelError::InstanceIdentityExhausted)?;
+        self.declare_instance(instance, command)
+    }
+
+    pub(crate) fn declare_instance(
+        &mut self,
+        instance: PanelInstanceId,
+        command: DeclareInput,
+    ) -> Result<DeclareOutcome, PanelError> {
+        if instance.as_u64() == 0 || self.index(instance).is_some() {
+            return Err(PanelError::InvalidLifecycle);
+        }
         self.panels.push(PanelRecord::new(instance, command));
         Ok(DeclareOutcome { instance })
     }
@@ -364,15 +374,6 @@ impl ProviderPanelState {
 
     fn require(&self, panel: PanelInstanceId) -> Result<usize, PanelError> {
         self.index(panel).ok_or(PanelError::UnknownPanel)
-    }
-
-    fn allocate_instance(&mut self) -> Result<PanelInstanceId, PanelError> {
-        let instance = PanelInstanceId::from_u64(self.next_panel_instance_id);
-        self.next_panel_instance_id = self
-            .next_panel_instance_id
-            .checked_add(1)
-            .ok_or(PanelError::InstanceExhausted)?;
-        Ok(instance)
     }
 
     fn disposed_or_invalid(&self, index: usize) -> PanelError {

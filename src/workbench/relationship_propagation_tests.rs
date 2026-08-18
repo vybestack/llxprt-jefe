@@ -13,8 +13,8 @@ use super::descriptor::{PortDirection, ScreenDescriptor};
 use super::diagnostics::ScrCode;
 use super::relationship_fixtures::{SUBJECT_TYPE, list_detail, panel, port, port_ref, screen};
 use super::relationship_propagation::{
-    PortUpdate, PortValue, PropagationAbort, RelationshipInstance, RelationshipState, SourceIntent,
-    propagate,
+    PortUpdate, PortValue, PropagationAbort, RelationshipInstance, RelationshipInstanceError,
+    RelationshipState, SourceIntent, propagate,
 };
 use super::relationships::{
     ActivationMode, EmptyPolicy, Relationship, RelationshipKind, SessionEmptyPolicy,
@@ -31,16 +31,20 @@ fn id(value: &str) -> Id {
     Id::parse(value).unwrap_or_else(|error| unreachable!("valid fixture id: {error}"))
 }
 
-fn subject(text: &str) -> PortValue {
+fn typed_subject(type_id: &str, text: &str) -> PortValue {
     PortValue::Typed(TypedPortValue {
-        type_id: id("github.pull-request"),
+        type_id: id(type_id),
         schema_version: 1,
         semantic_key: text.to_owned(),
         value: BTreeMap::from([(id("subject"), TypedValue::String(text.to_owned()))]),
     })
 }
 
-fn resource_schemas() -> ResourceSchemaRegistry {
+fn subject(text: &str) -> PortValue {
+    typed_subject("github.pull-request", text)
+}
+
+fn resource_schema(owner_id: &str, type_id: &str) -> ResourceSchema {
     let semantic_field = Field::parse(FieldDraft {
         id: id("subject"),
         label: "Subject".to_owned(),
@@ -58,15 +62,12 @@ fn resource_schemas() -> ResourceSchemaRegistry {
     .unwrap_or_else(|error| unreachable!("valid fixture field: {error}"));
     let fields = ConfigSchema::parse(1, vec![semantic_field])
         .unwrap_or_else(|error| unreachable!("valid fixture schema: {error}"));
-    let schema = ResourceSchema::new(
-        id("github.core"),
-        id("github.pull-request"),
-        1,
-        id("subject"),
-        fields,
-    )
-    .unwrap_or_else(|error| unreachable!("valid fixture resource schema: {error}"));
-    ResourceSchemaRegistry::publish(vec![schema])
+    ResourceSchema::new(id(owner_id), id(type_id), 1, id("subject"), fields)
+        .unwrap_or_else(|error| unreachable!("valid fixture resource schema: {error}"))
+}
+
+fn resource_schemas() -> ResourceSchemaRegistry {
+    ResourceSchemaRegistry::publish(vec![resource_schema("github.core", "github.pull-request")])
         .unwrap_or_else(|error| unreachable!("unique fixture schema: {error}"))
 }
 
@@ -84,12 +85,8 @@ fn relationship_instance(
             (panel.id, PanelInstanceId::from_u64(first_panel_id + offset))
         })
         .collect();
-    RelationshipInstance::new(
-        OpenScreenId::parse("github.relationship-tests")
-            .unwrap_or_else(|error| unreachable!("valid open screen id: {error}")),
-        id("github.core"),
-        panel_instances,
-    )
+    RelationshipInstance::new(descriptor, OpenScreenId::preview(), panel_instances)
+        .unwrap_or_else(|error| unreachable!("valid relationship instance: {error}"))
 }
 
 fn held(
@@ -643,23 +640,76 @@ fn two_open_instances_of_one_definition_never_alias_retained_port_values() {
 }
 
 #[test]
+fn each_source_port_selects_its_own_published_resource_owner() {
+    let mut descriptor = screen(
+        vec![panel(
+            "sources",
+            true,
+            vec![
+                port(
+                    "pull-request",
+                    PortDirection::Output,
+                    "github.pull-request@1",
+                    false,
+                ),
+                port("note", PortDirection::Output, "vendor.note@1", false),
+            ],
+        )],
+        Vec::new(),
+    );
+    descriptor.panels[0].ports[1].owner_id = id("vendor.extension");
+    let schemas = ResourceSchemaRegistry::publish(vec![
+        resource_schema("github.core", "github.pull-request"),
+        resource_schema("vendor.extension", "vendor.note"),
+    ])
+    .unwrap_or_else(|error| unreachable!("unique fixture schemas: {error}"));
+    let instance = relationship_instance(&descriptor, 1);
+    let first = propagate(
+        &descriptor,
+        &schemas,
+        &instance,
+        &RelationshipState::new(),
+        &SourceIntent::Publish {
+            port: port_ref("sources", "pull-request"),
+            value: typed_subject("github.pull-request", "42"),
+        },
+    )
+    .unwrap_or_else(|error| unreachable!("first owner must validate: {error}"));
+    let second = propagate(
+        &descriptor,
+        &schemas,
+        &instance,
+        &first.state,
+        &SourceIntent::Publish {
+            port: port_ref("sources", "note"),
+            value: typed_subject("vendor.note", "note-1"),
+        },
+    )
+    .unwrap_or_else(|error| unreachable!("second owner must validate: {error}"));
+
+    let first_key = instance
+        .port_key(&port_ref("sources", "pull-request"))
+        .unwrap_or_else(|| unreachable!("first source instance exists"));
+    let second_key = instance
+        .port_key(&port_ref("sources", "note"))
+        .unwrap_or_else(|| unreachable!("second source instance exists"));
+    assert_eq!(
+        second.state.value(&first_key),
+        typed_subject("github.pull-request", "42")
+    );
+    assert_eq!(
+        second.state.value(&second_key),
+        typed_subject("vendor.note", "note-1")
+    );
+}
+
+#[test]
 fn an_invalid_typed_source_aborts_before_any_instance_state_is_committed() {
     let descriptor = list_detail(IMMEDIATE, true);
     let valid = relationship_instance(&descriptor, 1);
-    let invalid_owner = RelationshipInstance::new(
-        valid.open_screen_id(),
-        id("vendor.other"),
-        descriptor
-            .panels
-            .iter()
-            .enumerate()
-            .map(|(index, panel)| {
-                let offset = u64::try_from(index)
-                    .unwrap_or_else(|_| unreachable!("fixture panel count fits in u64"));
-                (panel.id, PanelInstanceId::from_u64(101 + offset))
-            })
-            .collect(),
-    );
+    let mut invalid_descriptor = descriptor.clone();
+    invalid_descriptor.panels[0].ports[0].owner_id = id("vendor.other");
+    let invalid_owner = relationship_instance(&invalid_descriptor, 101);
     let schemas = resource_schemas();
     let before = propagate(
         &descriptor,
@@ -675,7 +725,7 @@ fn an_invalid_typed_source_aborts_before_any_instance_state_is_committed() {
     .state;
 
     let rejected = propagate(
-        &descriptor,
+        &invalid_descriptor,
         &schemas,
         &invalid_owner,
         &before,
@@ -695,4 +745,98 @@ fn an_invalid_typed_source_aborts_before_any_instance_state_is_committed() {
         .port_key(&port_ref("detail", "subject"))
         .unwrap_or_else(|| unreachable!("valid detail instance exists"));
     assert_eq!(before.value(&valid_key), subject("41"));
+}
+
+#[test]
+fn every_source_publication_requires_a_declared_output_port_before_mutation() {
+    let descriptor = list_detail(IMMEDIATE, true);
+    let schemas = resource_schemas();
+    let instance = relationship_instance(&descriptor, 1);
+    let before = RelationshipState::new();
+
+    for (port, value, expected) in [
+        (
+            port_ref("list", "missing"),
+            PortValue::Absent,
+            PropagationAbort::UnknownPort {
+                port: port_ref("list", "missing"),
+            },
+        ),
+        (
+            port_ref("detail", "subject"),
+            subject("42"),
+            PropagationAbort::SourcePortNotOutput {
+                port: port_ref("detail", "subject"),
+            },
+        ),
+    ] {
+        assert_eq!(
+            propagate(
+                &descriptor,
+                &schemas,
+                &instance,
+                &before,
+                &SourceIntent::Publish { port, value },
+            ),
+            Err(expected)
+        );
+    }
+    assert_eq!(before, RelationshipState::new());
+}
+
+#[test]
+fn relationship_instances_reject_missing_or_aliased_panel_mappings() {
+    let descriptor = list_detail(IMMEDIATE, true);
+    let open_screen_id = OpenScreenId::next();
+    let aliased = BTreeMap::from([
+        (descriptor.panels[0].id, PanelInstanceId::from_u64(1)),
+        (descriptor.panels[1].id, PanelInstanceId::from_u64(1)),
+    ]);
+
+    assert_eq!(
+        RelationshipInstance::new(&descriptor, open_screen_id, aliased),
+        Err(RelationshipInstanceError::DuplicatePanelInstance {
+            panel_instance_id: PanelInstanceId::from_u64(1)
+        })
+    );
+    assert_eq!(
+        RelationshipInstance::new(
+            &descriptor,
+            open_screen_id,
+            BTreeMap::from([(descriptor.panels[0].id, PanelInstanceId::from_u64(1))]),
+        ),
+        Err(RelationshipInstanceError::MissingPanel {
+            panel: descriptor.panels[1].id
+        })
+    );
+    assert_eq!(
+        RelationshipInstance::new(
+            &descriptor,
+            open_screen_id,
+            BTreeMap::from([
+                (descriptor.panels[0].id, PanelInstanceId::from_u64(1)),
+                (descriptor.panels[1].id, PanelInstanceId::from_u64(0)),
+            ]),
+        ),
+        Err(RelationshipInstanceError::InvalidPanelInstance {
+            panel: descriptor.panels[1].id
+        })
+    );
+    assert_eq!(
+        RelationshipInstance::new(
+            &descriptor,
+            open_screen_id,
+            BTreeMap::from([
+                (descriptor.panels[0].id, PanelInstanceId::from_u64(1)),
+                (descriptor.panels[1].id, PanelInstanceId::from_u64(2)),
+                (
+                    super::PanelId::from_static("unknown"),
+                    PanelInstanceId::from_u64(3),
+                ),
+            ]),
+        ),
+        Err(RelationshipInstanceError::UnknownPanel {
+            panel: super::PanelId::from_static("unknown")
+        })
+    );
 }

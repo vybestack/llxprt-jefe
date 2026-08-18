@@ -176,6 +176,7 @@ impl AppState {
             detail.comments.cancel_pending();
         }
         self.prs_state.detail_scroll_offset = 0;
+        self.sync_pr_selected_resource();
     }
 
     // ---- Detail subfocus cycling ----

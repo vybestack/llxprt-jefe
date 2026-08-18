@@ -37,9 +37,10 @@ use super::diagnostics::ScreenDiagnostic;
 use super::geometry::Insets;
 use super::ids::CUSTOM_SCREEN_NAMESPACE;
 use super::lowering_error::LoweringError;
+use super::resource_schemas::ResourceSchema;
 use super::screen_file::parse_screen_file;
 use super::screen_file_bounds::ScreenSyntaxError;
-use super::screen_lowering::{lower_package_screen, lower_screen};
+use super::screen_lowering::{LoweredScreen, lower_package_screen, lower_screen};
 use super::screens::{PackagePanelBinding, RegistryError, ScreenRegistry};
 use super::validate::validate_descriptor;
 
@@ -48,6 +49,8 @@ use super::validate::validate_descriptor;
 pub struct ScreenComposition {
     /// Compiled screens followed by lowered ones, in canonical order.
     pub registry: ScreenRegistry,
+    /// Immutable schemas contributed by active local and package definitions.
+    pub resource_schemas: Vec<ResourceSchema>,
     /// Warnings about definitions that were preserved and omitted.
     pub warnings: Vec<Diagnostic>,
 }
@@ -118,22 +121,34 @@ pub fn compose_screens_with_packages(
 ) -> Result<ScreenComposition, CompositionRefused> {
     let enabled: BTreeSet<Id> = settings.workbench.enabled_screens.iter().cloned().collect();
     let mut screens: Vec<ScreenDescriptor> = compiled.screens().to_vec();
+    let mut resource_schemas = Vec::new();
     let mut warnings = Vec::new();
     for candidate in candidates {
         let path = DiagnosticPath::new(candidate.path.to_string_lossy());
         let Some(lowered) = compose_one(candidate, &enabled, &path, &mut warnings)? else {
             continue;
         };
-        screens.push(lowered);
+        resource_schemas.extend(lowered.resources);
+        screens.push(lowered.descriptor);
     }
     let mut panel_bindings = Vec::new();
-    compose_package_screens(packages, settings, &mut screens, &mut panel_bindings)?;
+    compose_package_screens(
+        packages,
+        settings,
+        &mut screens,
+        &mut resource_schemas,
+        &mut panel_bindings,
+    )?;
     apply_layout_overrides(&mut screens, settings, &mut warnings);
     order_screens(&mut screens, &settings.workbench.screen_order);
     let root = composition_root(candidates, packages, settings);
     let registry = ScreenRegistry::with_panel_bindings(screens, panel_bindings)
         .map_err(|error| registry_refusal(&error, root))?;
-    Ok(ScreenComposition { registry, warnings })
+    Ok(ScreenComposition {
+        registry,
+        resource_schemas,
+        warnings,
+    })
 }
 
 /// Load, parse, and lower every screen each selected package contributes.
@@ -147,6 +162,7 @@ fn compose_package_screens(
     packages: &[InstalledPackage],
     settings: &PublishedSettings,
     screens: &mut Vec<ScreenDescriptor>,
+    resource_schemas: &mut Vec<ResourceSchema>,
     panel_bindings: &mut Vec<PackagePanelBinding>,
 ) -> Result<(), CompositionRefused> {
     for package in selected_packages(packages, settings) {
@@ -201,6 +217,7 @@ fn compose_package_screens(
                     });
                 }
             }
+            resource_schemas.extend(lowered.resources);
             screens.push(lowered.descriptor);
         }
     }
@@ -321,7 +338,7 @@ fn compose_one(
     enabled: &BTreeSet<Id>,
     path: &DiagnosticPath,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<Option<ScreenDescriptor>, CompositionRefused> {
+) -> Result<Option<LoweredScreen>, CompositionRefused> {
     if !is_enabled(&candidate.member, enabled) {
         if let Err(failure) = inspect_candidate(candidate) {
             warnings.push(failure.warning(path));
@@ -351,15 +368,13 @@ fn is_enabled(member: &str, enabled: &BTreeSet<Id>) -> bool {
 }
 
 /// Read, parse, and lower one candidate.
-fn lower_candidate(candidate: &ScreenFileCandidate) -> Result<ScreenDescriptor, CandidateFailure> {
+fn lower_candidate(candidate: &ScreenFileCandidate) -> Result<LoweredScreen, CandidateFailure> {
     let text = candidate
         .text
         .as_ref()
         .map_err(|rejection| CandidateFailure::Unreadable(rejection.clone()))?;
     let file = parse_screen_file(text).map_err(CandidateFailure::Syntax)?;
-    let lowered = lower_screen(&file, &candidate.member, &candidate.path)
-        .map_err(CandidateFailure::Lowering)?;
-    Ok(lowered.descriptor)
+    lower_screen(&file, &candidate.member, &candidate.path).map_err(CandidateFailure::Lowering)
 }
 
 /// Why one candidate produced no descriptor.

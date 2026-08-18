@@ -101,7 +101,7 @@ fn redact_affordance(affordance: Affordance, redactor: &Redactor) -> Affordance 
 fn redact_panel_body(body: PanelBody, redactor: &Redactor) -> Option<PanelBody> {
     Some(match body {
         PanelBody::List(body) => PanelBody::List(redact_list_body(body, redactor)),
-        PanelBody::Tree(body) => PanelBody::Tree(redact_tree_body(body, redactor)),
+        PanelBody::Tree(body) => PanelBody::Tree(redact_tree_body(body, redactor)?),
         PanelBody::Detail(body) => PanelBody::Detail(DetailBody {
             document: redact_text(body.document, redactor),
             metadata: body
@@ -168,13 +168,16 @@ fn redact_list_body(body: ListBody, redactor: &Redactor) -> ListBody {
     }
 }
 
-fn redact_tree_body(body: TreeBody, redactor: &Redactor) -> TreeBody {
-    TreeBody {
-        schema_version: body.schema_version,
-        nodes: body
-            .nodes
-            .into_iter()
-            .map(|node| TreeNode {
+fn redact_tree_body(body: TreeBody, redactor: &Redactor) -> Option<TreeBody> {
+    let nodes = body
+        .nodes
+        .into_iter()
+        .map(|node| {
+            let redacted_key = redactor.redact(node.semantic_key.as_str());
+            if redacted_key.as_ref() != node.semantic_key.as_str() {
+                return None;
+            }
+            Some(TreeNode {
                 id: node.id,
                 parent_id: node.parent_id,
                 label: redact_text(node.label, redactor),
@@ -183,9 +186,13 @@ fn redact_tree_body(body: TreeBody, redactor: &Redactor) -> TreeBody {
                 expandable: node.expandable,
                 expanded: node.expanded,
             })
-            .collect(),
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(TreeBody {
+        schema_version: body.schema_version,
+        nodes,
         selected_id: body.selected_id,
-    }
+    })
 }
 
 fn redact_structured_diff_body(

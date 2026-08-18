@@ -84,6 +84,7 @@ impl AppState {
                 self.issues_state.issue_detail = None;
                 self.issues_state.loading.comments = false;
             }
+            self.sync_issue_selected_resource();
         }
     }
 
@@ -131,6 +132,9 @@ impl AppState {
                 self.issues_state.list.set_selected_index(None);
             }
             self.rehydrate_visible_issue_type(issue_number);
+        }
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            self.sync_issue_selected_resource();
         }
     }
 

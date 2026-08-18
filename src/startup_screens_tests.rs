@@ -136,6 +136,7 @@ fn a_definition_settings_do_not_enable_is_left_out_without_complaint() {
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
     assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert!(composition.resource_schemas.is_empty());
     assert!(composition.warnings.is_empty());
 }
 

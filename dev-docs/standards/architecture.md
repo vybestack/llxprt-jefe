@@ -497,7 +497,7 @@ persistence/ ──> domain/ (keymap override composition)
 persistence/screen_files ──> workbench/ids (the member grammar it enumerates by)
 workbench/ ──> domain/ (typed values), persistence/diagnostic (codes and bounds)
 startup_screens/ ──> persistence/, workbench/ (discovery, composition, publication)
-state/screen_relationships ──> workbench/ (the declared coupling a screen carries)
+state/navigation ──> workbench/ (per-open-instance typed relationship runtime)
 jsp/    ──> domain/ (transport-neutral observation values)
 ```
 
@@ -510,7 +510,7 @@ jsp/    ──> domain/ (transport-neutral observation values)
 | `workbench/`        | `domain/`, `persistence/diagnostic`. No I/O, no state.     |
 | `startup_screens/`  | `persistence/`, `workbench/` (the composition boundary).   |
 | `runtime/`          | Nothing project-internal (uses iocraft types for `Color`).|
-| `state/`            | `domain/`, `messages/`.                                   |
+| `state/`            | `domain/`, `messages/`, `workbench/`.                     |
 | `text_box_view/`    | Nothing project-internal (pure projection).               |
 | `action_projection/`| `domain/` only (pure projection of the snapshot).         |
 | `action_context/`   | `domain/`, `state/` types (pure context derivation).      |

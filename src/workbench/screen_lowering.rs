@@ -18,7 +18,9 @@
 
 use std::path::Path;
 
-use crate::domain::ByteSpan;
+use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
+use crate::domain::plugin::surface::ConfigSchema;
+use crate::domain::{ByteSpan, Id};
 use crate::persistence::diagnostic::DiagnosticPath;
 
 use super::activation::ScreenBinding;
@@ -32,7 +34,11 @@ use super::ids::{
 use super::intern::intern;
 use super::lowering_error::LoweringError;
 use super::panel_types::{DEFINABLE_PANEL_TYPES, find_panel_type};
-use super::screen_file::{PanelFile, PortDirectionFile, PortFile, ScreenFile, span_of};
+use super::resource_schemas::ResourceSchema;
+use super::screen_file::{
+    PanelFile, PortDirectionFile, PortFile, ResourceFieldFile, ResourceFieldKind, ResourceFile,
+    ScreenFile, span_of,
+};
 use super::screen_lowering_layout::{lower_layout, lower_relationships};
 use super::screen_lowering_values::{
     lower_activation, lower_bindings, lower_config, published_actions,
@@ -58,6 +64,8 @@ pub struct ScreenProvenance {
 pub struct LoweredScreen {
     /// The internal descriptor, already structurally validated.
     pub descriptor: ScreenDescriptor,
+    /// Immutable resource schemas owned by this definition.
+    pub resources: Vec<ResourceSchema>,
     /// Where it came from.
     pub provenance: ScreenProvenance,
 }
@@ -128,6 +136,60 @@ pub fn lower_package_screen(
 /// The identity check, panel resolution, layout, relationships, activation, and
 /// bindings are identical for both sources; only the expected identity string,
 /// the `ScreenIdentity` variant, and the allowed panel-type set differ.
+fn lower_resource(resource: &ResourceFile, owner_id: &Id) -> Result<ResourceSchema, LoweringError> {
+    let type_id = Id::parse(&resource.type_id).map_err(|_| LoweringError::ResourceIdentifier {
+        field: "resources.type_id",
+    })?;
+    let semantic_key =
+        Id::parse(&resource.semantic_key).map_err(|_| LoweringError::ResourceIdentifier {
+            field: "resources.semantic_key",
+        })?;
+    let fields = resource
+        .fields
+        .iter()
+        .map(|field| lower_resource_field(field.get_ref()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let fields = ConfigSchema::parse(resource.schema_version, fields)
+        .map_err(LoweringError::ResourceFields)?;
+    ResourceSchema::new(
+        owner_id.clone(),
+        type_id,
+        resource.schema_version,
+        semantic_key,
+        fields,
+    )
+    .map_err(LoweringError::ResourceSchema)
+}
+
+fn lower_resource_field(field: &ResourceFieldFile) -> Result<Field, LoweringError> {
+    let id = Id::parse(&field.id).map_err(|_| LoweringError::ResourceIdentifier {
+        field: "resources.fields.id",
+    })?;
+    let kind = match field.kind {
+        ResourceFieldKind::Boolean => FieldKind::Boolean,
+        ResourceFieldKind::String => FieldKind::String,
+        ResourceFieldKind::Integer => FieldKind::Integer,
+        ResourceFieldKind::FiniteNumber => FieldKind::FiniteNumber,
+        ResourceFieldKind::Path => FieldKind::Path,
+        ResourceFieldKind::StringList => FieldKind::StringList,
+    };
+    Field::parse(FieldDraft {
+        id,
+        label: field.label.clone(),
+        description: None,
+        kind,
+        required: field.required,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::None,
+    })
+    .map_err(LoweringError::ResourceField)
+}
+
 fn lower_with(
     file: &ScreenFile,
     expected_id: &str,
@@ -140,10 +202,17 @@ fn lower_with(
             expected: expected_id.to_owned(),
         });
     }
+    let owner_id =
+        Id::parse(expected_id).map_err(|_| LoweringError::ResourceIdentifier { field: "id" })?;
+    let resources = file
+        .resources
+        .iter()
+        .map(|resource| lower_resource(resource.get_ref(), &owner_id))
+        .collect::<Result<Vec<_>, _>>()?;
     let panels = file
         .panels
         .iter()
-        .map(|panel| lower_panel(panel.get_ref(), allowed_panels))
+        .map(|panel| lower_panel(panel.get_ref(), allowed_panels, file.screen_schema))
         .collect::<Result<Vec<_>, _>>()?;
     let descriptor = ScreenDescriptor {
         id: identity,
@@ -170,6 +239,7 @@ fn lower_with(
     validate_descriptor(&descriptor)?;
     Ok(LoweredScreen {
         descriptor,
+        resources,
         provenance: ScreenProvenance {
             path: DiagnosticPath::new(path.to_string_lossy()),
             id_span: span_of(&file.id),
@@ -201,7 +271,11 @@ fn check_declared(value: &str) -> Result<(), IdError> {
     }
 }
 
-fn lower_panel(panel: &PanelFile, allowed: &[&str]) -> Result<PanelDescriptor, LoweringError> {
+fn lower_panel(
+    panel: &PanelFile,
+    allowed: &[&str],
+    screen_schema: u32,
+) -> Result<PanelDescriptor, LoweringError> {
     find_panel_type(&panel.panel_type, allowed)?;
     Ok(PanelDescriptor {
         id: parse_id("panels.id", &panel.id, PanelId::parse)?,
@@ -212,14 +286,42 @@ fn lower_panel(panel: &PanelFile, allowed: &[&str]) -> Result<PanelDescriptor, L
         ports: panel
             .ports
             .iter()
-            .map(|port| lower_port(port.get_ref()))
+            .map(|port| lower_port(port.get_ref(), screen_schema))
             .collect::<Result<Vec<_>, _>>()?,
     })
 }
 
-fn lower_port(port: &PortFile) -> Result<PortDescriptor, LoweringError> {
+fn lower_port(port: &PortFile, screen_schema: u32) -> Result<PortDescriptor, LoweringError> {
+    let legacy_owner = (screen_schema == super::screen_file::LEGACY_SCREEN_SCHEMA)
+        .then(|| legacy_resource_owner(&port.type_id))
+        .flatten();
+    let owner = match (port.owner.as_deref(), legacy_owner) {
+        (Some(owner), Some(expected)) => {
+            if owner != expected {
+                return Err(LoweringError::LegacyResourceOwner {
+                    type_id: port.type_id.clone(),
+                });
+            }
+            owner
+        }
+        (None, Some(owner)) => owner,
+        (_, _) if screen_schema == super::screen_file::LEGACY_SCREEN_SCHEMA => {
+            return Err(LoweringError::LegacyResourceOwner {
+                type_id: port.type_id.clone(),
+            });
+        }
+        (Some(owner), None) => owner,
+        (None, None) => {
+            return Err(LoweringError::ResourceOwner {
+                owner: "missing".to_owned(),
+            });
+        }
+    };
     Ok(PortDescriptor {
         id: parse_id("ports.id", &port.id, PortId::parse)?,
+        owner_id: Id::parse(owner).map_err(|_| LoweringError::ResourceOwner {
+            owner: owner.to_owned(),
+        })?,
         direction: match port.direction {
             PortDirectionFile::Input => PortDirection::Input,
             PortDirectionFile::Output => PortDirection::Output,
@@ -228,6 +330,14 @@ fn lower_port(port: &PortFile) -> Result<PortDescriptor, LoweringError> {
         required: port.required,
         retained: port.retained,
     })
+}
+
+fn legacy_resource_owner(type_id: &str) -> Option<&'static str> {
+    match type_id.split_once('@').map(|(name, _)| name) {
+        Some("github.issue") => Some("github.issues"),
+        Some("github.pull-request") => Some("github.pull-requests"),
+        _ => None,
+    }
 }
 
 /// Resolve every binding a definition requests against the compiled inventory.

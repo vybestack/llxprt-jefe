@@ -28,8 +28,9 @@ use std::fmt;
 
 use crate::domain::effects::{Correlation, EffectError};
 use crate::workbench::{
-    ActivationError, ActivationValues, NavCode, PanelId, RouteId, ScreenId, ScreenIdentity,
-    ScreenInstanceId, ScreenRegistry, initial_focus, route_declaration, route_of,
+    ActivationError, ActivationValues, NavCode, PanelId, RelationshipInstance,
+    RelationshipInstanceError, RelationshipState, RouteId, ScreenDescriptor, ScreenId,
+    ScreenIdentity, ScreenInstanceId, ScreenRegistry, initial_focus, route_declaration, route_of,
 };
 
 use super::navigation_dirty::{
@@ -100,6 +101,10 @@ pub struct ScreenInstance {
     pub generation: u64,
     /// Whether this instance holds unsaved work.
     pub dirty: DirtyState,
+    /// Runtime bindings for this instance's declared panels and ports.
+    relationships: Option<RelationshipInstance>,
+    /// Retained typed values and staged explicit selections for this instance.
+    relationship_state: RelationshipState,
 }
 
 impl ScreenInstance {
@@ -113,6 +118,33 @@ impl ScreenInstance {
     #[must_use]
     pub const fn compiled_screen(&self) -> Option<ScreenId> {
         self.screen.compiled()
+    }
+    /// Runtime panel/port identities for this open instance.
+    #[must_use]
+    pub const fn relationships(&self) -> Option<&RelationshipInstance> {
+        self.relationships.as_ref()
+    }
+
+    /// Retained relationship values owned only by this open instance.
+    #[must_use]
+    pub const fn relationship_state(&self) -> &RelationshipState {
+        &self.relationship_state
+    }
+
+    pub(crate) fn relationship_parts_mut(
+        &mut self,
+    ) -> Option<(&RelationshipInstance, &mut RelationshipState)> {
+        self.relationships
+            .as_ref()
+            .map(|instance| (instance, &mut self.relationship_state))
+    }
+
+    fn bind_relationships(
+        &mut self,
+        descriptor: &ScreenDescriptor,
+    ) -> Result<(), RelationshipInstanceError> {
+        self.relationships = Some(RelationshipInstance::allocate(descriptor, self.id)?);
+        Ok(())
     }
 }
 
@@ -193,6 +225,8 @@ impl NavState {
                 panel_focus: initial_focus(screen),
                 generation: 1,
                 dirty: DirtyState::Clean,
+                relationships: None,
+                relationship_state: RelationshipState::new(),
             },
             stack: Vec::new(),
             guard: None,
@@ -210,6 +244,16 @@ impl NavState {
     /// The instance the session is on, for the owner of its focus and dirtiness.
     pub const fn current_mut(&mut self) -> &mut ScreenInstance {
         &mut self.current
+    }
+
+    pub(crate) fn ensure_current_relationships(
+        &mut self,
+        descriptor: &ScreenDescriptor,
+    ) -> Result<(), RelationshipInstanceError> {
+        if self.current.relationships.is_none() {
+            self.current.bind_relationships(descriptor)?;
+        }
+        Ok(())
     }
 
     /// The suspended instances, oldest first.
@@ -283,12 +327,11 @@ impl NavState {
         screen_generation == live_screen && activation_generation == live_activation
     }
 
-    /// Build the instance an activation names, without disturbing this state.
-    fn construct(
+    fn validate_activation<'a>(
         &self,
-        registry: &ScreenRegistry,
+        registry: &'a ScreenRegistry,
         activation: &Activation,
-    ) -> Result<ScreenInstance, NavRefusal> {
+    ) -> Result<(ScreenIdentity, &'a ScreenDescriptor), NavRefusal> {
         if activation.source_instance != self.current.id
             || activation.activation_generation != self.current.activation.activation_generation
         {
@@ -300,11 +343,6 @@ impl NavState {
         let declaration = route_declaration(registry, activation.route)?;
         declaration.validate(&activation.values)?;
         let target = declaration.target_screen;
-        // The descriptor owns where a screen focuses on entry. Compiled screens
-        // agree with the compiled focus table, but a lowered package or custom
-        // screen does not, so the focus is read from the descriptor rather than
-        // assumed from a compiled-only lookup. A target whose descriptor the
-        // route resolved but the registry cannot find is unreachable.
         let Some(descriptor) = registry.get_identity(target) else {
             return Err(NavRefusal::NotRoutable {
                 route: activation.route,
@@ -315,8 +353,19 @@ impl NavState {
         {
             return Err(NavRefusal::GenerationExhausted);
         }
+        Ok((target, descriptor))
+    }
+
+    /// Build the instance an activation names, without disturbing this state.
+    fn construct(
+        &self,
+        registry: &ScreenRegistry,
+        activation: &Activation,
+    ) -> Result<ScreenInstance, NavRefusal> {
+        let (target, descriptor) = self.validate_activation(registry, activation)?;
+        let id = ScreenInstanceId::try_next().map_err(|_| NavRefusal::ScreenIdentityExhausted)?;
         Ok(ScreenInstance {
-            id: ScreenInstanceId::next(),
+            id,
             screen: target,
             activation: Activation {
                 route: activation.route,
@@ -327,6 +376,11 @@ impl NavState {
             panel_focus: descriptor.initial_focus,
             generation: self.next_generation,
             dirty: DirtyState::Clean,
+            relationships: Some(
+                RelationshipInstance::allocate(descriptor, id)
+                    .map_err(|_| NavRefusal::PanelIdentityExhausted)?,
+            ),
+            relationship_state: RelationshipState::new(),
         })
     }
 
@@ -343,9 +397,9 @@ impl NavState {
                         limit: MAX_NAVIGATION_STACK,
                     });
                 }
-                self.construct(registry, activation).err()
+                self.validate_activation(registry, activation).err()
             }
-            NavIntent::Replace(activation) => self.construct(registry, activation).err(),
+            NavIntent::Replace(activation) => self.validate_activation(registry, activation).err(),
             // Back consumes only what is already held, so it cannot be refused.
             NavIntent::Back => None,
         }
@@ -493,11 +547,47 @@ fn navigate(mut state: NavState, registry: &ScreenRegistry, intent: NavIntent) -
     commit(state, registry, intent)
 }
 
-fn commit(state: NavState, registry: &ScreenRegistry, intent: NavIntent) -> NavTransition {
+enum PreparedNavigation {
+    Push(ScreenInstance),
+    Replace(ScreenInstance),
+    Back,
+}
+
+fn prepare_navigation(
+    state: &NavState,
+    registry: &ScreenRegistry,
+    intent: &NavIntent,
+) -> Result<PreparedNavigation, NavRefusal> {
     match intent {
-        NavIntent::Push(activation) => push(state, registry, &activation),
-        NavIntent::Replace(activation) => replace(state, registry, &activation),
-        NavIntent::Back => back(state),
+        NavIntent::Push(activation) => {
+            if state.stack.len() >= MAX_NAVIGATION_STACK {
+                return Err(NavRefusal::StackDepth {
+                    limit: MAX_NAVIGATION_STACK,
+                });
+            }
+            state
+                .construct(registry, activation)
+                .map(PreparedNavigation::Push)
+        }
+        NavIntent::Replace(activation) => state
+            .construct(registry, activation)
+            .map(PreparedNavigation::Replace),
+        NavIntent::Back => Ok(PreparedNavigation::Back),
+    }
+}
+
+fn commit(state: NavState, registry: &ScreenRegistry, intent: NavIntent) -> NavTransition {
+    match prepare_navigation(&state, registry, &intent) {
+        Ok(prepared) => commit_prepared(state, prepared),
+        Err(refusal) => refused(state, refusal),
+    }
+}
+
+fn commit_prepared(state: NavState, prepared: PreparedNavigation) -> NavTransition {
+    match prepared {
+        PreparedNavigation::Push(entered) => push(state, entered),
+        PreparedNavigation::Replace(entered) => replace(state, entered),
+        PreparedNavigation::Back => back(state),
     }
 }
 
@@ -577,15 +667,16 @@ fn resolve_dirty(
             // only then discovering that the navigation it was holding back
             // cannot commit would leave the user on the same screen with their
             // work already gone.
-            if let Some(refusal) = state.preflight(registry, &pending) {
-                return refused(state, refusal);
-            }
+            let prepared = match prepare_navigation(&state, registry, &pending) {
+                Ok(prepared) => prepared,
+                Err(refusal) => return refused(state, refusal),
+            };
             let abandoned = state.current.dirty.draft();
             state.guard = None;
             // Cleared before the move, so the instance that goes onto the stack
             // does not carry a draft that no longer exists.
             state.current.dirty = DirtyState::Clean;
-            let mut transition = commit(state, registry, pending);
+            let mut transition = commit_prepared(state, prepared);
             if let Some(draft) = abandoned {
                 transition.draft = DraftAction::RestoreBase { draft };
             }
@@ -647,19 +738,7 @@ fn save_completed(
     }
 }
 
-fn push(mut state: NavState, registry: &ScreenRegistry, activation: &Activation) -> NavTransition {
-    if state.stack.len() >= MAX_NAVIGATION_STACK {
-        return refused(
-            state,
-            NavRefusal::StackDepth {
-                limit: MAX_NAVIGATION_STACK,
-            },
-        );
-    }
-    let entered = match state.construct(registry, activation) {
-        Ok(instance) => instance,
-        Err(refusal) => return refused(state, refusal),
-    };
+fn push(mut state: NavState, entered: ScreenInstance) -> NavTransition {
     let outcome = NavOutcome::Pushed {
         suspended: state.current.id,
         entered: entered.id,
@@ -670,15 +749,7 @@ fn push(mut state: NavState, registry: &ScreenRegistry, activation: &Activation)
     NavTransition::plain(state, outcome)
 }
 
-fn replace(
-    mut state: NavState,
-    registry: &ScreenRegistry,
-    activation: &Activation,
-) -> NavTransition {
-    let entered = match state.construct(registry, activation) {
-        Ok(instance) => instance,
-        Err(refusal) => return refused(state, refusal),
-    };
+fn replace(mut state: NavState, entered: ScreenInstance) -> NavTransition {
     let outcome = NavOutcome::Replaced {
         disposed: state.current.id,
         entered: entered.id,
@@ -728,6 +799,10 @@ pub enum NavRefusal {
     },
     /// The session ran out of distinct generations.
     GenerationExhausted,
+    /// The process-global screen identity space is exhausted.
+    ScreenIdentityExhausted,
+    /// The process-global panel identity space is exhausted.
+    PanelIdentityExhausted,
 }
 
 impl NavRefusal {
@@ -767,6 +842,16 @@ impl fmt::Display for NavRefusal {
             Self::GenerationExhausted => write!(
                 formatter,
                 "{}: this session cannot open another screen",
+                self.code()
+            ),
+            Self::ScreenIdentityExhausted => write!(
+                formatter,
+                "{}: this process cannot allocate another screen instance",
+                self.code()
+            ),
+            Self::PanelIdentityExhausted => write!(
+                formatter,
+                "{}: this process cannot allocate another panel instance",
                 self.code()
             ),
         }

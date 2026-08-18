@@ -556,7 +556,7 @@ fn validate_tree_nodes(nodes: &[TreeNode], path: &str) -> Result<(), ProviderErr
         "semantic key",
     )?;
 
-    let mut ancestors: Vec<&Id> = Vec::new();
+    let mut ancestors: Vec<&TreeNode> = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
         let depth = usize::try_from(node.depth).map_err(|_| ProviderError::InvalidValue {
             path: format!("{path}[{index}].depth"),
@@ -570,16 +570,23 @@ fn validate_tree_nodes(nodes: &[TreeNode], path: &str) -> Result<(), ProviderErr
         }
         let expected_parent = depth
             .checked_sub(1)
-            .and_then(|parent_depth| ancestors.get(parent_depth));
+            .and_then(|parent_depth| ancestors.get(parent_depth))
+            .copied();
         match (node.parent_id.as_ref(), expected_parent) {
             (None, None) => {}
-            (Some(parent), Some(expected)) if parent == *expected => {}
+            (Some(parent), Some(expected)) if parent == &expected.id => {}
             _ => {
                 return Err(ProviderError::InvalidValue {
                     path: format!("{path}[{index}].parent_id"),
                     reason: "parent_id must name the preceding node at depth - 1".to_owned(),
                 });
             }
+        }
+        if expected_parent.is_some_and(|parent| !parent.expandable) {
+            return Err(ProviderError::InvalidValue {
+                path: format!("{path}[{index}].parent_id"),
+                reason: "parent_id must name an expandable node".to_owned(),
+            });
         }
         if node.expanded && !node.expandable {
             return Err(ProviderError::InvalidValue {
@@ -588,7 +595,7 @@ fn validate_tree_nodes(nodes: &[TreeNode], path: &str) -> Result<(), ProviderErr
             });
         }
         ancestors.truncate(depth);
-        ancestors.push(&node.id);
+        ancestors.push(node);
     }
     Ok(())
 }

@@ -13,8 +13,9 @@
 //! effect is a mistaken belief about what the file does.
 
 use super::ids::{
-    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
-    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
+    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH,
+    MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN,
+    MAX_RESOURCES_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
 };
 use super::screen_file::{
     ActivationKind, ChildFile, LayoutFile, RelationshipFile, ScreenFile, SizeFile, span_of,
@@ -48,6 +49,31 @@ fn check_collection_counts(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
                 count: file.panels.len(),
             },
         ));
+    }
+    if file.screen_schema == super::screen_file::LEGACY_SCREEN_SCHEMA && !file.resources.is_empty()
+    {
+        return Err(ScreenSyntaxError::unspanned(
+            ScreenSyntaxReason::Malformed {
+                detail: "`resources` requires screen_schema = 2".to_owned(),
+            },
+        ));
+    }
+    if file.resources.len() > MAX_RESOURCES_PER_SCREEN {
+        return Err(ScreenSyntaxError::unspanned(
+            ScreenSyntaxReason::ResourceCount {
+                count: file.resources.len(),
+            },
+        ));
+    }
+    for resource in &file.resources {
+        if resource.get_ref().fields.len() > MAX_FIELDS_PER_RESOURCE {
+            return Err(ScreenSyntaxError::at(
+                ScreenSyntaxReason::ResourceFieldCount {
+                    count: resource.get_ref().fields.len(),
+                },
+                span_of(resource),
+            ));
+        }
     }
     if file.relationships.len() > MAX_RELATIONSHIPS_PER_SCREEN {
         return Err(ScreenSyntaxError::unspanned(
@@ -83,6 +109,15 @@ fn check_identifier_lengths(file: &ScreenFile) -> Result<(), ScreenSyntaxError> 
     for binding in &file.bindings {
         check_identifier_length("bindings.context", &binding.get_ref().context)?;
         check_identifier_length("bindings.action", &binding.get_ref().action)?;
+    }
+    for resource in &file.resources {
+        let declared = resource.get_ref();
+        check_declared_id("resources.type_id", &declared.type_id)?;
+        check_declared_id("resources.semantic_key", &declared.semantic_key)?;
+        for field in &declared.fields {
+            check_declared_id("resources.fields.id", &field.get_ref().id)?;
+            check_string_length(&field.get_ref().label)?;
+        }
     }
     for relationship in &file.relationships {
         let (source, target) = endpoints(relationship.get_ref());
@@ -176,6 +211,18 @@ fn check_panels(file: &ScreenFile) -> Result<(), ScreenSyntaxError> {
         }
         for port in &declared.ports {
             check_component("ports.id", &port.get_ref().id)?;
+            match &port.get_ref().owner {
+                Some(owner) => check_declared_id("ports.owner", owner)?,
+                None if file.screen_schema >= super::screen_file::SCREEN_SCHEMA => {
+                    return Err(ScreenSyntaxError::at(
+                        ScreenSyntaxReason::Malformed {
+                            detail: "missing field `owner`".to_owned(),
+                        },
+                        span_of(port),
+                    ));
+                }
+                None => {}
+            }
             check_identifier_length("ports.type_id", &port.get_ref().type_id)?;
         }
     }

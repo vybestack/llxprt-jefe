@@ -6,11 +6,14 @@
 //! "which configuration rule was broken" lives with the reasons themselves
 //! rather than in a match at the call site that could drift out of step.
 
+use crate::domain::plugin::field::FieldError;
+use crate::domain::plugin::surface::ConfigSchemaError;
 use crate::persistence::diagnostic::CfgCode;
 
 use super::ids::IdError;
 use super::intern::InternExhausted;
 use super::panel_types::PanelTypeError;
+use super::resource_schemas::ResourceSchemaError;
 use super::validate::DescriptorError;
 
 /// A screen definition that parsed but could not be lowered.
@@ -44,6 +47,27 @@ pub enum LoweringError {
     ActivationName {
         /// The offending name, which is an identifier rather than a value.
         name: String,
+    },
+    /// A resource identifier is not well formed.
+    ResourceIdentifier {
+        /// Which resource field carried it.
+        field: &'static str,
+    },
+    /// One resource field declaration is inconsistent.
+    ResourceField(FieldError),
+    /// A resource field collection is inconsistent.
+    ResourceFields(ConfigSchemaError),
+    /// A resource schema is inconsistent.
+    ResourceSchema(ResourceSchemaError),
+    /// A port's resource owner is not a well-formed identifier.
+    ResourceOwner {
+        /// The invalid owner spelling.
+        owner: String,
+    },
+    /// A schema-1 port names a type with no historical owner mapping.
+    LegacyResourceOwner {
+        /// The declaration's type identifier.
+        type_id: String,
     },
     /// A configuration key is not a well-formed identifier.
     ConfigKey {
@@ -99,6 +123,22 @@ impl std::fmt::Display for LoweringError {
                 formatter,
                 "activation field name {name:?} is not a valid identifier"
             ),
+            Self::ResourceIdentifier { field } => {
+                write!(formatter, "{field} is not a valid resource identifier")
+            }
+            Self::ResourceField(error) => write!(formatter, "resource field: {error}"),
+            Self::ResourceFields(error) => write!(formatter, "resource fields: {error}"),
+            Self::ResourceSchema(error) => write!(formatter, "resource schema: {error}"),
+            Self::ResourceOwner { owner } => {
+                write!(
+                    formatter,
+                    "resource owner {owner:?} is not a valid identifier"
+                )
+            }
+            Self::LegacyResourceOwner { type_id } => write!(
+                formatter,
+                "schema-1 resource type {type_id:?} has no historical owner mapping"
+            ),
             Self::ConfigKey { key } => {
                 write!(formatter, "config key {key:?} is not a valid identifier")
             }
@@ -119,6 +159,9 @@ impl std::error::Error for LoweringError {
         match self {
             Self::Interning(error) => Some(error),
             Self::PanelType(error) => Some(error),
+            Self::ResourceField(error) => Some(error),
+            Self::ResourceFields(error) => Some(error),
+            Self::ResourceSchema(error) => Some(error),
             Self::Descriptor(error) => Some(error),
             _ => None,
         }

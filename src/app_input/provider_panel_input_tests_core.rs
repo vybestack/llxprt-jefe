@@ -703,6 +703,8 @@
             .provider_panels
             .activate(declared.instance)
             .unwrap_or_else(|error| panic!("activate: {error}"));
+        let mut snapshot = snapshot.clone();
+        snapshot.panel_instance_id = declared.instance.as_u64();
         state
             .provider_panels
             .accept_snapshot(AcceptSnapshot {
@@ -710,7 +712,7 @@
                 received_process_generation: 1,
                 payload_byte_count: 256,
                 elapsed_ms: 0,
-                snapshot,
+                snapshot: &snapshot,
             })
             .unwrap_or_else(|error| panic!("snapshot: {error}"));
         declared.instance

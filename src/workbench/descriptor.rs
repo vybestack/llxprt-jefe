@@ -11,7 +11,7 @@
 use std::fmt;
 use std::num::NonZeroU16;
 
-use crate::domain::TypedMap;
+use crate::domain::{Id, TypedMap};
 
 use super::activation::{ActivationField, ScreenBinding};
 use super::ids::{PanelId, PanelTypeId, PortId, RouteId, ScreenIdentity, VersionedTypeId};
@@ -140,10 +140,12 @@ impl PortDirection {
 /// panels from reaching into each other: a panel declares what it publishes and
 /// what it consumes, and the screen declares which publications feed which
 /// consumptions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortDescriptor {
     /// Identity of the port within its panel.
     pub id: PortId,
+    /// Immutable owner of the resource schema this port names.
+    pub owner_id: Id,
     /// Which way values cross this port.
     pub direction: PortDirection,
     /// Identity and version of the value the port carries.

@@ -85,6 +85,28 @@ fn a_published_resource_schema_validates_all_typed_port_value_fields() {
 }
 
 #[test]
+fn declared_port_references_require_the_exact_published_owner_type_and_version() {
+    let registry = registry();
+
+    assert_eq!(
+        registry.validate_reference(&id("jefe"), &id("github.issue"), 1),
+        Ok(())
+    );
+    assert!(matches!(
+        registry.validate_reference(&id("vendor.extension"), &id("github.issue"), 1),
+        Err(ResourceSchemaError::OwnerMismatch { .. })
+    ));
+    assert!(matches!(
+        registry.validate_reference(&id("jefe"), &id("github.issue"), 2),
+        Err(ResourceSchemaError::VersionMismatch { .. })
+    ));
+    assert!(matches!(
+        registry.validate_reference(&id("jefe"), &id("github.unknown"), 1),
+        Err(ResourceSchemaError::UnknownType { .. })
+    ));
+}
+
+#[test]
 fn unknown_fields_and_wrong_payload_types_are_rejected() {
     let registry = registry();
     let owner = id("jefe");
@@ -104,6 +126,18 @@ fn unknown_fields_and_wrong_payload_types_are_rejected() {
         ),
         Err(ResourceSchemaError::InvalidFields { .. })
     ));
+    assert!(matches!(
+        registry.validate(
+            &owner,
+            &TypedPortValue {
+                type_id: id("github.issue"),
+                schema_version: 1,
+                semantic_key: "42".to_owned(),
+                value: BTreeMap::new(),
+            }
+        ),
+        Err(ResourceSchemaError::InvalidFields { .. })
+    ));
 }
 
 #[test]
@@ -120,4 +154,33 @@ fn duplicate_type_versions_and_zero_versions_fail_publication() {
         ResourceSchema::new(id("jefe"), id("github.issue"), 0, id("number"), fields),
         Err(ResourceSchemaError::InvalidVersion { version: 0 })
     ));
+}
+
+#[test]
+fn configuration_only_field_semantics_are_rejected_for_exact_resource_snapshots() {
+    let semantic_key = id("number");
+    let defaulted = Field::parse(FieldDraft {
+        id: semantic_key.clone(),
+        label: "Number".to_owned(),
+        description: None,
+        kind: FieldKind::Integer,
+        required: true,
+        default: Some(TypedValue::Integer(42)),
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::None,
+    })
+    .unwrap_or_else(|error| unreachable!("valid configuration field: {error}"));
+    let fields = ConfigSchema::parse(1, vec![defaulted])
+        .unwrap_or_else(|error| unreachable!("valid configuration schema: {error}"));
+
+    assert_eq!(
+        ResourceSchema::new(id("jefe"), id("github.issue"), 1, semantic_key, fields),
+        Err(ResourceSchemaError::UnsupportedFieldSemantics {
+            field: id("number")
+        })
+    );
 }

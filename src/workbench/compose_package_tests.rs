@@ -152,6 +152,26 @@ panel = "list"
     )
 }
 
+fn screen_toml_with_resource(screen_id: &str, panel_type: &str) -> String {
+    screen_toml(screen_id, panel_type)
+        .replace("screen_schema = 1", "screen_schema = 2")
+        .replace(
+            "[[panels]]",
+            r#"[[resources]]
+type_id = "vendor.demo.item"
+schema_version = 1
+semantic_key = "semantic-key"
+
+[[resources.fields]]
+id = "semantic-key"
+label = "Semantic key"
+type = "string"
+required = true
+
+[[panels]]"#,
+        )
+}
+
 /// Write one package to `root` with a manifest and, optionally, screen bytes.
 fn write_package(root: &Path, id: &str, version: &str, manifest: &str, screen: Option<&str>) {
     let dir = root.join(id).join(version);
@@ -272,6 +292,41 @@ fn selected_package_screen_joins_registry() {
 }
 
 #[test]
+fn selected_package_screen_contributes_definition_owned_resource_schemas() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    write_package(
+        &root,
+        "vendor.demo",
+        "1.0.0",
+        &manifest_json(
+            "vendor.demo",
+            "1.0.0",
+            &host,
+            &contribution("screens/main.screen.toml", "vendor.demo.screen"),
+        ),
+        Some(&screen_toml_with_resource(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
+    );
+    let packages = scan_root(&root);
+    let published = settings(&packages, &[("vendor.demo", Some("1.0.0"))]);
+
+    let composition = compose(&packages, &published)
+        .unwrap_or_else(|error| unreachable!("composition must succeed: {error}"));
+
+    assert_eq!(composition.resource_schemas.len(), 1);
+    let schema = &composition.resource_schemas[0];
+    assert_eq!(schema.owner_id().as_str(), "vendor.demo.screen");
+    assert_eq!(schema.type_id().as_str(), "vendor.demo.item");
+    assert_eq!(schema.schema_version(), 1);
+}
+
+#[test]
 fn disabled_package_contributes_nothing() {
     let Ok(temp) = tempfile::tempdir() else {
         return;
@@ -288,7 +343,10 @@ fn disabled_package_contributes_nothing() {
             &host,
             &contribution("screens/main.screen.toml", "vendor.demo.screen"),
         ),
-        Some(&screen_toml("vendor.demo.screen", "vendor.demo.list")),
+        Some(&screen_toml_with_resource(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
     );
     let packages = scan_root(&root);
     // Settings do not enable the package.
@@ -301,6 +359,10 @@ fn disabled_package_contributes_nothing() {
             package_identity("vendor.demo", "screen")
         ),
         "a disabled package must not contribute screens"
+    );
+    assert!(
+        composition.resource_schemas.is_empty(),
+        "a disabled package must not contribute resource schemas"
     );
 }
 
@@ -334,7 +396,10 @@ fn unselected_version_contributes_nothing() {
             &host,
             &contribution("screens/main.screen.toml", "vendor.demo.screen"),
         ),
-        Some(&screen_toml("vendor.demo.screen", "vendor.demo.list")),
+        Some(&screen_toml_with_resource(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
     );
     let packages = scan_root(&root);
     // Select version 2.0.0 — version 1.0.0 contributes nothing.
@@ -347,6 +412,11 @@ fn unselected_version_contributes_nothing() {
             package_identity("vendor.demo", "screen")
         ),
         "the selected version's screen must be in the registry"
+    );
+    assert_eq!(
+        composition.resource_schemas.len(),
+        1,
+        "only the selected version may contribute its resource schema"
     );
 }
 

@@ -29,12 +29,12 @@
 //! confirm, so its empty policy applies at once and any staged selection is
 //! discarded.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::domain::{Id, TypedPortValue};
+use crate::domain::TypedPortValue;
 use crate::persistence::diagnostic::FOLLOW_UP_LIMIT;
 
-use super::descriptor::{PortRef, ScreenDescriptor};
+use super::descriptor::{PortDirection, PortRef, ScreenDescriptor};
 use super::diagnostics::ScrCode;
 use super::ids::{OpenScreenId, PanelId, PanelInstanceId};
 use super::relationships::{EmptyPolicy, Relationship, RelationshipKind, SessionEmptyPolicy};
@@ -70,27 +70,79 @@ pub struct PortInstanceKey {
     pub port_id: super::PortId,
 }
 
-/// Runtime identities and schema owner for one open screen definition.
+/// Runtime identities for one open screen definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelationshipInstance {
     open_screen_id: OpenScreenId,
-    owner_id: Id,
     panel_instances: BTreeMap<PanelId, PanelInstanceId>,
 }
 
 impl RelationshipInstance {
     /// Bind one open screen to its independently allocated panel instances.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing, unknown, zero, or aliased panel-instance mappings.
     pub fn new(
+        descriptor: &ScreenDescriptor,
         open_screen_id: OpenScreenId,
-        owner_id: Id,
         panel_instances: BTreeMap<PanelId, PanelInstanceId>,
-    ) -> Self {
-        Self {
-            open_screen_id,
-            owner_id,
-            panel_instances,
+    ) -> Result<Self, RelationshipInstanceError> {
+        let mut allocated = BTreeSet::new();
+        for panel in &descriptor.panels {
+            let Some(instance_id) = panel_instances.get(&panel.id).copied() else {
+                return Err(RelationshipInstanceError::MissingPanel { panel: panel.id });
+            };
+            if instance_id.as_u64() == 0 {
+                return Err(RelationshipInstanceError::InvalidPanelInstance { panel: panel.id });
+            }
+            if !allocated.insert(instance_id) {
+                return Err(RelationshipInstanceError::DuplicatePanelInstance {
+                    panel_instance_id: instance_id,
+                });
+            }
         }
+        if let Some(panel) = panel_instances
+            .keys()
+            .find(|panel| descriptor.panel(panel).is_none())
+            .copied()
+        {
+            return Err(RelationshipInstanceError::UnknownPanel { panel });
+        }
+        Ok(Self {
+            open_screen_id,
+            panel_instances,
+        })
+    }
+
+    /// Allocate one distinct runtime identity for every declared panel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error before the process-global identity space can wrap.
+    pub fn allocate(
+        descriptor: &ScreenDescriptor,
+        open_screen_id: OpenScreenId,
+    ) -> Result<Self, RelationshipInstanceError> {
+        let panel_instances = descriptor
+            .panels
+            .iter()
+            .map(|panel| {
+                PanelInstanceId::try_next()
+                    .map(|instance| (panel.id, instance))
+                    .map_err(|_| RelationshipInstanceError::IdentityExhausted)
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            open_screen_id,
+            panel_instances,
+        })
+    }
+
+    /// Runtime identity allocated for a declared panel.
+    #[must_use]
+    pub fn panel_instance_id(&self, panel: &PanelId) -> Option<PanelInstanceId> {
+        self.panel_instances.get(panel).copied()
     }
 
     /// The runtime identity of this open screen.
@@ -112,6 +164,48 @@ impl RelationshipInstance {
             })
     }
 }
+
+/// Invalid runtime bindings for one open screen instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RelationshipInstanceError {
+    /// A declared panel has no allocated runtime identity.
+    MissingPanel { panel: PanelId },
+    /// A runtime mapping names a panel outside the descriptor.
+    UnknownPanel { panel: PanelId },
+    /// Zero is not an allocated panel identity.
+    InvalidPanelInstance { panel: PanelId },
+    /// Two declared panels were assigned one runtime identity.
+    DuplicatePanelInstance { panel_instance_id: PanelInstanceId },
+    /// The process-global panel identity space is exhausted.
+    IdentityExhausted,
+}
+
+impl std::fmt::Display for RelationshipInstanceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingPanel { panel } => {
+                write!(formatter, "panel {panel} has no runtime instance")
+            }
+            Self::UnknownPanel { panel } => {
+                write!(formatter, "runtime instance names unknown panel {panel}")
+            }
+            Self::InvalidPanelInstance { panel } => {
+                write!(formatter, "panel {panel} has invalid runtime instance zero")
+            }
+            Self::DuplicatePanelInstance { panel_instance_id } => write!(
+                formatter,
+                "panel runtime instance {} is assigned more than once",
+                panel_instance_id.as_u64()
+            ),
+            Self::IdentityExhausted => {
+                formatter.write_str("the process cannot allocate another panel instance")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RelationshipInstanceError {}
+
 /// What every instantiated port holds, plus selections awaiting activation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RelationshipState {
@@ -196,6 +290,12 @@ pub enum PropagationAbort {
     InvalidResource(ResourceSchemaError),
     /// An instantiated panel mapping was missing for a declared port.
     MissingPanelInstance { panel: PanelId },
+    /// The active definition is absent from the immutable published registry.
+    UnknownScreen { screen: super::ScreenIdentity },
+    /// The source does not name a declared port.
+    UnknownPort { port: PortRef },
+    /// Only declared output ports may publish source values.
+    SourcePortNotOutput { port: PortRef },
     /// A typed value did not match its source port's declared type and version.
     PortTypeMismatch { port: PortRef },
     /// `All` is policy output, not a source-publishable resource value.
@@ -232,6 +332,23 @@ impl std::fmt::Display for PropagationAbort {
             Self::MissingPanelInstance { panel } => write!(
                 formatter,
                 "{}: panel {panel} has no runtime instance",
+                self.code()
+            ),
+            Self::UnknownScreen { screen } => write!(
+                formatter,
+                "{}: active screen {screen} is not published",
+                self.code()
+            ),
+            Self::UnknownPort { port } => {
+                write!(
+                    formatter,
+                    "{}: source port {port} is not declared",
+                    self.code()
+                )
+            }
+            Self::SourcePortNotOutput { port } => write!(
+                formatter,
+                "{}: source port {port} is not an output",
                 self.code()
             ),
             Self::PortTypeMismatch { port } => write!(
@@ -274,7 +391,7 @@ pub fn propagate(
     };
     match intent {
         SourceIntent::Publish { port, value } => {
-            validate_source(descriptor, schemas, instance, port, value)?;
+            validate_source(descriptor, schemas, port, value)?;
             publish(descriptor, instance, &mut draft, port, value)?;
         }
         SourceIntent::Activate { target } => activate(instance, &mut draft, target)?,
@@ -294,23 +411,25 @@ pub fn propagate(
 fn validate_source(
     descriptor: &ScreenDescriptor,
     schemas: &ResourceSchemaRegistry,
-    instance: &RelationshipInstance,
     port: &PortRef,
     value: &PortValue,
 ) -> Result<(), PropagationAbort> {
+    let Some(declared) = descriptor.port(port) else {
+        return Err(PropagationAbort::UnknownPort { port: *port });
+    };
+    if declared.direction != PortDirection::Output {
+        return Err(PropagationAbort::SourcePortNotOutput { port: *port });
+    }
     match value {
         PortValue::Absent => Ok(()),
         PortValue::All => Err(PropagationAbort::InvalidSourceValue { port: *port }),
         PortValue::Typed(value) => {
-            let Some(declared) = descriptor.port(port) else {
-                return Err(PropagationAbort::PortTypeMismatch { port: *port });
-            };
-            let version_matches = declared.type_id.version() == value.schema_version.to_string();
+            let version_matches = declared.type_id.version() == value.schema_version;
             if declared.type_id.name() != value.type_id.as_str() || !version_matches {
                 return Err(PropagationAbort::PortTypeMismatch { port: *port });
             }
             schemas
-                .validate(&instance.owner_id, value)
+                .validate(&declared.owner_id, value)
                 .map_err(PropagationAbort::InvalidResource)
         }
     }

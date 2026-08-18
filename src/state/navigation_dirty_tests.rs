@@ -3,7 +3,10 @@
 
 use crate::domain::effects::{Correlation, CorrelationId, EffectError, EffectFamily, SemanticKey};
 use crate::domain::{Id, effects::EffectErrorKind};
-use crate::workbench::{ActivationValues, PanelId, ScreenId, ScreenRegistry, builtin_screens};
+use crate::workbench::{
+    ActivationValues, PanelId, PanelInstanceId, ScreenId, ScreenInstanceId, ScreenRegistry,
+    builtin_screens,
+};
 
 use super::navigation::{
     Activation, NavIntent, NavMessage, NavOutcome, NavState, NavTransition, reduce_navigation,
@@ -390,6 +393,57 @@ fn discarding_abandons_the_draft_and_performs_the_navigation() {
         "the owner must be told to restore the base its draft was taken from"
     );
     assert!(transition.state.guard().is_none());
+}
+
+#[test]
+fn guard_and_cancel_allocate_no_identities_and_discard_allocates_only_the_entered_instance() {
+    let dirty = savable();
+    let intent = push_to(&dirty, ScreenId::Issues);
+    let before_guard_panels = PanelInstanceId::test_allocation_count();
+    let before_guard_screens = ScreenInstanceId::test_allocation_count();
+    let guarded = send(dirty, NavMessage::Navigate(intent));
+    assert_eq!(
+        PanelInstanceId::test_allocation_count(),
+        before_guard_panels,
+        "pure preflight must not reserve panel identities"
+    );
+    assert_eq!(
+        ScreenInstanceId::test_allocation_count(),
+        before_guard_screens,
+        "pure preflight must not reserve screen identities"
+    );
+
+    let cancelled = send(guarded.state, NavMessage::ResolveDirty(DirtyChoice::Cancel));
+    assert_eq!(
+        PanelInstanceId::test_allocation_count(),
+        before_guard_panels
+    );
+    assert_eq!(
+        ScreenInstanceId::test_allocation_count(),
+        before_guard_screens
+    );
+
+    let intent = push_to(&cancelled.state, ScreenId::Issues);
+    let guarded = send(cancelled.state, NavMessage::Navigate(intent));
+    let before_discard_panels = PanelInstanceId::test_allocation_count();
+    let before_discard_screens = ScreenInstanceId::test_allocation_count();
+    let transition = send(
+        guarded.state,
+        NavMessage::ResolveDirty(DirtyChoice::Discard),
+    );
+    assert!(matches!(transition.outcome, NavOutcome::Pushed { .. }));
+    let panel_count = registry().get(ScreenId::Issues).map_or_else(
+        || unreachable!("Issues is compiled"),
+        |screen| screen.panels.len(),
+    );
+    assert_eq!(
+        PanelInstanceId::test_allocation_count() - before_discard_panels,
+        u64::try_from(panel_count).unwrap_or_else(|_| unreachable!("panel count fits u64"))
+    );
+    assert_eq!(
+        ScreenInstanceId::test_allocation_count() - before_discard_screens,
+        1
+    );
 }
 
 #[test]

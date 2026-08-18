@@ -138,12 +138,10 @@ mod navigation_package_tests;
 #[cfg(test)]
 #[path = "navigation_tests.rs"]
 mod navigation_tests;
-/// The single Back-precedence resolution (issue #386).
 pub mod navigation_unwind;
 #[cfg(test)]
 #[path = "navigation_unwind_tests.rs"]
 mod navigation_unwind_tests;
-/// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
 #[cfg(test)]
 #[path = "persistence_effect_tests.rs"]
@@ -156,6 +154,13 @@ pub mod persistence_ops;
 pub mod plugin_config_view;
 /// Pure projection of the Screens/Layout editor into rows (issue #388).
 pub mod plugins_editor;
+/// Per-open-instance relationship propagation inside one committed transition.
+mod relationship_runtime;
+pub use relationship_runtime::{RelationshipCommand, RelationshipCommandError};
+/// Production relationship-runtime integration tests.
+#[cfg(test)]
+#[path = "relationship_runtime_tests.rs"]
+mod relationship_runtime_tests;
 pub mod screens_editor;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;

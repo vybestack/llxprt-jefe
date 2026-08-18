@@ -16,6 +16,7 @@
 //! set of independent publications that can disagree.
 
 use crate::agent_registry::{AgentTypeRegistry, RegistryPublishError};
+use crate::domain::Id;
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::domain::plugin::{HostTriple, ProviderSelection};
 use crate::persistence::keymap_edit::compose_published_with_providers;
@@ -28,7 +29,10 @@ use crate::runtime::provider::{
 };
 use crate::startup_screens::{self as screens, ScreenStartupError};
 use crate::startup_selection::{ProviderRequirement, SelectedOwner, SelectionRefused};
-use crate::workbench::{BuiltinResourceSchemaError, builtin_resource_schemas};
+use crate::workbench::{
+    BuiltinResourceSchemaError, ResourceSchemaError, ResourceSchemaRegistry, ScreenIdentity,
+    builtin_resource_schemas,
+};
 
 /// Why the workbench candidate could not be composed statically.
 ///
@@ -46,12 +50,94 @@ pub enum WorkbenchStaticFailure {
     Agents(RegistryPublishError),
     /// An enabled screen definition was refused by composition.
     Screens(ScreenStartupError),
-    /// A compiled typed-resource schema failed publication.
-    Resources(BuiltinResourceSchemaError),
+    /// A typed-resource schema failed publication.
+    Resources(ResourcePublicationError),
     /// A required provider cannot statically serve its active declarations.
     Provider(ProviderStaticRefused),
     /// Compiled and provider actions cannot compose into one registry.
     Actions(crate::persistence::keymap_edit::KeymapDiagnostic),
+}
+/// Why immutable resource schemas could not join one candidate registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourcePublicationError {
+    /// A shipped resource declaration is internally inconsistent.
+    Builtin(BuiltinResourceSchemaError),
+    /// Definition-owned and shipped schemas conflict.
+    Composition(ResourceSchemaError),
+    /// One active port does not name an exact schema in the candidate catalog.
+    PortReference {
+        /// Identity of the screen containing the rejected port.
+        screen: ScreenIdentity,
+        /// Panel containing the rejected port.
+        panel: String,
+        /// Rejected port identifier.
+        port: String,
+        /// Exact catalog mismatch.
+        source: ResourceSchemaError,
+    },
+    /// A validated workbench type could not be represented by the domain ID contract.
+    InvalidPortType {
+        /// Identity of the screen containing the rejected port.
+        screen: ScreenIdentity,
+        /// Panel containing the rejected port.
+        panel: String,
+        /// Rejected port identifier.
+        port: String,
+        /// Full versioned type spelling.
+        type_id: String,
+    },
+}
+
+impl ResourcePublicationError {
+    /// Whether the refusal was caused by an active screen definition.
+    #[must_use]
+    pub const fn is_definition_fault(&self) -> bool {
+        match self {
+            Self::Builtin(_) => false,
+            Self::Composition(_) => true,
+            Self::PortReference { screen, .. } | Self::InvalidPortType { screen, .. } => {
+                !matches!(screen, ScreenIdentity::Compiled(_))
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for ResourcePublicationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Builtin(error) => write!(formatter, "{error}"),
+            Self::Composition(error) => write!(formatter, "{error}"),
+            Self::PortReference {
+                screen,
+                panel,
+                port,
+                source,
+            } => write!(
+                formatter,
+                "screen {screen} port {panel}.{port} has invalid resource schema reference: {source}"
+            ),
+            Self::InvalidPortType {
+                screen,
+                panel,
+                port,
+                type_id,
+            } => write!(
+                formatter,
+                "screen {screen} port {panel}.{port} has invalid resource type {type_id}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ResourcePublicationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Builtin(error) => Some(error),
+            Self::Composition(error) => Some(error),
+            Self::PortReference { source, .. } => Some(source),
+            Self::InvalidPortType { .. } => None,
+        }
+    }
 }
 
 impl WorkbenchStaticFailure {
@@ -59,6 +145,7 @@ impl WorkbenchStaticFailure {
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
+            Self::Resources(error) if error.is_definition_fault() => 2,
             Self::Agents(_) | Self::Resources(_) => 78,
             Self::Screens(error) => error.exit_code(),
             Self::Selection(_) | Self::Provider(_) | Self::Actions(_) => 2,
@@ -75,9 +162,8 @@ impl WorkbenchStaticFailure {
             | Self::Screens(ScreenStartupError::Definitions(_) | ScreenStartupError::Refused(_)) => {
                 true
             }
-            Self::Agents(_)
-            | Self::Resources(_)
-            | Self::Screens(ScreenStartupError::Compiled(_)) => false,
+            Self::Resources(error) => error.is_definition_fault(),
+            Self::Agents(_) | Self::Screens(ScreenStartupError::Compiled(_)) => false,
         }
     }
 }
@@ -89,10 +175,7 @@ impl std::fmt::Display for WorkbenchStaticFailure {
             Self::Agents(error) => write!(formatter, "shipped agents failed to publish: {error}"),
             Self::Screens(error) => write!(formatter, "screen composition refused: {error}"),
             Self::Resources(error) => {
-                write!(
-                    formatter,
-                    "compiled resource schemas failed to publish: {error}"
-                )
+                write!(formatter, "resource schemas failed to publish: {error}")
             }
             Self::Provider(refusal) => write!(formatter, "required provider refused: {refusal}"),
             Self::Actions(diagnostic) => {
@@ -213,7 +296,15 @@ pub fn build_workbench_candidate(
         .collect::<Vec<_>>();
     let agents = AgentTypeRegistry::shipped().map_err(WorkbenchStaticFailure::Agents)?;
     let screens = compose_screens(request, &packages)?;
-    let resource_schemas = builtin_resource_schemas().map_err(WorkbenchStaticFailure::Resources)?;
+    let builtins = builtin_resource_schemas()
+        .map_err(ResourcePublicationError::Builtin)
+        .map_err(WorkbenchStaticFailure::Resources)?;
+    let mut schema_declarations = builtins.schemas();
+    schema_declarations.extend(screens.resource_schemas.iter().cloned());
+    let resource_schemas = ResourceSchemaRegistry::publish(schema_declarations)
+        .map_err(ResourcePublicationError::Composition)
+        .map_err(WorkbenchStaticFailure::Resources)?;
+    validate_port_resource_references(&screens.registry, &resource_schemas)?;
     validate_selected_providers(request, &selected)?;
     let providers = compose_providers(request, &packages);
     let actions = compose_actions(request, &providers)?;
@@ -227,6 +318,36 @@ pub fn build_workbench_candidate(
         providers,
         actions,
     }))
+}
+fn validate_port_resource_references(
+    screens: &crate::workbench::ScreenRegistry,
+    schemas: &ResourceSchemaRegistry,
+) -> Result<(), WorkbenchStaticFailure> {
+    for screen in screens.screens() {
+        for panel in &screen.panels {
+            for port in &panel.ports {
+                let type_id = Id::parse(port.type_id.name()).map_err(|_| {
+                    WorkbenchStaticFailure::Resources(ResourcePublicationError::InvalidPortType {
+                        screen: screen.id,
+                        panel: panel.id.as_str().to_owned(),
+                        port: port.id.as_str().to_owned(),
+                        type_id: port.type_id.as_str().to_owned(),
+                    })
+                })?;
+                schemas
+                    .validate_reference(&port.owner_id, &type_id, port.type_id.version())
+                    .map_err(|source| {
+                        WorkbenchStaticFailure::Resources(ResourcePublicationError::PortReference {
+                            screen: screen.id,
+                            panel: panel.id.as_str().to_owned(),
+                            port: port.id.as_str().to_owned(),
+                            source,
+                        })
+                    })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Resolve every active selection against the retained inventory.
@@ -310,4 +431,220 @@ fn compose_actions(
     )
     .map_err(WorkbenchStaticFailure::Actions)
     .map(|composed| composed.snapshot().clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{
+        ResourcePublicationError, WorkbenchCandidateRequest, WorkbenchStaticFailure,
+        build_workbench_candidate,
+    };
+    use crate::domain::Id;
+    use crate::domain::plugin::HostTriple;
+    use crate::persistence::paths::{PathProvenance, ResolvedFile, ResolvedPaths};
+    use crate::persistence::plugin_inventory::scan;
+    use crate::persistence::settings_document::PublishedSettings;
+    use crate::runtime::provider::Containment;
+    use crate::workbench::{
+        BuiltinResourceSchemaError, CustomScreenId, ResourceSchemaError, ScreenId, ScreenIdentity,
+    };
+
+    fn custom_screen(raw: &'static str) -> CustomScreenId {
+        CustomScreenId::parse(raw)
+            .unwrap_or_else(|error| unreachable!("valid custom screen fixture: {error}"))
+    }
+
+    struct CandidateFixture {
+        root: PathBuf,
+    }
+
+    impl CandidateFixture {
+        fn new(label: &str, definition: &str) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "jefe-startup-candidate-{label}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("definitions"))
+                .unwrap_or_else(|error| unreachable!("fixture directory must exist: {error}"));
+            std::fs::write(root.join("definitions/review.screen.toml"), definition).unwrap_or_else(
+                |error| unreachable!("fixture definition must be written: {error}"),
+            );
+            Self { root }
+        }
+
+        fn paths(&self) -> ResolvedPaths {
+            let resolved = |name: &str| ResolvedFile {
+                path: self.root.join(name),
+                provenance: PathProvenance::ConfigArgument,
+                sources: Vec::new(),
+            };
+            ResolvedPaths {
+                settings: resolved("settings.toml"),
+                state: resolved("state.json"),
+                definitions: self.root.join("definitions"),
+                plugins: self.root.join("plugins"),
+                themes: self.root.join("themes"),
+            }
+        }
+
+        fn build(
+            &self,
+            settings: &PublishedSettings,
+        ) -> Result<crate::published_workbench::PublishedWorkbench, WorkbenchStaticFailure>
+        {
+            let paths = self.paths();
+            let inventory = scan(&[]);
+            build_workbench_candidate(&WorkbenchCandidateRequest {
+                paths: &paths,
+                inventory: &inventory,
+                settings,
+                host: HostTriple::current(),
+                containment: Containment {
+                    home: self.root.join("home"),
+                    tmpdir: self.root.join("tmp"),
+                    working_dir: self.root.join("work"),
+                    locale: "C".to_owned(),
+                    host_api: crate::VERSION.to_owned(),
+                },
+            })
+        }
+    }
+
+    impl Drop for CandidateFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn enabled_settings() -> PublishedSettings {
+        let mut settings = PublishedSettings::default();
+        settings.workbench.enabled_screens = vec![
+            Id::parse("local.review")
+                .unwrap_or_else(|error| unreachable!("fixture screen ID must parse: {error}")),
+        ];
+        settings
+    }
+
+    fn review_definition() -> String {
+        include_str!("workbench/testdata/local-review.screen.toml").replace("\r\n", "\n")
+    }
+    #[test]
+    fn definition_resource_faults_are_configuration_failures() {
+        let failure = WorkbenchStaticFailure::Resources(ResourcePublicationError::Composition(
+            ResourceSchemaError::InvalidVersion { version: 0 },
+        ));
+
+        assert!(failure.is_configuration_failure());
+        assert_eq!(failure.exit_code(), 2);
+    }
+
+    #[test]
+    fn compiled_resource_faults_remain_internal_failures() {
+        let builtin = WorkbenchStaticFailure::Resources(ResourcePublicationError::Builtin(
+            BuiltinResourceSchemaError::Resource(ResourceSchemaError::InvalidVersion {
+                version: 0,
+            }),
+        ));
+        let port = WorkbenchStaticFailure::Resources(ResourcePublicationError::InvalidPortType {
+            screen: ScreenIdentity::Compiled(ScreenId::Issues),
+            panel: "issues.list".to_owned(),
+            port: "selection".to_owned(),
+            type_id: "invalid".to_owned(),
+        });
+
+        for failure in [builtin, port] {
+            assert!(!failure.is_configuration_failure());
+            assert_eq!(failure.exit_code(), 78);
+        }
+    }
+
+    #[test]
+    fn definition_port_resource_faults_are_configuration_failures() {
+        let failure =
+            WorkbenchStaticFailure::Resources(ResourcePublicationError::InvalidPortType {
+                screen: ScreenIdentity::Custom(custom_screen("local.review")),
+                panel: "review.list".to_owned(),
+                port: "selection".to_owned(),
+                type_id: "invalid".to_owned(),
+            });
+
+        assert!(failure.is_configuration_failure());
+        assert_eq!(failure.exit_code(), 2);
+    }
+
+    #[test]
+    fn candidate_publishes_an_enabled_definition_resource_schema() {
+        let fixture = CandidateFixture::new("resource-valid", &review_definition());
+        let candidate = fixture
+            .build(&enabled_settings())
+            .unwrap_or_else(|error| unreachable!("valid definition must publish: {error}"));
+        let owner = Id::parse("local.review")
+            .unwrap_or_else(|error| unreachable!("fixture owner must parse: {error}"));
+        let type_id = Id::parse("local.review.note")
+            .unwrap_or_else(|error| unreachable!("fixture type must parse: {error}"));
+
+        assert_eq!(
+            candidate
+                .resource_schemas()
+                .validate_reference(&owner, &type_id, 1),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn candidate_refuses_unknown_wrong_version_and_wrong_owner_port_references() {
+        let base = review_definition();
+        let cases = [
+            (
+                "resource-unknown",
+                base.replace("github.pull-request@1", "github.unknown@1"),
+                "resource type github.unknown is not published",
+            ),
+            (
+                "resource-version",
+                base.replace("github.pull-request@1", "github.pull-request@2"),
+                "resource type github.pull-request version 2 is not published",
+            ),
+            (
+                "resource-owner",
+                base.replace("github.pull-requests", "github.issues"),
+                "resource schema owner github.issues does not match github.pull-requests",
+            ),
+        ];
+
+        for (label, definition, expected) in cases {
+            let fixture = CandidateFixture::new(label, &definition);
+            let Err(error) = fixture.build(&enabled_settings()) else {
+                panic!("invalid port reference must refuse the whole candidate");
+            };
+            assert!(error.is_configuration_failure());
+            assert_eq!(error.exit_code(), 2);
+            let diagnostic = error.to_string();
+            assert!(diagnostic.contains(expected), "{diagnostic}");
+            assert!(!diagnostic.contains("hidden"));
+        }
+    }
+
+    #[test]
+    fn candidate_refuses_a_definition_schema_colliding_with_a_builtin() {
+        let definition = review_definition().replace("local.review.note", "github.issue");
+        let fixture = CandidateFixture::new("resource-duplicate", &definition);
+
+        let Err(error) = fixture.build(&enabled_settings()) else {
+            panic!("duplicate schema identity must refuse the whole candidate");
+        };
+
+        assert!(matches!(
+            error,
+            WorkbenchStaticFailure::Resources(ResourcePublicationError::Composition(
+                ResourceSchemaError::DuplicateSchema { .. }
+            ))
+        ));
+        assert!(error.is_configuration_failure());
+        assert_eq!(error.exit_code(), 2);
+    }
 }

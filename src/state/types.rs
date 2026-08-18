@@ -604,6 +604,39 @@ pub struct AppState {
     pub provider_requests: super::provider_requests::ProviderRequestState,
 }
 
+fn initial_navigation(
+    published_workbench: &crate::published_workbench::PublishedWorkbench,
+) -> super::navigation::NavState {
+    let mut nav = super::navigation::NavState::default();
+    if let Some(descriptor) = published_workbench
+        .screen_registry()
+        .get_identity(nav.screen())
+        && nav.ensure_current_relationships(descriptor).is_err()
+    {
+        std::process::abort();
+    }
+    nav
+}
+
+impl AppState {
+    /// Replace navigation with a durable root bound to the committed screen declaration.
+    ///
+    /// Restoration occurs before the application becomes observable. Exhausting a
+    /// process-unique panel identity at this boundary is therefore unrecoverable.
+    pub fn restore_navigation_root(&mut self, screen: crate::workbench::ScreenId) {
+        let mut nav = super::navigation::NavState::rooted(screen);
+        if let Some(descriptor) = self
+            .published_workbench
+            .screen_registry()
+            .get_identity(nav.screen())
+            && nav.ensure_current_relationships(descriptor).is_err()
+        {
+            std::process::abort();
+        }
+        self.nav = nav;
+    }
+}
+
 /// Root runtime state bound to one immutable committed workbench.
 impl AppState {
     /// Construct empty runtime state bound to the declarations committed for
@@ -613,6 +646,7 @@ impl AppState {
         published_workbench: std::sync::Arc<crate::published_workbench::PublishedWorkbench>,
     ) -> Self {
         Self {
+            nav: initial_navigation(&published_workbench),
             published_workbench,
             repositories: Vec::new(),
             agents: Vec::new(),
@@ -625,7 +659,6 @@ impl AppState {
             selected_agent_index: None,
             selected_agent_type_index: 0,
             last_selected_agent_by_repo: Vec::new(),
-            nav: super::navigation::NavState::default(),
             pane_focus: PaneFocus::default(),
             terminal_focused: false,
             hide_idle_repositories: false,
@@ -680,6 +713,33 @@ impl AppState {
         &self,
     ) -> &std::sync::Arc<crate::published_workbench::PublishedWorkbench> {
         &self.published_workbench
+    }
+
+    /// Apply one declared relationship intent to the active open screen.
+    ///
+    /// The transition is validated against the immutable published resource
+    /// registry and committed only after the pure propagation engine succeeds.
+    pub(super) fn apply_relationship_intent(
+        &mut self,
+        intent: crate::workbench::SourceIntent,
+    ) -> Result<Vec<crate::workbench::PortUpdate>, crate::workbench::PropagationAbort> {
+        let screen = self.nav.screen();
+        let Some(descriptor) = self
+            .published_workbench
+            .screen_registry()
+            .get_identity(screen)
+            .cloned()
+        else {
+            return Err(crate::workbench::PropagationAbort::UnknownScreen { screen });
+        };
+        let schemas = self.published_workbench.resource_schemas();
+        let Some((instance, state)) = self.nav.current_mut().relationship_parts_mut() else {
+            return Err(crate::workbench::PropagationAbort::UnknownScreen { screen });
+        };
+        let transition =
+            crate::workbench::propagate(&descriptor, schemas, instance, state, &intent)?;
+        *state = transition.state;
+        Ok(transition.updates)
     }
 
     /// The immutable action and binding declarations committed for this process.

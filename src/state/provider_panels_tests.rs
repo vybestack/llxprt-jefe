@@ -121,16 +121,26 @@ fn first_live_panel(state: &mut ProviderPanelState) -> PanelInstanceId {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn declare_allocates_a_positive_monotonic_instance() {
+fn declare_allocates_positive_non_reused_instances() {
     let mut state = ProviderPanelState::new();
     let a = declare(&mut state, 1).instance;
     let b = declare(&mut state, 1).instance;
     let c = declare(&mut state, 1).instance;
-    assert_eq!(a.as_u64(), 1);
-    assert_eq!(b.as_u64(), 2);
-    assert_eq!(c.as_u64(), 3);
+    assert!(a.as_u64() > 0);
+    assert!(b.as_u64() > 0);
+    assert!(c.as_u64() > 0);
     assert_ne!(a, b);
+    assert_ne!(a, c);
     assert_ne!(b, c);
+}
+
+#[test]
+fn declared_and_preallocated_panels_share_one_process_identity_authority() {
+    let mut state = ProviderPanelState::new();
+    let preallocated = PanelInstanceId::next();
+    let ordinary = declare(&mut state, 1).instance;
+
+    assert_ne!(ordinary, preallocated);
 }
 
 #[test]

@@ -44,6 +44,10 @@ pub const MAX_SPLIT_CHILDREN: usize = 8;
 pub const MAX_LAYOUT_DEPTH: usize = 8;
 /// Maximum number of ports one panel may declare.
 pub const MAX_PORTS_PER_PANEL: usize = 32;
+/// Maximum number of immutable resource schemas one screen may declare.
+pub const MAX_RESOURCES_PER_SCREEN: usize = 64;
+/// Maximum number of exact fields one resource schema may declare.
+pub const MAX_FIELDS_PER_RESOURCE: usize = 128;
 /// Maximum number of relationships one screen may declare.
 pub const MAX_RELATIONSHIPS_PER_SCREEN: usize = 64;
 /// Maximum number of activation fields one custom screen may declare.
@@ -252,16 +256,85 @@ plain_id! {
     /// here is sufficient.
     PluginScreenId
 }
-plain_id! {
-    /// Runtime identity of one open screen, independent of its compiled definition identity.
-    OpenScreenId
-}
-
 /// Positive, monotonic, session-only identity of one instantiated panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PanelInstanceId(u64);
 
+#[derive(Debug)]
+pub(super) struct PanelInstanceAllocator {
+    next: AtomicU64,
+}
+
+impl PanelInstanceAllocator {
+    pub(super) const fn starting_at(next: u64) -> Self {
+        Self {
+            next: AtomicU64::new(next),
+        }
+    }
+
+    pub(super) fn next(&self) -> Result<PanelInstanceId, PanelInstanceIdExhausted> {
+        let mut next = self.next.load(Ordering::Relaxed);
+        loop {
+            if next == 0 || next == u64::MAX {
+                return Err(PanelInstanceIdExhausted);
+            }
+            match self.next.compare_exchange_weak(
+                next,
+                next + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(PanelInstanceId(next)),
+                Err(observed) => next = observed,
+            }
+        }
+    }
+}
+
+static PANEL_INSTANCE_ALLOCATOR: PanelInstanceAllocator = PanelInstanceAllocator::starting_at(1);
+
+#[cfg(test)]
+std::thread_local! {
+    static PANEL_INSTANCE_ALLOCATION_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The process cannot allocate another positive, non-reused panel identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanelInstanceIdExhausted;
+
+impl fmt::Display for PanelInstanceIdExhausted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the process cannot allocate another panel instance")
+    }
+}
+
+impl std::error::Error for PanelInstanceIdExhausted {}
+
 impl PanelInstanceId {
+    /// Allocate the next process-unique panel instance identity.
+    ///
+    /// Exhaustion is unrecoverable for callers without a transactional error
+    /// path, so this entry point terminates before zero or reuse can occur.
+    #[must_use]
+    pub fn next() -> Self {
+        match Self::try_next() {
+            Ok(instance) => instance,
+            Err(_) => std::process::abort(),
+        }
+    }
+
+    pub(crate) fn try_next() -> Result<Self, PanelInstanceIdExhausted> {
+        let instance = PANEL_INSTANCE_ALLOCATOR.next()?;
+        #[cfg(test)]
+        PANEL_INSTANCE_ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+        Ok(instance)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_allocation_count() -> u64 {
+        PANEL_INSTANCE_ALLOCATION_COUNT.with(std::cell::Cell::get)
+    }
+
     /// Reconstitute an identity allocated by the screen-instance owner.
     #[must_use]
     pub const fn from_u64(value: u64) -> Self {
@@ -288,7 +361,10 @@ plain_id! {
 /// declared `github.issue@1`, and the mismatch is a validation failure instead
 /// of a silent shape change at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct VersionedTypeId(&'static str);
+pub struct VersionedTypeId {
+    value: &'static str,
+    version: u64,
+}
 
 impl VersionedTypeId {
     /// Parse `<name>@<version>`.
@@ -308,36 +384,38 @@ impl VersionedTypeId {
             return Err(IdError::MissingTypeVersion);
         };
         check_plain_grammar(name)?;
-        check_type_version(version)?;
-        Ok(Self(value))
+        let version = check_type_version(version)?;
+        Ok(Self { value, version })
     }
 
     /// Borrow the full `<name>@<version>` text.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        self.0
+        self.value
     }
 
     /// Borrow the name part.
     #[must_use]
     pub fn name(self) -> &'static str {
-        self.0.split_once('@').map_or(self.0, |(name, _)| name)
+        self.value
+            .split_once('@')
+            .map_or(self.value, |(name, _)| name)
     }
 
-    /// Borrow the version part.
+    /// Numeric schema version.
     #[must_use]
-    pub fn version(self) -> &'static str {
-        self.0.split_once('@').map_or("", |(_, version)| version)
+    pub const fn version(self) -> u64 {
+        self.version
     }
 }
 
 impl fmt::Display for VersionedTypeId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.0)
+        formatter.write_str(self.value)
     }
 }
 
-fn check_type_version(version: &str) -> Result<(), IdError> {
+fn check_type_version(version: &str) -> Result<u64, IdError> {
     let bytes = version.as_bytes();
     let Some(&first) = bytes.first() else {
         return Err(IdError::InvalidTypeVersion);
@@ -348,7 +426,7 @@ fn check_type_version(version: &str) -> Result<(), IdError> {
     if bytes.iter().any(|byte| !byte.is_ascii_digit()) {
         return Err(IdError::InvalidTypeVersion);
     }
-    Ok(())
+    version.parse().map_err(|_| IdError::InvalidTypeVersion)
 }
 
 /// Identity of one externally authored screen.
@@ -605,13 +683,79 @@ impl fmt::Display for ScreenId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ScreenInstanceId(u64);
 
-static NEXT_SCREEN_INSTANCE: AtomicU64 = AtomicU64::new(1);
+#[derive(Debug)]
+pub(super) struct ScreenInstanceAllocator {
+    next: AtomicU64,
+}
+
+impl ScreenInstanceAllocator {
+    pub(super) const fn starting_at(next: u64) -> Self {
+        Self {
+            next: AtomicU64::new(next),
+        }
+    }
+
+    pub(super) fn next(&self) -> Result<ScreenInstanceId, ScreenInstanceIdExhausted> {
+        let mut next = self.next.load(Ordering::Relaxed);
+        loop {
+            if next == 0 || next == u64::MAX {
+                return Err(ScreenInstanceIdExhausted);
+            }
+            match self.next.compare_exchange_weak(
+                next,
+                next + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(ScreenInstanceId(next)),
+                Err(observed) => next = observed,
+            }
+        }
+    }
+}
+
+static SCREEN_INSTANCE_ALLOCATOR: ScreenInstanceAllocator = ScreenInstanceAllocator::starting_at(1);
+
+#[cfg(test)]
+std::thread_local! {
+    static SCREEN_INSTANCE_ALLOCATION_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The process cannot allocate another positive, non-reused screen identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenInstanceIdExhausted;
+
+impl fmt::Display for ScreenInstanceIdExhausted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the process cannot allocate another screen instance")
+    }
+}
+
+impl std::error::Error for ScreenInstanceIdExhausted {}
 
 impl ScreenInstanceId {
     /// Allocate the next distinct instance identity.
+    ///
+    /// Exhaustion is unrecoverable for callers without a transactional error
+    /// path, so this entry point terminates before zero or reuse can occur.
     #[must_use]
     pub fn next() -> Self {
-        Self(NEXT_SCREEN_INSTANCE.fetch_add(1, Ordering::Relaxed))
+        match Self::try_next() {
+            Ok(instance) => instance,
+            Err(_) => std::process::abort(),
+        }
+    }
+
+    pub(crate) fn try_next() -> Result<Self, ScreenInstanceIdExhausted> {
+        let instance = SCREEN_INSTANCE_ALLOCATOR.next()?;
+        #[cfg(test)]
+        SCREEN_INSTANCE_ALLOCATION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+        Ok(instance)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_allocation_count() -> u64 {
+        SCREEN_INSTANCE_ALLOCATION_COUNT.with(std::cell::Cell::get)
     }
 
     /// The identity a preview resolves under.
@@ -638,3 +782,7 @@ impl fmt::Display for ScreenInstanceId {
         write!(formatter, "instance-{}", self.0)
     }
 }
+
+/// Runtime identity of one open screen. This is the same process-unique identity
+/// carried by navigation and resolved layout; it is never a definition ID.
+pub type OpenScreenId = ScreenInstanceId;

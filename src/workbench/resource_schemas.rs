@@ -43,6 +43,16 @@ impl ResourceSchema {
                 fields: fields.schema_version(),
             });
         }
+        for field in fields.fields() {
+            if field.default().is_some()
+                || field.visible_when().is_some()
+                || field.restart() != RestartScope::None
+            {
+                return Err(ResourceSchemaError::UnsupportedFieldSemantics {
+                    field: field.id().clone(),
+                });
+            }
+        }
         let Some(field) = fields
             .fields()
             .iter()
@@ -112,6 +122,47 @@ impl ResourceSchemaRegistry {
         Ok(Self { schemas: published })
     }
 
+    /// Schemas in deterministic type/version order.
+    #[must_use]
+    pub fn schemas(&self) -> Vec<ResourceSchema> {
+        self.schemas.values().cloned().collect()
+    }
+
+    /// Validate that one declared port names an exact published schema owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same unknown-type, version, and owner failures as value validation.
+    pub fn validate_reference(
+        &self,
+        owner_id: &Id,
+        type_id: &Id,
+        schema_version: u64,
+    ) -> Result<(), ResourceSchemaError> {
+        let Some(schema) = self.schemas.get(&(type_id.clone(), schema_version)) else {
+            if self
+                .schemas
+                .keys()
+                .any(|(published_type, _)| published_type == type_id)
+            {
+                return Err(ResourceSchemaError::VersionMismatch {
+                    type_id: type_id.clone(),
+                    actual: schema_version,
+                });
+            }
+            return Err(ResourceSchemaError::UnknownType {
+                type_id: type_id.clone(),
+            });
+        };
+        if schema.owner_id != *owner_id {
+            return Err(ResourceSchemaError::OwnerMismatch {
+                expected: schema.owner_id.clone(),
+                actual: owner_id.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Validate one typed value against its exact published schema and owner.
     ///
     /// # Errors
@@ -153,7 +204,12 @@ impl ResourceSchemaRegistry {
                 errors: field_errors,
             });
         }
-        let actual_key = semantic_key(&value.value[&schema.semantic_key_field]);
+        let Some(key_value) = value.value.get(&schema.semantic_key_field) else {
+            return Err(ResourceSchemaError::MissingSemanticKeyValue {
+                field: schema.semantic_key_field.clone(),
+            });
+        };
+        let actual_key = semantic_key(key_value);
         if actual_key.as_deref() != Some(value.semantic_key.as_str()) {
             return Err(ResourceSchemaError::SemanticKeyMismatch {
                 field: schema.semantic_key_field.clone(),
@@ -204,7 +260,7 @@ pub fn builtin_resource_schemas() -> Result<ResourceSchemaRegistry, BuiltinResou
 }
 
 /// A compiled resource schema violated its own closed declaration contract.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinResourceSchemaError {
     /// A compiled identifier is invalid.
     Identifier(ConfigContractError),
@@ -277,6 +333,9 @@ pub enum ResourceSchemaError {
     MissingSemanticKeyField { field: Id },
     /// The semantic-key field must be required string or integer data.
     InvalidSemanticKeyField { field: Id },
+    /// Configuration defaults, visibility, and restart semantics are not valid
+    /// in an exact resource snapshot.
+    UnsupportedFieldSemantics { field: Id },
     /// One type/version identity was published twice.
     DuplicateSchema { type_id: Id, schema_version: u64 },
     /// No schema exists for the supplied type.
@@ -287,6 +346,8 @@ pub enum ResourceSchemaError {
     OwnerMismatch { expected: Id, actual: Id },
     /// The closed field schema rejected the payload.
     InvalidFields { errors: Vec<ConfigValueError> },
+    /// The validated payload did not contain its semantic-key field.
+    MissingSemanticKeyValue { field: Id },
     /// The semantic identity did not match its canonical payload field.
     SemanticKeyMismatch { field: Id },
 }
@@ -307,6 +368,10 @@ impl fmt::Display for ResourceSchemaError {
             Self::InvalidSemanticKeyField { field } => write!(
                 formatter,
                 "semantic-key field {field} must be a required string or integer"
+            ),
+            Self::UnsupportedFieldSemantics { field } => write!(
+                formatter,
+                "resource field {field} uses configuration-only semantics"
             ),
             Self::DuplicateSchema {
                 type_id,
@@ -331,6 +396,12 @@ impl fmt::Display for ResourceSchemaError {
                     formatter,
                     "resource payload has {} invalid fields",
                     errors.len()
+                )
+            }
+            Self::MissingSemanticKeyValue { field } => {
+                write!(
+                    formatter,
+                    "resource payload is missing semantic-key field {field}"
                 )
             }
             Self::SemanticKeyMismatch { field } => write!(

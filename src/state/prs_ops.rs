@@ -74,6 +74,7 @@ impl AppState {
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
         self.prs_state.list.clear();
+        self.sync_pr_selected_resource();
         if let Some(detail) = &mut self.prs_state.pr_detail {
             detail.comments.cancel_pending();
         }
@@ -170,6 +171,7 @@ impl AppState {
         self.prs_state.property_editor = None;
         self.prs_state.property_mutation_pending = None;
         self.prs_state.list.clear();
+        self.sync_pr_selected_resource();
         if let Some(detail) = &mut self.prs_state.pr_detail {
             detail.comments.cancel_pending();
         }
@@ -455,6 +457,7 @@ impl AppState {
     /// @pseudocode component-001 lines 275-281
     fn reload_pr_list_for_filter_change(&mut self) {
         self.prs_state.list.clear();
+        self.sync_pr_selected_resource();
         self.cancel_pr_list_send();
         // Begin a fresh reload so `list_pending()` is observable before the
         // dispatch layer spawns the actual fetch (mirrors Actions).

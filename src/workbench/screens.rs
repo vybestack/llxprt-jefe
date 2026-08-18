@@ -557,6 +557,8 @@ struct WorkspaceSpec {
     banner: &'static str,
     /// Identity of the conditional filter-controls band.
     filter: &'static str,
+    /// Immutable owner of the subject resource schema.
+    subject_owner: Option<&'static str>,
     /// Versioned type the list publishes and the detail consumes, when the
     /// screen couples them.
     ///
@@ -658,11 +660,11 @@ fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryEr
             )?,
             ported(
                 panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
-                selection_port(spec.subject_type, PortDirection::Output)?,
+                selection_port(spec.subject_owner, spec.subject_type, PortDirection::Output)?,
             ),
             ported(
                 panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
-                subject_port(spec.subject_type, PortDirection::Input)?,
+                subject_port(spec.subject_owner, spec.subject_type, PortDirection::Input)?,
             ),
         ],
         initial_focus: PanelId::parse(spec.list)?,
@@ -691,6 +693,7 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "issue-detail",
         banner: "issue-list-banner",
         filter: "issue-list-filter",
+        subject_owner: Some("github.issues"),
         subject_type: Some("github.issue@1"),
     })
 }
@@ -706,6 +709,7 @@ fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "pr-detail",
         banner: "pr-list-banner",
         filter: "pr-list-filter",
+        subject_owner: Some("github.pull-requests"),
         subject_type: Some("github.pull-request@1"),
     })
 }
@@ -722,6 +726,7 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
         filter: "action-list-filter",
         // The actions screen loads its run detail on demand rather than
         // following the list selection, so it declares no coupling.
+        subject_owner: None,
         subject_type: None,
     })
 }

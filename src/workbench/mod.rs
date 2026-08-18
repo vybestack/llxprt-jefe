@@ -57,6 +57,10 @@ mod screen_file_tests;
 mod screen_file_bound_tests;
 
 #[cfg(test)]
+#[path = "screen_lowering_resource_tests.rs"]
+mod screen_lowering_resource_tests;
+
+#[cfg(test)]
 #[path = "compose_fixtures.rs"]
 mod compose_fixtures;
 
@@ -137,10 +141,11 @@ pub use diagnostics::{ScrCode, ScreenDiagnostic};
 pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
     CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId, ID_BYTE_LIMIT, IdError,
-    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
-    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN,
-    OpenScreenId, PanelId, PanelInstanceId, PanelTypeId, PluginScreenId, PortId, RouteId, ScreenId,
-    ScreenIdentity, ScreenInstanceId, VersionedTypeId,
+    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH,
+    MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN,
+    MAX_RESOURCES_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN, OpenScreenId, PanelId,
+    PanelInstanceId, PanelTypeId, PluginScreenId, PortId, RouteId, ScreenId, ScreenIdentity,
+    ScreenInstanceId, ScreenInstanceIdExhausted, VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use lowering_error::LoweringError;
@@ -148,7 +153,7 @@ pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_sc
 pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, find_panel_type, resolve_panel_type};
 pub use relationship_propagation::{
     PortInstanceKey, PortUpdate, PortValue, PropagationAbort, RelationshipInstance,
-    RelationshipState, RelationshipTransition, SourceIntent, propagate,
+    RelationshipInstanceError, RelationshipState, RelationshipTransition, SourceIntent, propagate,
 };
 pub use relationships::{
     ActivationMode, EmptyPolicy, Relationship, RelationshipError, RelationshipKind,

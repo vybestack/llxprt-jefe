@@ -23,10 +23,10 @@ use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, S
 use crate::domain::{Id, TypedMap, TypedValue};
 
 use super::panel_model::{
-    Affordance, DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody, FormBody,
-    FormFieldError, ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody,
-    StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk,
-    StructuredDiffLine, TreeBody, TreeNode,
+    Affordance, BodyKind, DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody,
+    FormBody, FormFieldError, ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody,
+    StatusBody, StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile,
+    StructuredDiffHunk, StructuredDiffLine, TreeBody, TreeNode,
 };
 
 #[test]
@@ -235,6 +235,38 @@ fn panel_snapshot_redaction_covers_every_provider_authored_body_surface() {
         );
         assert!(rendered.contains(REDACTION_PLACEHOLDER), "{rendered}");
     }
+}
+
+#[test]
+fn panel_snapshot_redaction_fails_closed_when_a_tree_semantic_key_contains_a_secret() {
+    let secret = "hunter2";
+    let redactor = Redactor::new(vec![secret.to_owned()]);
+    let snapshot = PanelSnapshot {
+        model_schema: 1,
+        panel_instance_id: 1,
+        generation: 1,
+        revision: 1,
+        kind: BodyKind::Tree,
+        title: "Tree".to_owned(),
+        description: None,
+        loading: false,
+        action_affordances: Vec::new(),
+        body: PanelBody::Tree(TreeBody {
+            schema_version: 1,
+            nodes: vec![TreeNode {
+                id: panel_fixture_id("tree-node"),
+                parent_id: None,
+                label: "Node".to_owned(),
+                semantic_key: panel_fixture_id(secret),
+                depth: 0,
+                expandable: false,
+                expanded: false,
+            }],
+            selected_id: Some(panel_fixture_id("tree-node")),
+        }),
+    };
+
+    assert!(redact_panel_snapshot(snapshot, &redactor).is_none());
 }
 
 #[test]

@@ -4,7 +4,7 @@
   "artifacts": [
     {
       "path": "dev-docs/standards/architecture.md",
-      "sha256": "bef2ec3e89b7581b82f90e3546c83410f6c2f6aa83ab91e370ef2bc89ae20581",
+      "sha256": "b8b9aa38d807c67e66046939d75a116909411509c5efc999e8c02b8d595752c5",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "14884a3100c2331dbf03af6130018c82d77e326f22137eea2945546ea0543c2a",
+      "sha256": "47521dff02ebb2fef8ae050579db47aa596e145405c67879a5c7825dcd48653e",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -73,7 +73,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/static-failure.json",
-      "sha256": "bb277a9b5b870b4427a68491a9dcb5a6c8d0d9ed0d5d90eea941b237d5f17641",
+      "sha256": "a134419958f596f402174bebe0d670e42e33c972d765af08c04d29cf560c6040",
       "mode": "100644",
       "criteria": [
         "CWR1-02",
@@ -99,7 +99,7 @@
     },
     {
       "path": "src/app_init.rs",
-      "sha256": "f24dcdfdae13cff729b52b2df852327434890440afbdc06c65160db6c30097fc",
+      "sha256": "a8ab1c2a186fe817115eff08459bb0cc855ec513a29085a230b84d07ab7bdca5",
       "mode": "100644",
       "criteria": [
         "CWR1-06",
@@ -151,7 +151,7 @@
     },
     {
       "path": "src/startup_candidate.rs",
-      "sha256": "852841e0953e659c25c53837af770eee2785eb7f86da1d57be4ebe5792dad5c0",
+      "sha256": "59cb6c170d62f0cee31dffa694b01ede47d763daba81538bfc2603e901326b9a",
       "mode": "100644",
       "criteria": [
         "CWR1-00",
@@ -198,7 +198,7 @@
     },
     {
       "path": "src/state/types.rs",
-      "sha256": "1c435c41e2553d50e539d09fd4c93b06d1f8bf30634bbd539dab8511bf4cbbbe",
+      "sha256": "ae673fd9838465fd175511f1a72c307ce3951965fd8d0207a58bb155fed5b45e",
       "mode": "100644",
       "criteria": [
         "CWR1-06",

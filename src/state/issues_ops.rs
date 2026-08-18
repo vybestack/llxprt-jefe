@@ -65,6 +65,7 @@ impl AppState {
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
         self.issues_state.list.clear();
+        self.sync_issue_selected_resource();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
         }
@@ -286,6 +287,7 @@ impl AppState {
             self.issues_state.new_issue_form = None;
         }
         self.issues_state.list.clear();
+        self.sync_issue_selected_resource();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
         }
@@ -369,6 +371,7 @@ impl AppState {
             detail.comments.cancel_pending();
         }
         self.issues_state.detail_scroll_offset = 0;
+        self.sync_issue_selected_resource();
     }
 
     fn cycle_issues_focus(&mut self) {
@@ -450,6 +453,7 @@ impl AppState {
                     self.issues_state.search_query.trim().to_string();
                 self.issues_state.search_input_focused = false;
                 self.issues_state.list.clear();
+                self.sync_issue_selected_resource();
                 if let Some(detail) = &mut self.issues_state.issue_detail {
                     detail.comments.cancel_pending();
                 }
@@ -497,6 +501,7 @@ impl AppState {
 
     fn reload_issue_list_for_filter_change(&mut self) {
         self.issues_state.list.clear();
+        self.sync_issue_selected_resource();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
         }

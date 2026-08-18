@@ -123,6 +123,13 @@ fn tree_requires_parent_before_child_and_exact_depth() {
             root_node(""),
             child.replace(r#"depth":1"#, r#"depth":2"#)
         ),
+        format!(
+            "{},{}",
+            root_node("")
+                .replace(r#"expandable":true"#, r#"expandable":false"#)
+                .replace(r#"expanded":true"#, r#"expanded":false"#),
+            child
+        ),
     ] {
         let bytes = envelope(
             "panel-snapshot",

@@ -195,7 +195,7 @@ Stop for user direction if work requires a process/cancellation subsystem, an ab
 - Open Code Review before PR: 1/2.
   - Local review 1 triage: fixed strict empty-hunk rejection, exact over-bound error assertions, populated no-legacy-fallback fixtures, and body-specific duplicate-ID diagnostics. The two weak-bound comments described the same fix. Rejected the informational event-list comment and the claimed redaction-coverage gap because the exhaustive supervisor redaction test already covers every new authored field. No findings deferred.
 - Open Code Review after PR: 0/2.
-- Planning/code analysis cycles: 1 (codebase planning analysis; findings incorporated above).
+- Planning/code analysis cycles: 2 (codebase planning analysis plus grounded HostControl cutover analysis; findings incorporated into the bounded slices).
 
 ## Verification ledger
 
@@ -210,6 +210,18 @@ Stop for user direction if work requires a process/cancellation subsystem, an ab
 - S1 supplemental RED (2026-08-17): `tree_nodes_and_diff_files_are_valid_selection_targets` returned zero effects for shared Tree/Diff selection, and `structured_diff_rejects_empty_hunks` accepted a zero-line hunk. Both focused tests are green after the minimal validator fixes.
 - S2 slice GREEN (2026-08-17): `cargo xtask quick`, `cargo fmt --all --check`, and all-target/all-feature clippy with `-D warnings` passed after refreshing the affected immutable owner-evidence hashes.
 - S1 focused GREEN (2026-08-17): exact Tree, StructuredDiff, ExpansionChanged, populated no-legacy-fallback, shared selection-target, and exhaustive provider-body redaction tests pass. `cargo xtask quick`, formatting, all-target/all-feature clippy, and a locked all-feature workspace build passed before review; exact-head gates are rerun after review fixes below.
+
+- S2 review-fix RED (2026-08-17): focused resource and propagation tests failed to compile against the permissive schema/config reuse, unchecked source endpoint, infallible panel mapping, and screen-wide owner API. The resulting focused suites are green after exact resource-field semantics, checked semantic-key lookup, output-port validation, non-aliasing panel maps, and per-port immutable owners.
+- S2 definition-schema RED (2026-08-17): closed `[[resources]]` parsing/lowering/composition tests initially failed because no definition-owned resource grammar or publication path existed. Schema 2 now carries bounded exact resources and explicit port owners; schema 1 remains accepted through a closed GitHub issue/PR owner migration and cannot claim schema-2 resources.
+- S2 production-runtime RED (2026-08-17): real `ScreenInstance` values had no relationship runtime or retained state. Navigation now allocates independent checked panel identities, retains relationship state through suspend/restore, disposes replaced instances, validates against the published registry, and synchronizes issue/PR selections. A fresh-instance test first observed `Absent` and is green after push/replace initialization without restore overwrite.
+- S2 review-fix GREEN (2026-08-17): 307 workbench tests and 1,434 state tests pass; strict library clippy passes. Immutable issue704 owner evidence was refreshed for the changed startup/state owners and its focused verification passes.
+
+- S2 independent-review fixes (2026-08-17): tracker-qualified issue/PR semantic keys prevent repository-local number collisions; all seven production list-clear routes publish absence; schema-1 explicit owners must exactly match the closed historical mapping; navigation preflight is allocation-free and dirty Discard commits one prepared instance; direct startup-candidate tests prove enabled definition publication and atomic unknown-type/wrong-version/wrong-owner/duplicate refusal with configuration exit classification.
+- S2 navigation allocation proof GREEN (2026-08-17): all 31 existing dirty-navigation tests pass, and the added thread-local allocation observation proves guard/cancel allocate no panel identities while Discard allocates exactly the entered screen's declared panel count. Strict library clippy passes.
+- S2 restoration/identity GREEN (2026-08-17): durable-root restoration binds the current open-screen relationship runtime before commit; checked screen/panel allocators reject exhaustion; navigation preflight and guard/cancel consume no identities; focused restoration, allocator, and dirty-navigation tests pass.
+- S2 authenticated-command RED/GREEN (2026-08-17): a producer-correlation test failed to compile before `RelationshipCommand`; the runtime now rejects stale screen IDs, stale generations, mismatched panel instances, and wrong owners before mutation while retaining pure `SourceIntent` inside propagation.
+- S2 current gate GREEN (2026-08-17): `cargo fmt --all --check`, strict workspace/all-target/all-feature clippy, and `cargo xtask quick` pass with 4,752 library tests and the complete quick matrix after sequential owner-evidence refresh.
+
 
 Focused tests and `cargo xtask quick` run per slice. Before push/PR, run exact-head:
 - S1 exact-head GREEN (2026-08-17): `cargo fmt --all --check`, all-target/all-feature clippy with `-D warnings`, locked all-feature workspace build, `cargo xtask quick` (4,716 library tests plus the full quick matrix), and `cargo test --workspace --all-targets --all-features --locked` all passed. The captured full-suite log contained no `FAILED`, `test result: FAILED`, or leading `error:` markers.

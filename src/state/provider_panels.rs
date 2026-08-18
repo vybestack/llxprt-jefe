@@ -347,8 +347,8 @@ pub enum PanelError {
     SnapshotInvalid,
     /// The panel generation counter exhausted.
     GenerationExhausted,
-    /// The panel instance counter exhausted.
-    InstanceExhausted,
+    /// The process-global panel instance identity space is exhausted.
+    InstanceIdentityExhausted,
 }
 
 impl std::fmt::Display for PanelError {
@@ -383,8 +383,8 @@ impl std::fmt::Display for PanelError {
             Self::GenerationExhausted => {
                 formatter.write_str("PLG-E502: panel generation counter exhausted")
             }
-            Self::InstanceExhausted => {
-                formatter.write_str("PLG-E502: panel instance counter exhausted")
+            Self::InstanceIdentityExhausted => {
+                formatter.write_str("PLG-E502: panel instance identity space exhausted")
             }
         }
     }
@@ -507,7 +507,6 @@ impl PanelRecord {
 #[derive(Debug, Clone)]
 pub struct ProviderPanelState {
     panels: Vec<PanelRecord>,
-    next_panel_instance_id: u64,
 }
 
 impl Default for ProviderPanelState {

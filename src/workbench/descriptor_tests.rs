@@ -5,6 +5,8 @@
 
 use std::num::NonZeroU16;
 
+use crate::domain::Id;
+
 use super::descriptor::{
     Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
     ScreenDescriptor, Size,
@@ -376,6 +378,8 @@ fn port(id: &'static str, direction: PortDirection, type_id: &'static str) -> Po
     PortDescriptor {
         id: PortId::parse(id)
             .unwrap_or_else(|error| unreachable!("fixture port id must parse: {error}")),
+        owner_id: Id::parse("jefe")
+            .unwrap_or_else(|error| unreachable!("fixture owner id must parse: {error}")),
         direction,
         type_id: VersionedTypeId::parse(type_id)
             .unwrap_or_else(|error| unreachable!("fixture port type must parse: {error}")),

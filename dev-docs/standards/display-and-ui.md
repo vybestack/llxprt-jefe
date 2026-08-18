@@ -206,16 +206,29 @@ enabled_screens = ["local.review"]
 #### Grammar
 
 ```text
-ScreenFile = { screen_schema: 1, id: "local.<member>", title, route,
-               activation: [Field; 0..32], initial_focus, focus_order: [PanelId],
-               panels: [Panel; 1..16], layout: Layout,
-               relationships: [Relationship; 0..64], bindings: [BindingRef; 0..256] }
+ScreenFileV1 = { screen_schema: 1, id: "local.<member>", title, route,
+                 activation: [Field; 0..32], initial_focus, focus_order: [PanelId],
+                 panels: [LegacyPanel; 1..16], layout: Layout,
+                 relationships: [Relationship; 0..64], bindings: [BindingRef; 0..256] }
+ScreenFileV2 = { screen_schema: 2, id: "local.<member>", title, route,
+                 activation: [Field; 0..32], initial_focus, focus_order: [PanelId],
+                 resources: [Resource; 0..64], panels: [Panel; 1..16], layout: Layout,
+                 relationships: [Relationship; 0..64], bindings: [BindingRef; 0..256] }
 Field      = { name, type: "boolean" | "optional-boolean" | "string" | "integer"
                        | "enum" | "path" | "string-list",
                values: [String]  # present exactly for `enum` }
+Resource   = { type_id, schema_version: 1..u64::MAX, semantic_key,
+               fields: [ResourceField; 0..128] }
+ResourceField = { id, label,
+                  type: "boolean" | "string" | "integer" | "finite-number"
+                        | "path" | "string-list", required: bool }
 Panel      = { id, type, config: TypedMap, focusable: bool, required: bool,
                ports: [Port; 0..32] }
-Port       = { id, direction: "input" | "output", type_id: "<name>@<version>",
+LegacyPanel = { id, type, config: TypedMap, focusable: bool, required: bool,
+                ports: [LegacyPort; 0..32] }
+Port       = { id, direction: "input" | "output", owner, type_id: "<name>@<version>",
+               required: bool, retained: bool }
+LegacyPort = { id, direction: "input" | "output", owner?, type_id: "<name>@<version>",
                required: bool, retained: bool }
 Layout     = { type: "leaf", panel }
            | { type: "split", axis: "horizontal" | "vertical", children: [Child; 2..8] }
@@ -235,8 +248,12 @@ PortRef    = "<panel>.<port>"
 Every object is closed: an unknown field, a duplicate key, a value outside a
 closed enumeration, or a missing field is a rejection. Nothing that carries
 meaning is optional, so `focusable`, `required`, and `collapsible` must be
-written rather than defaulted. There is no secret field kind, and `pty-terminal`
-is not a panel type a definition may name.
+written rather than defaulted. The sole wire exception is a schema-1 port owner:
+omission resolves only the closed historical `github.issue` or
+`github.pull-request` owner mapping, while an explicit owner must equal that
+same mapping. Schema 1 cannot declare resources. Schema 2 requires every port
+owner explicitly and is the only schema that can declare resources. There is no
+secret field kind, and `pty-terminal` is not a panel type a definition may name.
 
 Every declared identifier matches the workbench identifier grammar — lowercase
 letters and digits in hyphen-separated groups — rather than the wider grammar the
@@ -269,6 +286,7 @@ activation field declares a *shape*, never a value, and there is no secret kind.
 | Map entries / array elements | 256 / 1,024 |
 | String / identifier / path bytes | 262,144 / 128 / 4,096 |
 | Screens in the registry, and candidates in the definitions directory | 64 |
+| Resources per screen / fields per resource | 64 / 128 |
 | Panels per screen | 1–16 |
 | Ports per panel | 32 |
 | Split children | 2–8 |
@@ -283,8 +301,8 @@ an author sees what to remove instead of silently losing the tail of a list.
 Relationships join ports within one screen and are the only way one panel
 influences another. The graph must be same-screen, output to input, exactly
 type-and-version matched, acyclic across panels, driven by at most one incoming
-edge per input, and must not declare two edges of one kind from one source port
-or one source panel.
+edge per input, and must not repeat an exact edge. One output may drive bounded
+distinct targets; those targets are processed in relationship declaration order.
 
 Propagation runs in declaration order inside one committed transition, never
 moves focus, and is computed in full before it is committed — a transition that
