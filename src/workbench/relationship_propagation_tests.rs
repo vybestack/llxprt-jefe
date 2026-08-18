@@ -2,27 +2,121 @@
 //! empty/retained policy table, and the transition bound (issue #385,
 //! CW05-05..CW05-08).
 
+use std::collections::BTreeMap;
+
+use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
+use crate::domain::plugin::surface::ConfigSchema;
+use crate::domain::{Id, TypedPortValue, TypedValue};
 use crate::persistence::diagnostic::FOLLOW_UP_LIMIT;
 
 use super::descriptor::{PortDirection, ScreenDescriptor};
 use super::diagnostics::ScrCode;
 use super::relationship_fixtures::{SUBJECT_TYPE, list_detail, panel, port, port_ref, screen};
 use super::relationship_propagation::{
-    PortUpdate, PortValue, PropagationAbort, RelationshipState, SourceIntent, propagate,
+    PortUpdate, PortValue, PropagationAbort, RelationshipInstance, RelationshipState, SourceIntent,
+    propagate,
 };
 use super::relationships::{
     ActivationMode, EmptyPolicy, Relationship, RelationshipKind, SessionEmptyPolicy,
 };
+use super::resource_schemas::{ResourceSchema, ResourceSchemaRegistry};
+use super::{OpenScreenId, PanelInstanceId};
 
 const IMMEDIATE: RelationshipKind = RelationshipKind::MasterDetail {
     activation: ActivationMode::Immediate,
     empty: EmptyPolicy::Retain,
 };
 
-fn subject(text: &str) -> PortValue {
-    PortValue::Subject(text.to_owned())
+fn id(value: &str) -> Id {
+    Id::parse(value).unwrap_or_else(|error| unreachable!("valid fixture id: {error}"))
 }
 
+fn subject(text: &str) -> PortValue {
+    PortValue::Typed(TypedPortValue {
+        type_id: id("github.pull-request"),
+        schema_version: 1,
+        semantic_key: text.to_owned(),
+        value: BTreeMap::from([(id("subject"), TypedValue::String(text.to_owned()))]),
+    })
+}
+
+fn resource_schemas() -> ResourceSchemaRegistry {
+    let semantic_field = Field::parse(FieldDraft {
+        id: id("subject"),
+        label: "Subject".to_owned(),
+        description: Some("Stable subject identity".to_owned()),
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::None,
+    })
+    .unwrap_or_else(|error| unreachable!("valid fixture field: {error}"));
+    let fields = ConfigSchema::parse(1, vec![semantic_field])
+        .unwrap_or_else(|error| unreachable!("valid fixture schema: {error}"));
+    let schema = ResourceSchema::new(
+        id("github.core"),
+        id("github.pull-request"),
+        1,
+        id("subject"),
+        fields,
+    )
+    .unwrap_or_else(|error| unreachable!("valid fixture resource schema: {error}"));
+    ResourceSchemaRegistry::publish(vec![schema])
+        .unwrap_or_else(|error| unreachable!("unique fixture schema: {error}"))
+}
+
+fn relationship_instance(
+    descriptor: &ScreenDescriptor,
+    first_panel_id: u64,
+) -> RelationshipInstance {
+    let panel_instances = descriptor
+        .panels
+        .iter()
+        .enumerate()
+        .map(|(index, panel)| {
+            let offset = u64::try_from(index)
+                .unwrap_or_else(|_| unreachable!("fixture panel count fits in u64"));
+            (panel.id, PanelInstanceId::from_u64(first_panel_id + offset))
+        })
+        .collect();
+    RelationshipInstance::new(
+        OpenScreenId::parse("github.relationship-tests")
+            .unwrap_or_else(|error| unreachable!("valid open screen id: {error}")),
+        id("github.core"),
+        panel_instances,
+    )
+}
+
+fn held(
+    state: &RelationshipState,
+    descriptor: &ScreenDescriptor,
+    panel: &'static str,
+    port: &'static str,
+) -> PortValue {
+    let instance = relationship_instance(descriptor, 1);
+    let key = instance
+        .port_key(&port_ref(panel, port))
+        .unwrap_or_else(|| unreachable!("fixture panel instance exists"));
+    state.value(&key)
+}
+
+fn staged_value<'a>(
+    state: &'a RelationshipState,
+    descriptor: &ScreenDescriptor,
+    panel: &'static str,
+    port: &'static str,
+) -> Option<&'a PortValue> {
+    let instance = relationship_instance(descriptor, 1);
+    let key = instance
+        .port_key(&port_ref(panel, port))
+        .unwrap_or_else(|| unreachable!("fixture panel instance exists"));
+    state.staged(&key)
+}
 /// Publish `value` from `list.selection` and return the committed state and
 /// the ordered updates.
 fn published(
@@ -32,6 +126,8 @@ fn published(
 ) -> (RelationshipState, Vec<PortUpdate>) {
     let transition = propagate(
         descriptor,
+        &resource_schemas(),
+        &relationship_instance(descriptor, 1),
         state,
         &SourceIntent::Publish {
             port: port_ref("list", "selection"),
@@ -63,8 +159,14 @@ fn an_immediate_relationship_updates_source_and_target_in_one_transition() {
             },
         ]
     );
-    assert_eq!(state.value(&port_ref("list", "selection")), subject("42"));
-    assert_eq!(state.value(&port_ref("detail", "subject")), subject("42"));
+    assert_eq!(
+        held(&state, &descriptor, "list", "selection"),
+        subject("42")
+    );
+    assert_eq!(
+        held(&state, &descriptor, "detail", "subject"),
+        subject("42")
+    );
 }
 
 #[test]
@@ -165,11 +267,11 @@ fn an_explicit_relationship_stages_the_selection_and_leaves_the_target_alone() {
         }]
     );
     assert_eq!(
-        state.value(&port_ref("detail", "subject")),
+        held(&state, &descriptor, "detail", "subject"),
         PortValue::Absent
     );
     assert_eq!(
-        state.staged(&port_ref("detail", "subject")),
+        staged_value(&state, &descriptor, "detail", "subject"),
         Some(&subject("42"))
     );
 }
@@ -181,6 +283,8 @@ fn an_explicit_relationship_applies_its_staged_selection_on_activation() {
 
     let transition = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &staged,
         &SourceIntent::Activate {
             target: port_ref("detail", "subject"),
@@ -196,7 +300,7 @@ fn an_explicit_relationship_applies_its_staged_selection_on_activation() {
         }]
     );
     assert_eq!(
-        transition.state.staged(&port_ref("detail", "subject")),
+        staged_value(&transition.state, &descriptor, "detail", "subject",),
         None
     );
 }
@@ -207,6 +311,8 @@ fn activating_a_target_with_nothing_staged_changes_nothing() {
 
     let transition = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &RelationshipState::new(),
         &SourceIntent::Activate {
             target: port_ref("detail", "subject"),
@@ -226,7 +332,7 @@ fn an_explicit_relationship_stages_only_the_latest_selection() {
     let (second, _) = published(&descriptor, &first, subject("42"));
 
     assert_eq!(
-        second.staged(&port_ref("detail", "subject")),
+        staged_value(&second, &descriptor, "detail", "subject"),
         Some(&subject("42"))
     );
 }
@@ -237,7 +343,7 @@ fn an_explicit_relationship_stages_only_the_latest_selection() {
 fn target_after_absence(descriptor: &ScreenDescriptor) -> PortValue {
     let (populated, _) = published(descriptor, &RelationshipState::new(), subject("42"));
     let (emptied, _) = published(descriptor, &populated, PortValue::Absent);
-    emptied.value(&port_ref("detail", "subject"))
+    held(&emptied, descriptor, "detail", "subject")
 }
 
 #[test]
@@ -323,11 +429,14 @@ fn an_absent_source_applies_the_empty_policy_at_once_even_on_an_explicit_edge() 
     let (emptied, _) = published(&descriptor, &staged, PortValue::Absent);
 
     assert_eq!(
-        emptied.value(&port_ref("detail", "subject")),
+        held(&emptied, &descriptor, "detail", "subject"),
         PortValue::All,
         "a vanished source is not a selection the user might still confirm"
     );
-    assert_eq!(emptied.staged(&port_ref("detail", "subject")), None);
+    assert_eq!(
+        staged_value(&emptied, &descriptor, "detail", "subject"),
+        None
+    );
 }
 
 // ── CW05-08: the transition bound ──────────────────────────────────────────
@@ -375,6 +484,8 @@ fn a_transition_at_the_follow_up_bound_commits() {
 
     let transition = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &RelationshipState::new(),
         &SourceIntent::Publish {
             port: port_ref("list", "selection"),
@@ -403,6 +514,8 @@ fn staging_an_explicit_selection_counts_against_the_follow_up_bound() {
 
     let transition = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &RelationshipState::new(),
         &SourceIntent::Publish {
             port: port_ref("list", "selection"),
@@ -424,6 +537,8 @@ fn a_transition_that_moves_nothing_performs_no_follow_ups() {
 
     let transition = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &RelationshipState::new(),
         &SourceIntent::Activate {
             target: port_ref("detail", "subject"),
@@ -441,6 +556,8 @@ fn a_transition_one_past_the_follow_up_bound_aborts_without_partial_state() {
 
     let transition = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &before,
         &SourceIntent::Publish {
             port: port_ref("list", "selection"),
@@ -467,6 +584,8 @@ fn an_abandoned_transition_reports_the_screen_refusal_code() {
 
     let abort = propagate(
         &descriptor,
+        &resource_schemas(),
+        &relationship_instance(&descriptor, 1),
         &RelationshipState::new(),
         &SourceIntent::Publish {
             port: port_ref("list", "selection"),
@@ -481,4 +600,99 @@ fn an_abandoned_transition_reports_the_screen_refusal_code() {
         abort.to_string().starts_with("SCR-E301"),
         "an abandoned transition must name its code, got {abort}"
     );
+}
+
+#[test]
+fn two_open_instances_of_one_definition_never_alias_retained_port_values() {
+    let descriptor = list_detail(IMMEDIATE, true);
+    let first = relationship_instance(&descriptor, 1);
+    let second = relationship_instance(&descriptor, 101);
+    let schemas = resource_schemas();
+
+    let first_transition = propagate(
+        &descriptor,
+        &schemas,
+        &first,
+        &RelationshipState::new(),
+        &SourceIntent::Publish {
+            port: port_ref("list", "selection"),
+            value: subject("41"),
+        },
+    )
+    .unwrap_or_else(|error| unreachable!("first instance must commit: {error}"));
+    let second_transition = propagate(
+        &descriptor,
+        &schemas,
+        &second,
+        &first_transition.state,
+        &SourceIntent::Publish {
+            port: port_ref("list", "selection"),
+            value: subject("42"),
+        },
+    )
+    .unwrap_or_else(|error| unreachable!("second instance must commit: {error}"));
+
+    let first_key = first
+        .port_key(&port_ref("detail", "subject"))
+        .unwrap_or_else(|| unreachable!("first detail instance exists"));
+    let second_key = second
+        .port_key(&port_ref("detail", "subject"))
+        .unwrap_or_else(|| unreachable!("second detail instance exists"));
+    assert_eq!(second_transition.state.value(&first_key), subject("41"));
+    assert_eq!(second_transition.state.value(&second_key), subject("42"));
+}
+
+#[test]
+fn an_invalid_typed_source_aborts_before_any_instance_state_is_committed() {
+    let descriptor = list_detail(IMMEDIATE, true);
+    let valid = relationship_instance(&descriptor, 1);
+    let invalid_owner = RelationshipInstance::new(
+        valid.open_screen_id(),
+        id("vendor.other"),
+        descriptor
+            .panels
+            .iter()
+            .enumerate()
+            .map(|(index, panel)| {
+                let offset = u64::try_from(index)
+                    .unwrap_or_else(|_| unreachable!("fixture panel count fits in u64"));
+                (panel.id, PanelInstanceId::from_u64(101 + offset))
+            })
+            .collect(),
+    );
+    let schemas = resource_schemas();
+    let before = propagate(
+        &descriptor,
+        &schemas,
+        &valid,
+        &RelationshipState::new(),
+        &SourceIntent::Publish {
+            port: port_ref("list", "selection"),
+            value: subject("41"),
+        },
+    )
+    .unwrap_or_else(|error| unreachable!("valid instance must commit: {error}"))
+    .state;
+
+    let rejected = propagate(
+        &descriptor,
+        &schemas,
+        &invalid_owner,
+        &before,
+        &SourceIntent::Publish {
+            port: port_ref("list", "selection"),
+            value: subject("42"),
+        },
+    );
+
+    assert!(matches!(
+        rejected,
+        Err(PropagationAbort::InvalidResource(
+            super::ResourceSchemaError::OwnerMismatch { .. }
+        ))
+    ));
+    let valid_key = valid
+        .port_key(&port_ref("detail", "subject"))
+        .unwrap_or_else(|| unreachable!("valid detail instance exists"));
+    assert_eq!(before.value(&valid_key), subject("41"));
 }

@@ -16,6 +16,10 @@
 //!
 //! This type owns no handle, spawns nothing, and performs no I/O.
 
+#[cfg(test)]
+#[path = "published_workbench_tests.rs"]
+mod published_workbench_tests;
+
 use crate::agent_registry::AgentTypeRegistry;
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::persistence::diagnostic::Diagnostic;
@@ -25,6 +29,7 @@ use crate::runtime::provider::persistent::PersistentPublication;
 use crate::runtime::provider::{ProviderCatalog, ProviderComposition};
 use crate::startup_selection::SelectedOwner;
 use crate::workbench::compose::ScreenComposition;
+use crate::workbench::resource_schemas::ResourceSchemaRegistry;
 use crate::workbench::screens::ScreenRegistry;
 
 /// One atomically composed workbench candidate: every static declaration the
@@ -36,6 +41,7 @@ pub struct PublishedWorkbench {
     selected: Vec<SelectedOwner>,
     agents: AgentTypeRegistry,
     screens: ScreenComposition,
+    resource_schemas: ResourceSchemaRegistry,
     providers: ProviderComposition,
     provider_ready: Option<PersistentPublication>,
     actions: ActionRegistrySnapshot,
@@ -57,6 +63,8 @@ pub(crate) struct WorkbenchParts {
     pub(crate) agents: AgentTypeRegistry,
     /// The composed screen registry and its non-fatal warnings.
     pub(crate) screens: ScreenComposition,
+    /// The immutable typed-resource schemas validated before publication.
+    pub(crate) resource_schemas: ResourceSchemaRegistry,
     /// The static provider composition.
     pub(crate) providers: ProviderComposition,
     /// The one static action registry snapshot.
@@ -77,6 +85,7 @@ impl PublishedWorkbench {
             selected: parts.selected,
             agents: parts.agents,
             screens: parts.screens,
+            resource_schemas: parts.resource_schemas,
             providers: parts.providers,
             provider_ready: None,
             actions: parts.actions,
@@ -111,6 +120,12 @@ impl PublishedWorkbench {
     #[must_use]
     pub const fn screen_registry(&self) -> &ScreenRegistry {
         &self.screens.registry
+    }
+
+    /// The immutable resource schemas every runtime value must satisfy.
+    #[must_use]
+    pub const fn resource_schemas(&self) -> &ResourceSchemaRegistry {
+        &self.resource_schemas
     }
 
     /// Non-fatal composition warnings, one per preserved omitted definition.

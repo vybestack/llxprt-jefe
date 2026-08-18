@@ -12,7 +12,6 @@ use super::diagnostics::ScrCode;
 use super::geometry::{Extent, Rect};
 use super::ids::{CustomScreenId, PanelId, PortId, ScreenId, ScreenIdentity};
 use super::panel_types::DEFINABLE_PANEL_TYPES;
-use super::relationship_propagation::{PortValue, RelationshipState, SourceIntent, propagate};
 use super::relationships::{ActivationMode, EmptyPolicy, RelationshipKind};
 use super::resolve::{PanelState, resolve_layout};
 use super::screens::{ScreenRegistry, builtin_screens};
@@ -134,30 +133,6 @@ fn lowering_the_same_definition_twice_produces_the_same_descriptor() {
     assert_eq!(
         first.registry.get_identity(review_identity()),
         second.registry.get_identity(review_identity())
-    );
-}
-
-#[test]
-fn a_lowered_relationship_propagates_through_the_shared_engine() {
-    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
-    let screen = composition
-        .registry
-        .get_identity(review_identity())
-        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
-
-    let transition = propagate(
-        screen,
-        &RelationshipState::new(),
-        &SourceIntent::Publish {
-            port: port("pr-list", "selection"),
-            value: PortValue::Subject("42".to_owned()),
-        },
-    )
-    .unwrap_or_else(|error| unreachable!("transition must commit: {error}"));
-
-    assert_eq!(
-        transition.state.value(&port("pr-detail", "subject")),
-        PortValue::Subject("42".to_owned())
     );
 }
 

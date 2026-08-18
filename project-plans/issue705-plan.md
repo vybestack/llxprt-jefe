@@ -201,7 +201,14 @@ Stop for user direction if work requires a process/cancellation subsystem, an ab
 
 - S1 RED (2026-08-17): `cargo test --locked --all-features --lib domain::plugin::surface::tests::model_and_event_kinds_use_the_exact_closed_wire_vocabulary` failed at compile time because the production model still exposed seven kinds and lacked `Tree`, `StructuredDiff`, and `ExpansionChanged`; the included provider contract tests also failed on the absent body/event variants.
 
+- S2 relationship RED (2026-08-17): `cargo test --locked --all-features --lib may_` failed only the two new fan-out properties: the existing validator returned `DuplicateOutgoing` for one source port driving distinct targets and `SameKindFanOut` for distinct ports on one source panel.
+- S2 typed-value RED (2026-08-17): the exact four-field domain test failed to compile because `domain::TypedPortValue` did not exist; the focused test is now green.
+- S2 resource-schema RED (2026-08-17): the schema contract failed to compile because `workbench::resource_schemas` did not exist; strict type/version/owner/semantic-key/payload validation and duplicate/zero-version publication tests are now green.
+- S2 instance-runtime RED (2026-08-17): typed source, atomic invalid-source, and two-instance isolation tests failed against the old opaque three-argument relationship API; all 20 focused propagation tests now pass with registry validation and `(OpenScreenId, PanelInstanceId, PortId)` state keys.
+- S2 published-registry RED (2026-08-17): `the_published_workbench_owns_the_builtin_resource_schema_registry` failed to compile because `PublishedWorkbench::resource_schemas` did not exist; it is green after startup candidate publication and immutable ownership wiring.
+- S2 focused GREEN (2026-08-17): 19 relationship graph tests, 3 resource-schema tests, 20 propagation tests, 68 provider-panel lifecycle/event tests, the published-registry test, and all 4,715 library tests pass.
 - S1 supplemental RED (2026-08-17): `tree_nodes_and_diff_files_are_valid_selection_targets` returned zero effects for shared Tree/Diff selection, and `structured_diff_rejects_empty_hunks` accepted a zero-line hunk. Both focused tests are green after the minimal validator fixes.
+- S2 slice GREEN (2026-08-17): `cargo xtask quick`, `cargo fmt --all --check`, and all-target/all-feature clippy with `-D warnings` passed after refreshing the affected immutable owner-evidence hashes.
 - S1 focused GREEN (2026-08-17): exact Tree, StructuredDiff, ExpansionChanged, populated no-legacy-fallback, shared selection-target, and exhaustive provider-body redaction tests pass. `cargo xtask quick`, formatting, all-target/all-feature clippy, and a locked all-feature workspace build passed before review; exact-head gates are rerun after review fixes below.
 
 Focused tests and `cargo xtask quick` run per slice. Before push/PR, run exact-head:

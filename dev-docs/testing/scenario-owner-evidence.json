@@ -2528,7 +2528,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "f07fbc4f86fc84491b33612cbc5c4942b45fba59f4fba5f5b5db4e6094290689",
+      "sha256": "07c48781343f5a519defe22d2fd99553f397326e403e7d482ac24dcf57f97a29",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

@@ -39,7 +39,7 @@ use super::geometry::Insets;
 use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
 use super::screens_ports::{selection_port, subject_port, workspace_relationships};
 
-pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT, master_detail_edge};
+pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT};
 use super::validate::{DescriptorError, validate_descriptor};
 
 /// Panel type whose visible content rectangle drives a live PTY.

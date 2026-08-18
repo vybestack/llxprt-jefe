@@ -23,6 +23,12 @@ pub use config_contract::{
     TypedMap, TypedValue,
 };
 
+mod typed_port_value;
+pub use typed_port_value::TypedPortValue;
+#[cfg(test)]
+#[path = "typed_port_value_tests.rs"]
+mod typed_port_value_tests;
+
 mod state_contract;
 pub use state_contract::{
     AgentDefaults, AgentRecord, DormantRecord, LastKnownRuntime, LaunchSignatureV1,

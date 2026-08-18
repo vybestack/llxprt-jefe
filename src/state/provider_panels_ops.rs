@@ -206,7 +206,7 @@ impl ProviderPanelState {
         command: AcceptSnapshot,
     ) -> Result<AcceptOutcome, PanelError> {
         let index = self
-            .index(PanelInstanceId(command.snapshot.panel_instance_id))
+            .index(PanelInstanceId::from_u64(command.snapshot.panel_instance_id))
             .ok_or(PanelError::UnknownPanel)?;
         if !self.panels[index].lifecycle.receives_snapshot() {
             return Err(self.disposed_or_invalid(index));
@@ -367,7 +367,7 @@ impl ProviderPanelState {
     }
 
     fn allocate_instance(&mut self) -> Result<PanelInstanceId, PanelError> {
-        let instance = PanelInstanceId(self.next_panel_instance_id);
+        let instance = PanelInstanceId::from_u64(self.next_panel_instance_id);
         self.next_panel_instance_id = self
             .next_panel_instance_id
             .checked_add(1)

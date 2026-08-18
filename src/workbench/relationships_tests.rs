@@ -267,7 +267,24 @@ fn one_target_may_not_be_driven_by_two_edges() {
 }
 
 #[test]
-fn one_source_port_may_not_declare_two_edges_of_one_kind() {
+fn a_duplicate_exact_edge_is_rejected_before_incoming_writer_validation() {
+    let repeated = edge("a", "b");
+    let descriptor = screen(
+        vec![relay("a", true), relay("b", false)],
+        vec![repeated, repeated],
+    );
+
+    assert_eq!(
+        validate_relationships(&descriptor),
+        Err(RelationshipError::DuplicateEdge {
+            source: port_ref("a", "out"),
+            target: port_ref("b", "in"),
+        })
+    );
+}
+
+#[test]
+fn one_source_port_may_drive_multiple_distinct_targets() {
     let descriptor = screen(
         vec![
             relay("a", true),
@@ -281,17 +298,11 @@ fn one_source_port_may_not_declare_two_edges_of_one_kind() {
         vec![edge("a", "b"), edge("a", "c")],
     );
 
-    assert_eq!(
-        validate_relationships(&descriptor),
-        Err(RelationshipError::DuplicateOutgoing {
-            source: port_ref("a", "out"),
-            kind: "master-detail"
-        })
-    );
+    assert_eq!(validate_relationships(&descriptor), Ok(()));
 }
 
 #[test]
-fn one_panel_may_not_fan_out_two_targets_of_one_kind_from_different_ports() {
+fn one_panel_may_fan_out_from_distinct_source_ports() {
     let descriptor = screen(
         vec![
             panel(
@@ -327,13 +338,7 @@ fn one_panel_may_not_fan_out_two_targets_of_one_kind_from_different_ports() {
         ],
     );
 
-    assert_eq!(
-        validate_relationships(&descriptor),
-        Err(RelationshipError::SameKindFanOut {
-            panel: panel_id("a"),
-            kind: "master-detail"
-        })
-    );
+    assert_eq!(validate_relationships(&descriptor), Ok(()));
 }
 
 #[test]

@@ -28,6 +28,7 @@ use crate::runtime::provider::{
 };
 use crate::startup_screens::{self as screens, ScreenStartupError};
 use crate::startup_selection::{ProviderRequirement, SelectedOwner, SelectionRefused};
+use crate::workbench::{BuiltinResourceSchemaError, builtin_resource_schemas};
 
 /// Why the workbench candidate could not be composed statically.
 ///
@@ -45,6 +46,8 @@ pub enum WorkbenchStaticFailure {
     Agents(RegistryPublishError),
     /// An enabled screen definition was refused by composition.
     Screens(ScreenStartupError),
+    /// A compiled typed-resource schema failed publication.
+    Resources(BuiltinResourceSchemaError),
     /// A required provider cannot statically serve its active declarations.
     Provider(ProviderStaticRefused),
     /// Compiled and provider actions cannot compose into one registry.
@@ -56,7 +59,7 @@ impl WorkbenchStaticFailure {
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
-            Self::Agents(_) => 78,
+            Self::Agents(_) | Self::Resources(_) => 78,
             Self::Screens(error) => error.exit_code(),
             Self::Selection(_) | Self::Provider(_) | Self::Actions(_) => 2,
         }
@@ -72,7 +75,9 @@ impl WorkbenchStaticFailure {
             | Self::Screens(ScreenStartupError::Definitions(_) | ScreenStartupError::Refused(_)) => {
                 true
             }
-            Self::Agents(_) | Self::Screens(ScreenStartupError::Compiled(_)) => false,
+            Self::Agents(_)
+            | Self::Resources(_)
+            | Self::Screens(ScreenStartupError::Compiled(_)) => false,
         }
     }
 }
@@ -83,6 +88,12 @@ impl std::fmt::Display for WorkbenchStaticFailure {
             Self::Selection(refusal) => write!(formatter, "selection refused: {refusal}"),
             Self::Agents(error) => write!(formatter, "shipped agents failed to publish: {error}"),
             Self::Screens(error) => write!(formatter, "screen composition refused: {error}"),
+            Self::Resources(error) => {
+                write!(
+                    formatter,
+                    "compiled resource schemas failed to publish: {error}"
+                )
+            }
             Self::Provider(refusal) => write!(formatter, "required provider refused: {refusal}"),
             Self::Actions(diagnostic) => {
                 write!(
@@ -100,6 +111,7 @@ impl std::error::Error for WorkbenchStaticFailure {
             Self::Selection(refusal) => Some(refusal),
             Self::Agents(error) => Some(error),
             Self::Screens(error) => Some(error),
+            Self::Resources(error) => Some(error),
             Self::Provider(refusal) => Some(refusal),
             Self::Actions(diagnostic) => Some(diagnostic),
         }
@@ -201,6 +213,7 @@ pub fn build_workbench_candidate(
         .collect::<Vec<_>>();
     let agents = AgentTypeRegistry::shipped().map_err(WorkbenchStaticFailure::Agents)?;
     let screens = compose_screens(request, &packages)?;
+    let resource_schemas = builtin_resource_schemas().map_err(WorkbenchStaticFailure::Resources)?;
     validate_selected_providers(request, &selected)?;
     let providers = compose_providers(request, &packages);
     let actions = compose_actions(request, &providers)?;
@@ -210,6 +223,7 @@ pub fn build_workbench_candidate(
         selected,
         agents,
         screens,
+        resource_schemas,
         providers,
         actions,
     }))

@@ -93,7 +93,6 @@ mod runtime_observation_tests;
 /// Runtime-domain reducer handlers + effect-completion application
 /// (issue #381).
 mod runtime_ops;
-pub mod screen_relationships;
 pub mod scrollback_ops;
 mod selectors;
 mod shell_focus_resolution;

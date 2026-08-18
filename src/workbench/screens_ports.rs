@@ -7,7 +7,7 @@
 //! there is one description of what "list drives detail" means and one engine
 //! that carries it out.
 
-use super::descriptor::{PortDescriptor, PortDirection, PortRef, ScreenDescriptor};
+use super::descriptor::{PortDescriptor, PortDirection, PortRef};
 use super::ids::{IdError, PanelId, PortId, VersionedTypeId};
 use super::relationships::{ActivationMode, EmptyPolicy, Relationship, RelationshipKind};
 
@@ -92,17 +92,4 @@ pub fn workspace_relationships(
             port: PortId::parse(SUBJECT_PORT)?,
         },
     }])
-}
-
-/// The master-detail edge a screen declares, if it declares one.
-///
-/// Reducers ask the descriptor rather than naming ports themselves, so the
-/// declaration stays the single source of truth for which panels are coupled.
-#[must_use]
-pub fn master_detail_edge(descriptor: &ScreenDescriptor) -> Option<(PortRef, PortRef)> {
-    descriptor
-        .relationships
-        .iter()
-        .find(|relationship| matches!(relationship.kind, RelationshipKind::MasterDetail { .. }))
-        .map(|relationship| (relationship.source, relationship.target))
 }

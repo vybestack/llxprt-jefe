@@ -253,6 +253,29 @@ plain_id! {
     PluginScreenId
 }
 plain_id! {
+    /// Runtime identity of one open screen, independent of its compiled definition identity.
+    OpenScreenId
+}
+
+/// Positive, monotonic, session-only identity of one instantiated panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PanelInstanceId(u64);
+
+impl PanelInstanceId {
+    /// Reconstitute an identity allocated by the screen-instance owner.
+    #[must_use]
+    pub const fn from_u64(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// The raw session-local identity value.
+    #[must_use]
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+plain_id! {
     /// Identity of one typed port within a panel.
     PortId
 }

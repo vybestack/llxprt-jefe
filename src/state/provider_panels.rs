@@ -17,6 +17,7 @@ use crate::runtime::provider::protocol::{
     BodyKind, DeactivateReason, HostLocal, PanelEvent, PanelSnapshot,
 };
 use crate::workbench::PanelId;
+pub use crate::workbench::PanelInstanceId;
 
 #[path = "provider_panels_canonical.rs"]
 mod canonical;
@@ -57,28 +58,6 @@ const REFILL_MILLI_PER_MS: u64 = 20;
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
-
-/// A positive, monotonic, session-only panel instance identity.
-///
-/// Allocation is owned exclusively by [`ProviderPanelState::declare`]; the
-/// value is never persisted or reused. [`Self::from_u64`] exists only so a
-/// caller can carry a previously allocated identity back into the reducer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PanelInstanceId(u64);
-
-impl PanelInstanceId {
-    /// Construct an identity from a raw value (identity interop only).
-    #[must_use]
-    pub const fn from_u64(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// The raw identity value.
-    #[must_use]
-    pub const fn as_u64(self) -> u64 {
-        self.0
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
