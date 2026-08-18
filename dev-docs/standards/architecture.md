@@ -254,6 +254,25 @@ or a validated `local.*` identity — while screen *routing* stays the closed
 `ScreenId` enum, so every routable screen still has a compiled renderer and an
 exhaustive match.
 
+## Host-control ownership
+
+Public panel semantics are a closed `ControlKind` vocabulary: list, tree,
+detail, structured-diff, form, status, progress, empty, and error. The internal
+`HostControlKind::Terminal` is capability-restricted and cannot be selected by a
+package or provider declaration. A sealed `HostControlFactory` is selected only
+from this kind; factories receive model and host-local interaction state, never
+screen identity, definition origin, owner/package/product identity, or a
+whole-screen renderer.
+
+The selected factory is the sole owner of typed body projection and semantic
+control intents. Keyboard and structural mouse targets both become a
+`ControlAction`, and the same factory validates the referenced node, file,
+affordance, link, form, or page token before producing a closed `PanelEvent`.
+Tree rendering and input share visible expanded-preorder traversal, and
+structured-diff content is clipped rather than converted to wrapped text rows.
+Chrome, lifecycle state, clipping bounds, and too-small presentation remain
+host-global concerns outside the control factory.
+
 ## Route and navigation ownership
 
 `state::navigation::NavState` is the sole runtime authority for which screen the

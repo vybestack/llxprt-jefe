@@ -44,7 +44,12 @@ pub async fn run_provider_worker(
         dispatch_panel_commands(ctx_arc, &mut app_state);
         let elapsed_ms =
             u64::try_from(panel_clock_origin.elapsed().as_millis()).unwrap_or(u64::MAX);
-        accept_panel_deliveries(ctx_arc, &mut app_state, elapsed_ms);
+        accept_panel_deliveries(
+            ctx_arc,
+            &mut app_state,
+            elapsed_ms,
+            &unavailable_panel_owners,
+        );
         start_available_work(&mut active, &mut deferred, ctx_arc, &mut app_state);
         if std::time::Instant::now() >= next_health_probe {
             publish_persistent_health(
@@ -320,10 +325,18 @@ fn commit_panel_dispatch(
     }
 }
 
+fn panel_delivery_owner_available(
+    unavailable_panel_owners: &std::collections::BTreeSet<jefe::domain::Id>,
+    owner: &jefe::domain::Id,
+) -> bool {
+    !unavailable_panel_owners.contains(owner)
+}
+
 fn accept_panel_deliveries(
     ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
     app_state: &mut crate::app_input::AppStateHandle,
     elapsed_ms: u64,
+    unavailable_panel_owners: &std::collections::BTreeSet<jefe::domain::Id>,
 ) {
     let Ok(ctx_guard) = ctx_arc.try_lock() else {
         return;
@@ -334,6 +347,13 @@ fn accept_panel_deliveries(
     let deliveries = coordinator.drain_panel_deliveries();
     drop(ctx_guard);
     for delivery in deliveries {
+        if !panel_delivery_owner_available(unavailable_panel_owners, &delivery.plugin_id) {
+            tracing::warn!(
+                owner = %delivery.plugin_id,
+                "late provider panel snapshot ignored after persistent owner failure"
+            );
+            continue;
+        }
         let mut state = app_state.write();
         let accepted =
             state

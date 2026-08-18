@@ -10,7 +10,7 @@ use jefe::runtime::provider::protocol::ProgressPayload;
 
 use super::{
     ActiveSession, SessionStart, TerminalSource, drain_session_progress, fill_session_slots,
-    forward_exact_cancels, migration_cleanup_failure_detail,
+    forward_exact_cancels, migration_cleanup_failure_detail, panel_delivery_owner_available,
 };
 
 fn id(value: &str) -> Id {
@@ -190,6 +190,16 @@ fn progress_from_concurrent_sessions_keeps_identity_and_dispatch_order() {
             (2, 1, "second-1".to_owned()),
         ]
     );
+}
+
+#[test]
+fn a_known_failed_panel_owner_cannot_deliver_a_late_snapshot() {
+    let failed_owner = id("vendor.failed");
+    let healthy_owner = id("vendor.healthy");
+    let failed = std::collections::BTreeSet::from([failed_owner.clone()]);
+
+    assert!(!panel_delivery_owner_available(&failed, &failed_owner));
+    assert!(panel_delivery_owner_available(&failed, &healthy_owner));
 }
 
 #[test]

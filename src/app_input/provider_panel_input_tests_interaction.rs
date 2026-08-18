@@ -26,7 +26,7 @@
             &snapshot,
         );
 
-        let event = action_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::FocusedAction);
         assert!(matches!(
             event,
             Some(PanelEvent::Action { ref id, .. }) if id.as_str() == "open-action"
@@ -72,7 +72,7 @@
             .update_host_local(panel, host)
             .unwrap_or_else(|error| panic!("host-local fixture: {error}"));
 
-        let event = action_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::FocusedAction);
         assert!(matches!(
             event,
             Some(PanelEvent::Action { ref id, .. }) if id.as_str() == "delete-action"
@@ -104,7 +104,7 @@
             &snapshot,
         );
 
-        assert!(action_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::FocusedAction).is_none());
     }
 
     // ── Submit event tests ───────────────────────────────────────────────
@@ -157,9 +157,100 @@
             .update_host_local(panel, host)
             .unwrap_or_else(|error| panic!("host-local fixture: {error}"));
 
-        let event = submit_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::Submit);
         assert!(matches!(event, Some(PanelEvent::Submit { .. })));
         assert_mouse_stages_one(&mut state, panel, PanelHitTarget::Submit);
+    }
+
+    fn provider_form(
+        fields: Vec<jefe::domain::plugin::field::Field>,
+        submit_action: jefe::domain::action_registry::ActionId,
+        name: &str,
+        team: &str,
+    ) -> PanelBody {
+        let mut values = TypedMap::new();
+        values.insert(id("name"), TypedValue::String(name.to_owned()));
+        values.insert(id("team"), TypedValue::String(team.to_owned()));
+        PanelBody::Form(jefe::runtime::provider::protocol::FormBody {
+            fields,
+            values,
+            field_errors: Vec::new(),
+            submit_action,
+        })
+    }
+
+    fn assert_sparse_latest_form_submit(state: &AppState, panel: PanelInstanceId) {
+        let Some(PanelEvent::Submit { values }) =
+            control_event(state, panel, ControlAction::Submit)
+        else {
+            panic!("submit event");
+        };
+        assert_eq!(
+            values.get(&id("name")),
+            Some(&TypedValue::String("edited name".to_owned()))
+        );
+        assert_eq!(
+            values.get(&id("team")),
+            Some(&TypedValue::String("new team".to_owned()))
+        );
+    }
+
+    #[test]
+    fn production_form_edits_remain_sparse_across_new_provider_snapshots() {
+        let owner = id("vendor.panel");
+        let panel_type = id("vendor.panel.form");
+        let submit = action_id("vendor.submit");
+        let fields = vec![
+            string_field("name", "Name", None),
+            string_field("team", "Team", None),
+        ];
+        let initial = provider_form(
+            fields.clone(),
+            submit.clone(),
+            "provider name",
+            "old team",
+        );
+        let mut events = all_event_kinds();
+        let Some(submit_declaration) = events
+            .iter_mut()
+            .find(|declaration| declaration.kind == EventKind::Submit)
+        else {
+            panic!("submit declaration fixture");
+        };
+        submit_declaration.arguments = fields.clone();
+        let snapshot = snapshot_with_body(
+            PanelInstanceId::from_u64(1),
+            initial,
+            BodyKind::Form,
+            vec![affordance("submit", "vendor.submit", true)],
+        );
+        let mut state = crate::test_app_state();
+        let panel = declare_and_accept(
+            &mut state,
+            (&owner, &panel_type),
+            &[BodyKind::Form],
+            &events,
+            std::slice::from_ref(&submit),
+            &snapshot,
+        );
+        assert!(state.submit_provider_panel_event(
+            panel,
+            PanelEvent::FieldChanged {
+                field_id: id("name"),
+                value: TypedValue::String("edited name".to_owned()),
+            },
+        ));
+
+        let latest = provider_form(fields, submit, "new provider name", "new team");
+        accept_next_snapshot(
+            &mut state,
+            panel,
+            latest,
+            BodyKind::Form,
+            vec![affordance("submit", "vendor.submit", true)],
+        );
+
+        assert_sparse_latest_form_submit(&state, panel);
     }
 
     #[test]
@@ -179,7 +270,7 @@
             &snapshot,
         );
 
-        assert!(submit_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::Submit).is_none());
     }
 
     // ── PageRequested event tests ────────────────────────────────────────
@@ -216,7 +307,7 @@
             &snapshot,
         );
 
-        let event = page_next_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::PageNext);
         assert!(matches!(
             event,
             Some(PanelEvent::PageRequested { ref token }) if token == "page2"
@@ -241,7 +332,7 @@
             &snapshot,
         );
 
-        assert!(page_next_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::PageNext).is_none());
     }
 
     // ── LinkSelected event tests ─────────────────────────────────────────
@@ -272,7 +363,7 @@
             &snapshot,
         );
 
-        let event = link_select_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::FocusedLink);
         assert!(matches!(
             event,
             Some(PanelEvent::LinkSelected { ref link_id }) if link_id.as_str() == "edit-link"
@@ -297,7 +388,7 @@
             &snapshot,
         );
 
-        assert!(link_select_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::FocusedLink).is_none());
     }
 
     // ── Stale/invalid zero-effect tests ──────────────────────────────────
@@ -333,7 +424,7 @@
 
         // Suspend drops the model, so action_event has no snapshot to read
         // and correctly produces nothing.
-        assert!(action_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::FocusedAction).is_none());
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -367,7 +458,7 @@
 
         let prior_host = state.provider_panels.host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
-        let Some(event) = action_event(&state, panel) else {
+        let Some(event) = control_event(&state, panel, ControlAction::FocusedAction) else {
             panic!("enabled action must project an event");
         };
         assert!(!state.submit_provider_panel_event(panel, event));
@@ -470,7 +561,7 @@
     }
 
     #[test]
-    fn focused_raw_form_edit_preserves_existing_values_and_stages_exactly_one_event() {
+    fn focused_raw_form_edit_keeps_a_sparse_draft_and_stages_exactly_one_event() {
         use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
 
         let (mut state, panel) = active_form(None);
@@ -506,9 +597,9 @@
             draft.get(&id("name")),
             Some(&TypedValue::String("oldx".to_owned()))
         );
-        assert_eq!(
-            draft.get(&id("region")),
-            Some(&TypedValue::String("us".to_owned()))
+        assert!(
+            !draft.contains_key(&id("region")),
+            "untouched provider fields must not be copied into the edit draft"
         );
     }
 

@@ -4,7 +4,7 @@
   "artifacts": [
     {
       "path": "dev-docs/standards/architecture.md",
-      "sha256": "b8b9aa38d807c67e66046939d75a116909411509c5efc999e8c02b8d595752c5",
+      "sha256": "c3b04e7f2f07302609c72afac1b56d7a3e14ee94f26ac6c47f37901951611e25",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -20,7 +20,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
+      "sha256": "ef2f6f5c17a1e6ef0b3dcd1424a8c45022de4415d0745a2d98564a43d439af95",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "47521dff02ebb2fef8ae050579db47aa596e145405c67879a5c7825dcd48653e",
+      "sha256": "cb96f8fae08e467a9376cd1ae2ac7f9a9279795b0efbdc124d9b69c03415da06",
       "mode": "100644",
       "criteria": [
         "CWR1-10"

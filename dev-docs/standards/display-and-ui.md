@@ -667,11 +667,17 @@ owns iocraft elements, focus, selection repair, scrolling, wrapping, form drafts
 confirmation, links, theme, accessibility, mouse/key translation, Back, and the
 small-terminal presentation.
 
-The closed host primitives are list, detail, form, status, progress, empty, and
-error. Activating and unavailable panels render explicit text rather than an
-empty rectangle. A failed panel may retain the last complete accepted model, but
-it is marked literally `stale`. A candidate snapshot is projected only after the
-panel reducer has accepted the entire model; a rejected candidate never appears
+The closed public host controls are list, tree, detail, structured-diff, form,
+status, progress, empty, and error. The internal terminal control is capability-
+restricted host functionality and is never a tenth package/provider control.
+Every provider body is projected and interpreted through the sealed factory for
+its `ControlKind`; dispatch cannot inspect screen identity, origin, owner,
+package, or product identity. Tree rows use visible expanded preorder for both
+rendering and input. Structured-diff lines clip to one row and never wrap.
+Activating and unavailable panels render explicit text rather than an empty
+rectangle. A failed panel may retain the last complete accepted model, but it is
+marked literally `stale`. A candidate snapshot is projected only after the panel
+reducer has accepted the entire model; a rejected candidate never appears
 partially.
 
 Input becomes one closed semantic event only after the host validates the live

@@ -32,6 +32,10 @@ pub mod dashboard_git_info;
 /// Read-only local readiness diagnostics for `jefe doctor` (issue #264).
 pub mod doctor;
 pub mod domain;
+/// Closed host-control vocabulary and identity-free factory dispatch.
+pub mod host_controls;
+#[cfg(test)]
+mod host_controls_tests;
 pub mod input;
 pub mod issue_detail_content;
 pub mod layout;

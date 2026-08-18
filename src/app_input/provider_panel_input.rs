@@ -1,7 +1,8 @@
 use super::action_handlers::BoundaryAction;
 use jefe::domain::{Id, TypedValue};
+use jefe::host_controls::{ControlAction, ControlIntent, control_intent, selected_control_id};
 use jefe::provider_panel_view::PanelHitTarget;
-use jefe::runtime::provider::protocol::{Affordance, PanelBody, PanelEvent};
+use jefe::runtime::provider::protocol::{PanelBody, PanelEvent};
 use jefe::state::provider_panels::PanelInstanceId;
 
 pub(super) fn apply(
@@ -232,28 +233,26 @@ fn mouse_event(
     panel: PanelInstanceId,
     target: jefe::provider_panel_view::PanelHitTarget,
 ) -> Option<PanelEvent> {
-    match target {
-        jefe::provider_panel_view::PanelHitTarget::ListItem(id) => {
+    let action = match target {
+        jefe::provider_panel_view::PanelHitTarget::ListItem(id)
+        | jefe::provider_panel_view::PanelHitTarget::TreeNode(id)
+        | jefe::provider_panel_view::PanelHitTarget::DiffFile(id) => {
             if selected_item(state, panel).as_ref() == Some(&id) {
-                Some(PanelEvent::Activated { id })
+                ControlAction::Activate
             } else {
-                Some(PanelEvent::Selected { id })
+                ControlAction::Select(id)
             }
         }
-        jefe::provider_panel_view::PanelHitTarget::Action(id) => Some(PanelEvent::Action {
-            id,
-            arguments: jefe::domain::TypedMap::new(),
-        }),
-        jefe::provider_panel_view::PanelHitTarget::Submit => submit_event(state, panel),
-        jefe::provider_panel_view::PanelHitTarget::PageRequested => page_next_event(state, panel),
-        jefe::provider_panel_view::PanelHitTarget::Retry => Some(PanelEvent::Retry),
-        jefe::provider_panel_view::PanelHitTarget::Cancel => Some(PanelEvent::Cancel),
-        jefe::provider_panel_view::PanelHitTarget::Link(link_id) => {
-            Some(PanelEvent::LinkSelected { link_id })
-        }
+        jefe::provider_panel_view::PanelHitTarget::Action(id) => ControlAction::Action(id),
+        jefe::provider_panel_view::PanelHitTarget::Submit => ControlAction::Submit,
+        jefe::provider_panel_view::PanelHitTarget::PageRequested => ControlAction::PageNext,
+        jefe::provider_panel_view::PanelHitTarget::Retry => ControlAction::Retry,
+        jefe::provider_panel_view::PanelHitTarget::Cancel => ControlAction::Cancel,
+        jefe::provider_panel_view::PanelHitTarget::Link(id) => ControlAction::Link(id),
         jefe::provider_panel_view::PanelHitTarget::Field(_)
-        | jefe::provider_panel_view::PanelHitTarget::Unavailable => None,
-    }
+        | jefe::provider_panel_view::PanelHitTarget::Unavailable => return None,
+    };
+    control_event(state, panel, action)
 }
 fn event_for_action(
     action: BoundaryAction,
@@ -261,15 +260,25 @@ fn event_for_action(
     panel: PanelInstanceId,
 ) -> Option<PanelEvent> {
     match action {
-        BoundaryAction::ProviderPanelPrevious => select_list_item(state, panel, false),
-        BoundaryAction::ProviderPanelNext => select_list_item(state, panel, true),
-        BoundaryAction::ProviderPanelActivate => activation_event(state, panel),
-        BoundaryAction::ProviderPanelRetry => Some(PanelEvent::Retry),
-        BoundaryAction::ProviderPanelCancel => Some(PanelEvent::Cancel),
-        BoundaryAction::ProviderPanelAction => action_event(state, panel),
-        BoundaryAction::ProviderPanelSubmit => submit_event(state, panel),
-        BoundaryAction::ProviderPanelPageNext => page_next_event(state, panel),
-        BoundaryAction::ProviderPanelLinkSelect => link_select_event(state, panel),
+        BoundaryAction::ProviderPanelPrevious => {
+            control_event(state, panel, ControlAction::Previous)
+        }
+        BoundaryAction::ProviderPanelNext => control_event(state, panel, ControlAction::Next),
+        BoundaryAction::ProviderPanelActivate => {
+            control_event(state, panel, ControlAction::Activate)
+        }
+        BoundaryAction::ProviderPanelRetry => control_event(state, panel, ControlAction::Retry),
+        BoundaryAction::ProviderPanelCancel => control_event(state, panel, ControlAction::Cancel),
+        BoundaryAction::ProviderPanelAction => {
+            control_event(state, panel, ControlAction::FocusedAction)
+        }
+        BoundaryAction::ProviderPanelSubmit => control_event(state, panel, ControlAction::Submit),
+        BoundaryAction::ProviderPanelPageNext => {
+            control_event(state, panel, ControlAction::PageNext)
+        }
+        BoundaryAction::ProviderPanelLinkSelect => {
+            control_event(state, panel, ControlAction::FocusedLink)
+        }
         _ => None,
     }
 }
@@ -280,17 +289,15 @@ fn apply_local_action(
     panel: PanelInstanceId,
     max_scroll_offset: u32,
 ) -> bool {
-    let direction = match action {
-        BoundaryAction::ProviderPanelPrevious => -1_i8,
-        BoundaryAction::ProviderPanelNext => 1_i8,
+    let control_action = match action {
+        BoundaryAction::ProviderPanelPrevious => ControlAction::Previous,
+        BoundaryAction::ProviderPanelNext => ControlAction::Next,
         _ => return false,
     };
-    let Some(snapshot) = state.provider_panels.accepted_snapshot(panel) else {
+    let ControlIntent::Scroll(direction) = control_intent_for_state(state, panel, control_action)
+    else {
         return false;
     };
-    if matches!(snapshot.body, PanelBody::List(_)) {
-        return false;
-    }
     let prior = state
         .provider_panels
         .host_local(panel)
@@ -308,50 +315,32 @@ fn apply_local_action(
     state.provider_panels.update_host_local(panel, host).is_ok()
 }
 
-fn select_list_item(
+fn control_intent_for_state(
     state: &jefe::state::AppState,
     panel: PanelInstanceId,
-    forward: bool,
-) -> Option<PanelEvent> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    let PanelBody::List(body) = &snapshot.body else {
-        return None;
+    action: ControlAction,
+) -> ControlIntent {
+    let Some(snapshot) = state.provider_panels.accepted_snapshot(panel) else {
+        return ControlIntent::None;
     };
-    if body.items.is_empty() {
-        return None;
-    }
-    let selected = selected_item(state, panel);
-    let current = selected
-        .as_ref()
-        .and_then(|id| body.items.iter().position(|item| &item.id == id));
-    let index = if forward {
-        current.map_or(0, |index| (index + 1) % body.items.len())
-    } else {
-        current.map_or(body.items.len() - 1, |index| {
-            if index == 0 {
-                body.items.len() - 1
-            } else {
-                index - 1
-            }
-        })
-    };
-    Some(PanelEvent::Selected {
-        id: body.items[index].id.clone(),
-    })
+    let local = state.provider_panels.host_local(panel);
+    control_intent(
+        snapshot,
+        local.and_then(|value| value.selected_id.as_ref()),
+        local.and_then(|value| value.focus_target.as_ref()),
+        local.and_then(|value| value.form_draft.as_ref()),
+        action,
+    )
 }
 
-fn activation_event(state: &jefe::state::AppState, panel: PanelInstanceId) -> Option<PanelEvent> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    match snapshot.body {
-        PanelBody::List(_) => selected_item(state, panel).map(|id| PanelEvent::Activated { id }),
-        PanelBody::Form(_) => submit_event(state, panel),
-        PanelBody::Detail(_) => {
-            link_select_event(state, panel).or_else(|| action_event(state, panel))
-        }
-        PanelBody::Error(_) => Some(PanelEvent::Retry),
-        PanelBody::Progress(_) => Some(PanelEvent::Cancel),
-        PanelBody::Status(_) | PanelBody::Empty(_) => action_event(state, panel),
-        PanelBody::Tree(_) | PanelBody::StructuredDiff(_) => None,
+fn control_event(
+    state: &jefe::state::AppState,
+    panel: PanelInstanceId,
+    action: ControlAction,
+) -> Option<PanelEvent> {
+    match control_intent_for_state(state, panel, action) {
+        ControlIntent::Event(event) => Some(event),
+        ControlIntent::Scroll(_) | ControlIntent::None => None,
     }
 }
 
@@ -360,103 +349,11 @@ fn selected_item(
     panel: PanelInstanceId,
 ) -> Option<jefe::domain::Id> {
     let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    let PanelBody::List(body) = &snapshot.body else {
-        return None;
-    };
-    state
+    let local = state
         .provider_panels
         .host_local(panel)
-        .and_then(|local| local.selected_id.as_ref())
-        .filter(|selected| body.items.iter().any(|item| &item.id == *selected))
-        .cloned()
-        .or_else(|| {
-            body.selected_id
-                .as_ref()
-                .filter(|selected| body.items.iter().any(|item| &item.id == *selected))
-                .cloned()
-        })
-        .or_else(|| body.items.first().map(|item| item.id.clone()))
-}
-
-/// Construct a PanelEvent::Action for the focused or first enabled affordance.
-fn action_event(state: &jefe::state::AppState, panel: PanelInstanceId) -> Option<PanelEvent> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    let focus_target = state
-        .provider_panels
-        .host_local(panel)
-        .and_then(|local| local.focus_target.as_ref());
-    let affordance =
-        focused_or_first_enabled_affordance(&snapshot.action_affordances, focus_target)?;
-    Some(PanelEvent::Action {
-        id: affordance.id.clone(),
-        arguments: affordance.arguments.clone().unwrap_or_default(),
-    })
-}
-
-/// Construct a PanelEvent::Submit from the host-local form draft.
-fn submit_event(state: &jefe::state::AppState, panel: PanelInstanceId) -> Option<PanelEvent> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    if !matches!(snapshot.body, PanelBody::Form(_)) {
-        return None;
-    }
-    let values = state
-        .provider_panels
-        .host_local(panel)
-        .and_then(|local| local.form_draft.as_ref())
-        .cloned()
-        .unwrap_or_default();
-    Some(PanelEvent::Submit { values })
-}
-
-/// Construct a PanelEvent::PageRequested from the list body's next page token.
-fn page_next_event(state: &jefe::state::AppState, panel: PanelInstanceId) -> Option<PanelEvent> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    let PanelBody::List(body) = &snapshot.body else {
-        return None;
-    };
-    let token = body.next_page_token.clone()?;
-    Some(PanelEvent::PageRequested { token })
-}
-
-/// Construct a PanelEvent::LinkSelected for the focused or first detail link.
-fn link_select_event(state: &jefe::state::AppState, panel: PanelInstanceId) -> Option<PanelEvent> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
-    let PanelBody::Detail(detail) = &snapshot.body else {
-        return None;
-    };
-    let focus_target = state
-        .provider_panels
-        .host_local(panel)
-        .and_then(|local| local.focus_target.as_ref());
-    let link_id = focus_target
-        .filter(|id| detail.actions.contains(id))
-        .cloned()
-        .or_else(|| {
-            detail
-                .actions
-                .iter()
-                .find(|action| {
-                    snapshot
-                        .action_affordances
-                        .iter()
-                        .any(|a| &a.id == *action && a.enabled)
-                })
-                .cloned()
-        })?;
-    Some(PanelEvent::LinkSelected { link_id })
-}
-
-/// Find the affordance the user focused, or the first enabled one as a fallback.
-fn focused_or_first_enabled_affordance<'a>(
-    affordances: &'a [Affordance],
-    focus_target: Option<&Id>,
-) -> Option<&'a Affordance> {
-    if let Some(target) = focus_target
-        && let Some(focused) = affordances.iter().find(|a| &a.id == target && a.enabled)
-    {
-        return Some(focused);
-    }
-    affordances.iter().find(|a| a.enabled)
+        .and_then(|value| value.selected_id.as_ref());
+    selected_control_id(snapshot, local).cloned()
 }
 
 enum RawKeyMutation {

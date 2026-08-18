@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
+  "scenario_manifest_sha256": "ef2f6f5c17a1e6ef0b3dcd1424a8c45022de4415d0745a2d98564a43d439af95",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -604,6 +604,30 @@
       "platform": "linux",
       "ci_job": "tui_scenarios_linux",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/static-failure.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+      "sha256": "f0a23d701854fbf60e72defdd59beecaf0e621ee4872d54686018d363f47c534",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+      "sha256": "b7bc20a6c359f3190ffa18c136fbaf9f199dcdcf45b132bf9e746fe2958eeeaf",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
@@ -1995,7 +2019,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
+      "sha256": "ef2f6f5c17a1e6ef0b3dcd1424a8c45022de4415d0745a2d98564a43d439af95",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -3370,6 +3394,8 @@
         "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
         "dev-docs/tmux-scenarios/issue704/restart-publication.json",
         "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3649,6 +3675,8 @@
         "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
         "dev-docs/tmux-scenarios/issue704/restart-publication.json",
         "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",

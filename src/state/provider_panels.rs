@@ -515,4 +515,9 @@ impl Default for ProviderPanelState {
     }
 }
 
+enum SnapshotSelection {
+    Preserve,
+    Replace(Option<Id>),
+}
+
 include!("provider_panels_ops.rs");

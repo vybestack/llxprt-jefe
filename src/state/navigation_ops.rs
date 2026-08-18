@@ -398,17 +398,7 @@ impl AppState {
             .host_local(panel)
             .cloned()
             .unwrap_or_default();
-        let initial_values = self
-            .provider_panels
-            .accepted_snapshot(panel)
-            .and_then(|snapshot| match &snapshot.body {
-                crate::runtime::provider::protocol::PanelBody::Form(form) => {
-                    Some(form.values.clone())
-                }
-                _ => None,
-            })
-            .unwrap_or_default();
-        let mut form_draft = prior.form_draft.clone().unwrap_or(initial_values);
+        let mut form_draft = prior.form_draft.clone().unwrap_or_default();
         form_draft.insert(field_id.clone(), value);
         let host = crate::runtime::provider::protocol::HostLocal {
             focus_target: Some(field_id),

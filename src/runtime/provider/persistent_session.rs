@@ -22,12 +22,13 @@ use std::time::{Duration, Instant};
 use crate::domain::Id;
 
 use super::drains::StdoutEvent;
+use super::dto::Capability;
 use super::encode;
 use super::error::ProviderError;
 use super::identifiers::Direction;
 use super::outcome::{OneShotOutcome, OneShotResult, SupervisorFailure};
 use super::persistent::{
-    CandidateHealth, CandidateHealthSnapshot, OwnedCandidate, candidate_health, reap_owned,
+    CandidateHealth, CandidateHealthSnapshot, OwnedCandidate, reap_owned, session_candidate_health,
 };
 use super::protocol::{
     InvokeActionPayload, LifecycleOrder, MessageKind, ProgressPayload, ProgressTracker,
@@ -433,6 +434,16 @@ include!("persistent_session_owner.rs");
 #[cfg(test)]
 mod active_input_order_tests {
     use super::*;
+
+    #[test]
+    fn panel_traffic_requires_the_negotiated_panels_capability() {
+        assert!(!panel_traffic_allowed(&[
+            super::super::dto::Capability::Actions
+        ]));
+        assert!(panel_traffic_allowed(&[
+            super::super::dto::Capability::Panels
+        ]));
+    }
 
     #[test]
     fn queued_provider_frame_wins_over_cancel_and_shutdown() {

@@ -492,29 +492,71 @@ impl ProviderPanelState {
         Ok(())
     }
 
+    fn reconcile_authoritative_selection(
+        &self,
+        index: usize,
+        selection: SnapshotSelection,
+    ) -> Result<Option<HostLocal>, PanelError> {
+        let (SnapshotSelection::Replace(selected_id), Some(host_local)) =
+            (selection, self.panels[index].host_local.as_ref())
+        else {
+            return Ok(None);
+        };
+        let mut candidate = host_local.clone();
+        candidate.selected_id = selected_id;
+        if host_local_canonical_bytes(&candidate) > HOST_LOCAL_MAX_BYTES {
+            return Err(PanelError::HostLocalTooLarge);
+        }
+        Ok(Some(candidate))
+    }
+
+    fn reject_snapshot(&mut self, index: usize, error: PanelError) -> PanelError {
+        Self::mark_failed(&mut self.panels[index]);
+        error
+    }
+
     fn apply_snapshot(&mut self, index: usize, command: AcceptSnapshot) -> Result<u64, PanelError> {
         if command.payload_byte_count > SNAPSHOT_MAX_BYTES
+            || command.snapshot.body.kind() != command.snapshot.kind
             || !self.panels[index]
                 .allowed_model_kinds
                 .contains(&command.snapshot.kind)
             || !affordances_valid(&self.panels[index].action_authority, command.snapshot)
         {
-            self.panels[index].lifecycle = PanelLifecycle::Failed;
-            if let Some(model) = &mut self.panels[index].accepted {
-                model.stale = true;
-            }
-            return Err(PanelError::SnapshotInvalid);
+            return Err(self.reject_snapshot(index, PanelError::SnapshotInvalid));
         }
         let revision = command.snapshot.revision;
         let Some(expected_revision) = revision.checked_add(1) else {
-            let record = &mut self.panels[index];
-            record.lifecycle = PanelLifecycle::Failed;
-            if let Some(model) = &mut record.accepted {
-                model.stale = true;
-            }
-            return Err(PanelError::SnapshotInvalid);
+            return Err(self.reject_snapshot(index, PanelError::SnapshotInvalid));
         };
+        let authoritative_selection = match &command.snapshot.body {
+            crate::runtime::provider::protocol::PanelBody::List(list) => {
+                SnapshotSelection::Replace(list.selected_id.clone())
+            }
+            crate::runtime::provider::protocol::PanelBody::Tree(tree) => {
+                SnapshotSelection::Replace(tree.selected_id.clone())
+            }
+            crate::runtime::provider::protocol::PanelBody::StructuredDiff(diff) => {
+                SnapshotSelection::Replace(diff.selected_file_id.clone())
+            }
+            crate::runtime::provider::protocol::PanelBody::Detail(_)
+            | crate::runtime::provider::protocol::PanelBody::Form(_)
+            | crate::runtime::provider::protocol::PanelBody::Status(_)
+            | crate::runtime::provider::protocol::PanelBody::Progress(_)
+            | crate::runtime::provider::protocol::PanelBody::Empty(_)
+            | crate::runtime::provider::protocol::PanelBody::Error(_) => {
+                SnapshotSelection::Preserve
+            }
+        };
+        let reconciled_host_local =
+            match self.reconcile_authoritative_selection(index, authoritative_selection) {
+                Ok(host_local) => host_local,
+                Err(error) => return Err(self.reject_snapshot(index, error)),
+            };
         let record = &mut self.panels[index];
+        if let Some(host_local) = reconciled_host_local {
+            record.host_local = Some(host_local);
+        }
         record.accepted = Some(AcceptedModel {
             snapshot: command.snapshot.clone(),
             revision,

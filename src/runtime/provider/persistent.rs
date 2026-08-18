@@ -711,6 +711,37 @@ pub(super) fn candidate_health(candidate: &mut OwnedCandidate) -> CandidateHealt
     health
 }
 
+/// Classify process health for a candidate owned by a persistent session.
+///
+/// Unlike startup-supervisor health, session health must not inspect stdout:
+/// panel snapshots are legal post-Ready frames and the owner loop is the sole
+/// authority that parses and forwards them.
+pub(super) fn classify_session_health(
+    wait: io::Result<Option<std::process::ExitStatus>>,
+    capabilities: &[Capability],
+) -> CandidateHealth {
+    classify_health(StdoutProbe::Idle, wait, capabilities)
+}
+
+/// Probe process health without competing with the persistent owner's stdout
+/// delivery path.
+pub(super) fn session_candidate_health(candidate: &mut OwnedCandidate) -> CandidateHealth {
+    if let Some(evidence) = candidate.fault.clone() {
+        return CandidateHealth::ProtocolFault { evidence };
+    }
+    let health = classify_session_health(candidate.process.try_wait(), &candidate.capabilities);
+    match &health {
+        CandidateHealth::Exited { .. } => candidate.exited = true,
+        CandidateHealth::ProbeFailed { .. } => candidate.healthy = false,
+        CandidateHealth::ProtocolFault { evidence } => {
+            candidate.healthy = false;
+            candidate.fault = Some(evidence.clone());
+        }
+        CandidateHealth::Ready { .. } => {}
+    }
+    health
+}
+
 /// One non-blocking stdout probe outcome during a health check.
 pub(super) enum StdoutProbe {
     /// No data is available.
