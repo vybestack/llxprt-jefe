@@ -40,9 +40,7 @@ use super::screen_file::{
     ScreenFile, span_of,
 };
 use super::screen_lowering_layout::{lower_layout, lower_relationships};
-use super::screen_lowering_values::{
-    lower_activation, lower_bindings, lower_config, published_actions,
-};
+use super::screen_lowering_values::{lower_activation, lower_bindings, lower_config};
 use super::validate::validate_descriptor;
 
 /// Where a lowered screen came from.
@@ -340,15 +338,11 @@ fn legacy_resource_owner(type_id: &str) -> Option<&'static str> {
     }
 }
 
-/// Resolve every binding a definition requests against the compiled inventory.
+/// Parse every typed binding a definition requests.
 ///
-/// The inventory is built once per screen, because compiling it is not free and
-/// a screen may request up to 256 bindings.
+/// Semantic validation is deferred until the candidate owns the final action
+/// registry, including provider actions and effective Settings overrides.
 fn lower_declared_bindings(file: &ScreenFile) -> Result<Vec<ScreenBinding>, LoweringError> {
-    if file.bindings.is_empty() {
-        return Ok(Vec::new());
-    }
-    let published = published_actions()?;
     let declared: Vec<(&str, &str)> = file
         .bindings
         .iter()
@@ -359,7 +353,7 @@ fn lower_declared_bindings(file: &ScreenFile) -> Result<Vec<ScreenBinding>, Lowe
             )
         })
         .collect();
-    lower_bindings(&published, &declared)
+    lower_bindings(&declared)
 }
 
 /// Resolve a panel identifier named from the layout tree.

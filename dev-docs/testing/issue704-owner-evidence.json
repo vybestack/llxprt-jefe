@@ -20,7 +20,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "ef2f6f5c17a1e6ef0b3dcd1424a8c45022de4415d0745a2d98564a43d439af95",
+      "sha256": "f2cee0f0597695dc962385bc3ec0e52705650c8deaa498932778552e0b2a6ab9",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "cb96f8fae08e467a9376cd1ae2ac7f9a9279795b0efbdc124d9b69c03415da06",
+      "sha256": "0b765821236d80dc296100e354e296fc411d19dc888d410dfd9136ae73c5724b",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -108,7 +108,7 @@
     },
     {
       "path": "src/domain/action_registry.rs",
-      "sha256": "fb4ce0f690dd0024e2e64722ce580bfa0ad8de2561dd21c6885d3d334358335a",
+      "sha256": "fe34fdc5449d16479824f6461e65c2da78467258c5505718ff6f7b752bd58b34",
       "mode": "100644",
       "criteria": [
         "CWR1-09"
@@ -133,7 +133,7 @@
     },
     {
       "path": "src/published_workbench.rs",
-      "sha256": "d973065b46ce0b5c6145b37b0f47dc9a24b1cc4d63a6dd3f76f7459de58a861d",
+      "sha256": "9eb908ce293f142629e70ea0e8b67cd87f83a5db17321bee3730ea7c2b20ef8f",
       "mode": "100644",
       "criteria": [
         "CWR1-01",
@@ -151,7 +151,7 @@
     },
     {
       "path": "src/startup_candidate.rs",
-      "sha256": "59cb6c170d62f0cee31dffa694b01ede47d763daba81538bfc2603e901326b9a",
+      "sha256": "a017ae42c3c03fe9bffdf336dbd92735bcf8998612b7519df5ae4a58574767fd",
       "mode": "100644",
       "criteria": [
         "CWR1-00",
@@ -198,7 +198,7 @@
     },
     {
       "path": "src/state/types.rs",
-      "sha256": "ae673fd9838465fd175511f1a72c307ce3951965fd8d0207a58bb155fed5b45e",
+      "sha256": "47bbf132bef48898cd963437ba821f25bfeaa035ad255cd9d1c20a327434160b",
       "mode": "100644",
       "criteria": [
         "CWR1-06",

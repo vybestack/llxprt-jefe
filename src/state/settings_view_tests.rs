@@ -195,7 +195,7 @@ fn generated_string_field_edits_through_the_settings_owned_editor() {
     let (owner, selected) = selected_required_string();
     input.plugin_configs.insert(owner.clone(), selected.clone());
     input.installed_plugin_configs.insert(owner, vec![selected]);
-    let mut state = AppState::test_fixture();
+    let mut state = super::settings_test_support::state_with_config_packages(bytes);
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.settings_state.section = SettingsSection::Plugins;
     state.settings_state.focus = SettingsFocus::Detail;

@@ -35,8 +35,7 @@ pub enum LoweringError {
     },
     /// The declared panel type was refused.
     PanelType(PanelTypeError),
-    /// A binding names an action or context the immutable registry does not
-    /// publish.
+    /// A binding names an action or context outside its typed identifier grammar.
     UnknownBinding {
         /// Which half was unresolvable.
         field: &'static str,

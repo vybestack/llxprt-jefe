@@ -25,10 +25,12 @@
 //! compose the same registry, and so a diagnostic naming "the first offending
 //! file" names the same file twice.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::persistence::plugin_inventory::InstalledPackage;
 use crate::workbench::ids::MAX_SCREENS;
 
 use super::diagnostic::{FILE_LIMIT, PATH_LIMIT};
@@ -95,6 +97,45 @@ pub struct ScreenFileCandidate {
     pub member: String,
     /// The file text, or why there is none.
     pub text: Result<String, ScreenFileRejection>,
+}
+
+/// Immutable package-screen bytes captured at the startup I/O boundary.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PackageScreenSources {
+    files: BTreeMap<PathBuf, Result<String, ScreenFileRejection>>,
+}
+
+impl PackageScreenSources {
+    /// Capture every manifest-declared screen from the retained inventory.
+    #[must_use]
+    pub(crate) fn capture(packages: &[InstalledPackage]) -> Self {
+        let mut files = BTreeMap::new();
+        for package in packages {
+            for contribution in package.manifest().screens() {
+                let path = package.directory().join(contribution.path().as_str());
+                files.entry(path).or_insert_with(|| {
+                    read_package_screen(package.directory(), contribution.path())
+                });
+            }
+        }
+        Self { files }
+    }
+
+    /// Return one retained package screen without consulting the filesystem.
+    pub(crate) fn get(
+        &self,
+        package: &InstalledPackage,
+        contribution: &crate::domain::plugin::ScreenContribution,
+    ) -> Result<&str, ScreenFileRejection> {
+        let path = package.directory().join(contribution.path().as_str());
+        match self.files.get(&path) {
+            Some(Ok(text)) => Ok(text),
+            Some(Err(error)) => Err(error.clone()),
+            None => Err(ScreenFileRejection::Unreadable {
+                reason: "screen was absent from the startup source snapshot".to_owned(),
+            }),
+        }
+    }
 }
 
 /// The definitions directory itself could not be enumerated or is overfull.

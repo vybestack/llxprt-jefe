@@ -17,6 +17,9 @@ use action_registry_validate::{
     validate_protected,
 };
 
+#[path = "action_registry_declared.rs"]
+mod declared;
+
 pub const ACTION_ID_BYTE_LIMIT: usize = 128;
 pub const ACTION_LABEL_CELL_LIMIT: usize = 128;
 pub const ACTION_DESCRIPTION_BYTE_LIMIT: usize = 4_096;
@@ -698,6 +701,8 @@ pub enum RegistryDiagnosticKind {
     ImplicitShadow(ContextId, ContextId, Chord),
     ProtectedUnbound(ActionId, ContextId),
     ProtectedShadowed(ActionId, ContextId, Chord),
+    ProtectedDeclared(ActionId, ContextId),
+    DeclaredUnbound(ActionId, ContextId),
     ProtectedUnavailable(ActionId),
     DuplicateAvailability(ActionId),
     MissingAvailability(ActionId),

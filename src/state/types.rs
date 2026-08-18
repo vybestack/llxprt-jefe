@@ -812,9 +812,39 @@ impl AppState {
         chord: &crate::domain::keymap::Chord,
         stack: &crate::domain::input_context::ContextStack,
     ) -> crate::domain::action_registry::Resolution {
+        use crate::domain::action_registry::Resolution;
+
+        if !stack.allows_screen_declarations() {
+            return self
+                .apply_runtime_action_availability(self.action_registry().resolve(chord, stack));
+        }
+
+        if let Some(descriptor) = self
+            .published_workbench()
+            .screen_registry()
+            .get_identity(self.nav.screen())
+        {
+            for binding in &descriptor.bindings {
+                let resolved = self.action_registry().resolve_declared(
+                    chord,
+                    &binding.context,
+                    &binding.action,
+                );
+                if !matches!(resolved, Resolution::Unbound) {
+                    return self.apply_runtime_action_availability(resolved);
+                }
+            }
+        }
+        self.apply_runtime_action_availability(self.action_registry().resolve(chord, stack))
+    }
+
+    fn apply_runtime_action_availability(
+        &self,
+        resolved: crate::domain::action_registry::Resolution,
+    ) -> crate::domain::action_registry::Resolution {
         use crate::domain::action_registry::{Availability, Resolution};
 
-        match self.action_registry().resolve(chord, stack) {
+        match resolved {
             Resolution::Dispatch { action, handler } => match self.action_availability(&action) {
                 Some(Availability::Unavailable { reason }) => Resolution::Unavailable {
                     action,
@@ -822,7 +852,6 @@ impl AppState {
                 },
                 _ => Resolution::Dispatch { action, handler },
             },
-            unavailable @ Resolution::Unavailable { .. } => unavailable,
             other => other,
         }
     }

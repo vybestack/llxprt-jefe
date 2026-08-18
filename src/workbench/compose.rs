@@ -27,7 +27,7 @@ use crate::domain::Id;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::plugin_inventory::{InstalledPackage, selected_packages};
 use crate::persistence::screen_files::{
-    ScreenFileCandidate, ScreenFileRejection, read_package_screen,
+    PackageScreenSources, ScreenFileCandidate, ScreenFileRejection,
 };
 use crate::persistence::settings_document::PublishedSettings;
 
@@ -78,9 +78,6 @@ impl std::error::Error for CompositionRefused {}
 
 /// Compose compiled screens with every enabled definition, as settings ask.
 ///
-/// Delegates to [`compose_screens_with_packages`] with no package sources, so
-/// the composition path that does not involve plugins is unchanged.
-///
 /// # Errors
 ///
 /// Returns [`CompositionRefused`] when any enabled definition cannot be parsed,
@@ -90,33 +87,21 @@ pub fn compose_screens(
     candidates: &[ScreenFileCandidate],
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, CompositionRefused> {
-    compose_screens_with_packages(compiled, candidates, &[], settings)
+    compose_screens_with_package_sources(
+        compiled,
+        candidates,
+        &[],
+        &PackageScreenSources::default(),
+        settings,
+    )
 }
 
-/// Compose compiled screens with enabled definitions **and** selected package
-/// screens, as settings ask.
-///
-/// Selected packages are resolved by [`selected_packages`], which consults the
-/// same `PublishedSettings` that decides user-definition activation.  Each
-/// selected package's manifest-declared screen files are loaded from the package
-/// directory using the existing bounded, symlink-safe reader, parsed through the
-/// sole screen-file parser, and lowered through the sole lowerer.  A package
-/// screen may resolve only panel types its own manifest declared, so no dynamic
-/// panel ids enter the global built-in registry.
-///
-/// Composition is transactional: if any selected package screen is malformed,
-/// missing, mismatched, or duplicates another screen identity, the whole
-/// candidate registry is refused and prior authority is retained.  Unselected
-/// package versions contribute nothing.
-///
-/// # Errors
-///
-/// Returns [`CompositionRefused`] when any enabled definition or selected
-/// package screen cannot be parsed, lowered, or composed.
-pub fn compose_screens_with_packages(
+/// Compose screens from bytes captured before deterministic candidate work.
+pub(crate) fn compose_screens_with_package_sources(
     compiled: &ScreenRegistry,
     candidates: &[ScreenFileCandidate],
     packages: &[InstalledPackage],
+    package_sources: &PackageScreenSources,
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, CompositionRefused> {
     let enabled: BTreeSet<Id> = settings.workbench.enabled_screens.iter().cloned().collect();
@@ -134,6 +119,7 @@ pub fn compose_screens_with_packages(
     let mut panel_bindings = Vec::new();
     compose_package_screens(
         packages,
+        package_sources,
         settings,
         &mut screens,
         &mut resource_schemas,
@@ -160,6 +146,7 @@ pub fn compose_screens_with_packages(
 /// composition.
 fn compose_package_screens(
     packages: &[InstalledPackage],
+    sources: &PackageScreenSources,
     settings: &PublishedSettings,
     screens: &mut Vec<ScreenDescriptor>,
     resource_schemas: &mut Vec<ResourceSchema>,
@@ -175,9 +162,10 @@ fn compose_package_screens(
         for contribution in manifest.screens() {
             let file_path = package.directory().join(contribution.path().as_str());
             let path = DiagnosticPath::new(file_path.to_string_lossy());
-            let text = read_package_screen(package.directory(), contribution.path())
+            let text = sources
+                .get(package, contribution)
                 .map_err(|rejection| CandidateFailure::Unreadable(rejection).refuse(&path))?;
-            let file = parse_screen_file(&text)
+            let file = parse_screen_file(text)
                 .map_err(|error| CandidateFailure::Syntax(error).refuse(&path))?;
             let declared = file.id.get_ref();
             let expected = contribution

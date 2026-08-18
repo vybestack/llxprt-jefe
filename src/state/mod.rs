@@ -167,9 +167,16 @@ pub mod settings;
 /// The registry editors' half of the Settings reducer (issue #388).
 mod settings_registry_ops;
 #[cfg(test)]
+#[path = "settings_registry_provider_tests.rs"]
+mod settings_registry_provider_tests;
+#[cfg(test)]
 #[path = "settings_registry_tests.rs"]
 mod settings_registry_tests;
+mod settings_registry_validation;
 mod settings_tail;
+#[cfg(test)]
+#[path = "settings_test_support.rs"]
+mod settings_test_support;
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod settings_tests;

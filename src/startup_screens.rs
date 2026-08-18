@@ -16,13 +16,40 @@
 #[path = "startup_screens_tests.rs"]
 mod startup_screens_tests;
 use crate::persistence::paths::ResolvedPaths;
-use crate::persistence::plugin_inventory::InstalledPackage;
-use crate::persistence::screen_files::{DefinitionsUnreadable, discover};
+use crate::persistence::plugin_inventory::{InstalledPackage, PluginInventory};
+use crate::persistence::screen_files::{DefinitionsUnreadable, PackageScreenSources, discover};
 use crate::persistence::settings_document::PublishedSettings;
 use crate::workbench::compose::{
-    CompositionRefused, ScreenComposition, compose_screens_with_packages,
+    CompositionRefused, ScreenComposition, compose_screens_with_package_sources,
 };
 use crate::workbench::screens::{RegistryError, builtin_screens};
+
+/// Immutable definition and package-screen bytes captured at startup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScreenSources {
+    definitions: Vec<crate::persistence::screen_files::ScreenFileCandidate>,
+    package_screens: PackageScreenSources,
+}
+
+impl ScreenSources {
+    /// Read every candidate source once at the startup I/O boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScreenStartupError::Definitions`] when the definitions
+    /// directory cannot be captured as one bounded snapshot.
+    pub(crate) fn capture(
+        paths: &ResolvedPaths,
+        inventory: &PluginInventory,
+    ) -> Result<Self, ScreenStartupError> {
+        let definitions = discover(&paths.definitions).map_err(ScreenStartupError::Definitions)?;
+        let package_screens = PackageScreenSources::capture(inventory.packages());
+        Ok(Self {
+            definitions,
+            package_screens,
+        })
+    }
+}
 
 /// Why startup could not publish a screen registry.
 #[derive(Debug)]
@@ -84,8 +111,33 @@ pub fn compose(
     packages: &[InstalledPackage],
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, ScreenStartupError> {
+    let definitions = discover(&paths.definitions).map_err(ScreenStartupError::Definitions)?;
+    let package_screens = PackageScreenSources::capture(packages);
+    let sources = ScreenSources {
+        definitions,
+        package_screens,
+    };
+    compose_captured(&sources, packages, settings)
+}
+
+/// Compose from the immutable source snapshot captured before candidate work.
+///
+/// # Errors
+///
+/// Returns [`ScreenStartupError`] when compiled or captured declarations cannot
+/// form the requested candidate.
+pub(crate) fn compose_captured(
+    sources: &ScreenSources,
+    packages: &[InstalledPackage],
+    settings: &PublishedSettings,
+) -> Result<ScreenComposition, ScreenStartupError> {
     let compiled = builtin_screens().map_err(ScreenStartupError::Compiled)?;
-    let candidates = discover(&paths.definitions).map_err(ScreenStartupError::Definitions)?;
-    compose_screens_with_packages(&compiled, &candidates, packages, settings)
-        .map_err(|refusal| ScreenStartupError::Refused(Box::new(refusal)))
+    compose_screens_with_package_sources(
+        &compiled,
+        &sources.definitions,
+        packages,
+        &sources.package_screens,
+        settings,
+    )
+    .map_err(|refusal| ScreenStartupError::Refused(Box::new(refusal)))
 }

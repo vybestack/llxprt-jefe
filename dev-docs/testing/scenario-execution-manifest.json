@@ -3284,7 +3284,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 30,
+        "steps_total": 35,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3295,7 +3295,7 @@
         ],
         "assertions": {
           "assert-file": 1,
-          "assert-frame": 5
+          "assert-frame": 6
         },
         "captures": 0,
         "capture_names": [],
@@ -3344,7 +3344,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 30,
+        "steps_total": 35,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3355,7 +3355,7 @@
         ],
         "assertions": {
           "assert-file": 1,
-          "assert-frame": 5
+          "assert-frame": 6
         },
         "captures": 0,
         "capture_names": [],

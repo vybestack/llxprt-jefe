@@ -129,9 +129,7 @@ mod route_tests;
 
 pub use activation::{ActivationField, ActivationKind, ScreenBinding};
 pub use allocate::LayoutError;
-pub use compose::{
-    CompositionRefused, ScreenComposition, compose_screens, compose_screens_with_packages,
-};
+pub use compose::{CompositionRefused, ScreenComposition, compose_screens};
 pub use config::panel_insets;
 pub use descriptor::{
     Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,

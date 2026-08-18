@@ -311,15 +311,20 @@ fn a_definition_may_not_request_a_pty_panel() {
 }
 
 #[test]
-fn a_definition_naming_an_unknown_action_refuses_publication_as_a_reference() {
+fn lowering_retains_a_well_formed_binding_for_final_registry_validation() {
     let text = format!(
-        "{}\n[[bindings]]\ncontext = \"global\"\naction = \"no-such-action\"\n",
+        "{}\n[[bindings]]\ncontext = \"vendor.context\"\naction = \"vendor.action\"\n",
         review_definition()
     );
 
-    let refusal = refused(&text);
+    let composition = composed(&[candidate("review", &text)], &["review"]);
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| panic!("enabled definition must publish"));
 
-    assert_eq!(refusal.configuration.code, CfgCode::E006);
+    assert_eq!(screen.bindings[0].context.as_str(), "vendor.context");
+    assert_eq!(screen.bindings[0].action.as_str(), "vendor.action");
 }
 
 #[test]

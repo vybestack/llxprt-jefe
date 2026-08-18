@@ -60,7 +60,7 @@
       {
         "path": "config/plugins/installed/vendor.controls/1.0.0/screens/main.screen.toml",
         "content": {
-          "utf8": "screen_schema = 1\nid = \"vendor.controls.review\"\ntitle = \"Native Control Review\"\nroute = \"vendor.controls.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.controls.tree-diff\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
+          "utf8": "screen_schema = 1\nid = \"vendor.controls.review\"\ntitle = \"Native Control Review\"\nroute = \"vendor.controls.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"dashboard.open-help\"\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.controls.tree-diff\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
         },
         "mode": 384
       },
@@ -243,6 +243,35 @@
     },
     {
       "op": "key",
+      "key": "h",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Help - Keyboard Shortcuts",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Help - Keyboard Shortcuts"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Activated second file",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
       "key": "escape",
       "modifiers": []
     },
@@ -272,7 +301,7 @@
       "file": {
         "path": "action-capture.jsonl",
         "content": {
-          "utf8": "{\"kind\":\"key\",\"original\":{\"code\":\"F(2)\",\"modifiers\":0},\"canonical_chord\":\"F2\",\"resolution\":\"dispatch\",\"action\":\"vendor.controls.open\",\"handler\":\"ProviderAction\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Down\",\"modifiers\":0},\"canonical_chord\":\"Down\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-next\",\"handler\":\"ProviderPanelNext\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Down\",\"modifiers\":0},\"canonical_chord\":\"Down\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-next\",\"handler\":\"ProviderPanelNext\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"dispatch\",\"action\":\"workbench.back\",\"handler\":\"WorkbenchBack\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"unbound\",\"pty_bytes\":[27]}\n"
+          "utf8": "{\"kind\":\"key\",\"original\":{\"code\":\"F(2)\",\"modifiers\":0},\"canonical_chord\":\"F2\",\"resolution\":\"dispatch\",\"action\":\"vendor.controls.open\",\"handler\":\"ProviderAction\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Down\",\"modifiers\":0},\"canonical_chord\":\"Down\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-next\",\"handler\":\"ProviderPanelNext\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Down\",\"modifiers\":0},\"canonical_chord\":\"Down\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-next\",\"handler\":\"ProviderPanelNext\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Char('h')\",\"modifiers\":0},\"canonical_chord\":\"h\",\"resolution\":\"dispatch\",\"action\":\"dashboard.open-help\",\"handler\":\"OpenHelp\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"dispatch\",\"action\":\"help.close\",\"handler\":\"HelpClose\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"dispatch\",\"action\":\"workbench.back\",\"handler\":\"WorkbenchBack\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"unbound\",\"pty_bytes\":[27]}\n"
         }
       }
     },

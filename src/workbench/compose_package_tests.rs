@@ -11,7 +11,7 @@ use crate::test_support::MustErr;
 use std::fs;
 use std::path::Path;
 
-use super::compose::{CompositionRefused, compose_screens_with_packages};
+use super::compose::{CompositionRefused, compose_screens_with_package_sources};
 use super::config::panel_insets;
 use super::geometry::Insets;
 use super::ids::{PanelId, PluginScreenId, ScreenIdentity};
@@ -23,6 +23,7 @@ use crate::domain::plugin::HostTriple;
 use crate::persistence::diagnostic::CfgCode;
 use crate::persistence::plugin_inventory::{InstalledPackage, MANIFEST_FILE_NAME, scan};
 use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
+use crate::persistence::screen_files::PackageScreenSources;
 use crate::persistence::settings_document::{PublishedSettings, SettingsDocument};
 
 // ---------------------------------------------------------------------------
@@ -220,7 +221,8 @@ fn compose(
     packages: &[InstalledPackage],
     published: &PublishedSettings,
 ) -> Result<super::compose::ScreenComposition, CompositionRefused> {
-    compose_screens_with_packages(&compiled(), &[], packages, published)
+    let sources = PackageScreenSources::capture(packages);
+    compose_screens_with_package_sources(&compiled(), &[], packages, &sources, published)
 }
 
 /// The owner-qualified `Package` identity for `<pkg>.<screen>`.

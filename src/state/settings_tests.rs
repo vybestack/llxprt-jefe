@@ -137,7 +137,7 @@ fn opened_migration_draft_with_enabled(source_enabled: bool) -> (AppState, Id, C
         .entry(owner.clone())
         .or_default()
         .insert(0, target);
-    let mut state = AppState::test_fixture();
+    let mut state = super::settings_test_support::state_with_config_packages(bytes.as_bytes());
     state.reduce_settings(SettingsMessage::Open(Box::new(input)));
     state.reduce_settings(SettingsMessage::Edit(SettingsEdit::PluginVersion {
         plugin: owner.clone(),
