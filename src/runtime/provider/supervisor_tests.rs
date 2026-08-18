@@ -23,9 +23,10 @@ use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, S
 use crate::domain::{Id, TypedMap, TypedValue};
 
 use super::panel_model::{
-    Affordance, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError,
-    ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
-    StatusRowState,
+    Affordance, DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody, FormBody,
+    FormFieldError, ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody,
+    StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk,
+    StructuredDiffLine, TreeBody, TreeNode,
 };
 
 #[test]
@@ -87,6 +88,51 @@ fn panel_fixture_id(text: &str) -> Id {
     Id::parse(text).unwrap_or_else(|error| panic!("id fixture {text:?}: {error}"))
 }
 
+fn secret_tree_body(secret: &str) -> PanelBody {
+    PanelBody::Tree(TreeBody {
+        schema_version: 1,
+        nodes: vec![TreeNode {
+            id: panel_fixture_id("tree-node"),
+            parent_id: None,
+            label: format!("tree label {secret}"),
+            semantic_key: panel_fixture_id("tree-key"),
+            depth: 0,
+            expandable: true,
+            expanded: false,
+        }],
+        selected_id: Some(panel_fixture_id("tree-node")),
+    })
+}
+
+fn secret_structured_diff_body(secret: &str) -> PanelBody {
+    PanelBody::StructuredDiff(StructuredDiffBody {
+        schema_version: 1,
+        files: vec![StructuredDiffFile {
+            id: panel_fixture_id("diff-file"),
+            old_path: Some(format!("old/{secret}")),
+            new_path: Some(format!("new/{secret}")),
+            old_mode: Some(format!("old-mode-{secret}")),
+            new_mode: Some(format!("new-mode-{secret}")),
+            binary: false,
+            hunks: vec![StructuredDiffHunk {
+                header: format!("header {secret}"),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![StructuredDiffLine {
+                    origin: DiffLineOrigin::Context,
+                    old_line: Some(1),
+                    new_line: Some(1),
+                    content: format!("line {secret}"),
+                    no_newline: false,
+                }],
+            }],
+        }],
+        selected_file_id: Some(panel_fixture_id("diff-file")),
+    })
+}
+
 fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
     vec![
         PanelBody::List(ListBody {
@@ -100,6 +146,7 @@ fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
             selected_id: Some(panel_fixture_id("item")),
             next_page_token: Some(format!("page {secret}")),
         }),
+        secret_tree_body(secret),
         PanelBody::Detail(DetailBody {
             document: format!("document {secret}"),
             metadata: vec![DetailMetadata {
@@ -108,6 +155,7 @@ fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
             }],
             actions: Vec::new(),
         }),
+        secret_structured_diff_body(secret),
         PanelBody::Form(FormBody {
             fields: Vec::new(),
             values: TypedMap::from([(

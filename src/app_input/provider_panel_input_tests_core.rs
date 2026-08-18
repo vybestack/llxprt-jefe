@@ -751,6 +751,10 @@
                 arguments: Vec::new(),
             },
             EventDeclaration {
+                kind: EventKind::ExpansionChanged,
+                arguments: Vec::new(),
+            },
+            EventDeclaration {
                 kind: EventKind::LinkSelected,
                 arguments: Vec::new(),
             },

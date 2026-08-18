@@ -26,9 +26,11 @@ use super::object_reader::{
 };
 use super::panel_model::{
     ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
-    DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError, HostLocal,
-    ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody, PanelEvent,
-    PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow, StatusRowState,
+    DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, FormFieldError,
+    HostLocal, ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody,
+    PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
+    StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
+    TreeBody, TreeNode,
 };
 use super::typed_value::{read_field_declaration, read_typed_map, read_typed_value};
 
@@ -43,6 +45,21 @@ const LIST_ITEM_LIMIT: usize = 1000;
 
 /// Maximum action ids on one list item.
 const LIST_ITEM_ACTION_LIMIT: usize = 64;
+
+/// Maximum nodes in one tree body.
+const TREE_NODE_LIMIT: usize = 1000;
+
+/// Maximum files in one structured diff body.
+const DIFF_FILE_LIMIT: usize = 256;
+
+/// Maximum hunks in one structured diff file.
+const DIFF_HUNK_LIMIT: usize = 1024;
+
+/// Maximum lines in one structured diff hunk.
+const DIFF_LINE_LIMIT: usize = 1024;
+
+/// Maximum UTF-8 bytes in one structured diff line.
+const DIFF_LINE_BYTE_LIMIT: usize = 262_144;
 
 /// Maximum UTF-8 bytes in a detail document.
 const DETAIL_DOCUMENT_BYTE_LIMIT: usize = 262_144;
@@ -108,6 +125,31 @@ const AFFORDANCE_KEYS: [&str; 6] = [
 ];
 const LIST_ITEM_KEYS: [&str; 5] = ["id", "label", "description", "status", "actions"];
 const LIST_BODY_KEYS: [&str; 4] = ["kind", "items", "selected_id", "next_page_token"];
+const TREE_BODY_KEYS: [&str; 4] = ["kind", "schema_version", "nodes", "selected_id"];
+const TREE_NODE_KEYS: [&str; 7] = [
+    "id",
+    "parent_id",
+    "label",
+    "semantic_key",
+    "depth",
+    "expandable",
+    "expanded",
+];
+const STRUCTURED_DIFF_BODY_KEYS: [&str; 4] =
+    ["kind", "schema_version", "files", "selected_file_id"];
+const STRUCTURED_DIFF_FILE_KEYS: [&str; 7] = [
+    "id", "old_path", "new_path", "old_mode", "new_mode", "binary", "hunks",
+];
+const STRUCTURED_DIFF_HUNK_KEYS: [&str; 6] = [
+    "header",
+    "old_start",
+    "old_lines",
+    "new_start",
+    "new_lines",
+    "lines",
+];
+const STRUCTURED_DIFF_LINE_KEYS: [&str; 5] =
+    ["origin", "old_line", "new_line", "content", "no_newline"];
 const DETAIL_BODY_KEYS: [&str; 4] = ["kind", "document", "metadata", "actions"];
 const DETAIL_METADATA_KEYS: [&str; 2] = ["label", "value"];
 const FORM_BODY_KEYS: [&str; 5] = ["kind", "fields", "values", "field_errors", "submit_action"];
@@ -288,6 +330,7 @@ fn read_panel_event_value(value: &BoundedJson, path: &str) -> Result<PanelEvent,
             Ok(PanelEvent::Cancel)
         }
         "link-selected" => read_event_link_selected(value, path),
+        "expansion-changed" => read_event_expansion_changed(value, path),
         other => Err(ProviderError::UnknownValue {
             path: format!("{path}.kind"),
             value: other.to_owned(),
@@ -353,6 +396,18 @@ fn read_event_link_selected(value: &BoundedJson, path: &str) -> Result<PanelEven
     })
 }
 
+fn read_event_expansion_changed(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<PanelEvent, ProviderError> {
+    let members = closed_object(value, path, &["kind", "id", "expanded"])?;
+    verify_kind(members, path, "expansion-changed")?;
+    Ok(PanelEvent::ExpansionChanged {
+        id: read_id(members, path, "id")?,
+        expanded: read_bool(members, path, "expanded")?,
+    })
+}
+
 /// Confirm the `kind` tag equals the expected branch name.
 fn verify_kind(
     members: &[(String, BoundedJson)],
@@ -389,7 +444,9 @@ fn read_panel_body(value: &BoundedJson, kind: BodyKind) -> Result<PanelBody, Pro
     }
     let body = match kind {
         BodyKind::List => PanelBody::List(read_list_body(value)?),
+        BodyKind::Tree => PanelBody::Tree(read_tree_body(value)?),
         BodyKind::Detail => PanelBody::Detail(read_detail_body(value)?),
+        BodyKind::StructuredDiff => PanelBody::StructuredDiff(read_structured_diff_body(value)?),
         BodyKind::Form => PanelBody::Form(read_form_body(value)?),
         BodyKind::Status => PanelBody::Status(read_status_body(value)?),
         BodyKind::Progress => PanelBody::Progress(read_progress_body(value)?),
@@ -413,6 +470,7 @@ fn read_list_body(value: &BoundedJson) -> Result<ListBody, ProviderError> {
     reject_unique_ids(
         items.iter().map(|item| &item.id),
         "panel-snapshot.body.items",
+        "list item id",
     )?;
     let selected_id = read_optional_id(members, "panel-snapshot.body", "selected_id")?;
     if let Some(selected) = selected_id.as_ref()
@@ -444,6 +502,388 @@ fn read_list_item(value: &BoundedJson, path: &str) -> Result<ListItem, ProviderE
         status: read_optional_string(members, path, "status")?,
         actions,
     })
+}
+
+fn read_tree_body(value: &BoundedJson) -> Result<TreeBody, ProviderError> {
+    let path = "panel-snapshot.body";
+    let members = closed_object(value, path, &TREE_BODY_KEYS)?;
+    let schema_version = read_u64(members, path, "schema_version")?;
+    validate_model_schema(schema_version, &format!("{path}.schema_version"))?;
+    let node_values = array(
+        require(members, path, "nodes")?,
+        &format!("{path}.nodes"),
+        TREE_NODE_LIMIT,
+    )?;
+    let mut nodes = Vec::with_capacity(node_values.len());
+    for (index, node) in node_values.iter().enumerate() {
+        nodes.push(read_tree_node(node, &format!("{path}.nodes[{index}]"))?);
+    }
+    validate_tree_nodes(&nodes, &format!("{path}.nodes"))?;
+    let selected_id = read_optional_id(members, path, "selected_id")?;
+    if let Some(selected) = selected_id.as_ref()
+        && !nodes.iter().any(|node| &node.id == selected)
+    {
+        return Err(ProviderError::InvalidValue {
+            path: format!("{path}.selected_id"),
+            reason: "selected_id does not reference a tree node".to_owned(),
+        });
+    }
+    Ok(TreeBody {
+        schema_version,
+        nodes,
+        selected_id,
+    })
+}
+
+fn read_tree_node(value: &BoundedJson, path: &str) -> Result<TreeNode, ProviderError> {
+    let members = closed_object(value, path, &TREE_NODE_KEYS)?;
+    Ok(TreeNode {
+        id: read_id(members, path, "id")?,
+        parent_id: read_optional_id(members, path, "parent_id")?,
+        label: read_string(members, path, "label")?.to_owned(),
+        semantic_key: read_id(members, path, "semantic_key")?,
+        depth: read_u64(members, path, "depth")?,
+        expandable: read_bool(members, path, "expandable")?,
+        expanded: read_bool(members, path, "expanded")?,
+    })
+}
+
+fn validate_tree_nodes(nodes: &[TreeNode], path: &str) -> Result<(), ProviderError> {
+    reject_unique_ids(nodes.iter().map(|node| &node.id), path, "tree node id")?;
+    collect_unique(
+        nodes.iter().map(|node| &node.semantic_key),
+        path,
+        "semantic key",
+    )?;
+
+    let mut ancestors: Vec<&Id> = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let depth = usize::try_from(node.depth).map_err(|_| ProviderError::InvalidValue {
+            path: format!("{path}[{index}].depth"),
+            reason: "depth cannot be represented by the host".to_owned(),
+        })?;
+        if depth > ancestors.len() {
+            return Err(ProviderError::InvalidValue {
+                path: format!("{path}[{index}].depth"),
+                reason: "depth skips a parent level".to_owned(),
+            });
+        }
+        let expected_parent = depth
+            .checked_sub(1)
+            .and_then(|parent_depth| ancestors.get(parent_depth));
+        match (node.parent_id.as_ref(), expected_parent) {
+            (None, None) => {}
+            (Some(parent), Some(expected)) if parent == *expected => {}
+            _ => {
+                return Err(ProviderError::InvalidValue {
+                    path: format!("{path}[{index}].parent_id"),
+                    reason: "parent_id must name the preceding node at depth - 1".to_owned(),
+                });
+            }
+        }
+        if node.expanded && !node.expandable {
+            return Err(ProviderError::InvalidValue {
+                path: format!("{path}[{index}].expanded"),
+                reason: "a non-expandable node cannot be expanded".to_owned(),
+            });
+        }
+        ancestors.truncate(depth);
+        ancestors.push(&node.id);
+    }
+    Ok(())
+}
+
+fn read_structured_diff_body(value: &BoundedJson) -> Result<StructuredDiffBody, ProviderError> {
+    let path = "panel-snapshot.body";
+    let members = closed_object(value, path, &STRUCTURED_DIFF_BODY_KEYS)?;
+    let schema_version = read_u64(members, path, "schema_version")?;
+    validate_model_schema(schema_version, &format!("{path}.schema_version"))?;
+    let file_values = array(
+        require(members, path, "files")?,
+        &format!("{path}.files"),
+        DIFF_FILE_LIMIT,
+    )?;
+    let mut files = Vec::with_capacity(file_values.len());
+    for (index, file) in file_values.iter().enumerate() {
+        files.push(read_structured_diff_file(
+            file,
+            &format!("{path}.files[{index}]"),
+        )?);
+    }
+    reject_unique_ids(
+        files.iter().map(|file| &file.id),
+        &format!("{path}.files"),
+        "structured-diff file id",
+    )?;
+    let selected_file_id = read_optional_id(members, path, "selected_file_id")?;
+    if let Some(selected) = selected_file_id.as_ref()
+        && !files.iter().any(|file| &file.id == selected)
+    {
+        return Err(ProviderError::InvalidValue {
+            path: format!("{path}.selected_file_id"),
+            reason: "selected_file_id does not reference a structured-diff file".to_owned(),
+        });
+    }
+    Ok(StructuredDiffBody {
+        schema_version,
+        files,
+        selected_file_id,
+    })
+}
+
+fn read_structured_diff_file(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<StructuredDiffFile, ProviderError> {
+    let members = closed_object(value, path, &STRUCTURED_DIFF_FILE_KEYS)?;
+    let old_path = read_optional_string(members, path, "old_path")?;
+    let new_path = read_optional_string(members, path, "new_path")?;
+    let old_mode = read_optional_string(members, path, "old_mode")?;
+    let new_mode = read_optional_string(members, path, "new_mode")?;
+    validate_diff_file_sides(
+        path,
+        old_path.as_deref(),
+        new_path.as_deref(),
+        old_mode.as_deref(),
+        new_mode.as_deref(),
+    )?;
+    let hunk_values = array(
+        require(members, path, "hunks")?,
+        &format!("{path}.hunks"),
+        DIFF_HUNK_LIMIT,
+    )?;
+    let mut hunks = Vec::with_capacity(hunk_values.len());
+    for (index, hunk) in hunk_values.iter().enumerate() {
+        hunks.push(read_structured_diff_hunk(
+            hunk,
+            &format!("{path}.hunks[{index}]"),
+        )?);
+    }
+    let binary = read_bool(members, path, "binary")?;
+    if binary && !hunks.is_empty() {
+        return Err(ProviderError::InvalidValue {
+            path: format!("{path}.hunks"),
+            reason: "a binary diff cannot carry text hunks".to_owned(),
+        });
+    }
+    validate_hunk_order(&hunks, &format!("{path}.hunks"))?;
+    Ok(StructuredDiffFile {
+        id: read_id(members, path, "id")?,
+        old_path,
+        new_path,
+        old_mode,
+        new_mode,
+        binary,
+        hunks,
+    })
+}
+
+fn validate_diff_file_sides(
+    path: &str,
+    old_path: Option<&str>,
+    new_path: Option<&str>,
+    old_mode: Option<&str>,
+    new_mode: Option<&str>,
+) -> Result<(), ProviderError> {
+    if old_path.is_none() && new_path.is_none() {
+        return Err(ProviderError::InvalidValue {
+            path: path.to_owned(),
+            reason: "a structured-diff file requires an old_path or new_path".to_owned(),
+        });
+    }
+    for (name, value) in [
+        ("old_path", old_path),
+        ("new_path", new_path),
+        ("old_mode", old_mode),
+        ("new_mode", new_mode),
+    ] {
+        if value.is_some_and(str::is_empty) {
+            return Err(ProviderError::InvalidValue {
+                path: format!("{path}.{name}"),
+                reason: format!("{name} must not be empty"),
+            });
+        }
+    }
+    for (name, mode, side_path) in [
+        ("old_mode", old_mode, old_path),
+        ("new_mode", new_mode, new_path),
+    ] {
+        if mode.is_some() && side_path.is_none() {
+            return Err(ProviderError::InvalidValue {
+                path: format!("{path}.{name}"),
+                reason: format!("{name} requires its corresponding path"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn read_structured_diff_hunk(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<StructuredDiffHunk, ProviderError> {
+    let members = closed_object(value, path, &STRUCTURED_DIFF_HUNK_KEYS)?;
+    let old_start = read_u64(members, path, "old_start")?;
+    let old_lines = read_u64(members, path, "old_lines")?;
+    let new_start = read_u64(members, path, "new_start")?;
+    let new_lines = read_u64(members, path, "new_lines")?;
+    if (old_lines > 0 && old_start == 0) || (new_lines > 0 && new_start == 0) {
+        return Err(ProviderError::InvalidValue {
+            path: path.to_owned(),
+            reason: "a nonempty hunk side must start at a positive line number".to_owned(),
+        });
+    }
+    let line_values = array(
+        require(members, path, "lines")?,
+        &format!("{path}.lines"),
+        DIFF_LINE_LIMIT,
+    )?;
+    if line_values.is_empty() {
+        return Err(ProviderError::InvalidValue {
+            path: format!("{path}.lines"),
+            reason: "a hunk must carry at least one line".to_owned(),
+        });
+    }
+    let mut lines = Vec::with_capacity(line_values.len());
+    for (index, line) in line_values.iter().enumerate() {
+        lines.push(read_structured_diff_line(
+            line,
+            &format!("{path}.lines[{index}]"),
+        )?);
+    }
+    validate_diff_lines(&lines, old_start, old_lines, new_start, new_lines, path)?;
+    Ok(StructuredDiffHunk {
+        header: read_string(members, path, "header")?.to_owned(),
+        old_start,
+        old_lines,
+        new_start,
+        new_lines,
+        lines,
+    })
+}
+
+fn read_structured_diff_line(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<StructuredDiffLine, ProviderError> {
+    let members = closed_object(value, path, &STRUCTURED_DIFF_LINE_KEYS)?;
+    let content = read_string(members, path, "content")?.to_owned();
+    if content.len() > DIFF_LINE_BYTE_LIMIT {
+        return Err(ProviderError::InvalidValue {
+            path: format!("{path}.content"),
+            reason: format!(
+                "line is {} bytes, over the {DIFF_LINE_BYTE_LIMIT} limit",
+                content.len()
+            ),
+        });
+    }
+    Ok(StructuredDiffLine {
+        origin: read_enum(members, path, "origin", DiffLineOrigin::from_wire)?,
+        old_line: super::object_reader::read_optional_u64(members, path, "old_line")?,
+        new_line: super::object_reader::read_optional_u64(members, path, "new_line")?,
+        content,
+        no_newline: read_bool(members, path, "no_newline")?,
+    })
+}
+
+fn validate_diff_lines(
+    lines: &[StructuredDiffLine],
+    old_start: u64,
+    old_lines: u64,
+    new_start: u64,
+    new_lines: u64,
+    path: &str,
+) -> Result<(), ProviderError> {
+    let mut expected_old = old_start;
+    let mut expected_new = new_start;
+    let mut counted_old = 0_u64;
+    let mut counted_new = 0_u64;
+    for (index, line) in lines.iter().enumerate() {
+        let (has_old, has_new) = match line.origin {
+            DiffLineOrigin::Context => (true, true),
+            DiffLineOrigin::Added => (false, true),
+            DiffLineOrigin::Removed => (true, false),
+        };
+        if has_old {
+            if line.old_line != Some(expected_old) || expected_old == 0 {
+                return Err(invalid_diff_line_number(path, index, "old_line"));
+            }
+            expected_old = expected_old
+                .checked_add(1)
+                .ok_or_else(|| invalid_diff_line_number(path, index, "old_line"))?;
+            counted_old += 1;
+        } else if line.old_line.is_some() {
+            return Err(invalid_diff_line_number(path, index, "old_line"));
+        }
+        if has_new {
+            if line.new_line != Some(expected_new) || expected_new == 0 {
+                return Err(invalid_diff_line_number(path, index, "new_line"));
+            }
+            expected_new = expected_new
+                .checked_add(1)
+                .ok_or_else(|| invalid_diff_line_number(path, index, "new_line"))?;
+            counted_new += 1;
+        } else if line.new_line.is_some() {
+            return Err(invalid_diff_line_number(path, index, "new_line"));
+        }
+    }
+    if counted_old != old_lines || counted_new != new_lines {
+        return Err(ProviderError::InvalidValue {
+            path: format!("{path}.lines"),
+            reason: format!(
+                "line origins count ({counted_old}, {counted_new}) but the hunk declares ({old_lines}, {new_lines})"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn invalid_diff_line_number(path: &str, index: usize, field: &str) -> ProviderError {
+    ProviderError::InvalidValue {
+        path: format!("{path}.lines[{index}].{field}"),
+        reason: format!("{field} does not match the line origin and hunk sequence"),
+    }
+}
+
+fn validate_hunk_order(hunks: &[StructuredDiffHunk], path: &str) -> Result<(), ProviderError> {
+    for index in 1..hunks.len() {
+        let previous = &hunks[index - 1];
+        let current = &hunks[index];
+        let old_end = previous
+            .old_start
+            .checked_add(previous.old_lines)
+            .ok_or_else(|| ProviderError::InvalidValue {
+                path: format!("{path}[{}].old_lines", index - 1),
+                reason: "old hunk range overflows".to_owned(),
+            })?;
+        let new_end = previous
+            .new_start
+            .checked_add(previous.new_lines)
+            .ok_or_else(|| ProviderError::InvalidValue {
+                path: format!("{path}[{}].new_lines", index - 1),
+                reason: "new hunk range overflows".to_owned(),
+            })?;
+        if current.old_start < old_end || current.new_start < new_end {
+            return Err(ProviderError::InvalidValue {
+                path: format!("{path}[{index}]"),
+                reason: "hunks must be ordered and non-overlapping on both sides".to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_model_schema(schema_version: u64, path: &str) -> Result<(), ProviderError> {
+    if schema_version == PANEL_MODEL_SCHEMA {
+        Ok(())
+    } else {
+        Err(ProviderError::InvalidValue {
+            path: path.to_owned(),
+            reason: format!(
+                "schema_version {schema_version} is not the supported version {PANEL_MODEL_SCHEMA}"
+            ),
+        })
+    }
 }
 
 fn read_detail_body(value: &BoundedJson) -> Result<DetailBody, ProviderError> {
@@ -712,7 +1152,10 @@ fn validate_body_action_refs(
                 });
             }
         }
-        PanelBody::Status(_) | PanelBody::Progress(_) => {}
+        PanelBody::Tree(_)
+        | PanelBody::StructuredDiff(_)
+        | PanelBody::Status(_)
+        | PanelBody::Progress(_) => {}
     }
     Ok(())
 }
@@ -757,8 +1200,9 @@ where
 fn reject_unique_ids<'a>(
     values: impl Iterator<Item = &'a Id>,
     path: &str,
+    label: &str,
 ) -> Result<(), ProviderError> {
-    collect_unique(values, path, "list item id").map(|_| ())
+    collect_unique(values, path, label).map(|_| ())
 }
 
 /// Enforce progress-body count invariants: `total` implies `completed`,

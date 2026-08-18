@@ -490,7 +490,9 @@ fn protocol_body_kind(
 
     match kind {
         ModelKind::List => BodyKind::List,
+        ModelKind::Tree => BodyKind::Tree,
         ModelKind::Detail => BodyKind::Detail,
+        ModelKind::StructuredDiff => BodyKind::StructuredDiff,
         ModelKind::Form => BodyKind::Form,
         ModelKind::Status => BodyKind::Status,
         ModelKind::Progress => BodyKind::Progress,
@@ -515,6 +517,7 @@ const fn panel_event_kind(
         Manifest::Retry => Panel::Retry,
         Manifest::Cancel => Panel::Cancel,
         Manifest::LinkSelected => Panel::LinkSelected,
+        Manifest::ExpansionChanged => Panel::ExpansionChanged,
     }
 }
 fn domain_panel_event(
@@ -533,6 +536,7 @@ fn domain_panel_event(
         Wire::Retry => Domain::Retry,
         Wire::Cancel => Domain::Cancel,
         Wire::LinkSelected { link_id } => Domain::LinkSelected { link_id },
+        Wire::ExpansionChanged { id, expanded } => Domain::ExpansionChanged { id, expanded },
     }
 }
 

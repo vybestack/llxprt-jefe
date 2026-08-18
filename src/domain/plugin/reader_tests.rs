@@ -177,6 +177,32 @@ fn a_complete_manifest_lowers_its_panel() {
 }
 
 #[test]
+fn panel_contract_accepts_exact_nine_model_kinds_and_expansion_event() {
+    let text = mutated(
+        r#""model_kinds": ["status", "error"]"#,
+        r#""model_kinds": ["list", "tree", "detail", "structured-diff", "form", "status", "progress", "empty", "error"]"#,
+    );
+    let text = text.replacen(
+        r#"{ "kind": "field-changed", "arguments": [] }"#,
+        r#"{ "kind": "expansion-changed", "arguments": [] }"#,
+        1,
+    );
+    let manifest = parsed(&text);
+    let panel = &manifest.panels()[0];
+    assert_eq!(panel.model_kinds(), ModelKind::ALL);
+    assert_eq!(panel.event_schema()[1].kind(), EventKind::ExpansionChanged);
+
+    let rejected_terminal = mutated(
+        r#""model_kinds": ["status", "error"]"#,
+        r#""model_kinds": ["terminal"]"#,
+    );
+    assert!(matches!(
+        rejected(&rejected_terminal),
+        ManifestReadError::UnknownValue { .. }
+    ));
+}
+
+#[test]
 fn a_complete_manifest_lowers_its_route_and_screen() {
     let manifest = parsed(COMPLETE);
     let route = manifest

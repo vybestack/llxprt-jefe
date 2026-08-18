@@ -368,6 +368,9 @@ fn runtime_panel_event(
         HostEvent::Retry => WireEvent::Retry,
         HostEvent::Cancel => WireEvent::Cancel,
         HostEvent::LinkSelected { link_id } => WireEvent::LinkSelected { link_id },
+        HostEvent::ExpansionChanged { id, expanded } => {
+            WireEvent::ExpansionChanged { id, expanded }
+        }
     }
 }
 

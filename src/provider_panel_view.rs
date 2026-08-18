@@ -346,7 +346,9 @@ fn body_projects_affordance(body: &PanelBody, affordance: &Affordance) -> bool {
         PanelBody::Form(body) => body.submit_action == affordance.action_id,
         PanelBody::Error(body) => body.retry_action.as_ref() == Some(&affordance.id),
         PanelBody::List(_)
+        | PanelBody::Tree(_)
         | PanelBody::Detail(_)
+        | PanelBody::StructuredDiff(_)
         | PanelBody::Status(_)
         | PanelBody::Progress(_)
         | PanelBody::Empty(_) => false,
@@ -384,7 +386,7 @@ fn action_target(
 }
 
 // ---------------------------------------------------------------------------
-// Body projection (all seven kinds, Unicode-aware wrapping)
+// Legacy text body projection (Unicode-aware wrapping)
 // ---------------------------------------------------------------------------
 
 fn project_body(
@@ -396,6 +398,7 @@ fn project_body(
 ) {
     match &snapshot.body {
         PanelBody::List(body) => project_list(snapshot, body, selected_id, width, rows),
+        PanelBody::Tree(_) | PanelBody::StructuredDiff(_) => {}
         PanelBody::Detail(body) => project_detail(snapshot, body, width, rows),
         PanelBody::Form(body) => project_form(snapshot, body, form_draft, width, rows),
         PanelBody::Status(body) => project_status(body, rows),

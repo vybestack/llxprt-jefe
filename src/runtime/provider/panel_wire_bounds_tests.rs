@@ -305,12 +305,20 @@ fn host_local_rejects_unknown_field() {
 
 #[test]
 fn body_kind_enum_matches_panel_body() {
-    assert_eq!(BodyKind::ALL.len(), 7);
-    // Smoke-check that every BodyKind resolves and round-trips through the
-    // model enum without panic.
-    for kind in BodyKind::ALL {
-        let _ = kind.as_str();
-    }
+    assert_eq!(
+        BodyKind::ALL.map(BodyKind::as_str),
+        [
+            "list",
+            "tree",
+            "detail",
+            "structured-diff",
+            "form",
+            "status",
+            "progress",
+            "empty",
+            "error",
+        ]
+    );
 }
 
 #[test]

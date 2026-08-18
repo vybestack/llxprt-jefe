@@ -158,6 +158,8 @@ pub enum EventKind {
     Cancel,
     /// A link was selected.
     LinkSelected,
+    /// A tree node's expansion state changed.
+    ExpansionChanged,
 }
 
 /// One manifest-declared allowed event with its argument field grammar.

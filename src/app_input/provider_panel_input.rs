@@ -351,6 +351,7 @@ fn activation_event(state: &jefe::state::AppState, panel: PanelInstanceId) -> Op
         PanelBody::Error(_) => Some(PanelEvent::Retry),
         PanelBody::Progress(_) => Some(PanelEvent::Cancel),
         PanelBody::Status(_) | PanelBody::Empty(_) => action_event(state, panel),
+        PanelBody::Tree(_) | PanelBody::StructuredDiff(_) => None,
     }
 }
 

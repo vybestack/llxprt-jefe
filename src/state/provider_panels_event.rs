@@ -34,6 +34,7 @@ pub(super) fn event_kind_of(event: &PanelEvent) -> EventKind {
         PanelEvent::Retry => EventKind::Retry,
         PanelEvent::Cancel => EventKind::Cancel,
         PanelEvent::LinkSelected { .. } => EventKind::LinkSelected,
+        PanelEvent::ExpansionChanged { .. } => EventKind::ExpansionChanged,
     }
 }
 
@@ -44,7 +45,9 @@ pub(super) fn validate_event_against_snapshot(
     declaration: &EventDeclaration,
 ) -> bool {
     match event {
-        PanelEvent::Selected { id } | PanelEvent::Activated { id } => item_in_list(snapshot, id),
+        PanelEvent::Selected { id } | PanelEvent::Activated { id } => {
+            selection_target_exists(snapshot, id)
+        }
         PanelEvent::Action { id, arguments } => action_valid(snapshot, id, arguments, declaration),
         PanelEvent::FieldChanged { field_id, value } => {
             field_value_valid(snapshot, field_id, value)
@@ -53,14 +56,24 @@ pub(super) fn validate_event_against_snapshot(
         PanelEvent::PageRequested { token } => page_token_matches(snapshot, token),
         PanelEvent::Cancel => progress_cancellable(snapshot),
         PanelEvent::LinkSelected { link_id } => link_is_enabled(snapshot, link_id),
+        PanelEvent::ExpansionChanged { id, expanded } => {
+            tree_expansion_is_valid(snapshot, id, *expanded)
+        }
         PanelEvent::Retry => retry_is_enabled(snapshot),
     }
 }
 
-fn item_in_list(snapshot: &PanelSnapshot, item_id: &Id) -> bool {
+fn selection_target_exists(snapshot: &PanelSnapshot, target_id: &Id) -> bool {
     match &snapshot.body {
-        PanelBody::List(list) => list.items.iter().any(|item| &item.id == item_id),
-        _ => false,
+        PanelBody::List(list) => list.items.iter().any(|item| &item.id == target_id),
+        PanelBody::Tree(tree) => tree.nodes.iter().any(|node| &node.id == target_id),
+        PanelBody::StructuredDiff(diff) => diff.files.iter().any(|file| &file.id == target_id),
+        PanelBody::Detail(_)
+        | PanelBody::Form(_)
+        | PanelBody::Status(_)
+        | PanelBody::Progress(_)
+        | PanelBody::Empty(_)
+        | PanelBody::Error(_) => false,
     }
 }
 
@@ -144,6 +157,16 @@ fn retry_is_enabled(snapshot: &PanelSnapshot) -> bool {
                 .iter()
                 .any(|affordance| affordance.enabled && &affordance.id == retry_action)
         })
+}
+
+fn tree_expansion_is_valid(snapshot: &PanelSnapshot, id: &Id, expanded: bool) -> bool {
+    let PanelBody::Tree(tree) = &snapshot.body else {
+        return false;
+    };
+    tree.nodes
+        .iter()
+        .find(|node| &node.id == id)
+        .is_some_and(|node| node.expandable && node.expanded != expanded)
 }
 
 fn progress_cancellable(snapshot: &PanelSnapshot) -> bool {

@@ -23,6 +23,8 @@ use super::error::ProviderError;
 use super::panel_model::{
     Affordance, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError,
     ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
+    StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine, TreeBody,
+    TreeNode,
 };
 use super::supervisor::{CleanupFailure, OneShotOutcome, SupervisorFailure};
 
@@ -98,23 +100,8 @@ fn redact_affordance(affordance: Affordance, redactor: &Redactor) -> Affordance 
 
 fn redact_panel_body(body: PanelBody, redactor: &Redactor) -> Option<PanelBody> {
     Some(match body {
-        PanelBody::List(body) => PanelBody::List(ListBody {
-            items: body
-                .items
-                .into_iter()
-                .map(|item| ListItem {
-                    id: item.id,
-                    label: redact_text(item.label, redactor),
-                    description: item.description.map(|text| redact_text(text, redactor)),
-                    status: item.status.map(|text| redact_text(text, redactor)),
-                    actions: item.actions,
-                })
-                .collect(),
-            selected_id: body.selected_id,
-            next_page_token: body
-                .next_page_token
-                .map(|token| redact_text(token, redactor)),
-        }),
+        PanelBody::List(body) => PanelBody::List(redact_list_body(body, redactor)),
+        PanelBody::Tree(body) => PanelBody::Tree(redact_tree_body(body, redactor)),
         PanelBody::Detail(body) => PanelBody::Detail(DetailBody {
             document: redact_text(body.document, redactor),
             metadata: body
@@ -127,6 +114,9 @@ fn redact_panel_body(body: PanelBody, redactor: &Redactor) -> Option<PanelBody> 
                 .collect(),
             actions: body.actions,
         }),
+        PanelBody::StructuredDiff(body) => {
+            PanelBody::StructuredDiff(redact_structured_diff_body(body, redactor))
+        }
         PanelBody::Form(body) => PanelBody::Form(redact_form_body(body, redactor)?),
         PanelBody::Status(body) => PanelBody::Status(StatusBody {
             rows: body
@@ -156,6 +146,104 @@ fn redact_panel_body(body: PanelBody, redactor: &Redactor) -> Option<PanelBody> 
             retry_action: body.retry_action,
         }),
     })
+}
+
+fn redact_list_body(body: ListBody, redactor: &Redactor) -> ListBody {
+    ListBody {
+        items: body
+            .items
+            .into_iter()
+            .map(|item| ListItem {
+                id: item.id,
+                label: redact_text(item.label, redactor),
+                description: item.description.map(|text| redact_text(text, redactor)),
+                status: item.status.map(|text| redact_text(text, redactor)),
+                actions: item.actions,
+            })
+            .collect(),
+        selected_id: body.selected_id,
+        next_page_token: body
+            .next_page_token
+            .map(|token| redact_text(token, redactor)),
+    }
+}
+
+fn redact_tree_body(body: TreeBody, redactor: &Redactor) -> TreeBody {
+    TreeBody {
+        schema_version: body.schema_version,
+        nodes: body
+            .nodes
+            .into_iter()
+            .map(|node| TreeNode {
+                id: node.id,
+                parent_id: node.parent_id,
+                label: redact_text(node.label, redactor),
+                semantic_key: node.semantic_key,
+                depth: node.depth,
+                expandable: node.expandable,
+                expanded: node.expanded,
+            })
+            .collect(),
+        selected_id: body.selected_id,
+    }
+}
+
+fn redact_structured_diff_body(
+    body: StructuredDiffBody,
+    redactor: &Redactor,
+) -> StructuredDiffBody {
+    StructuredDiffBody {
+        schema_version: body.schema_version,
+        files: body
+            .files
+            .into_iter()
+            .map(|file| redact_structured_diff_file(file, redactor))
+            .collect(),
+        selected_file_id: body.selected_file_id,
+    }
+}
+
+fn redact_structured_diff_file(
+    file: StructuredDiffFile,
+    redactor: &Redactor,
+) -> StructuredDiffFile {
+    StructuredDiffFile {
+        id: file.id,
+        old_path: file.old_path.map(|text| redact_text(text, redactor)),
+        new_path: file.new_path.map(|text| redact_text(text, redactor)),
+        old_mode: file.old_mode.map(|text| redact_text(text, redactor)),
+        new_mode: file.new_mode.map(|text| redact_text(text, redactor)),
+        binary: file.binary,
+        hunks: file
+            .hunks
+            .into_iter()
+            .map(|hunk| redact_structured_diff_hunk(hunk, redactor))
+            .collect(),
+    }
+}
+
+fn redact_structured_diff_hunk(
+    hunk: StructuredDiffHunk,
+    redactor: &Redactor,
+) -> StructuredDiffHunk {
+    StructuredDiffHunk {
+        header: redact_text(hunk.header, redactor),
+        old_start: hunk.old_start,
+        old_lines: hunk.old_lines,
+        new_start: hunk.new_start,
+        new_lines: hunk.new_lines,
+        lines: hunk
+            .lines
+            .into_iter()
+            .map(|line| StructuredDiffLine {
+                origin: line.origin,
+                old_line: line.old_line,
+                new_line: line.new_line,
+                content: redact_text(line.content, redactor),
+                no_newline: line.no_newline,
+            })
+            .collect(),
+    }
 }
 
 fn redact_form_body(body: FormBody, redactor: &Redactor) -> Option<FormBody> {

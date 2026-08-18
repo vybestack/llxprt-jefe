@@ -299,6 +299,14 @@ fn panel_event_to_json(out: &mut String, event: &super::panel_model::PanelEvent)
             json_string(out, "link-selected");
             append_string_field(out, "link_id", link_id.as_str());
         }
+        super::panel_model::PanelEvent::ExpansionChanged { id, expanded } => {
+            json_string(out, "expansion-changed");
+            append_string_field(out, "id", id.as_str());
+            out.push(',');
+            q(out, "expanded");
+            out.push(':');
+            out.push_str(if *expanded { "true" } else { "false" });
+        }
     }
     out.push('}');
 }
