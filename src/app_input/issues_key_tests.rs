@@ -461,7 +461,7 @@ fn test_f_noop_from_non_issue_list_focus() {
 // Esc Priority (2 tests)
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Esc with inline editor active dispatches InlineCancelOrEsc, not ExitIssuesMode.
+/// Esc with inline editor active enters shared Back before mode exit.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @plan PLAN-20260329-ISSUES-MODE.P11
@@ -477,11 +477,10 @@ fn test_esc_inline_priority_over_mode_exit() {
         cursor: 0,
     });
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    // Must be InlineCancelOrEsc, not ExitIssuesMode
-    assert!(matches!(event, Some(AppEvent::InlineCancelOrEsc)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
-/// Esc with agent chooser active (no inline) dispatches AgentChooserCancel.
+/// Esc with agent chooser active enters shared Back before mode exit.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @plan PLAN-20260329-ISSUES-MODE.P11
@@ -493,8 +492,7 @@ fn test_esc_inline_priority_over_mode_exit() {
 fn test_esc_chooser_priority_over_mode_exit() {
     let state = issues_state_with_chooser();
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    // Must be AgentChooserCancel, not ExitIssuesMode
-    assert!(matches!(event, Some(AppEvent::AgentChooserCancel)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -603,7 +601,7 @@ fn test_ctrl_c_cancels_inline_instead_of_typing_c() {
     assert!(matches!(event, Some(AppEvent::InlineCancelOrEsc)));
 }
 
-/// Esc when inline editor active dispatches InlineCancelOrEsc.
+/// Esc when an inline editor is active enters shared Back.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @plan PLAN-20260329-ISSUES-MODE.P11
@@ -617,7 +615,7 @@ fn test_esc_cancels_inline_editor() {
         cursor: 0,
     });
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(event, Some(AppEvent::InlineCancelOrEsc)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -769,12 +767,12 @@ fn test_o_key_noop_in_issue_detail() {
     assert!(event.is_none());
 }
 
-/// Esc in IssueDetail focus goes back to IssueList (not exit mode).
+/// Esc in IssueDetail enters shared Back; the reducer refocuses IssueList.
 #[test]
-fn test_esc_in_detail_goes_back_to_list() {
+fn test_esc_in_detail_enters_shared_back() {
     let state = issues_state_with_focus(IssueFocus::IssueDetail);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(event, Some(AppEvent::RefocusIssueList)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
 /// Esc in IssueList focus exits issues mode entirely.
@@ -782,7 +780,7 @@ fn test_esc_in_detail_goes_back_to_list() {
 fn test_esc_in_list_exits_mode() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(event, Some(AppEvent::ExitIssuesMode)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
 /// Esc in RepoList focus exits issues mode entirely.
@@ -790,7 +788,7 @@ fn test_esc_in_list_exits_mode() {
 fn test_esc_in_repo_list_exits_mode() {
     let state = issues_state_with_focus(IssueFocus::RepoList);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(event, Some(AppEvent::ExitIssuesMode)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
 /// Up/Down arrows in inline mode dispatch cursor movement events.

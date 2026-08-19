@@ -70,6 +70,8 @@ pub struct MessageRoute {
 }
 #[derive(Debug, Clone)]
 pub enum UiNavigationMessage {
+    /// Unwind exactly one active navigation layer using the shared Back reducer.
+    Back,
     NavigateUp,
     NavigateDown,
     NavigatePageUp(PageItemCount),

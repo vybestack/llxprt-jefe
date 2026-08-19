@@ -260,7 +260,7 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     }
 }
 
-use jefe::state::{AppEvent, AppState, PaneFocus, RepositoryFormFocus};
+use jefe::state::{AppEvent, AppState, IssueFocus, PaneFocus, PrFocus, RepositoryFormFocus};
 
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
@@ -323,6 +323,35 @@ fn agent_and_signature(
     let repository = state.repository_by_id(&agent.repository_id)?;
     let signature = launch_signature_for_agent(&agent, repository);
     Some((agent, signature))
+}
+
+fn apply_back_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let mut state = app_state.write();
+    let (effects, reload_issues, reload_prs) = commit_back(&mut state);
+    let persisted = durable_save_request(&mut state);
+    drop(state);
+    // Follow-up adapters can synchronously persist failures, so publish this
+    // transition first and preserve persistence scheduling as freshness order.
+    schedule_durable_save(ctx, persisted);
+    schedule_provider_effects(app_state, ctx, effects);
+    if reload_issues {
+        issues_list_dispatch::dispatch_issue_list_fetch(app_state, ctx, true);
+    }
+    if reload_prs {
+        prs_list_dispatch::dispatch_pr_list_fetch(app_state, ctx, true, false);
+    }
+}
+
+fn commit_back(state: &mut AppState) -> (Vec<jefe::domain::effects::IssuedEffect>, bool, bool) {
+    let issue_detail = state.issues_state.issue_focus == IssueFocus::IssueDetail;
+    let pr_detail = state.prs_state.pr_focus == PrFocus::PrDetail;
+    let effects = jefe::state::transition::commit_in_place(
+        state,
+        AppMessage::UiNavigation(UiNavigationMessage::Back),
+    );
+    let reload_issues = issue_detail && state.issues_state.issue_focus == IssueFocus::IssueList;
+    let reload_prs = pr_detail && state.prs_state.pr_focus == PrFocus::PrList;
+    (effects, reload_issues, reload_prs)
 }
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
@@ -578,6 +607,9 @@ pub fn dispatch_app_message(
     log_dispatch(&message);
 
     match message {
+        AppMessage::UiNavigation(UiNavigationMessage::Back) => {
+            apply_back_and_persist(app_state, ctx);
+        }
         AppMessage::UiNavigation(UiNavigationMessage::ToggleTerminalFocus) => {
             apply_and_persist(app_state, ctx, AppEvent::ToggleTerminalFocus);
         }
@@ -709,6 +741,9 @@ use agent_lifecycle_ops::{dispatch_kill_agent, dispatch_restart_agent};
 #[path = "app_input_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "back_dispatch_tests.rs"]
+mod back_dispatch_tests;
 #[cfg(test)]
 #[path = "persist_projection_tests.rs"]
 mod persist_projection_tests;

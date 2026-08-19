@@ -76,8 +76,8 @@ fn chooser_esc_resolves_to_cancel() {
     let state = issues_state_with_close_reason_chooser();
     let result = resolve_issues_key_event(&state, &key(KeyCode::Esc));
     assert!(
-        matches!(result, Some(AppEvent::CloseReasonCancel)),
-        "Esc should resolve to CloseReasonCancel, got {result:?}"
+        matches!(result, Some(AppEvent::Back)),
+        "Esc should enter shared Back, got {result:?}"
     );
 }
 

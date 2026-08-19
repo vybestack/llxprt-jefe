@@ -38,25 +38,21 @@ fn esc_chain_base_state() -> AppState {
     state
 }
 
-/// Resolve Esc through the REAL key router and assert the emitted event
-/// matches `expected_match` (a closure returning bool from the event), then
-/// apply the event through the reducer and return the resulting state.
+/// Resolve Esc through the real key router, require the shared typed Back
+/// authority, then apply it through the reducer.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
 /// @pseudocode component-003 lines 92-98
-fn resolve_esc_and_apply<F: Fn(&AppEvent) -> bool>(state: &mut AppState, matches_expected: F) {
+fn resolve_esc_and_apply(state: &mut AppState) {
     let event = prs::resolve_prs_key_event(state, &key(KeyCode::Esc))
         .unwrap_or_else(|| panic!("Esc at this precedence level must emit an event"));
-    assert!(
-        matches_expected(&event),
-        "Esc emitted unexpected event: {event:?}"
-    );
+    assert!(matches!(event, AppEvent::Back), "Esc emitted {event:?}");
     state.apply_in_place(event);
 }
 
-/// L1: an active inline composer — Esc (via the REAL key router) emits
-/// `PrInlineCancelOrEsc`; the composer closes and the mode stays active.
+/// L1: with an active inline composer, real key routing emits shared Back;
+/// the reducer selects the editor owner, closes it, and keeps the mode active.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
@@ -69,7 +65,7 @@ fn esc_l1_inline_composer_cancels() {
         state.prs_state.inline_state,
         InlineState::Composer { .. }
     ));
-    resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::PrInlineCancelOrEsc));
+    resolve_esc_and_apply(&mut state);
     assert_eq!(state.prs_state.inline_state, InlineState::None);
     assert!(
         state.prs_state.active,
@@ -77,8 +73,8 @@ fn esc_l1_inline_composer_cancels() {
     );
 }
 
-/// L2: an open agent chooser — Esc (via the REAL key router) emits
-/// `PrAgentChooserCancel`; the chooser closes and the mode stays active.
+/// L2: with an open agent chooser, real key routing emits shared Back;
+/// the reducer selects the chooser owner, closes it, and keeps the mode active.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
@@ -91,9 +87,7 @@ fn esc_l2_agent_chooser_cancels() {
         agents: vec![],
         transient_available: false,
     });
-    resolve_esc_and_apply(&mut state, |ev| {
-        matches!(ev, AppEvent::PrAgentChooserCancel)
-    });
+    resolve_esc_and_apply(&mut state);
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "chooser must close after PrAgentChooserCancel"
@@ -104,8 +98,8 @@ fn esc_l2_agent_chooser_cancels() {
     );
 }
 
-/// L3a: search focused with a NON-EMPTY query — Esc (via the REAL key router)
-/// emits `PrClearSearch`; the query clears and the mode stays active.
+/// L3a: with a focused non-empty search, real key routing emits shared Back;
+/// the reducer selects the search owner, clears the query, and keeps the mode active.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
@@ -114,7 +108,7 @@ fn esc_l3a_search_nonempty_clears() {
     let mut state = esc_chain_base_state();
     state.prs_state.search_input_focused = true;
     state.prs_state.search_query = "auth".to_string();
-    resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::PrClearSearch));
+    resolve_esc_and_apply(&mut state);
     assert!(
         state.prs_state.search_query.is_empty(),
         "PrClearSearch must clear the query"
@@ -125,8 +119,8 @@ fn esc_l3a_search_nonempty_clears() {
     );
 }
 
-/// L3b: search focused with an EMPTY query — Esc (via the REAL key router)
-/// emits `PrBlurSearchInput`; the input blurs and the mode stays active.
+/// L3b: with a focused empty search, real key routing emits shared Back;
+/// the reducer selects the search owner, blurs it, and keeps the mode active.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
@@ -135,7 +129,7 @@ fn esc_l3b_search_empty_blurs() {
     let mut state = esc_chain_base_state();
     state.prs_state.search_input_focused = true;
     state.prs_state.search_query = String::new();
-    resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::PrBlurSearchInput));
+    resolve_esc_and_apply(&mut state);
     assert!(
         !state.prs_state.search_input_focused,
         "PrBlurSearchInput must blur the search input"
@@ -146,8 +140,8 @@ fn esc_l3b_search_empty_blurs() {
     );
 }
 
-/// L4: open filter controls — Esc (via the REAL key router) emits
-/// `PrCloseFilterControls`; the controls close and the mode stays active.
+/// L4: with filter controls open, real key routing emits shared Back;
+/// the reducer selects the filter owner, closes controls, and keeps the mode active.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
@@ -156,9 +150,7 @@ fn esc_l4_filter_controls_close() {
     let mut state = esc_chain_base_state();
     state.apply_in_place(AppEvent::PrOpenFilterControls);
     assert!(state.prs_state.filter_ui.controls_open);
-    resolve_esc_and_apply(&mut state, |ev| {
-        matches!(ev, AppEvent::PrCloseFilterControls)
-    });
+    resolve_esc_and_apply(&mut state);
     assert!(
         !state.prs_state.filter_ui.controls_open,
         "filter controls must close after PrCloseFilterControls"
@@ -169,11 +161,10 @@ fn esc_l4_filter_controls_close() {
     );
 }
 
-/// L5: nothing open — Esc (via the REAL key router) from PrDetail focus emits
-/// `RefocusPrList` (the detail pane is focused, so Esc returns to the list
-/// rather than exiting the whole mode). A subsequent Esc from PrList focus
-/// then emits `ExitPrsMode`; the mode becomes inactive and the screen returns
-/// to the Dashboard. This mirrors issues-mode Esc semantics.
+/// L5: with nothing open, real key routing emits shared Back. From PrDetail
+/// the reducer selects the detail owner and returns to the list; a subsequent
+/// Back from PrList selects screen leave, deactivates the mode, and returns to
+/// the Dashboard. This mirrors issues-mode semantics.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
@@ -181,13 +172,13 @@ fn esc_l4_filter_controls_close() {
 fn esc_l5_nothing_open_exits() {
     let mut state = esc_chain_base_state();
     // PrDetail focus, nothing open => Esc refocuses to the list (not exit).
-    resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::RefocusPrList));
+    resolve_esc_and_apply(&mut state);
     assert!(
         state.prs_state.active,
         "mode must stay active after Esc in PrDetail (refocus, not exit)"
     );
     // PrList focus, nothing open => Esc exits the mode.
-    resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::ExitPrsMode));
+    resolve_esc_and_apply(&mut state);
     assert!(
         !state.prs_state.active,
         "mode must be inactive after final Esc"
@@ -201,11 +192,9 @@ fn esc_l5_nothing_open_exits() {
 /// exactly one layer, leaving the mode active until the final (nothing-open,
 /// PrList-focused) Esc exits.
 ///
-/// Drives the REAL key router `prs::resolve_prs_key_event(&state,
-/// &key(KeyCode::Esc))` at EACH precedence level (the genuine 7-outcome
-/// resolver in `src/app_input/prs.rs`), asserting the EXACT emitted
-/// `AppEvent` variant via `matches!`, THEN applying it through the reducer
-/// (`AppState::apply`) and asserting the resulting state. Each level is
+/// Drives the real key router at each precedence level, requires the one typed
+/// `AppEvent::Back`, then applies it through the shared reducer and verifies
+/// that exactly the highest-priority active owner changes. Each level is
 /// exercised in isolation from a fresh base state.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15

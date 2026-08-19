@@ -46,7 +46,7 @@ fn changes_keys_drill_down_navigation_and_back() {
     ));
     assert!(matches!(
         resolve_prs_key_event(&files, &key(KeyCode::Esc)),
-        Some(AppEvent::PrChangesBack)
+        Some(AppEvent::Back)
     ));
 
     let content = state_with_changes(PrChangesFocus::Content);
@@ -56,7 +56,7 @@ fn changes_keys_drill_down_navigation_and_back() {
     ));
     assert!(matches!(
         resolve_prs_key_event(&content, &key(KeyCode::Esc)),
-        Some(AppEvent::PrChangesBack)
+        Some(AppEvent::Back)
     ));
 }
 

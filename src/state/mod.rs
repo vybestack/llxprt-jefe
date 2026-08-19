@@ -462,6 +462,13 @@ impl AppState {
         let issue_list_send_context = self.issue_list_send_context();
         let pr_list_send_context = self.pr_list_send_context();
 
+        self.reduce_message_body(message);
+
+        self.invalidate_changed_list_send_contexts(&issue_list_send_context, &pr_list_send_context);
+        self.finalize_message(route);
+    }
+
+    pub(super) fn reduce_message_body(&mut self, message: AppMessage) {
         match message {
             AppMessage::UiNavigation(message) => self.apply_ui_navigation(message),
             AppMessage::Modal(message) => self.apply_modal_message(message),
@@ -499,9 +506,6 @@ impl AppState {
                 self.apply_effect_completion_message(*completion);
             }
         }
-
-        self.invalidate_changed_list_send_contexts(&issue_list_send_context, &pr_list_send_context);
-        self.finalize_message(route);
     }
 
     fn terminal_blocks(message: &AppMessage) -> bool {
@@ -587,6 +591,7 @@ impl AppState {
     fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
         self.prepare_ui_navigation(&message);
         match message {
+            UiNavigationMessage::Back => self.apply_back(),
             UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
             UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
             UiNavigationMessage::NavigatePageUp(page) => {

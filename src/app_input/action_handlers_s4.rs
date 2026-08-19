@@ -121,9 +121,10 @@ fn issue_page(state: &AppState, up: bool, page: PageItemCount) -> AppEvent {
 
 fn issue_back(state: &AppState, chord: Chord) -> Option<AppEvent> {
     match chord.key {
+        Key::Esc => Some(AppEvent::Back),
         Key::Char('p') => Some(AppEvent::EnterPrsMode),
         Key::Function(12) if state.terminal_focused => Some(AppEvent::ToggleTerminalFocus),
-        Key::Function(12) | Key::Esc | Key::Char('i')
+        Key::Function(12) | Key::Char('i')
             if state.issues_state.issue_focus == IssueFocus::IssueDetail =>
         {
             Some(AppEvent::RefocusIssueList)
@@ -406,17 +407,16 @@ fn pr_page(state: &AppState, up: bool, page: PageItemCount) -> AppEvent {
 
 fn pr_back(state: &AppState, chord: Chord) -> Option<AppEvent> {
     match chord.key {
+        Key::Esc => Some(AppEvent::Back),
         Key::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         Key::Function(12) if state.terminal_focused => Some(AppEvent::ToggleTerminalFocus),
         Key::Function(12) if state.prs_state.pr_focus == PrFocus::PrDetail => {
             Some(AppEvent::RefocusPrList)
         }
-        Key::Esc if state.prs_state.pr_focus == PrFocus::PrChanges => Some(AppEvent::PrChangesBack),
         Key::BackTab if state.prs_state.pr_focus == PrFocus::PrChanges => {
             (state.prs_state.changes.focus == PrChangesFocus::Content)
                 .then_some(AppEvent::PrChangesFocusFiles)
         }
-        Key::Esc if state.prs_state.pr_focus == PrFocus::PrDetail => Some(AppEvent::RefocusPrList),
         Key::BackTab | Key::Char('k') if state.prs_state.pr_focus == PrFocus::PrDetail => {
             Some(AppEvent::PrDetailSubfocusPrev)
         }

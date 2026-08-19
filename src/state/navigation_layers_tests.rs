@@ -97,7 +97,7 @@ fn open_filter_controls_are_unwound_before_the_screen_is_left() {
     state.issues_state.filter_ui.controls_open = true;
     assert_eq!(
         state.back_resolution(),
-        BackResolution::Local(LocalIntent::ClearFilter)
+        BackResolution::Local(LocalIntent::CloseFilterControls)
     );
 }
 
@@ -170,6 +170,109 @@ fn a_dirty_screen_with_no_guard_up_still_leaves_normally() {
         SaveIntent::Unavailable { reason: "nowhere" },
     );
     assert_eq!(state.back_resolution(), BackResolution::Leave);
+}
+
+#[test]
+fn typed_back_applies_exactly_one_resolved_layer_per_transition() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    let screen = state.screen();
+    let _ = state.mark_screen_dirty(
+        DraftToken::next(),
+        SaveIntent::Unavailable { reason: "nowhere" },
+    );
+    let _ = state.leave_screen();
+    state.modal = ModalState::ConfirmDeleteRepository {
+        id: RepositoryId("repo".to_owned()),
+        confirm_focus: ConfirmFocus::Cancel,
+    };
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(matches!(state.modal, ModalState::None));
+    assert!(
+        state.nav.guard().is_some(),
+        "Back must not also dismiss the guard"
+    );
+    assert_eq!(state.screen(), screen);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.nav.guard().is_none());
+    assert_eq!(
+        state.screen(),
+        screen,
+        "dirty Cancel must preserve navigation"
+    );
+}
+
+#[test]
+fn shared_back_applies_each_issues_owner_without_falling_through() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+    state.issues_state.filter_ui.controls_open = true;
+    state.issues_state.committed_filter.author = "octocat".to_owned();
+    state.issues_state.search_input_focused = true;
+    state.issues_state.search_query = "typed query".to_owned();
+    composing(&mut state);
+    state.issues_state.agent_chooser = Some(AgentChooserState::default());
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.issues_state.agent_chooser.is_none());
+    assert_ne!(state.issues_state.inline_state, InlineState::None);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert!(state.issues_state.search_input_focused);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.issues_state.search_query.is_empty());
+    assert!(state.issues_state.search_input_focused);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(!state.issues_state.search_input_focused);
+    assert!(state.issues_state.filter_ui.controls_open);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(!state.issues_state.filter_ui.controls_open);
+    assert_eq!(state.issues_state.committed_filter.author, "octocat");
+    assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueDetail);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
+    assert_eq!(state.screen(), ScreenId::Issues);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(state.screen(), ScreenId::Dashboard);
+}
+
+#[test]
+fn dirty_interception_does_not_finalize_a_compiled_screen() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    let _ = state.mark_screen_dirty(
+        DraftToken::next(),
+        SaveIntent::Unavailable { reason: "nowhere" },
+    );
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.nav.guard().is_some());
+    assert_eq!(state.screen(), ScreenId::Issues);
+    assert!(state.issues_state.active);
+}
+
+#[test]
+fn repositories_back_preserves_one_transition_exit_while_grabbing() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = on(ScreenId::Repositories);
+    state.split_grab_index = Some(0);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.split_grab_index.is_none());
+    assert_eq!(state.screen(), ScreenId::Dashboard);
 }
 
 #[test]

@@ -33,19 +33,60 @@ fn page_navigation_produces_typed_page_event() {
 }
 
 #[test]
-fn errors_back_and_reverse_cycle_preserve_focus_behavior() {
+fn every_back_handler_enters_the_one_typed_back_reducer() {
     let mut state = crate::test_app_state();
     state.nav = crate::state::navigation::NavState::rooted(ScreenId::Errors);
     state.errors_state.focus = ErrorsFocus::ErrorDetail;
+    for handler in [
+        HandlerKey::SettingsBack,
+        HandlerKey::WorkbenchBack,
+        HandlerKey::HelpClose,
+        HandlerKey::ExitSplit,
+        HandlerKey::ErrorsBack,
+        HandlerKey::TerminalManagerBack,
+        HandlerKey::ConfirmCancel,
+        HandlerKey::AuthCancel,
+        HandlerKey::FormCancel,
+        HandlerKey::SearchCancel,
+        HandlerKey::FilterCancel,
+        HandlerKey::IssuesExit,
+        HandlerKey::IssuesBack,
+        HandlerKey::IssuesCancelInline,
+        HandlerKey::IssuesChooserCancel,
+        HandlerKey::PullRequestsExit,
+        HandlerKey::PullRequestsBack,
+        HandlerKey::PullRequestsCancelInline,
+        HandlerKey::PullRequestsChooserCancel,
+        HandlerKey::ActionsExit,
+        HandlerKey::ActionsBack,
+    ] {
+        let execution = execution_for(handler, chord("Esc"), &state, PageItemCount::new(1));
+        assert!(
+            matches!(execution, HandlerExecution::Event(AppEvent::Back)),
+            "{handler:?} produced {execution:?}"
+        );
+    }
+}
+
+#[test]
+fn terminal_manager_f12_preserves_its_non_back_exit_behavior() {
+    let state = crate::test_app_state();
     assert!(matches!(
         execution_for(
-            HandlerKey::ErrorsBack,
-            chord("Esc"),
+            HandlerKey::TerminalManagerBack,
+            chord("F12"),
             &state,
             PageItemCount::new(1),
         ),
-        HandlerExecution::Event(AppEvent::RefocusErrorList)
+        HandlerExecution::Event(AppEvent::ExitTerminalManagerMode)
     ));
+}
+
+#[test]
+fn reverse_cycle_preserves_focus_behavior() {
+    let mut state = crate::test_app_state();
+    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Errors);
+    state.errors_state.focus = ErrorsFocus::ErrorDetail;
     assert!(matches!(
         execution_for(
             HandlerKey::ErrorsCyclePane,
@@ -101,7 +142,7 @@ fn s4_modal_controls_have_typed_executions() {
             &state,
             PageItemCount::new(1),
         ),
-        HandlerExecution::Event(AppEvent::CloseModal)
+        HandlerExecution::Event(AppEvent::Back)
     ));
 }
 

@@ -23,6 +23,7 @@ macro_rules! message_names {
 }
 
 message_names!(UiNavigationMessage {
+    Self::Back => "Back",
     Self::NavigateUp => "NavigateUp",
     Self::NavigateDown => "NavigateDown",
     Self::NavigatePageUp(_) => "NavigatePageUp",

@@ -5,6 +5,8 @@ use crate::list_viewport::PageItemCount;
 pub enum AppEvent {
     /// Typed completion for a staged post-commit effect (issue #381 CW01-11).
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
+    /// Unwind exactly one active navigation layer using the shared Back reducer.
+    Back,
     NavigateUp,
     NavigateDown,
     NavigatePageUp(PageItemCount),

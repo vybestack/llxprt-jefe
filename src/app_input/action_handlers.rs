@@ -46,7 +46,6 @@ pub enum BoundaryAction {
     HelpPageDown,
     HelpHome,
     HelpEnd,
-    WorkbenchBack,
     ProviderPanelPrevious,
     ProviderPanelNext,
     ProviderPanelActivate,
@@ -172,7 +171,6 @@ fn apply_boundary(
             apply_shell_overlay_boundary(boundary, app_state, ctx);
         }
         BoundaryAction::NewAgentOrRepository => new_agent_or_repository(app_state, ctx),
-        BoundaryAction::WorkbenchBack => leave_workbench(app_state, ctx),
         BoundaryAction::ProviderPanelPrevious
         | BoundaryAction::ProviderPanelNext
         | BoundaryAction::ProviderPanelActivate
@@ -230,15 +228,6 @@ fn apply_shell_overlay_boundary(
         }
         _ => unreachable!("shell-overlay boundary helper received another action"),
     }
-}
-
-fn leave_workbench(app_state: &mut super::AppStateHandle, ctx: &super::SharedContext) {
-    let staged = {
-        let mut state = app_state.write();
-        let _ = state.leave_screen();
-        state.take_staged_effects()
-    };
-    super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
 }
 
 fn apply_terminal_manager_boundary(
@@ -304,7 +293,7 @@ macro_rules! handler_execution {
             H::EmergencyExit => E::Boundary(B::Quit),
             H::OpenKeys => settings_boundary(SettingsAction::OpenKeys),
             H::OpenSettings => settings_boundary(SettingsAction::Open),
-            H::SettingsBack => settings_boundary(SettingsAction::Back),
+            H::SettingsBack => E::Event(AppEvent::Back),
             H::SettingsUp => settings_boundary(SettingsAction::Up),
             H::SettingsDown => settings_boundary(SettingsAction::Down),
             H::SettingsCyclePane => settings_boundary(SettingsAction::CyclePane),
@@ -347,7 +336,7 @@ macro_rules! handler_execution {
             H::NavigateEnd => E::Event(AppEvent::NavigateEnd),
             H::NavigateLeft => E::Event(AppEvent::NavigateLeft),
             H::NavigateRight => E::Event(AppEvent::NavigateRight),
-            H::WorkbenchBack => E::Boundary(B::WorkbenchBack),
+            H::WorkbenchBack => E::Event(AppEvent::Back),
             H::ProviderPanelPrevious => E::Boundary(B::ProviderPanelPrevious),
             H::ProviderPanelNext => E::Boundary(B::ProviderPanelNext),
             H::ProviderPanelActivate => E::Boundary(B::ProviderPanelActivate),
@@ -387,7 +376,6 @@ macro_rules! handler_execution {
             H::DashboardGrabDrop => E::Event(AppEvent::ExitDashboardGrab),
             H::DashboardGrabUp => E::Event(AppEvent::DashboardGrabMoveUp),
             H::DashboardGrabDown => E::Event(AppEvent::DashboardGrabMoveDown),
-            H::ExitSplit => E::Event(AppEvent::ExitSplitMode),
             H::EnterSplitGrab => E::Event(AppEvent::EnterGrabMode),
             H::WorkbenchToggleFilter => E::Event(AppEvent::ToggleWorkbenchStatusBucket(
                 state.workbench_filter_cursor_bucket(),
@@ -399,7 +387,6 @@ macro_rules! handler_execution {
             H::WorkbenchSelectPrev => E::Event(AppEvent::WorkbenchSelectPrev),
             H::WorkbenchSelectNext => E::Event(AppEvent::WorkbenchSelectNext),
             H::WorkbenchAttach => E::Event(AppEvent::WorkbenchAttach),
-            H::ErrorsBack => errors_back(state),
             H::ErrorsUp => errors_vertical(state, chord, true),
             H::ErrorsDown => errors_vertical(state, chord, false),
             H::ErrorsPageUp => E::Event(AppEvent::ErrorsScrollDetailPageUp),
@@ -407,42 +394,51 @@ macro_rules! handler_execution {
             H::ErrorsActivate => errors_activate(state),
             H::ErrorsCyclePane => errors_cycle(chord),
             H::ErrorsClear => E::Event(AppEvent::ErrorsClearAll),
-            H::TerminalManagerBack => E::Event(AppEvent::ExitTerminalManagerMode),
             H::TerminalManagerUp => E::Event(AppEvent::TerminalManagerNavigateUp),
             H::TerminalManagerDown => E::Event(AppEvent::TerminalManagerNavigateDown),
             H::TerminalManagerHome => E::Event(AppEvent::TerminalManagerNavigateHome),
             H::TerminalManagerEnd => E::Event(AppEvent::TerminalManagerNavigateEnd),
             H::TerminalManagerCloseShell => E::Boundary(B::TerminalManagerCloseShell),
             H::TerminalManagerFocusShell => E::Boundary(B::TerminalManagerFocusShell),
-            H::HelpClose
+            H::HelpClose => E::Event(AppEvent::Back),
+            H::ExitSplit
+            | H::ErrorsBack
+            | H::TerminalManagerBack
+            | H::ConfirmCancel
+            | H::AuthCancel
+            | H::FormCancel
+            | H::SearchCancel
+            | H::FilterCancel
+            | H::IssuesExit
+            | H::IssuesCancelInline
+            | H::IssuesChooserCancel
+            | H::PullRequestsExit
+            | H::PullRequestsCancelInline
+            | H::PullRequestsChooserCancel
+            | H::ActionsExit
+            | H::ActionsBack
             | H::HelpScrollUp
             | H::HelpScrollDown
             | H::HelpPageUp
             | H::HelpPageDown
             | H::HelpHome
             | H::HelpEnd
-            | H::ConfirmCancel
             | H::ConfirmCycleFocus
             | H::ConfirmAccept
             | H::ConfirmToggleDeleteWorkDir
-            | H::AuthCancel
             | H::AuthRetry
-            | H::FormCancel
             | H::FormSubmit
             | H::FormNextField
             | H::FormPreviousField
             | H::SearchApply
-            | H::SearchCancel
             | H::SearchBackspace
             | H::FilterApply
-            | H::FilterCancel
             | H::FilterNextField
             | H::FilterPreviousField
             | H::FilterClearCurrent
             | H::FilterClearAll
             | H::FilterPreviousChoice
             | H::FilterNextChoice
-            | H::IssuesExit
             | H::IssuesBack
             | H::IssuesOpen
             | H::IssuesNew
@@ -454,12 +450,9 @@ macro_rules! handler_execution {
             | H::IssuesSendToAgent
             | H::IssuesCyclePane
             | H::IssuesSubmitInline
-            | H::IssuesCancelInline
             | H::IssuesChooserPrevious
             | H::IssuesChooserNext
             | H::IssuesChooserConfirm
-            | H::IssuesChooserCancel
-            | H::PullRequestsExit
             | H::PullRequestsBack
             | H::PullRequestsOpen
             | H::PullRequestsOpenFilter
@@ -472,12 +465,9 @@ macro_rules! handler_execution {
             | H::PullRequestsOpenMerge
             | H::PullRequestsCyclePane
             | H::PullRequestsSubmitInline
-            | H::PullRequestsCancelInline
             | H::PullRequestsChooserPrevious
             | H::PullRequestsChooserNext
             | H::PullRequestsChooserConfirm
-            | H::PullRequestsChooserCancel
-            | H::ActionsExit
             | H::ActionsReload
             | H::ActionsOpenFilter
             | H::ActionsFocusSearch
@@ -486,7 +476,6 @@ macro_rules! handler_execution {
             | H::ActionsPageUp
             | H::ActionsPageDown
             | H::ActionsActivate
-            | H::ActionsBack
             | H::ProviderAction => E::LaterSlice,
         }
     }};
@@ -499,10 +488,44 @@ pub fn execution_for(
     state: &AppState,
     page_items: PageItemCount,
 ) -> HandlerExecution {
+    if semantic_back_handler(handler, chord) {
+        return HandlerExecution::Event(AppEvent::Back);
+    }
+    if handler == HandlerKey::TerminalManagerBack && chord.key == Key::Function(12) {
+        return HandlerExecution::Event(AppEvent::ExitTerminalManagerMode);
+    }
     if let Some(execution) = s4::execution_for(handler, chord, state, page_items) {
         return execution;
     }
     handler_execution!(handler, chord, state, page_items)
+}
+
+fn semantic_back_handler(handler: HandlerKey, chord: Chord) -> bool {
+    matches!(
+        handler,
+        HandlerKey::SettingsBack | HandlerKey::WorkbenchBack | HandlerKey::HelpClose
+    ) || chord.key == Key::Esc
+        && matches!(
+            handler,
+            HandlerKey::ExitSplit
+                | HandlerKey::ErrorsBack
+                | HandlerKey::TerminalManagerBack
+                | HandlerKey::ConfirmCancel
+                | HandlerKey::AuthCancel
+                | HandlerKey::FormCancel
+                | HandlerKey::SearchCancel
+                | HandlerKey::FilterCancel
+                | HandlerKey::IssuesExit
+                | HandlerKey::IssuesBack
+                | HandlerKey::IssuesCancelInline
+                | HandlerKey::IssuesChooserCancel
+                | HandlerKey::PullRequestsExit
+                | HandlerKey::PullRequestsBack
+                | HandlerKey::PullRequestsCancelInline
+                | HandlerKey::PullRequestsChooserCancel
+                | HandlerKey::ActionsExit
+                | HandlerKey::ActionsBack
+        )
 }
 
 #[cfg(test)]
@@ -539,14 +562,6 @@ fn terminal_execution(handler: HandlerKey, state: &AppState) -> HandlerExecution
             Event(AppEvent::TerminalScrollDown)
         }
         _ => Boundary(BoundaryAction::ForwardToPty),
-    }
-}
-
-fn errors_back(state: &AppState) -> HandlerExecution {
-    if state.errors_state.focus == ErrorsFocus::ErrorDetail {
-        HandlerExecution::Event(AppEvent::RefocusErrorList)
-    } else {
-        HandlerExecution::Event(AppEvent::ExitErrorsMode)
     }
 }
 

@@ -2440,7 +2440,7 @@
     },
     {
       "path": "src/app_input/action_handlers.rs",
-      "sha256": "3144e384348b8a52fdc10a6bb2fba74451e8b84cc1db54d8f064739b82eca2e6",
+      "sha256": "d8b45afe793f8f3ab1c4af8a215e33f2604c258ee6be98375775e937e71a8fc5",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2449,7 +2449,7 @@
     },
     {
       "path": "src/app_input/action_handlers_tests.rs",
-      "sha256": "9652fe7bffa41424a26c46ebfb60b0bbf79201162e420c05f7107853c25ad17c",
+      "sha256": "21d6e8882e9451cd504a133f19948bc871b3b08509d448635501dfdb78c575b1",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2552,7 +2552,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "c384e82501602a88dc81920b15f4022458a06ec1e1932f99756113ee1ca87ee8",
+      "sha256": "cc32b7d1c428290ff15c350c5149c68fef701fed13539a51e3cb25a1797d2bb9",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
