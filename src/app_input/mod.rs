@@ -726,6 +726,10 @@ mod new_agent_submit_tests;
 #[path = "relaunch_tests.rs"]
 mod relaunch_tests;
 
+#[cfg(test)]
+#[path = "preflight_tests.rs"]
+mod preflight_tests;
+
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001
 #[cfg(test)]

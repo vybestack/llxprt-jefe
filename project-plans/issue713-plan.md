@@ -1,0 +1,148 @@
+# Issue 713 plan: restore the host sandbox preflight on every launch path
+
+Issue: https://github.com/vybestack/llxprt-jefe/issues/713
+Branch: `issue713`, created from `origin/main` at `76e5d714`
+
+## Outcome
+
+`preflight_or_prompt()` is the single gate every launch path crosses
+(`modal_handlers.rs`, `relaunch.rs`, `issues_send.rs`, `prs_orchestration.rs`,
+`transient_pr_send.rs`). Since `7b12edcde` its body has been a
+`validate_launch_request()` call followed by `return true`, so
+`runtime::sandbox_preflight()` has had no production caller. A sandbox-enabled
+LLxprt agent therefore launches with a forwarded but empty SSH agent, and every
+in-container git operation over SSH fails with `Permission denied (publickey)`.
+
+After this change a sandbox-enabled local LLxprt launch consults the host
+sandbox preflight again. A returned `PreflightIssue` opens the existing
+`ModalState::PreflightPrompt`, whose `SshAgentNoIdentities` copy and `SshAdd`
+remediation are already implemented and already covered by rendering tests.
+Confirming the prompt runs the remediation and then re-checks, so a host that is
+still not ready re-prompts instead of launching.
+
+## Fixed design decisions
+
+1. The gate is expressed as one pure predicate over the launch request rather
+   than restored as an inline condition, so every launch path and the
+   post-remediation re-check share one rule and the rule is directly testable.
+2. Gating is definition-driven, not agent-kind-driven. The predicate consults
+   the active `AgentDefinition`: only a definition that declares a
+   `sandbox_enabled` field participates. This preserves the intent the deleted
+   `should_run_sandbox_preflight` documented (stale `sandbox_enabled` values
+   persisted for a non-sandbox agent must not trigger sandbox preflight)
+   without reintroducing the removed `AgentKind` enum.
+3. Remote launches are not gated. `sandbox_preflight` inspects the local
+   container daemon and the local SSH agent; neither describes the remote host
+   that a remote launch actually runs on, so gating a remote launch on local
+   host state would block launches for an irrelevant reason.
+4. The runtime check keeps its process boundary. Only the pure decision that
+   reads `ssh-add -l` output is extracted so the empty-agent recognition is
+   provable without mutating the developer's or CI's real SSH agent.
+5. Injection stays local: the decision function takes the host check as a
+   parameter, and production passes `runtime::sandbox_preflight`. No new public
+   trait, module, or subsystem is introduced.
+
+## Acceptance matrix
+
+| ID | Launch path / actor | Input | Observable success | Observable failure and diagnostic location | Evidence |
+|---|---|---|---|---|---|
+| P1 | every path through `preflight_or_prompt` | local LLxprt request, `sandbox_enabled = true`, host check reports `SshAgentNoIdentities` | the decision yields that issue, so `open_preflight_prompt` sets `ModalState::PreflightPrompt` and the caller aborts the immediate launch | n/a; no launch side effect precedes the prompt | `launch_preflight_issue` unit test with a recording host check |
+| P2 | same | same request, host check reports no issue | decision yields `None`; the launch proceeds unchanged | n/a | unit test |
+| P3 | gating | `sandbox_enabled` absent or `false` | host check is never consulted; launch proceeds | n/a | recording stub asserts zero consultations |
+| P4 | gating | definition declares no `sandbox_enabled` field while values carry a stale `sandbox-enabled = true` | host check is never consulted | n/a | unit test over a non-sandbox shipped definition |
+| P5 | gating | `remote.enabled = true` with sandbox enabled | host check is never consulted | n/a | unit test |
+| P6 | validation precedence | request that fails `validate_launch_request` | `PreflightIssue::UnsupportedRuntimeOption` is prompted and the host check is never consulted | prompt carries the runtime diagnostic string | unit test |
+| P7 | prompt confirmation | user confirms `SshAdd` remediation | the same gate re-runs for the request; a still-unready host produces the next prompt, a cleared host resumes the launch | remediation error closes the modal and sets `error_message` (existing behavior) | unit test on the shared gate plus the restored re-check call |
+| P8 | host observation | `ssh-add -l` exits zero printing `The agent has no identities.` | treated as no identities, which is what produces `SshAgentNoIdentities` | non-zero exit is also treated as no identities | pure unit tests over the extracted listing decision |
+| P9 | regression class | the launch gate stops handing the host check to its decision, stops re-checking after remediation, or `sandbox_preflight` loses every production use | the build fails the reachability contract naming the lost call | contract failure message names the gate and the consequence | `tests/core/sandbox_preflight_reachability_contracts.rs`, proven to fail at `76e5d714` and pass after the fix |
+
+Persistence and compatibility: no durable schema, no `ModalState` variant, no
+`PreflightIssue` variant, and no `PreflightAction` variant changes. Existing
+persisted `PreflightPrompt` modals continue to load.
+
+## Non-goals
+
+- No change to the definition-driven `runtime::agent_preflight` engine/image/env
+  inspection boundary. It answers a different question (is the declared sandbox
+  image inspectable) and remains the ordered pre-effect gate.
+- No new `PreflightIssue` variants, remediation actions, or prompt copy.
+- No new public trait, inspector, or module; no process/cancellation subsystem.
+- No TUI harness scenario. The prompt is reachable only when the real host
+  container daemon or SSH agent is in a specific state, which the scenario
+  harness cannot deterministically produce. Rendering and focus behavior of
+  `ModalState::PreflightPrompt` already have coverage in
+  `src/selection/overlay_content.rs` and `src/app_input/modal_handlers_tests.rs`.
+- `runtime::sandbox_ssh_agent_warning` stays as-is. It is a separate non-blocking
+  advisory that this issue does not ask to wire up or remove.
+
+## Vertical slices
+
+### S1: restore the gate on the launch path (P1..P7)
+
+RED: `src/app_input/preflight_tests.rs` asserting the gate decision for each
+row. GREEN: add the pure `sandbox_preflight_engine` predicate and the
+`launch_preflight_issue` decision to `src/app_input/preflight.rs`, call it from
+`preflight_or_prompt`, and restore the post-remediation re-check in
+`handle_preflight_prompt_enter`.
+
+Allowed paths: `src/app_input/preflight.rs`, `src/app_input/preflight_tests.rs`,
+`src/app_input/mod.rs` (test module declaration only).
+
+### S2: provable empty-agent recognition (P8)
+
+RED: unit tests in `src/runtime/preflight.rs` over the extracted listing
+decision. GREEN: extract the pure decision from `ssh_agent_has_identities` and
+call it from the process boundary.
+
+Allowed paths: `src/runtime/preflight.rs`.
+
+Stopping conditions for both slices: any need for a new public abstraction, a
+new issue/action variant, a dependency change, or behavior outside the matrix.
+
+## Expected path ledger
+
+- `src/app_input/preflight.rs`: gate predicate, decision, restored call sites.
+- `src/app_input/preflight_tests.rs`: new behavioral tests (P1..P7).
+- `src/app_input/mod.rs`: test module declaration only.
+- `src/runtime/preflight.rs`: extracted listing decision and its tests (P8).
+- `tests/core/sandbox_preflight_reachability_contracts.rs`: reachability contract (P9).
+- `tests/core/mod.rs`: module declaration only.
+- `project-plans/issue713-plan.md`: this plan.
+
+No dependency, manifest, `.github`, `.llxprt`, persistence-schema, or
+quality-gate change is planned.
+
+## Scope ledger
+
+| Entry | Status |
+|---|---|
+| S3, source reachability contract (P9) in `tests/core/`, beyond the two slices originally planned. Added because the unit tests prove the gate decides correctly but cannot prove the launch paths still consult it, and losing that one call is the entire defect. Follows the existing precedent in `tests/core/attach_ownership_contracts.rs`, which asserts an equivalent one-line invariant in source for the same reason. | Accepted; no production behavior added |
+
+## Review counters
+
+- Local OCR runs before PR: 0 / 2
+- OCR runs after PR opened: 0 / 2
+
+## Verification evidence
+
+Local, on the candidate head, logs under `tmp/verify713/`:
+
+- `cargo fmt --all --check`: clean.
+- `cargo xtask check clippy-allows | source-size | architecture | observation-coercion`: all exit 0.
+- `cargo build --workspace --all-features --locked`: clean.
+- `cargo test --workspace --all-features --locked`: 7341 passed, 0 failed.
+- `cargo xtask coverage`: total line coverage 72.06% against the 30% floor.
+- `CLIPPY_CONF_DIR=.github/clippy cargo clippy --workspace --all-targets --all-features -- -D warnings`:
+  five findings in `src/domain/sha256.rs`, `src/domain/agent_definition/sha256.rs`,
+  `src/workbench/compose.rs` and three in `xtask/src/clippy_policy.rs`. All are
+  reproducible on unmodified `76e5d714` (verified by stashing this change) and
+  come from a newer local clippy than the pinned CI stable. No finding touches
+  a file in this change. CI runs the pinned toolchain.
+
+Regression proof for P9: with `src/app_input/preflight.rs` restored to
+`76e5d714`, all three reachability contracts fail; with the fix applied, all
+three pass.
+
+## Deferred findings
+
+- (none yet)

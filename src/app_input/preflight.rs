@@ -1,6 +1,9 @@
-use jefe::domain::{AgentId, AgentLaunchRequest};
+use jefe::domain::agent_definition::AgentDefinition;
+use jefe::domain::canonical_values::typed_field;
+use jefe::domain::{AgentId, AgentLaunchRequest, SandboxEngine, TypedValue};
 use jefe::runtime::{
-    PreflightAction, PreflightIssue, execute_preflight_action, validate_launch_request,
+    PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight,
+    validate_launch_request,
 };
 use jefe::state::ModalState;
 
@@ -9,16 +12,12 @@ use super::{
     schedule_durable_save,
 };
 
-/// Run sandbox preflight checks and either show a prompt or proceed with launch.
+/// Run launch preflight checks and either show a prompt or proceed with launch.
 ///
-/// Returns `true` if the launch can proceed immediately (no issues or sandbox
-/// not enabled). Returns `false` if a `PreflightPrompt` modal was opened and
-/// the caller should abort the immediate launch path.
-///
-/// Preflight is gated to [`jefe::domain::shipped_agent_type(3)`] only: CodePuppy does not use
-/// the LLxprt sandbox flags/engine, and stale `sandbox_enabled`/`sandbox_engine`
-/// fields persisted from a prior LLxprt configuration must not trigger LLxprt
-/// preflight for a CodePuppy agent.
+/// Returns `true` if the launch can proceed immediately (no issues, or the
+/// launch is not gated by host sandbox state). Returns `false` if a
+/// `PreflightPrompt` modal was opened and the caller should abort the
+/// immediate launch path.
 pub fn preflight_or_prompt(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -26,21 +25,78 @@ pub fn preflight_or_prompt(
     signature: &AgentLaunchRequest,
     issue_self_assignment: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
 ) -> bool {
+    let Some(issue) = launch_preflight_issue(signature, sandbox_preflight) else {
+        return true;
+    };
+    open_preflight_prompt(
+        app_state,
+        ctx,
+        agent_id,
+        signature,
+        issue,
+        issue_self_assignment,
+    );
+    false
+}
+
+/// Decide which issue, if any, must be prompted before this launch runs.
+///
+/// Runtime-option validation comes first: an unlaunchable request is rejected
+/// before jefe inspects the host at all. A launch that is gated by host sandbox
+/// state (see [`sandbox_preflight_engine`]) then consults `host_check`, which
+/// production supplies as [`jefe::runtime::sandbox_preflight`].
+pub(super) fn launch_preflight_issue(
+    signature: &AgentLaunchRequest,
+    host_check: impl Fn(SandboxEngine) -> Option<PreflightIssue>,
+) -> Option<PreflightIssue> {
     if let Err(diagnostic) = validate_launch_request(signature) {
-        open_preflight_prompt(
-            app_state,
-            ctx,
-            agent_id,
-            signature,
-            PreflightIssue::UnsupportedRuntimeOption {
-                diagnostic: diagnostic.to_string(),
-            },
-            issue_self_assignment,
-        );
-        return false;
+        return Some(PreflightIssue::UnsupportedRuntimeOption {
+            diagnostic: diagnostic.to_string(),
+        });
     }
 
-    true
+    sandbox_preflight_engine(signature).and_then(host_check)
+}
+
+/// The sandbox engine whose host state gates this launch, if any.
+///
+/// Returns `None`, meaning the launch is not gated on host sandbox state,
+/// when any of the following holds:
+///
+/// - the target is remote, because the local container daemon and the local
+///   SSH agent describe the wrong machine;
+/// - the active definition declares no `sandbox_enabled` field, so a stale
+///   value persisted from a sandbox-capable agent cannot gate it;
+/// - the request has the sandbox switched off.
+pub(super) fn sandbox_preflight_engine(signature: &AgentLaunchRequest) -> Option<SandboxEngine> {
+    if signature.remote.enabled {
+        return None;
+    }
+
+    let definition = AgentDefinition::shipped()
+        .into_iter()
+        .find(|definition| definition.id == signature.type_id)?;
+    let declares_sandbox = definition
+        .agent_fields
+        .iter()
+        .chain(definition.repository_fields.iter())
+        .any(|field| field.id == "sandbox_enabled");
+    if !declares_sandbox {
+        return None;
+    }
+
+    if !matches!(
+        typed_field(&signature.values, "sandbox_enabled"),
+        Some(TypedValue::Bool(true))
+    ) {
+        return None;
+    }
+
+    let engine = match typed_field(&signature.values, "sandbox_engine") {
+        Some(TypedValue::String(value)) => SandboxEngine::from_form_value(value),
+        _ => None,
+    };
+    Some(engine.unwrap_or_default())
 }
 
 fn open_preflight_prompt(
@@ -67,8 +123,9 @@ fn open_preflight_prompt(
 
 /// Handle preflight prompt confirmation: execute remediation, re-check, then launch.
 ///
-/// Preflight is LLxprt-only: CodePuppy does not have a sandbox subsystem and
-/// must not run LLxprt preflight even when stale `sandbox_enabled` is true.
+/// The re-check uses the same gate as the launch paths, so a host that is still
+/// not ready after remediation prompts again instead of launching an agent that
+/// would fail inside the sandbox.
 pub(super) fn handle_preflight_prompt_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -81,7 +138,7 @@ pub(super) fn handle_preflight_prompt_enter(
         return;
     }
 
-    let next = None;
+    let next = sandbox_preflight_engine(&signature).and_then(sandbox_preflight);
     if let Some(next) = next {
         persist_next_preflight(
             app_state,
