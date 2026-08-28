@@ -42,10 +42,11 @@ fn the_launch_gate_hands_the_host_check_to_its_preflight_decision() {
 fn the_launch_gate_rechecks_the_host_after_running_a_remediation() {
     let text = read_repo_text(LAUNCH_GATE);
     assert!(
-        text.contains("and_then(sandbox_preflight)"),
-        "{LAUNCH_GATE} no longer re-runs `{CHECK}` after the user confirms a \
-         remediation. Without the re-check a failed `ssh-add` still resumes the \
-         launch, which is the state this prompt exists to prevent (issue #713)."
+        text.contains("launch_preflight_issue(&signature, sandbox_preflight)"),
+        "{LAUNCH_GATE} no longer re-runs its decision against `{CHECK}` after \
+         the user confirms a remediation. Without the re-check a failed \
+         `ssh-add` still resumes the launch, which is the state this prompt \
+         exists to prevent (issue #713)."
     );
 }
 

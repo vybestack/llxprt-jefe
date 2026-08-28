@@ -165,6 +165,39 @@ fn stale_sandbox_values_on_a_non_sandbox_definition_never_consult_the_host() {
 }
 
 #[test]
+fn an_engine_the_gate_cannot_resolve_is_never_normalized_to_a_default() {
+    let host = RecordingHostCheck::clearing();
+    let request = llxprt_request(sandbox_values("kubernetes"));
+
+    assert_eq!(
+        sandbox_preflight_engine(&request),
+        None,
+        "inspecting one runtime on behalf of a request naming another is the \
+         silent mismatch this gate exists to prevent"
+    );
+    let _ = launch_preflight_issue(&request, host.check());
+    assert!(
+        host.consulted_engines().is_empty(),
+        "no engine may be guessed for a request whose engine does not resolve"
+    );
+}
+
+#[test]
+fn a_missing_engine_is_not_guessed_either() {
+    let host = RecordingHostCheck::clearing();
+    let mut values = TypedMap::new();
+    values.insert(
+        typed_key("sandbox_enabled"),
+        jefe::domain::TypedValue::Bool(true),
+    );
+    let request = llxprt_request(values);
+
+    assert_eq!(sandbox_preflight_engine(&request), None);
+    let _ = launch_preflight_issue(&request, host.check());
+    assert!(host.consulted_engines().is_empty());
+}
+
+#[test]
 fn remote_launch_is_not_gated_on_local_host_sandbox_state() {
     let host = RecordingHostCheck::reporting(PreflightIssue::SshAgentNoIdentities);
     let request = AgentLaunchRequest {

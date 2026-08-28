@@ -52,8 +52,9 @@ still not ready re-prompts instead of launching.
 | P4 | gating | definition declares no `sandbox_enabled` field while values carry a stale `sandbox-enabled = true` | host check is never consulted | n/a | unit test over a non-sandbox shipped definition |
 | P5 | gating | `remote.enabled = true` with sandbox enabled | host check is never consulted | n/a | unit test |
 | P6 | validation precedence | request that fails `validate_launch_request` | `PreflightIssue::UnsupportedRuntimeOption` is prompted and the host check is never consulted | prompt carries the runtime diagnostic string | unit test |
-| P7 | prompt confirmation | user confirms `SshAdd` remediation | the same gate re-runs for the request; a still-unready host produces the next prompt, a cleared host resumes the launch | remediation error closes the modal and sets `error_message` (existing behavior) | unit test on the shared gate plus the restored re-check call |
+| P7 | prompt confirmation | user confirms `SshAdd` remediation | the whole `launch_preflight_issue` decision re-runs against the signature as remediation left it; a still-unready host produces the next prompt, a cleared host resumes the launch | remediation error closes the modal and sets `error_message` (existing behavior) | unit tests on the shared decision plus the reachability contract on the re-check call |
 | P8 | host observation | `ssh-add -l` exits zero printing `The agent has no identities.` | treated as no identities, which is what produces `SshAgentNoIdentities` | non-zero exit is also treated as no identities | pure unit tests over the extracted listing decision |
+| P10 | gating | sandbox enabled but `sandbox_engine` is unknown or absent | no engine is guessed and no host check runs; plan building refuses the launch naming the engine | the engine diagnostic comes from plan validation, not from a prompt about the wrong runtime | unit tests for the unknown and absent cases |
 | P9 | regression class | the launch gate stops handing the host check to its decision, stops re-checking after remediation, or `sandbox_preflight` loses every production use | the build fails the reachability contract naming the lost call | contract failure message names the gate and the consequence | `tests/core/sandbox_preflight_reachability_contracts.rs`, proven to fail at `76e5d714` and pass after the fix |
 
 Persistence and compatibility: no durable schema, no `ModalState` variant, no
@@ -120,8 +121,15 @@ quality-gate change is planned.
 
 ## Review counters
 
-- Local OCR runs before PR: 0 / 2
+- Local OCR runs before PR: 1 / 2
 - OCR runs after PR opened: 0 / 2
+
+### OCR run 1 triage (local, `76e5d714..4b83a1e5`)
+
+| Finding | Disposition | Action |
+|---|---|---|
+| `sandbox_preflight_engine` normalized an unrecognized or absent `sandbox_engine` to the `Podman` default, so the gate could inspect one runtime for a request naming another. Confirmed reachable: `validate_launch_request` fingerprints typed values without checking enum membership, so an unknown engine is only refused later, at plan building. | In-scope, fix | Parse strictly and return `None` when the engine does not resolve. New rows P10 and two unit tests. |
+| `handle_preflight_prompt_enter` re-ran only the host-check half of the gate while its doc comment claimed it ran the same gate, and `apply_preflight_action` takes the signature mutably between the two. | In-scope, fix | Re-check through `launch_preflight_issue`, so the claim is structural. Reachability contract updated to assert the shared call. |
 
 ## Verification evidence
 
@@ -130,7 +138,7 @@ Local, on the candidate head, logs under `tmp/verify713/`:
 - `cargo fmt --all --check`: clean.
 - `cargo xtask check clippy-allows | source-size | architecture | observation-coercion`: all exit 0.
 - `cargo build --workspace --all-features --locked`: clean.
-- `cargo test --workspace --all-features --locked`: 7341 passed, 0 failed.
+- `cargo test --workspace --all-features --locked`: 7343 passed, 0 failed.
 - `cargo xtask coverage`: total line coverage 72.06% against the 30% floor.
 - `CLIPPY_CONF_DIR=.github/clippy cargo clippy --workspace --all-targets --all-features -- -D warnings`:
   five findings in `src/domain/sha256.rs`, `src/domain/agent_definition/sha256.rs`,

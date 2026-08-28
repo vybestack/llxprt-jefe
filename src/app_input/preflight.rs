@@ -67,7 +67,11 @@ pub(super) fn launch_preflight_issue(
 ///   SSH agent describe the wrong machine;
 /// - the active definition declares no `sandbox_enabled` field, so a stale
 ///   value persisted from a sandbox-capable agent cannot gate it;
-/// - the request has the sandbox switched off.
+/// - the request has the sandbox switched off;
+/// - the request names an engine this gate cannot resolve. Nothing normalizes
+///   an unrecognized engine to a default here: inspecting one runtime on
+///   behalf of a request that names another is the silent mismatch this gate
+///   exists to prevent. Plan building rejects that request by name.
 pub(super) fn sandbox_preflight_engine(signature: &AgentLaunchRequest) -> Option<SandboxEngine> {
     if signature.remote.enabled {
         return None;
@@ -92,11 +96,10 @@ pub(super) fn sandbox_preflight_engine(signature: &AgentLaunchRequest) -> Option
         return None;
     }
 
-    let engine = match typed_field(&signature.values, "sandbox_engine") {
+    match typed_field(&signature.values, "sandbox_engine") {
         Some(TypedValue::String(value)) => SandboxEngine::from_form_value(value),
         _ => None,
-    };
-    Some(engine.unwrap_or_default())
+    }
 }
 
 fn open_preflight_prompt(
@@ -123,9 +126,10 @@ fn open_preflight_prompt(
 
 /// Handle preflight prompt confirmation: execute remediation, re-check, then launch.
 ///
-/// The re-check uses the same gate as the launch paths, so a host that is still
-/// not ready after remediation prompts again instead of launching an agent that
-/// would fail inside the sandbox.
+/// The re-check runs the same [`launch_preflight_issue`] the launch paths run,
+/// against the signature as remediation left it, so a host that is still not
+/// ready prompts again instead of launching an agent that would fail inside
+/// the sandbox.
 pub(super) fn handle_preflight_prompt_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -138,7 +142,7 @@ pub(super) fn handle_preflight_prompt_enter(
         return;
     }
 
-    let next = sandbox_preflight_engine(&signature).and_then(sandbox_preflight);
+    let next = launch_preflight_issue(&signature, sandbox_preflight);
     if let Some(next) = next {
         persist_next_preflight(
             app_state,
