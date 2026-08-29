@@ -177,6 +177,17 @@ Scenarios, `scripts/run-scenario-manifest.py --platform macos`:
   assertion of a scenario that enables no sandbox, which this change cannot
   reach.
 
+CI on the exact head is green: 27 pass, 0 fail. Two intermittent failures were
+seen and each was shown to be pre-existing rather than caused by this change:
+
+- `paste-enter-escape.json` timed out once on the first run and passed on every
+  run since. It enables no sandbox.
+- `killing_the_owning_psmux_server_reaps_the_whole_owned_tree` in
+  `tests/psmux_session_host.rs` failed once, asserting `!session_exists` after a
+  kill. The same test failed the same way on `main`'s own run of 2026-08-28, and
+  it passed on the rerun here. Nothing in this change touches Windows process
+  trees, psmux, session hosts or namespaces.
+
 Regression proofs:
 
 - P9: with `src/app_input/preflight.rs` restored to `76e5d714`, all three
