@@ -299,7 +299,7 @@ fn run_internal_agent_launch_if_requested() {
     }
     match jefe::runtime::run_launch_plan(std::path::Path::new(&plan_path)) {
         Ok(status) => {
-            let code = status.code().map_or(1, |value| value);
+            let code = status.code().unwrap_or(1);
             std::process::exit(code);
         }
         Err(error) => {

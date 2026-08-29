@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "llxprt-sandbox-save",
+  "name": "sandbox-launch-empty-ssh-agent",
   "platform": "macos",
   "terminal": {
     "cols": 120,
@@ -160,33 +160,35 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Sandboxed LLxprt",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "f12",
-      "modifiers": []
-    },
-    {
-      "op": "key",
-      "key": "enter",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Edit Agent",
+      "literal": "SSH agent has no identities",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Sandbox          [x]",
-        "Sandbox Engine   [Podman]",
-        "Sandbox Flags    [--cpus=2 --memory=12288m --pids-limit=256]"
+        "SSH agent has no identities"
       ],
       "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Sandboxed LLxprt",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Sandboxed LLxprt"
+      ],
+      "absent": [
+        "SSH agent has no identities"
+      ]
     }
   ],
   "secrets": []

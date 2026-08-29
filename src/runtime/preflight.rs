@@ -166,12 +166,20 @@ fn ssh_agent_has_identities() -> bool {
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    )
-    .to_ascii_lowercase();
+    );
 
-    // If the agent reports identities (exit 0 and no "no identities" message),
-    // keys are loaded.
-    output.status.success() && !combined.contains("the agent has no identities")
+    listing_reports_identities(output.status.success(), &combined)
+}
+
+/// Decide whether one `ssh-add -l` result means the agent holds a usable key.
+///
+/// Split from the process boundary so the empty-agent recognition that gates
+/// sandbox launches is provable without mutating a real SSH agent.
+fn listing_reports_identities(listing_succeeded: bool, combined_output: &str) -> bool {
+    listing_succeeded
+        && !combined_output
+            .to_ascii_lowercase()
+            .contains("the agent has no identities")
 }
 
 /// Run all preflight checks for a sandbox-enabled agent launch.
@@ -319,6 +327,34 @@ mod tests {
     #[test]
     fn seatbelt_is_always_ready() {
         assert!(container_runtime_is_ready(SandboxEngine::Seatbelt));
+    }
+
+    #[test]
+    fn listing_reports_identities_only_when_the_agent_lists_keys() {
+        assert!(
+            listing_reports_identities(true, "256 SHA256:abc user@host (ED25519)"),
+            "a successful listing naming a key means identities are loaded"
+        );
+    }
+
+    #[test]
+    fn empty_agent_listing_reports_no_identities() {
+        assert!(
+            !listing_reports_identities(true, "The agent has no identities."),
+            "an empty agent must be recognized so launch preflight can offer ssh-add"
+        );
+        assert!(
+            !listing_reports_identities(true, "the agent has no identities"),
+            "recognition must not depend on the agent's message casing"
+        );
+    }
+
+    #[test]
+    fn failed_agent_listing_reports_no_identities() {
+        assert!(
+            !listing_reports_identities(false, "Error connecting to agent"),
+            "an unreachable agent holds no usable identities"
+        );
     }
 
     #[test]
