@@ -246,7 +246,6 @@ fn cancel_after_terminal_stages_no_cancel_effect_at_app_state() {
 
     let owner = owner();
     let action = action();
-    let screen = screen();
     let empty = empty_map();
     let policy = continuation_policy();
 
@@ -256,9 +255,6 @@ fn cancel_after_terminal_stages_no_cancel_effect_at_app_state() {
         .apply_message(AppMessage::Provider(Box::new(ProviderMessage::Invoke {
             owner: owner.clone(),
             action_id: action.clone(),
-            context_screen: screen.clone(),
-            context_instance: screen.clone(),
-            context_refs: empty.clone(),
             arguments: empty.clone(),
             policy: policy.clone(),
         })))

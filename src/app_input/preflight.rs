@@ -2,7 +2,7 @@ use jefe::domain::{AgentId, AgentLaunchRequest};
 use jefe::runtime::{
     PreflightAction, PreflightIssue, execute_preflight_action, validate_launch_request,
 };
-use jefe::state::ModalState;
+use jefe::state::screen_overlays::ConfirmationRequest;
 
 use super::{
     AppStateHandle, SharedContext, durable_save_request, execute_agent_launch,
@@ -52,14 +52,19 @@ fn open_preflight_prompt(
     issue_self_assignment: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
 ) {
     let mut state = app_state.write();
-    state.modal = ModalState::PreflightPrompt {
+    let opened = state.open_confirmation_payload(ConfirmationRequest::Preflight {
         agent_id: agent_id.clone(),
         signature: signature.clone(),
         issue,
         remaining_issues: Vec::new(),
         issue_self_assignment: issue_self_assignment.cloned(),
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    });
+    if !opened {
+        // Refusal means an occupied/undeclared overlay already owns the
+        // presentation; persist nothing so the active overlay survives and the
+        // refusal is not rewritten as a no-op save.
+        return;
+    }
     let persisted = durable_save_request(&mut state);
     drop(state);
     schedule_durable_save(ctx, persisted);
@@ -72,11 +77,25 @@ fn open_preflight_prompt(
 pub(super) fn handle_preflight_prompt_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    agent_id: AgentId,
-    mut signature: AgentLaunchRequest,
-    issue: PreflightIssue,
-    issue_self_assignment: Option<jefe::state::IssueSelfAssignmentFollowUp>,
+    expected: &ConfirmationRequest,
 ) {
+    let ConfirmationRequest::Preflight {
+        agent_id,
+        signature,
+        issue,
+        issue_self_assignment,
+        ..
+    } = expected
+    else {
+        return;
+    };
+    let agent_id = agent_id.clone();
+    let mut signature = signature.clone();
+    let issue = issue.clone();
+    let issue_self_assignment = issue_self_assignment.clone();
+    if !super::close_expected_generic_confirmation_and_persist(app_state, ctx, expected) {
+        return;
+    }
     if !apply_preflight_action(app_state, ctx, &agent_id, &mut signature, issue.action()) {
         return;
     }
@@ -164,20 +183,18 @@ fn persist_next_preflight(
     issue_self_assignment: Option<jefe::state::IssueSelfAssignmentFollowUp>,
 ) {
     let mut state = app_state.write();
-    state.modal = ModalState::PreflightPrompt {
+    state.open_confirmation_payload(ConfirmationRequest::Preflight {
         agent_id,
         signature,
         issue,
         remaining_issues: Vec::new(),
         issue_self_assignment,
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    });
     persist_state_guard(ctx, state);
 }
 
 fn persist_launch_resume(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
-    state.modal = ModalState::None;
     state.terminal_focused = true;
     persist_state_guard(ctx, state);
 }
@@ -188,7 +205,6 @@ fn persist_modal_close(
     error_message: Option<String>,
 ) {
     let mut state = app_state.write();
-    state.modal = ModalState::None;
     state.error_message = error_message;
     persist_state_guard(ctx, state);
 }

@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 use super::descriptor::{LayoutChild, LayoutNode, ScreenDescriptor};
-use super::ids::{MAX_PANELS_PER_SCREEN, PanelId, ScreenId};
+use super::ids::{DASHBOARD_IDENTITY, MAX_PANELS_PER_SCREEN, PanelId, ScreenId};
 use super::screens::{PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
 use super::validate::validate_descriptor;
 
@@ -159,21 +159,33 @@ fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
 }
 
 #[test]
-fn the_declared_screen_constants_match_the_registry_exactly() {
+fn the_compiled_residual_set_is_exactly_seven_and_excludes_dashboard() {
     let registry = registry();
+    let expected = [
+        ScreenId::Repositories,
+        ScreenId::Issues,
+        ScreenId::PullRequests,
+        ScreenId::Actions,
+        ScreenId::Errors,
+        ScreenId::Terminals,
+        ScreenId::Settings,
+    ];
     let registered: Vec<ScreenId> = registry
         .screens()
         .iter()
-        .map(|screen| {
-            screen.id.compiled().unwrap_or_else(|| {
-                unreachable!(
-                    "the compiled registry must hold only compiled screens: {}",
-                    screen.id
-                )
-            })
-        })
+        .filter_map(|screen| screen.id.compiled())
         .collect();
-    assert_eq!(registered, ScreenId::ALL.to_vec());
+    let dashboard = registry
+        .screens()
+        .iter()
+        .find(|screen| screen.id.as_str() == "core.dashboard");
+
+    assert_eq!(ScreenId::ALL, expected);
+    assert_eq!(registered, expected);
+    assert!(
+        dashboard.is_some_and(|screen| screen.id.compiled().is_none()),
+        "Dashboard must be an open shared-runtime definition, not a residual compiled adapter"
+    );
 }
 
 #[test]
@@ -181,14 +193,11 @@ fn an_unregistered_value_does_not_resolve_to_a_screen_identity() {
     let registry = registry();
     assert_eq!(registry.resolve("core.nonesuch"), None);
     assert_eq!(registry.resolve(""), None);
-    assert_eq!(
-        registry.resolve("core.dashboard"),
-        Some(ScreenId::Dashboard)
-    );
+    assert_eq!(registry.resolve("core.dashboard"), Some(DASHBOARD_IDENTITY));
 }
 
 #[test]
-fn the_first_screen_is_the_compiled_initial_screen() {
+fn the_first_screen_is_the_open_dashboard_definition() {
     let registry = registry();
     assert_eq!(
         registry.initial_screen().map(|screen| screen.id.as_str()),
@@ -197,10 +206,36 @@ fn the_first_screen_is_the_compiled_initial_screen() {
 }
 
 #[test]
+fn dashboard_declares_its_footer_context_from_the_canonical_action_inventory() {
+    let registry = registry();
+    let Some(dashboard) = registry.get_identity(DASHBOARD_IDENTITY) else {
+        panic!("Dashboard descriptor must be published");
+    };
+    let Ok(inventory) = crate::domain::default_action_inventory::compiled_inventory() else {
+        panic!("compiled action inventory must be valid");
+    };
+    let Some(help_action) = inventory.actions.iter().find(|action| {
+        action.handler == crate::domain::action_registry::HandlerKey::OpenHelp
+            && action
+                .contexts
+                .iter()
+                .any(|context| context.as_str() == "dashboard")
+    }) else {
+        panic!("canonical Dashboard Help action must exist");
+    };
+
+    assert_eq!(dashboard.bindings.len(), 1);
+    assert_eq!(dashboard.bindings[0].context.as_str(), "dashboard");
+    assert_eq!(dashboard.bindings[0].action, help_action.id);
+}
+
+#[test]
 fn lookup_by_stable_identity_finds_each_screen() {
     let registry = registry();
     for screen in registry.screens() {
-        let looked_up = ScreenId::from_stable(screen.id.as_str()).and_then(|id| registry.get(id));
+        let looked_up = registry
+            .resolve(screen.id.as_str())
+            .and_then(|id| registry.get_identity(id));
         assert_eq!(looked_up.map(|found| &found.id), Some(&screen.id));
     }
 }
@@ -428,4 +463,33 @@ fn assert_children(node: &LayoutNode, check: &mut impl FnMut(&LayoutChild)) {
             assert_children(&child.node, check);
         }
     }
+}
+
+#[test]
+fn mutating_a_legacy_product_spelling_does_not_change_compiled_host_authority() {
+    let mut dashboard = registry()
+        .get_identity(DASHBOARD_IDENTITY)
+        .unwrap_or_else(|| panic!("compiled dashboard"))
+        .clone();
+    let repository = dashboard
+        .panels
+        .iter_mut()
+        .find(|panel| panel.id.as_str() == "repositories")
+        .unwrap_or_else(|| panic!("repository panel"));
+    let authority = repository
+        .host_capability()
+        .unwrap_or_else(|| panic!("compiled repository authority"));
+
+    repository.panel_type = super::ids::PanelTypeId::from_static("notice-band");
+
+    assert_eq!(repository.host_capability(), Some(authority));
+    assert_eq!(
+        authority.model_source(),
+        super::descriptor::HostPanelModelSource::RepositoryList
+    );
+    assert_eq!(
+        authority.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
+    assert_eq!(validate_descriptor(&dashboard), Ok(()));
 }

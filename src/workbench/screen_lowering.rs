@@ -25,7 +25,7 @@ use crate::persistence::diagnostic::DiagnosticPath;
 
 use super::activation::ScreenBinding;
 use super::descriptor::{
-    PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor,
+    OverlayKind, PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor,
 };
 use super::ids::{
     CUSTOM_SCREEN_NAMESPACE, CustomScreenId, IdError, PanelId, PanelTypeId, PluginScreenId, PortId,
@@ -36,8 +36,8 @@ use super::lowering_error::LoweringError;
 use super::panel_types::{DEFINABLE_PANEL_TYPES, find_panel_type};
 use super::resource_schemas::ResourceSchema;
 use super::screen_file::{
-    PanelFile, PortDirectionFile, PortFile, ResourceFieldFile, ResourceFieldKind, ResourceFile,
-    ScreenFile, span_of,
+    OverlayKindFile, PanelFile, PortDirectionFile, PortFile, ResourceFieldFile, ResourceFieldKind,
+    ResourceFile, ScreenFile, span_of,
 };
 use super::screen_lowering_layout::{lower_layout, lower_relationships};
 use super::screen_lowering_values::{lower_activation, lower_bindings, lower_config};
@@ -81,17 +81,32 @@ pub fn lower_screen(
     member: &str,
     path: &Path,
 ) -> Result<LoweredScreen, LoweringError> {
+    lower_screen_with_provider_panels(file, member, path, &[])
+}
+
+/// Lower one local definition with the panel declarations exported by selected providers.
+pub(crate) fn lower_screen_with_provider_panels(
+    file: &ScreenFile,
+    member: &str,
+    path: &Path,
+    provider_panels: &[&str],
+) -> Result<LoweredScreen, LoweringError> {
     let expected = format!("{CUSTOM_SCREEN_NAMESPACE}{member}");
     let id =
         CustomScreenId::parse(intern(&expected)?).map_err(|reason| LoweringError::Identifier {
             field: "id",
             reason,
         })?;
+    let allowed_panels = DEFINABLE_PANEL_TYPES
+        .iter()
+        .copied()
+        .chain(provider_panels.iter().copied())
+        .collect::<Vec<_>>();
     lower_with(
         file,
         &expected,
         ScreenIdentity::Custom(id),
-        &DEFINABLE_PANEL_TYPES,
+        &allowed_panels,
         path,
     )
 }
@@ -232,6 +247,16 @@ fn lower_with(
                 .map(|field| field.get_ref().clone())
                 .collect::<Vec<_>>(),
         )?,
+        overlays: file
+            .overlays
+            .iter()
+            .map(|overlay| match overlay.get_ref().kind {
+                OverlayKindFile::Help => OverlayKind::Help,
+                OverlayKindFile::Search => OverlayKind::Search,
+                OverlayKindFile::Confirmation => OverlayKind::Confirmation,
+            })
+            .collect(),
+        host_capabilities: Vec::new(),
         bindings: lower_declared_bindings(file)?,
     };
     validate_descriptor(&descriptor)?;
@@ -279,6 +304,7 @@ fn lower_panel(
         id: parse_id("panels.id", &panel.id, PanelId::parse)?,
         panel_type: parse_id("panels.type", &panel.panel_type, PanelTypeId::parse)?,
         config: lower_config(&panel.config)?,
+        host_capability: None,
         focusable: panel.focusable,
         required: panel.required,
         ports: panel

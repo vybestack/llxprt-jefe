@@ -74,18 +74,6 @@ pub(super) const SPECS: &[Spec] = &[
         H::SearchBackspace,
         ["Up", "Down", "Left", "Right"]
     ),
-    spec!(
-        "dashboard.search",
-        "dashboard.search.apply",
-        H::SearchApply,
-        ["Enter"]
-    ),
-    spec!(protected
-        "dashboard.search",
-        "dashboard.search.cancel",
-        H::SearchCancel,
-        ["Esc"]
-    ),
     spec!(protected "issues", "issues.exit", H::IssuesExit, ["a", "Esc"]),
     spec!("issues", "issues.refocus-list", H::IssuesBack, ["i"]),
     spec!("issues", "issues.open-prs", H::IssuesBack, ["p"]),
@@ -920,7 +908,7 @@ pub(super) const SPECS: &[Spec] = &[
 ];
 
 pub(super) const CONTEXT_STACK_SPECS: &[(&[&str], bool)] = &[
-    (&["dashboard.search", "dashboard.pre-mode", "global"], false),
+    (&["search", "global"], false),
     (&["issues.repo-list", "issues", "global"], false),
     (&["issues.list", "issues", "global"], false),
     (&["issues.detail", "issues", "global"], false),

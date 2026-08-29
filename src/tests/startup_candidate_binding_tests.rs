@@ -62,8 +62,12 @@ fn final_composition_accepts_and_resolves_a_provider_declared_binding() {
         )],
     )
     .unwrap_or_else(|error| panic!("provider action must compose: {error}"));
-    crate::startup_candidate::validate_screen_bindings(&registry, published.snapshot())
-        .unwrap_or_else(|error| panic!("provider declaration must validate: {error}"));
+    crate::startup_candidate::validate_screen_bindings(
+        &registry,
+        published.snapshot(),
+        &crate::runtime::provider::ProviderCatalog::new(),
+    )
+    .unwrap_or_else(|error| panic!("provider declaration must validate: {error}"));
     let chord = Chord::parse("v").unwrap_or_else(|error| panic!("provider chord: {error}"));
     assert_eq!(
         published

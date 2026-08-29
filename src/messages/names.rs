@@ -38,10 +38,6 @@ message_names!(UiNavigationMessage {
     Self::CyclePaneFocus => "CyclePaneFocus",
     Self::ToggleTerminalFocus => "ToggleTerminalFocus",
     Self::ToggleHideIdleRepositories => "ToggleHideIdleRepositories",
-    Self::FocusDashboardSearch => "FocusDashboardSearch",
-    Self::BlurDashboardSearch => "BlurDashboardSearch",
-    Self::SetDashboardSearchQuery { .. } => "SetDashboardSearchQuery",
-    Self::ClearDashboardSearch => "ClearDashboardSearch",
     Self::EnterSplitMode => "EnterSplitMode",
     Self::ExitSplitMode => "ExitSplitMode",
     Self::EnterGrabMode => "EnterGrabMode",
@@ -423,6 +419,7 @@ message_names!(PullRequestsMessage {
 
 use crate::state::AppEvent;
 
+#[cfg(test)]
 #[must_use]
 pub(super) fn is_new_issue_form_app_event(event: &AppEvent) -> bool {
     matches!(

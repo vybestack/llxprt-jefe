@@ -71,7 +71,7 @@ fn parse_hex(hex: &str) -> Result<DefinitionSha256, String> {
         ));
     }
     let mut bytes = [0u8; 32];
-    for (i, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+    for (i, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = hex_val(pair[0])?;
         let low = hex_val(pair[1])?;
         bytes[i] = (high << 4) | low;

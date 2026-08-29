@@ -3,8 +3,7 @@
 use std::time::Instant;
 
 use super::workbench_filter::WorkbenchUiState;
-use crate::domain::{AgentId, AgentLaunchRequest, RepositoryId};
-use crate::runtime::PreflightIssue;
+use crate::domain::{AgentId, RepositoryId};
 
 // Which screen is active is the workbench's vocabulary: identity is the stable
 // namespaced string that descriptors, persistence, and goldens agree on. State
@@ -164,10 +163,6 @@ impl AuthDialogState {
 pub enum ModalState {
     #[default]
     None,
-    Help,
-    Search {
-        query: String,
-    },
     NewRepository {
         fields: RepositoryFormFields,
         focus: RepositoryFormFocus,
@@ -178,10 +173,6 @@ pub enum ModalState {
         fields: RepositoryFormFields,
         focus: RepositoryFormFocus,
         cursor: RepositoryFormCursor,
-    },
-    ConfirmDeleteRepository {
-        id: RepositoryId,
-        confirm_focus: ConfirmFocus,
     },
     NewAgent {
         repository_id: RepositoryId,
@@ -207,68 +198,6 @@ pub enum ModalState {
         focus: AgentFormFocus,
         cursor: AgentFormCursor,
     },
-    ConfirmDeleteAgent {
-        id: AgentId,
-        delete_work_dir: bool,
-        confirm_focus: ConfirmFocus,
-    },
-    ConfirmKillAgent {
-        id: AgentId,
-        confirm_focus: ConfirmFocus,
-    },
-    ConfirmServerLostRecovery {
-        agent_ids: Vec<AgentId>,
-        confirm_focus: ConfirmFocus,
-    },
-    /// Preflight check failed — prompt the user for remediation before launch.
-    ///
-    /// TODO(issue #24): Expand this to support a queue of issues if preflight
-    /// transitions from single-issue checks to batched diagnostics.
-    PreflightPrompt {
-        /// The agent being launched (so we can resume after remediation).
-        agent_id: AgentId,
-        /// The launch signature (so we can resume the spawn).
-        signature: AgentLaunchRequest,
-        /// The issue that was detected.
-        issue: PreflightIssue,
-        /// Placeholder for future multi-issue handling.
-        remaining_issues: Vec<PreflightIssue>,
-        /// Captured issue self-assignment follow-up for issue-driven launches
-        /// (issue #186). `None` for non-issue launches (e.g. relaunch). When
-        /// present, the assignment (or its warning) fires after a successful
-        /// post-preflight launch.
-        issue_self_assignment: Option<IssueSelfAssignmentFollowUp>,
-        confirm_focus: ConfirmFocus,
-    },
-    /// Issue send: the working copy is dirty (uncommitted changes, excluding
-    /// jefe/llxprt-owned paths) OR not on the repository's default branch
-    /// (issue #338). Prompt the user to switch to the default branch, discard
-    /// non-owned changes, and pull before the issue-driven launch proceeds.
-    /// The default is no/halt; the user must explicitly opt in (Enter) before
-    /// destructive cleanup. Escape (or `n`) aborts and leaves the working
-    /// copy untouched.
-    ConfirmIssueDirtyCopy {
-        agent_id: AgentId,
-        work_dir: std::path::PathBuf,
-        signature: AgentLaunchRequest,
-        payload: crate::github::SendPayload,
-        confirm_focus: ConfirmFocus,
-    },
-    /// Issue send: the working copy is a git repo whose `origin` does not
-    /// match the configured repository. Prompt the user to replace it with a
-    /// fresh clone before the issue-driven launch proceeds. The default is
-    /// no/halt; the user must explicitly opt in (Enter) before the
-    /// destructive remove+reclone. Escape (or `n`) aborts and leaves the
-    /// working copy untouched.
-    ConfirmIssueOriginMismatch {
-        agent_id: AgentId,
-        work_dir: std::path::PathBuf,
-        signature: AgentLaunchRequest,
-        payload: crate::github::SendPayload,
-        actual: String,
-        expected: String,
-        confirm_focus: ConfirmFocus,
-    },
     WorkflowDispatch {
         workflow: crate::domain::Workflow,
         fields: WorkflowDispatchFormFields,
@@ -277,9 +206,7 @@ pub enum ModalState {
     },
     /// In-app device-code auth remediation dialog (issue #244). Render-only
     /// data: the runtime layer owns the `gh auth login --web` subprocess.
-    Auth {
-        state: AuthDialogState,
-    },
+    Auth { state: AuthDialogState },
 }
 
 /// Pane focus within a view.
@@ -321,23 +248,6 @@ pub struct QuitSequenceState {
     pub presses: u8,
     /// Instant of the most recent `q`, used to enforce the inter-press window.
     pub last_press: Option<Instant>,
-}
-
-/// Dashboard "search lite" input + query state (issue #405).
-///
-/// Grouped so [`AppState`] stays within the `max-struct-bools` budget. The
-/// query live-filters the repository sidebar and agent pane by `name`
-/// (case-insensitive substring), AND-composed with `hide_idle_repositories`.
-/// Runtime-only — never persisted (a stale filter on startup would contradict
-/// "make it obvious you're filtered").
-#[derive(Debug, Default, Clone)]
-pub struct DashboardSearchState {
-    /// Current query text.
-    pub query: String,
-    /// Pre-lowered query for fast case-insensitive matching (issue #405 OCR).
-    pub lowered_query: String,
-    /// Whether the search input has keyboard focus.
-    pub input_focused: bool,
 }
 
 /// Active-only visibility exceptions created by recent UI events, grouped so
@@ -383,10 +293,6 @@ pub struct AppState {
     pub observation_generations: std::collections::HashMap<crate::domain::AgentId, u64>,
 
     // Selection
-    pub selected_repository_index: Option<usize>,
-    pub selected_agent_index: Option<usize>,
-    /// Runtime-only selected row in the Agent Types status surface.
-    pub selected_agent_type_index: usize,
     pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 
     // View state
@@ -399,19 +305,9 @@ pub struct AppState {
     /// guard cannot disagree with what is on screen. Runtime-only — the
     /// durable document remembers a screen, never a stack.
     pub nav: super::navigation::NavState,
-    pub pane_focus: PaneFocus,
-    pub terminal_focused: bool,
     pub hide_idle_repositories: bool,
     /// Multi-agent workbench view state (issue #626); runtime-only.
     pub workbench: WorkbenchUiState,
-
-    /// Dashboard "search lite" state for repositories and agents (issue #405).
-    ///
-    /// Filters the sidebar (by repo `name`) AND the agent pane (by agent
-    /// `name`), case-insensitively, AND-composed with
-    /// `hide_idle_repositories`. Runtime-only — never persisted (a stale
-    /// filter on startup would contradict "make it obvious you're filtered").
-    pub dashboard_search: DashboardSearchState,
 
     /// Active-only visibility exceptions (issue #116 for just-killed agents,
     /// issue #404 for just-created repositories). Runtime-only — never
@@ -421,32 +317,14 @@ pub struct AppState {
     // Modal/form state
     pub modal: ModalState,
 
-    // Split mode state
-    pub split_filter: Option<RepositoryId>,
-    pub split_grab_index: Option<usize>,
-
-    /// Active dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop).
-    /// Transient interaction state — not persisted (like split_grab_index).
-    pub dashboard_grab: Option<DashboardGrabPane>,
     /// Runtime-only action availability generation layered over the immutable
     /// action declarations committed in `published_workbench`.
     pub(crate) action_availability: Option<crate::domain::action_registry::AvailabilityGeneration>,
     /// Runtime-only health-derived provider availability overrides.
     pub provider_action_health:
         std::collections::BTreeMap<crate::domain::action_registry::ActionId, String>,
-    /// Provider action whose unavailable result currently owns the provider surface.
-    pub provider_surface_action: Option<crate::domain::action_registry::ActionId>,
     /// Most recent provider notice accepted by the post-commit host adapter.
     pub provider_notice: Option<crate::domain::effects::ProviderNotice>,
-    /// Runtime-only provider panel lifecycle and complete accepted models.
-    pub provider_panels: super::provider_panels::ProviderPanelState,
-    /// One root-owned immutable geometry snapshot for the active screen.
-    /// Resolved once per size or state change and read by every geometry
-    /// consumer — renderer, mouse routing, selection, wrapping, scrolling, and
-    /// PTY resize — so no two can disagree about where a panel is. Runtime-only
-    /// and never persisted: geometry is derived, not remembered.
-    pub resolved_layout: Option<crate::workbench::ResolvedLayout>,
-
     // Errors/warnings
     pub error_message: Option<String>,
     pub warning_message: Option<String>,
@@ -513,59 +391,6 @@ pub struct AppState {
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
 
-    /// Active mouse text-selection, if any. Runtime-only — never persisted.
-    ///
-    /// Set by the app-shell mouse router when the user drag-selects text in any
-    /// pane (or in the terminal snapshot when unfocused). Cleared on Escape or
-    /// when a new selection begins. Used by the renderers to paint an
-    /// inverse-video highlight over the selected cells.
-    pub selection: Option<crate::selection::TextSelection>,
-
-    /// Git display data bound to an active dashboard selection gesture.
-    pub selection_dashboard_git_info: Option<crate::dashboard_git_info::DashboardGitInfoSnapshot>,
-
-    /// The terminal snapshot bound to the active selection (issue #197).
-    ///
-    /// Captured when a terminal selection gesture begins and reused for BOTH
-    /// the highlight rendering and the copy-at-release so copied text always
-    /// matches what the user highlighted — even when the live grid streams new
-    /// output between the last drag frame and mouse-up. Cleared together with
-    /// `selection`. Runtime-only — never persisted.
-    pub selection_snapshot: Option<crate::runtime::TerminalSnapshot>,
-
-    /// Gesture-ownership state for the terminal mouse router (issue #197).
-    ///
-    /// Persists the left-button gesture ownership decision (Jefe vs PTY) across
-    /// events within a single down→drag→up cycle. Reset to idle on release.
-    /// Runtime-only — never persisted.
-    pub terminal_gesture_state: crate::selection::GestureState,
-
-    /// Help modal scroll offset (lines scrolled from the top). Mirrored from
-    /// the app-shell hook state so the selection content projection can map
-    /// screen coordinates to the correct help content line (issue #178).
-    /// Runtime-only — never persisted.
-    pub help_scroll_offset: usize,
-
-    /// Terminal scrollback offset for the embedded terminal pane (issue #198).
-    ///
-    /// `None` (default) means **follow-tail**: render the live snapshot at the
-    /// bottom (current behavior). `Some(n)` means the viewport is scrolled back
-    /// `n` lines from the bottom; follow-tail is paused and a follow indicator
-    /// renders. Runtime-only — never persisted (like `selection`,
-    /// `quit_sequence`).
-    pub terminal_history_offset: Option<usize>,
-
-    /// Cached number of terminal viewport rows (for scrollback offset math,
-    /// issue #198). Mirrors `detail_viewport_rows` for detail panes. Updated by
-    /// the render/layout layer so the deterministic reducer can compute clamp
-    /// bounds without I/O. Runtime-only — never persisted.
-    pub terminal_viewport_rows: usize,
-
-    /// Cached total lines of scrollback content (history + live snapshot rows,
-    /// issue #198). Updated by the render layer from the runtime history
-    /// capture + live snapshot. Runtime-only — never persisted.
-    pub terminal_total_lines: usize,
-
     /// Runtime mirror of `persistence::Settings.override_agent_theme` (issue
     /// #179). settings.toml is the source of truth; the render path reads this.
     pub override_agent_theme: bool,
@@ -574,20 +399,14 @@ pub struct AppState {
     /// (issue #213). Runtime-only — never persisted.
     pub transient_queue: TransientAgentQueue,
 
-    /// Embedded agent-shell overlay state (issue #222). When active, the
-    /// dashboard replaces the agent list + preview with the shell terminal
-    /// pane while preserving the repository sidebar and outer bars.
-    /// Runtime-only — never persisted.
-    pub shell_overlay: ShellOverlayState,
+    /// Application-wide inventory of live shell processes, including hidden
+    /// shells. Exact-instance visible controller state lives in the current
+    /// screen presentation.
+    pub shell_inventory: super::ShellInventory,
 
     /// Terminal Manager screen state (issue #361 PR B). Runtime-only — never
-    /// persisted. Inventory/manager/return state live here.
+    /// persisted. The residual compiled adapter remains application-wide.
     pub terminal_manager: super::TerminalManagerState,
-
-    /// Where a focused shell should return when hidden/closed/exited (issue
-    /// #361 PR B). Set when entering a shell from the manager so F12/F10/natural
-    /// exit restore the manager; Dashboard-entered shells keep Dashboard.
-    pub shell_return_target: super::ShellReturnTarget,
 
     /// Runtime-only cache of dead-agent pane previews (issue #374 S4).
     /// Populated once by the off-lock liveness worker; read by the pure render
@@ -599,41 +418,119 @@ pub struct AppState {
     /// Runtime-only — never persisted; no handle/closure/queue lives here.
     pub pending_effects: super::transition::EffectLedger,
 
-    /// Handle-free provider request reducer state (issue #390 CW-10, Slice B);
-    /// runtime-only, never persisted.
+    /// Application-wide, handle-free provider effect ledger (issue #390 CW-10,
+    /// Slice B). Every request and continuation is bound to its exact screen and
+    /// screen-instance identity, while the ledger remains above presentation so
+    /// an effect can complete while its owning instance is suspended. Current
+    /// projections query only that exact owner. Runtime-only, never persisted.
     pub provider_requests: super::provider_requests::ProviderRequestState,
 }
 
 fn initial_navigation(
     published_workbench: &crate::published_workbench::PublishedWorkbench,
 ) -> super::navigation::NavState {
-    let mut nav = super::navigation::NavState::default();
-    if let Some(descriptor) = published_workbench
-        .screen_registry()
-        .get_identity(nav.screen())
-        && nav.ensure_current_relationships(descriptor).is_err()
-    {
+    let Some(descriptor) = published_workbench.screen_registry().initial_screen() else {
+        std::process::abort();
+    };
+    let mut nav = super::navigation::NavState::rooted_definition(
+        descriptor.id,
+        descriptor.route,
+        descriptor.initial_focus,
+    );
+    if nav.ensure_current_relationships(descriptor).is_err() {
         std::process::abort();
     }
     nav
 }
 
+fn declared_footer_mode(
+    descriptor: Option<&crate::workbench::ScreenDescriptor>,
+) -> Option<crate::domain::default_action_inventory::display::FooterMode> {
+    descriptor
+        .filter(|descriptor| {
+            descriptor.has_host_capability(crate::workbench::HostScreenCapability::DashboardFooter)
+        })
+        .map(|_| crate::domain::default_action_inventory::display::FooterMode::Dashboard)
+}
+
 impl AppState {
+    #[must_use]
+    pub const fn provider_panels(&self) -> &super::provider_panels::ProviderPanelState {
+        self.nav.current().provider_panels()
+    }
+
+    pub fn provider_panels_mut(&mut self) -> &mut super::provider_panels::ProviderPanelState {
+        self.nav.current_mut().provider_panels_mut()
+    }
+
+    pub fn provider_panels_for_panel_mut(
+        &mut self,
+        panel: super::provider_panels::PanelInstanceId,
+    ) -> Option<&mut super::provider_panels::ProviderPanelState> {
+        self.nav
+            .instance_for_panel_mut(panel)
+            .map(super::navigation::ScreenInstance::provider_panels_mut)
+    }
+
+    pub fn fail_provider_panels_for_owner(&mut self, owner: &crate::domain::Id) {
+        self.nav.for_each_instance_mut(|instance| {
+            instance.provider_panels_mut().fail_runtime_owner(owner);
+        });
+    }
+
+    /// Publish frame geometry only to the exact screen instance used to resolve it.
+    pub fn publish_resolved_layout(
+        &mut self,
+        screen_instance: crate::workbench::ScreenInstanceId,
+        layout: Option<crate::workbench::ResolvedLayout>,
+    ) -> bool {
+        if self.nav.current().id != screen_instance
+            || layout
+                .as_ref()
+                .is_some_and(|layout| layout.screen_instance != screen_instance)
+        {
+            return false;
+        }
+        self.nav.current_mut().presentation_mut().resolved_layout = layout;
+        true
+    }
+
     /// Replace navigation with a durable root bound to the committed screen declaration.
     ///
     /// Restoration occurs before the application becomes observable. Exhausting a
     /// process-unique panel identity at this boundary is therefore unrecoverable.
-    pub fn restore_navigation_root(&mut self, screen: crate::workbench::ScreenId) {
-        let mut nav = super::navigation::NavState::rooted(screen);
-        if let Some(descriptor) = self
+    pub fn restore_navigation_root(&mut self, screen: impl Into<crate::workbench::ScreenIdentity>) {
+        let screen = screen.into();
+        let Some(descriptor) = self
             .published_workbench
             .screen_registry()
-            .get_identity(nav.screen())
-            && nav.ensure_current_relationships(descriptor).is_err()
-        {
+            .get_identity(screen)
+        else {
+            std::process::abort();
+        };
+        let mut nav = super::navigation::NavState::rooted_definition(
+            descriptor.id,
+            descriptor.route,
+            descriptor.initial_focus,
+        );
+        if nav.ensure_current_relationships(descriptor).is_err() {
             std::process::abort();
         }
         self.nav = nav;
+    }
+}
+
+impl std::ops::Deref for AppState {
+    type Target = super::navigation::InstancePresentationState;
+
+    fn deref(&self) -> &Self::Target {
+        self.nav.current().presentation()
+    }
+}
+
+impl std::ops::DerefMut for AppState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.nav.current_mut().presentation_mut()
     }
 }
 
@@ -655,26 +552,14 @@ impl AppState {
             agent_probe_generation: 0,
             observations: std::collections::HashMap::new(),
             observation_generations: std::collections::HashMap::new(),
-            selected_repository_index: None,
-            selected_agent_index: None,
-            selected_agent_type_index: 0,
             last_selected_agent_by_repo: Vec::new(),
-            pane_focus: PaneFocus::default(),
-            terminal_focused: false,
             hide_idle_repositories: false,
             workbench: WorkbenchUiState::default(),
-            dashboard_search: DashboardSearchState::default(),
             sticky_visibility: StickyVisibilityState::default(),
             modal: ModalState::default(),
-            split_filter: None,
-            split_grab_index: None,
-            dashboard_grab: None,
             action_availability: None,
             provider_action_health: std::collections::BTreeMap::new(),
-            provider_surface_action: None,
             provider_notice: None,
-            provider_panels: super::provider_panels::ProviderPanelState::default(),
-            resolved_layout: None,
             error_message: None,
             warning_message: None,
             durable_read_held: None,
@@ -688,19 +573,10 @@ impl AppState {
             errors_state: super::ErrorsState::default(),
             settings_state: super::SettingsState::default(),
             quit_sequence: QuitSequenceState::default(),
-            selection: None,
-            selection_dashboard_git_info: None,
-            selection_snapshot: None,
-            terminal_gesture_state: crate::selection::GestureState::default(),
-            help_scroll_offset: 0,
-            terminal_history_offset: None,
-            terminal_viewport_rows: 0,
-            terminal_total_lines: 0,
             override_agent_theme: false,
             transient_queue: TransientAgentQueue::default(),
-            shell_overlay: ShellOverlayState::default(),
+            shell_inventory: super::ShellInventory::default(),
             terminal_manager: super::TerminalManagerState::default(),
-            shell_return_target: super::ShellReturnTarget::default(),
             dead_preview: super::DeadAgentPreviewCache::default(),
             pending_effects: super::transition::EffectLedger::default(),
             provider_requests: super::provider_requests::ProviderRequestState::default(),
@@ -761,8 +637,15 @@ impl AppState {
     #[must_use]
     pub(crate) fn footer_hints(
         &self,
-        input: crate::action_projection::FooterProjectionInput,
+        mut input: crate::action_projection::FooterProjectionInput,
     ) -> String {
+        let descriptor = self
+            .published_workbench()
+            .screen_registry()
+            .get_identity(self.nav.current().screen);
+        if input.mode_override.is_none() {
+            input.mode_override = declared_footer_mode(descriptor);
+        }
         crate::action_projection::project_footer_effective(
             self.action_registry(),
             self.action_availability_generation(),
@@ -865,3 +748,38 @@ impl AppState {
 }
 
 pub use super::interaction_types::*;
+
+#[cfg(test)]
+mod footer_context_tests {
+    use super::declared_footer_mode;
+    use crate::domain::default_action_inventory::display::FooterMode;
+    use crate::workbench::{CustomScreenId, DASHBOARD_IDENTITY, ScreenIdentity};
+
+    fn dashboard_descriptor() -> crate::workbench::ScreenDescriptor {
+        crate::test_support::published_workbench()
+            .screen_registry()
+            .get_identity(DASHBOARD_IDENTITY)
+            .unwrap_or_else(|| panic!("dashboard descriptor must be published"))
+            .clone()
+    }
+
+    #[test]
+    fn dashboard_footer_requires_the_exact_sealed_descriptor_capability() {
+        let dashboard = dashboard_descriptor();
+        assert_eq!(
+            declared_footer_mode(Some(&dashboard)),
+            Some(FooterMode::Dashboard)
+        );
+
+        let mut one_binding_only = dashboard;
+        one_binding_only.id = ScreenIdentity::Custom(
+            CustomScreenId::parse("local.one-dashboard-binding")
+                .unwrap_or_else(|error| panic!("custom screen: {error}")),
+        );
+        one_binding_only.host_capabilities.clear();
+
+        assert_eq!(declared_footer_mode(Some(&one_binding_only)), None);
+        assert_eq!(one_binding_only.bindings.len(), 1);
+        assert_eq!(one_binding_only.bindings[0].context.as_str(), "dashboard");
+    }
+}

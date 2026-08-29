@@ -44,12 +44,7 @@ pub async fn run_provider_worker(
         dispatch_panel_commands(ctx_arc, &mut app_state);
         let elapsed_ms =
             u64::try_from(panel_clock_origin.elapsed().as_millis()).unwrap_or(u64::MAX);
-        accept_panel_deliveries(
-            ctx_arc,
-            &mut app_state,
-            elapsed_ms,
-            &unavailable_panel_owners,
-        );
+        drain_panel_deliveries(ctx_arc, &mut app_state, elapsed_ms);
         start_available_work(&mut active, &mut deferred, ctx_arc, &mut app_state);
         if std::time::Instant::now() >= next_health_probe {
             publish_persistent_health(
@@ -298,9 +293,13 @@ fn commit_panel_dispatch(
         Err(error) => {
             tracing::warn!(owner = %dispatched.owner, %error, "provider panel command failed");
             let mut state = app_state.write();
-            if let Err(lifecycle_error) = state.provider_panels.fail_runtime(
-                jefe::state::provider_panels::PanelInstanceId::from_u64(dispatched.instance),
-            ) {
+            let panel =
+                jefe::state::provider_panels::PanelInstanceId::from_u64(dispatched.instance);
+            let lifecycle = state
+                .provider_panels_for_panel_mut(panel)
+                .ok_or(jefe::state::provider_panels::PanelError::UnknownPanel)
+                .and_then(|panels| panels.fail_runtime(panel));
+            if let Err(lifecycle_error) = lifecycle {
                 tracing::debug!(
                     panel_instance = dispatched.instance,
                     %lifecycle_error,
@@ -325,20 +324,12 @@ fn commit_panel_dispatch(
     }
 }
 
-fn panel_delivery_owner_available(
-    unavailable_panel_owners: &std::collections::BTreeSet<jefe::domain::Id>,
-    owner: &jefe::domain::Id,
-) -> bool {
-    !unavailable_panel_owners.contains(owner)
-}
-
-fn accept_panel_deliveries(
+fn drain_panel_deliveries(
     ctx_arc: &Arc<std::sync::Mutex<AppContext>>,
     app_state: &mut crate::app_input::AppStateHandle,
     elapsed_ms: u64,
-    unavailable_panel_owners: &std::collections::BTreeSet<jefe::domain::Id>,
 ) {
-    let Ok(ctx_guard) = ctx_arc.try_lock() else {
+    let Some(ctx_guard) = ctx_arc.try_lock().ok() else {
         return;
     };
     let Some(coordinator) = ctx_guard.provider_coordinator.as_ref() else {
@@ -346,25 +337,24 @@ fn accept_panel_deliveries(
     };
     let deliveries = coordinator.drain_panel_deliveries();
     drop(ctx_guard);
+
     for delivery in deliveries {
-        if !panel_delivery_owner_available(unavailable_panel_owners, &delivery.plugin_id) {
-            tracing::warn!(
-                owner = %delivery.plugin_id,
-                "late provider panel snapshot ignored after persistent owner failure"
-            );
-            continue;
-        }
         let mut state = app_state.write();
-        let accepted =
-            state
-                .provider_panels
-                .accept_snapshot(jefe::state::provider_panels::AcceptSnapshot {
+        let panel = jefe::state::provider_panels::PanelInstanceId::from_u64(
+            delivery.snapshot.panel_instance_id,
+        );
+        let accepted = state
+            .provider_panels_for_panel_mut(panel)
+            .ok_or(jefe::state::provider_panels::PanelError::UnknownPanel)
+            .and_then(|panels| {
+                panels.accept_snapshot(jefe::state::provider_panels::AcceptSnapshot {
                     owner: &delivery.plugin_id,
                     received_process_generation: delivery.process_generation,
                     payload_byte_count: delivery.payload_byte_count,
                     elapsed_ms,
                     snapshot: &delivery.snapshot,
-                });
+                })
+            });
         if let Err(error) = accepted {
             tracing::warn!(owner = %delivery.plugin_id, %error, "provider panel snapshot rejected");
             state.error_message = Some(error.to_string());
@@ -413,7 +403,7 @@ fn publish_persistent_health(
     {
         let mut state = app_state.write();
         for owner in &failed_owners {
-            state.provider_panels.fail_runtime_owner(owner);
+            state.fail_provider_panels_for_owner(owner);
         }
         jefe::state::transition::commit_pure_site(
             &mut state,

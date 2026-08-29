@@ -198,7 +198,7 @@ exactly one `resolve_layout` and exactly one place a consumer looks for
 rectangles.
 
 ```text
-ScreenId ──> workbench::ScreenRegistry ──> ScreenDescriptor  (compiled, validated)
+ScreenIdentity ──> workbench::ScreenRegistry ──> ScreenDescriptor  (published, validated)
 (descriptor, outer Rect, PanelState) ──> resolve_layout  (pure, checked u32)
         └──> ResolvedLayout { screen_instance, panels, too_small }
                  ├──> renderers        (chrome / content rectangles)
@@ -249,20 +249,22 @@ Three properties are normative:
   compiled registry and an action from the compiled inventory, and nothing else.
   `pty-terminal` is deliberately absent from what a definition may name.
 
-Screen *description* is open — `ScreenIdentity` is either a compiled `ScreenId`
-or a validated `local.*` identity — while screen *routing* stays the closed
-`ScreenId` enum, so every routable screen still has a compiled renderer and an
-exhaustive match.
+Screen identity and routing are open. `ScreenIdentity` names a shipped built-in,
+one of the seven residual compiled adapters, a validated `local.*` definition,
+or a validated package definition. Every routable identity resolves through the
+published registry. `ScreenId` is intentionally limited to Repositories, Issues,
+PullRequests, Actions, Errors, Terminals, and Settings; it selects only those
+residual adapters and is not a general routing authority.
 
 ## Host-control ownership
 
 Public panel semantics are a closed `ControlKind` vocabulary: list, tree,
-detail, structured-diff, form, status, progress, empty, and error. The internal
-`HostControlKind::Terminal` is capability-restricted and cannot be selected by a
-package or provider declaration. A sealed `HostControlFactory` is selected only
-from this kind; factories receive model and host-local interaction state, never
-screen identity, definition origin, owner/package/product identity, or a
-whole-screen renderer.
+detail, structured-diff, form, status, progress, empty, and error. A sealed
+host-control factory is selected only from this kind; factories receive model
+and host-local interaction state, never screen identity, definition origin,
+owner/package/product identity, or a whole-screen renderer. The shipped
+Dashboard's PTY panel is a private host rendering capability through
+`TerminalView`; local and package declarations cannot name or publish it.
 
 The selected factory is the sole owner of typed body projection and semantic
 control intents. Keyboard and structural mouse targets both become a
@@ -316,17 +318,20 @@ The following are normative:
   live, restoring it makes them live again, and a disposed instance's
   generations never return because generations only move forward.
 - **The stack is bounded at 32 and is never persisted.**
-- **Rooting a session is total.** Both the route and the initial focus come from
-  compiled tables (`workbench::screens::route_of`, `::initial_focus`), so
-  starting a session has no failure mode at the moment it is needed. Those
-  tables duplicate what the descriptors declare, and
-  `route_agrees_with_every_descriptor` and `initial_focus_agrees_with_every_descriptor`
-  are what keep the two from drifting; a screen that drifts fails those tests.
+- **Rooting validates the published definition.** Startup selects the first
+  published descriptor; durable restoration resolves the persisted identity in
+  the same registry. Route, initial focus, relationships, overlays, and panel
+  instances are allocated from that descriptor before the root is committed.
+  A missing or internally inconsistent published root is an unrecoverable
+  startup invariant violation and fails immediately rather than impersonating a
+  residual screen.
 
-`ScreenInstance` currently carries the descriptor-declared panel focus as
-navigation's own record. The per-mode focus fields (`pane_focus`,
-`issues_state.issue_focus`, and their siblings) remain the authority for what is
-actually focused; relocating them into the instance is a separate cutover.
+`ScreenInstance` owns its descriptor focus, retained presentation, relationship
+values, overlays, and provider-panel reducer. Two instances of one definition
+therefore suspend and restore independent selections, viewports, drafts, focus,
+and generations. Residual adapter state is reached only through the exact live
+instance; no `PriorAgentFocus` or session-global Dashboard presentation snapshot
+participates in restoration.
 
 ## The Pure-Views Pattern
 

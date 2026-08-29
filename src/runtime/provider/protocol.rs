@@ -56,7 +56,7 @@ pub use super::panel_model::{
     HostLocal, ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody,
     PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
     StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
-    TreeBody, TreeNode,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 
 // Pure validators.

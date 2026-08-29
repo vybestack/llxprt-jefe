@@ -5,7 +5,8 @@ use std::path::Path;
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::runtime::launch_compose::PreparedLaunch;
 use jefe::runtime::{RuntimeError, RuntimeManager};
-use jefe::state::{AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus};
+use jefe::state::screen_overlays::ConfirmationRequest;
+use jefe::state::{AppEvent, AppState, PaneFocus};
 use tracing::warn;
 
 use super::agent_runtime::{
@@ -61,10 +62,7 @@ pub(super) fn open_server_lost_recovery(state: &mut AppState, selected_id: &Agen
     if agent_ids.is_empty() {
         state.warning_message = Some("No local Server Lost agents can be recovered.".to_owned());
     } else {
-        state.modal = ModalState::ConfirmServerLostRecovery {
-            agent_ids,
-            confirm_focus: ConfirmFocus::Cancel,
-        };
+        state.open_confirmation_payload(ConfirmationRequest::ServerLostRecovery { agent_ids });
     }
     true
 }
@@ -219,11 +217,14 @@ pub(super) fn relaunch_blocked_by_orphan(
 pub(super) fn dispatch_server_lost_recovery(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
+    expected: &ConfirmationRequest,
     requested: Vec<AgentId>,
 ) {
     let agent_ids = {
         let mut state = app_state.write();
-        state.modal = ModalState::None;
+        if !state.close_expected_generic_confirmation(expected) {
+            return;
+        }
         let ids = recoverable_server_lost_ids(&state, Some(&requested));
         drop(state);
         ids

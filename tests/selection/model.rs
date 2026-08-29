@@ -3,14 +3,12 @@
 //! These exercise [`jefe::selection::pane_at`], [`normalize_selection`],
 //! [`selection_text`], and [`point_to_content_coords`] without any terminal.
 
-use jefe::layout::{LEFT_COL_WIDTH, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS};
 use jefe::selection::{
     HighlightRange, PaneGeometry, SelectablePane, SelectionPoint, TextSelection,
     normalize_selection, pane_at, point_to_content_coords, row_highlight_range, selection_text,
 };
 use jefe::state::ScreenId;
 
-const DASHBOARD: ScreenId = ScreenId::Dashboard;
 const SPLIT: ScreenId = ScreenId::Repositories;
 const ISSUES: ScreenId = ScreenId::Issues;
 const PRS: ScreenId = ScreenId::PullRequests;
@@ -22,7 +20,7 @@ fn layout(
     error_visible: bool,
     filter_open: bool,
 ) -> jefe::selection::ScreenLayout {
-    jefe::selection::ScreenLayout::new(cols, rows, mode, error_visible, filter_open)
+    jefe::selection::ScreenLayout::new(cols, rows, mode.into(), error_visible, filter_open)
 }
 
 // ── PaneGeometry::contains ──────────────────────────────────────────────────
@@ -44,136 +42,6 @@ fn geometry_with_chrome_derives_content_origin() {
     assert_eq!(g.origin_row, 5);
     assert_eq!(g.content_origin_col, 12);
     assert_eq!(g.content_origin_row, 8);
-}
-
-// ── pane_at: dashboard ──────────────────────────────────────────────────────
-
-#[test]
-fn pane_at_dashboard_status_bar() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    let Some((pane, geo)) = pane_at(60, 0, None, false, &lay) else {
-        panic!("expected status bar at (60, 0)");
-    };
-    assert!(matches!(pane, SelectablePane::StatusBar));
-    assert_eq!(geo.height, 1);
-}
-
-#[test]
-fn pane_at_dashboard_keybind_bar() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    let Some((pane, _)) = pane_at(60, 39, None, false, &lay) else {
-        panic!("expected keybind bar at (60, 39)");
-    };
-    assert!(matches!(pane, SelectablePane::KeybindBar));
-}
-
-#[test]
-fn pane_at_dashboard_sidebar() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    let Some((pane, geo)) = pane_at(0, 5, None, false, &lay) else {
-        panic!("expected sidebar at (0, 5)");
-    };
-    assert!(matches!(pane, SelectablePane::Sidebar));
-    assert_eq!(geo.origin_col, 0);
-    assert_eq!(geo.origin_row, 1);
-    // Sidebar content starts after the border, title, and top content padding.
-    assert_eq!(geo.content_origin_col, 2);
-    assert_eq!(geo.content_origin_row, 4);
-}
-
-#[test]
-fn pane_at_dashboard_preview() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    // Preview starts at col 120-36 = 84.
-    let Some((pane, geo)) = pane_at(100, 5, None, false, &lay) else {
-        panic!("expected preview at (100, 5)");
-    };
-    assert!(matches!(pane, SelectablePane::Preview));
-    assert_eq!(geo.origin_col, 84);
-}
-
-#[test]
-fn pane_at_dashboard_agent_list() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    // Agent list sits below the status bar at row 1.
-    let Some((pane, _)) = pane_at(30, 1, None, false, &lay) else {
-        panic!("expected agent list at (30, 1)");
-    };
-    assert!(matches!(pane, SelectablePane::AgentList));
-}
-
-#[test]
-fn pane_at_dashboard_terminal_unfocused() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    // Terminal widget is below the agent list. Use a row deep in the middle column.
-    let Some((pane, _)) = pane_at(30, 20, None, false, &lay) else {
-        panic!("expected terminal view at (30, 20)");
-    };
-    assert!(matches!(pane, SelectablePane::TerminalView));
-}
-
-#[test]
-fn pane_at_dashboard_agent_terminal_boundary() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    // Find the exact boundary row between AgentList and TerminalView.
-    let Some((_, agent_geo)) = pane_at(30, 1, None, false, &lay) else {
-        panic!("expected agent list at (30, 1)");
-    };
-    let agent_end_row = agent_geo.origin_row + agent_geo.height;
-    // The row at agent_end_row should be the first terminal row.
-    let Some((pane, term_geo)) = pane_at(30, agent_end_row, None, false, &lay) else {
-        panic!("expected terminal view at agent boundary row {agent_end_row}");
-    };
-    assert!(matches!(pane, SelectablePane::TerminalView));
-    assert_eq!(term_geo.origin_row, agent_end_row);
-    // The row just above the boundary should still be AgentList.
-    let Some((above_pane, _)) = pane_at(30, agent_end_row - 1, None, false, &lay) else {
-        panic!("expected agent list at row {}", agent_end_row - 1);
-    };
-    assert!(matches!(above_pane, SelectablePane::AgentList));
-}
-
-#[test]
-fn pane_at_dashboard_terminal_focused_returns_none_in_terminal_region() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    // When the terminal is focused, mouse over the terminal goes to the PTY,
-    // so pane_at yields None for that region (but other panes still resolve).
-    let in_terminal = pane_at(30, 20, None, true, &lay);
-    assert!(in_terminal.is_none());
-    // Sidebar still resolves even when terminal focused.
-    let sidebar = pane_at(0, 5, None, true, &lay);
-    assert!(matches!(
-        sidebar.map(|(p, _)| p),
-        Some(SelectablePane::Sidebar)
-    ));
-}
-
-// Verify the terminal pane's content-origin geometry in the dashboard middle
-// column. `pane_at` with `terminal_input_enabled = false` resolves the
-// terminal region to TerminalView with chrome offsets; pin the content origin
-// so selection coordinates match the rendered snapshot. (Issue #197: the
-// mouse router relies on this geometry when it decides to paint a Jefe
-// selection over a focused terminal.)
-#[test]
-fn pane_at_dashboard_terminal_content_origin_geometry() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    // terminal_input_enabled = false mirrors what the router passes when the
-    // routing policy chose AppSelection over the focused terminal.
-    let selectable = pane_at(30, 20, None, false, &lay);
-    let Some((pane, geo)) = selectable else {
-        panic!("expected TerminalView to resolve when terminal is selectable");
-    };
-    assert!(matches!(pane, SelectablePane::TerminalView));
-    // Content origin must match the unfocused terminal geometry so selection
-    // coordinates line up with the rendered snapshot.
-    assert_eq!(
-        geo.content_origin_col,
-        LEFT_COL_WIDTH + TERMINAL_VIEW_CHROME_COLS
-    );
-    assert_eq!(
-        geo.content_origin_row,
-        geo.origin_row + TERMINAL_VIEW_CHROME_ROWS
-    );
 }
 
 // ── pane_at: split mode ─────────────────────────────────────────────────────
@@ -299,7 +167,7 @@ fn pane_at_pr_detail() {
 
 #[test]
 fn pane_at_out_of_bounds_returns_none() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
+    let lay = layout(120, 40, SPLIT, false, false);
     assert!(pane_at(200, 5, None, false, &lay).is_none());
     assert!(pane_at(5, 200, None, false, &lay).is_none());
 }
@@ -481,23 +349,12 @@ fn pane_at_pr_detail_content_origin_accounts_for_header_rows() {
 
 #[test]
 fn pane_at_status_bar_content_origin_accounts_for_padding() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
+    let lay = layout(120, 40, SPLIT, false, false);
     let Some((pane, geo)) = pane_at(60, 0, None, false, &lay) else {
         panic!("expected status bar at (60, 0)");
     };
     assert!(matches!(pane, SelectablePane::StatusBar));
     assert_eq!(geo.content_origin_col, 1); // padding_left
-}
-
-#[test]
-fn pane_at_dashboard_agent_list_content_origin_accounts_for_chrome() {
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    let Some((pane, geo)) = pane_at(30, 1, None, false, &lay) else {
-        panic!("expected agent list at (30, 1)");
-    };
-    assert!(matches!(pane, SelectablePane::AgentList));
-    assert_eq!(geo.content_origin_col, geo.origin_col + 2);
-    assert_eq!(geo.content_origin_row, geo.origin_row + 3);
 }
 
 // ── row_highlight_range ─────────────────────────────────────────────────────
@@ -590,14 +447,13 @@ fn layout_with_overlay(
     mode: ScreenId,
     overlay: jefe::selection::OverlayPane,
 ) -> jefe::selection::ScreenLayout {
-    jefe::selection::ScreenLayout::new(cols, rows, mode, false, false).with_overlay(overlay)
+    jefe::selection::ScreenLayout::new(cols, rows, mode.into(), false, false).with_overlay(overlay)
 }
 
 #[test]
 fn pane_at_help_modal_resolves_within_bounds() {
-    let lay = layout_with_overlay(120, 40, DASHBOARD, jefe::selection::OverlayPane::HelpModal);
-    // HelpModal is 60 wide; height at 40 rows = viewport(22) + chrome(7) = 29.
-    for &(c, r) in &[(0, 0), (30, 5), (59, 28)] {
+    let lay = layout_with_overlay(120, 40, SPLIT, jefe::selection::OverlayPane::HelpModal);
+    for &(c, r) in &[(0, 0), (30, 5), (59, 39)] {
         let Some((pane, geo)) = pane_at(c, r, None, false, &lay) else {
             panic!("expected help modal at ({c}, {r})");
         };
@@ -605,23 +461,21 @@ fn pane_at_help_modal_resolves_within_bounds() {
             matches!(pane, SelectablePane::HelpModal),
             "expected HelpModal at ({c}, {r}), got {pane:?}"
         );
-        assert_eq!(geo.width, 60, "help modal width should be 60");
-        assert_eq!(geo.height, 29, "help modal height should be 29 at 40 rows");
+        assert_eq!(geo.width, 60);
+        assert_eq!(geo.height, 40);
     }
 }
 
 #[test]
 fn pane_at_help_modal_outside_bounds_returns_none() {
-    let lay = layout_with_overlay(120, 40, DASHBOARD, jefe::selection::OverlayPane::HelpModal);
-    // Col 60+ is outside the 60-wide help modal.
+    let lay = layout_with_overlay(120, 40, SPLIT, jefe::selection::OverlayPane::HelpModal);
     assert!(pane_at(60, 5, None, false, &lay).is_none());
-    // Row 29+ is outside the 29-tall help modal.
-    assert!(pane_at(30, 29, None, false, &lay).is_none());
+    assert!(pane_at(30, 40, None, false, &lay).is_none());
 }
 
 #[test]
 fn pane_at_agent_form_overlay_covers_full_screen() {
-    let lay = layout_with_overlay(120, 40, DASHBOARD, jefe::selection::OverlayPane::AgentForm);
+    let lay = layout_with_overlay(120, 40, SPLIT, jefe::selection::OverlayPane::AgentForm);
     let Some((pane, geo)) = pane_at(50, 10, None, false, &lay) else {
         panic!("expected agent form at (50, 10)");
     };
@@ -632,12 +486,7 @@ fn pane_at_agent_form_overlay_covers_full_screen() {
 
 #[test]
 fn pane_at_repository_form_overlay_covers_full_screen() {
-    let lay = layout_with_overlay(
-        120,
-        40,
-        DASHBOARD,
-        jefe::selection::OverlayPane::RepositoryForm,
-    );
+    let lay = layout_with_overlay(120, 40, SPLIT, jefe::selection::OverlayPane::RepositoryForm);
     let Some((pane, geo)) = pane_at(50, 10, None, false, &lay) else {
         panic!("expected repository form at (50, 10)");
     };
@@ -648,12 +497,7 @@ fn pane_at_repository_form_overlay_covers_full_screen() {
 
 #[test]
 fn pane_at_confirm_modal_resolves_within_50x10_bounds() {
-    let lay = layout_with_overlay(
-        120,
-        40,
-        DASHBOARD,
-        jefe::selection::OverlayPane::ConfirmModal,
-    );
+    let lay = layout_with_overlay(120, 40, SPLIT, jefe::selection::OverlayPane::ConfirmModal);
     // ConfirmModal is 50 wide, 10 tall.
     for &(c, r) in &[(0, 0), (25, 5), (49, 9)] {
         let Some((pane, geo)) = pane_at(c, r, None, false, &lay) else {
@@ -670,12 +514,7 @@ fn pane_at_confirm_modal_resolves_within_50x10_bounds() {
 
 #[test]
 fn pane_at_confirm_modal_outside_bounds_returns_none() {
-    let lay = layout_with_overlay(
-        120,
-        40,
-        DASHBOARD,
-        jefe::selection::OverlayPane::ConfirmModal,
-    );
+    let lay = layout_with_overlay(120, 40, SPLIT, jefe::selection::OverlayPane::ConfirmModal);
     // Col 50+ is outside the 50-wide confirm modal.
     assert!(pane_at(50, 5, None, false, &lay).is_none());
     // Row 10+ is outside the 10-tall confirm modal.
@@ -685,9 +524,9 @@ fn pane_at_confirm_modal_outside_bounds_returns_none() {
 #[test]
 fn pane_at_no_overlay_falls_through_to_normal_panes() {
     // Default ScreenLayout has no overlay; normal panes resolve.
-    let lay = layout(120, 40, DASHBOARD, false, false);
-    let Some((pane, _)) = pane_at(0, 5, None, false, &lay) else {
-        panic!("expected sidebar at (0, 5) with no overlay");
+    let lay = layout(120, 40, SPLIT, false, false);
+    let Some((pane, _)) = pane_at(1, 5, None, false, &lay) else {
+        panic!("expected sidebar at (1, 5) with no overlay");
     };
     assert!(matches!(pane, SelectablePane::Sidebar));
 }

@@ -181,11 +181,10 @@ impl Sha256Hasher {
             compress(&mut self.state, &block);
             self.pending_len = 0;
         }
-        let mut blocks = input.chunks_exact(BLOCK_BYTES);
-        for block in &mut blocks {
+        let (blocks, remainder) = input.as_chunks::<BLOCK_BYTES>();
+        for block in blocks {
             compress(&mut self.state, block);
         }
-        let remainder = blocks.remainder();
         self.pending[..remainder.len()].copy_from_slice(remainder);
         self.pending_len = remainder.len();
     }
@@ -200,7 +199,7 @@ impl Sha256Hasher {
         final_blocks[remainder_len] = 0x80;
         let end = block_count * BLOCK_BYTES;
         final_blocks[end - 8..end].copy_from_slice(&self.total.wrapping_mul(8).to_be_bytes());
-        for block in final_blocks[..end].chunks_exact(BLOCK_BYTES) {
+        for block in final_blocks[..end].as_chunks::<BLOCK_BYTES>().0 {
             compress(&mut self.state, block);
         }
         Sha256(state_to_bytes(&self.state))
@@ -314,7 +313,7 @@ impl FromStr for Sha256 {
             return Err(Sha256ParseError);
         }
         let mut bytes = [0u8; 32];
-        for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             bytes[index] = (hex_value(pair[0])? << 4) | hex_value(pair[1])?;
         }
         Ok(Self(bytes))

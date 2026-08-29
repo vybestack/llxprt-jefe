@@ -85,8 +85,8 @@ pub struct ScreenLayout {
     pub term_cols: u16,
     /// Raw terminal height in rows (as reported by crossterm).
     pub term_rows: u16,
-    /// Active active screen (drives the layout template).
-    pub screen: ScreenId,
+    /// Exact active screen identity; residual adapters use its compiled value.
+    pub screen: crate::workbench::ScreenIdentity,
     /// Whether an error banner is visible in the workspace (Issues/PR mode).
     pub error_visible: bool,
     /// Whether the filter-controls band is open (Issues/PR mode).
@@ -101,7 +101,7 @@ impl ScreenLayout {
     pub const fn new(
         term_cols: u16,
         term_rows: u16,
-        screen: ScreenId,
+        screen: crate::workbench::ScreenIdentity,
         error_visible: bool,
         filter_controls_open: bool,
     ) -> Self {
@@ -118,7 +118,7 @@ impl ScreenLayout {
     /// Whether this layout is for PR mode (affects pane identity, not geometry).
     #[must_use]
     pub fn is_pr_mode(self) -> bool {
-        matches!(self.screen, ScreenId::PullRequests)
+        self.screen.compiled() == Some(ScreenId::PullRequests)
     }
 
     /// Return a copy of this layout with the given overlay active (issue #178).
@@ -131,13 +131,13 @@ impl ScreenLayout {
     /// geometry — Actions shares the Issues/PR list+detail split).
     #[must_use]
     pub fn is_actions_mode(self) -> bool {
-        matches!(self.screen, ScreenId::Actions)
+        self.screen.compiled() == Some(ScreenId::Actions)
     }
 
     /// Whether this layout is for Errors mode (affects pane identity, not
     /// geometry — Errors shares the Issues/PR list+detail split). Issue #292.
     #[must_use]
     pub fn is_errors_mode(self) -> bool {
-        matches!(self.screen, ScreenId::Errors)
+        self.screen.compiled() == Some(ScreenId::Errors)
     }
 }

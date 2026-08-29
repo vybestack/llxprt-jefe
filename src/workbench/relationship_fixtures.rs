@@ -63,6 +63,7 @@ pub fn panel(id: &str, required: bool, ports: Vec<PortDescriptor>) -> PanelDescr
         id: panel_id(id),
         panel_type: PanelTypeId::parse("list")
             .unwrap_or_else(|error| unreachable!("fixture panel type must parse: {error}")),
+        host_capability: None,
         config: TypedMap::new(),
         focusable: true,
         required,
@@ -108,6 +109,8 @@ pub fn screen(panels: Vec<PanelDescriptor>, relationships: Vec<Relationship>) ->
         panels,
         relationships,
         activation: Vec::new(),
+        overlays: Vec::new(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout,
     }

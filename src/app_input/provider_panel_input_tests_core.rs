@@ -1,7 +1,7 @@
     use jefe::domain::{Id, TypedMap, TypedValue};
     use jefe::runtime::provider::protocol::{
         Affordance, BodyKind, HostLocal, ListBody, ListItem, PanelSnapshot, StructuredDiffBody,
-        StructuredDiffFile, TreeBody, TreeNode,
+        StructuredDiffFile, StructuredDiffPath, TreeBody, TreeNode,
     };
     use jefe::state::AppState;
     use jefe::state::provider_panels::{AcceptSnapshot, DeclareInput, EventDeclaration, EventKind};
@@ -64,7 +64,7 @@
             },
         ];
         let declared = state
-            .provider_panels
+            .provider_panels_mut()
             .declare(DeclareInput {
                 owner: &owner,
                 panel_id: &panel_id,
@@ -78,14 +78,14 @@
             })
             .unwrap_or_else(|error| panic!("declare: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .activate(declared.instance)
             .unwrap_or_else(|error| panic!("activate: {error}"));
         let alpha = Id::parse("alpha").unwrap_or_else(|error| panic!("alpha: {error}"));
         let beta = Id::parse("beta").unwrap_or_else(|error| panic!("beta: {error}"));
         let snapshot = list_snapshot(declared.instance, alpha, beta);
         state
-            .provider_panels
+            .provider_panels_mut()
             .accept_snapshot(AcceptSnapshot {
                 owner: &owner,
                 received_process_generation: 1,
@@ -116,7 +116,7 @@
             },
         ];
         let declared = state
-            .provider_panels
+            .provider_panels_mut()
             .declare(DeclareInput {
                 owner: &owner,
                 panel_id: &panel_id,
@@ -130,12 +130,12 @@
             })
             .unwrap_or_else(|error| panic!("declare: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .activate(declared.instance)
             .unwrap_or_else(|error| panic!("activate: {error}"));
         let snapshot = snapshot_with_body(declared.instance, body, kind, Vec::new());
         state
-            .provider_panels
+            .provider_panels_mut()
             .accept_snapshot(AcceptSnapshot {
                 owner: &owner,
                 received_process_generation: 1,
@@ -158,7 +158,7 @@
         let mut snapshot = snapshot_with_body(panel, body, kind, affordances);
         snapshot.revision = 2;
         state
-            .provider_panels
+            .provider_panels_mut()
             .accept_snapshot(AcceptSnapshot {
                 owner: &owner,
                 received_process_generation: 1,
@@ -204,7 +204,7 @@
         assert!(matches!(wrapped, Some(PanelEvent::Selected { ref id }) if id.as_str() == "beta"));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.selected_id.as_ref())
                 .map(Id::as_str),
@@ -218,14 +218,14 @@
         let event = control_event(&state, panel, ControlAction::Next)
             .unwrap_or_else(|| panic!("list selection must produce an event"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .suspend(panel)
             .unwrap_or_else(|error| panic!("suspend: {error}"));
 
         assert!(!state.submit_provider_panel_event(panel, event));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.selected_id.as_ref()),
             None
@@ -296,8 +296,8 @@
     fn authoritative_diff(first: &Id, second: &Id) -> PanelBody {
         let file = |id: Id, path: &str| StructuredDiffFile {
             id,
-            old_path: None,
-            new_path: Some(path.to_owned()),
+                path: StructuredDiffPath::Added(path.to_owned()),
+
             old_mode: None,
             new_mode: None,
             binary: true,
@@ -385,7 +385,7 @@
         };
         assert!(
             state
-                .provider_panels
+                .provider_panels_mut()
                 .accept_snapshot(AcceptSnapshot {
                     owner: &owner,
                     received_process_generation: 1,
@@ -413,7 +413,7 @@
         let (mut state, panel) = active_list();
         let owner = Id::parse("vendor.panel").unwrap_or_else(|error| panic!("owner: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .retry(panel)
             .unwrap_or_else(|error| panic!("retry setup: {error}"));
         let mut invalid = list_snapshot(
@@ -424,7 +424,7 @@
         invalid.generation = 2;
         assert!(
             state
-                .provider_panels
+                .provider_panels_mut()
                 .accept_snapshot(AcceptSnapshot {
                     owner: &owner,
                     received_process_generation: 1,
@@ -434,7 +434,7 @@
                 })
                 .is_err()
         );
-        assert!(state.provider_panels.accepted_snapshot(panel).is_none());
+        assert!(state.provider_panels().accepted_snapshot(panel).is_none());
 
         assert!(state.submit_provider_panel_event(panel, PanelEvent::Retry));
         let staged = state.take_staged_effects();
@@ -459,14 +459,14 @@
                 selected_id: None,
                 form_draft: Some(form_draft),
             };
-            if state.provider_panels.update_host_local(panel, host).is_ok() {
+            if state.provider_panels_mut().update_host_local(panel, host).is_ok() {
                 accepted = true;
                 break;
             }
         }
         assert!(accepted, "a largest valid host-local fixture must be found");
         let prior = state
-            .provider_panels
+            .provider_panels()
             .host_local(panel)
             .cloned()
             .unwrap_or_else(|| panic!("host-local fixture must be retained"));
@@ -475,7 +475,7 @@
         };
 
         assert!(!state.submit_provider_panel_event(panel, selected));
-        assert_eq!(state.provider_panels.host_local(panel), Some(&prior));
+        assert_eq!(state.provider_panels().host_local(panel), Some(&prior));
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -612,7 +612,7 @@
         assert_eq!(selected_effects.as_ref().map(Vec::len), Some(1));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.selected_id.as_ref()),
             Some(&beta)
@@ -645,7 +645,7 @@
         assert!(staged.is_none());
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.focus_target.as_ref())
                 .map(Id::as_str),
@@ -658,7 +658,7 @@
     fn unavailable_mouse_target_preserves_focus_error_and_effects() {
         let (mut state, panel) = active_list();
         let prior_focus = state.nav.current().panel_focus;
-        let prior_local = state.provider_panels.host_local(panel).cloned();
+        let prior_local = state.provider_panels().host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
 
         let (consumed, staged) = apply_mouse_target(
@@ -672,7 +672,7 @@
         assert!(staged.is_none());
         assert_eq!(state.nav.current().panel_focus, prior_focus);
         assert_eq!(
-            state.provider_panels.host_local(panel),
+            state.provider_panels().host_local(panel),
             prior_local.as_ref()
         );
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
@@ -701,10 +701,10 @@
     fn stale_mouse_target_preserves_focus_error_local_state_and_effects() {
         let (mut state, panel) = active_list();
         let prior_focus = state.nav.current().panel_focus;
-        let prior_local = state.provider_panels.host_local(panel).cloned();
+        let prior_local = state.provider_panels().host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
         state
-            .provider_panels
+            .provider_panels_mut()
             .fail_runtime(panel)
             .unwrap_or_else(|error| panic!("fail panel: {error}"));
 
@@ -719,7 +719,7 @@
         assert!(staged.is_none());
         assert_eq!(state.nav.current().panel_focus, prior_focus);
         assert_eq!(
-            state.provider_panels.host_local(panel),
+            state.provider_panels().host_local(panel),
             prior_local.as_ref()
         );
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
@@ -761,7 +761,7 @@
         assert!(consumed);
         assert_eq!(staged.as_ref().map(Vec::len), Some(1));
         let snapshot = state
-            .provider_panels
+            .provider_panels()
             .accepted_snapshot(panel)
             .unwrap_or_else(|| panic!("tree snapshot"));
         let PanelBody::Tree(tree) = &snapshot.body else {
@@ -776,8 +776,8 @@
         let second = id("second");
         let file = |id: Id, path: &str| StructuredDiffFile {
             id,
-            old_path: None,
-            new_path: Some(path.to_owned()),
+                path: StructuredDiffPath::Added(path.to_owned()),
+
             old_mode: None,
             new_mode: None,
             binary: true,
@@ -830,7 +830,7 @@
         ));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .map(|local| local.scroll_offset),
             Some(1)
@@ -849,7 +849,7 @@
         ));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .map(|local| local.scroll_offset),
             Some(0)
@@ -918,7 +918,7 @@
     ) -> PanelInstanceId {
         let panel_id = PanelId::from_static("main");
         let declared = state
-            .provider_panels
+            .provider_panels_mut()
             .declare(DeclareInput {
                 owner: identity.0,
                 panel_id: &panel_id,
@@ -932,13 +932,13 @@
             })
             .unwrap_or_else(|error| panic!("declare: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .activate(declared.instance)
             .unwrap_or_else(|error| panic!("activate: {error}"));
         let mut snapshot = snapshot.clone();
         snapshot.panel_instance_id = declared.instance.as_u64();
         state
-            .provider_panels
+            .provider_panels_mut()
             .accept_snapshot(AcceptSnapshot {
                 owner: identity.0,
                 received_process_generation: 1,

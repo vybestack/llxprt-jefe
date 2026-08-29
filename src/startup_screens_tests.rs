@@ -88,7 +88,7 @@ fn review() -> String {
 }
 
 #[test]
-fn a_config_with_no_definitions_directory_composes_the_compiled_screens() {
+fn a_config_with_no_definitions_directory_composes_the_shipped_screens() {
     let config = Config::new("absent");
 
     let composition = compose(
@@ -98,18 +98,24 @@ fn a_config_with_no_definitions_directory_composes_the_compiled_screens() {
     )
     .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
     assert!(composition.warnings.is_empty());
 }
 
 #[test]
-fn an_empty_definitions_directory_composes_the_compiled_screens() {
+fn an_empty_definitions_directory_composes_the_shipped_screens() {
     let config = Config::new("empty");
 
     let composition = compose(&config.paths(), &[], &PublishedSettings::default())
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
 }
 
 #[test]
@@ -122,7 +128,7 @@ fn an_enabled_definition_on_disk_joins_the_registry() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + 2
     );
     assert!(composition.warnings.is_empty());
 }
@@ -135,7 +141,10 @@ fn a_definition_settings_do_not_enable_is_left_out_without_complaint() {
     let composition = compose(&config.paths(), &[], &PublishedSettings::default())
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
     assert!(composition.resource_schemas.is_empty());
     assert!(composition.warnings.is_empty());
 }

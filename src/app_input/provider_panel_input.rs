@@ -13,27 +13,43 @@ pub(super) fn apply(
     let staged = {
         let mut state = app_state.write();
         let current = state.nav.current().clone();
-        let workbench = std::sync::Arc::clone(state.published_workbench());
-        let registry = workbench.screen_registry();
-        if registry
-            .panel_binding(current.screen, &current.panel_focus)
-            .is_none()
-        {
-            return;
-        }
-        let Some(panel) = state
-            .provider_panels
-            .panel_for_screen(current.id.get(), &current.panel_focus)
-        else {
+        let Some(projection) = panel_projection(&state, &current.panel_focus) else {
             return;
         };
-        if state.provider_panels.accepted_model_is_stale(panel) {
+        let panel = state
+            .provider_panels()
+            .panel_for_screen(current.id.get(), &current.panel_focus);
+        let provider_bound = state
+            .published_workbench()
+            .screen_registry()
+            .panel_binding(current.screen, &current.panel_focus)
+            .is_some();
+        let Some(panel) = panel else {
+            if provider_bound {
+                return;
+            }
+            let Some(capability) = current_host_panel_capability(&state, &current.panel_focus)
+            else {
+                return;
+            };
+            let Some(control_action) = boundary_control_action(action) else {
+                return;
+            };
+            let _ = state.apply_host_panel_action(
+                capability,
+                control_action,
+                usize::from(projection.content.height),
+            );
+            return;
+        };
+        if state.provider_panels().accepted_model_is_stale(panel) {
             return;
         }
-        let max_scroll_offset = panel_projection(&state, &current.panel_focus)
-            .map_or(0, |projection| projection.max_scroll_offset);
+        let max_scroll_offset = projection.max_scroll_offset;
         if let Some(event) = event_for_action(action, &state, panel) {
-            state.submit_provider_panel_event(panel, event);
+            if !state.submit_provider_panel_semantic_event(panel, &current.panel_focus, event) {
+                return;
+            }
         } else if !apply_local_action(action, &mut state, panel, max_scroll_offset) {
             return;
         }
@@ -42,6 +58,19 @@ pub(super) fn apply(
     super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
 }
 
+fn current_host_panel_capability(
+    state: &jefe::state::AppState,
+    panel_id: &jefe::workbench::PanelId,
+) -> Option<jefe::workbench::HostPanelCapability> {
+    state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?
+        .panels
+        .iter()
+        .find(|panel| panel.id == *panel_id)?
+        .host_capability()
+}
 /// Supported mouse input on a host-rendered provider panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderPanelMouseAction {
@@ -79,24 +108,60 @@ fn apply_mouse_to_state(
     };
     let current = state.nav.current().clone();
     let panel = state
-        .provider_panels
+        .provider_panels()
         .panel_for_screen(current.id.get(), &projection.id);
-    if panel.is_some_and(|instance| state.provider_panels.accepted_model_is_stale(instance)) {
+    if panel.is_some_and(|instance| state.provider_panels().accepted_model_is_stale(instance)) {
         return (false, None);
     }
+    let host_owned = panel.is_none()
+        && state
+            .published_workbench()
+            .screen_registry()
+            .panel_binding(current.screen, &projection.id)
+            .is_none();
     match action {
         ProviderPanelMouseAction::ScrollUp | ProviderPanelMouseAction::ScrollDown => {
-            let consumed = panel.is_some_and(|instance| {
+            let consumed = if let Some(instance) = panel {
                 scroll_mouse_panel(state, instance, action, projection.max_scroll_offset)
-            });
+            } else if host_owned
+                && let Some(capability) = current_host_panel_capability(state, &projection.id)
+            {
+                let delta = if action == ProviderPanelMouseAction::ScrollUp {
+                    -1
+                } else {
+                    1
+                };
+                state.scroll_host_panel(capability, delta, usize::from(projection.content.height))
+            } else {
+                false
+            };
             (consumed, None)
         }
-        ProviderPanelMouseAction::Click => apply_mouse_target(
-            state,
-            panel,
-            projection.id,
-            hit_target(&projection, col, row),
-        ),
+        ProviderPanelMouseAction::Click => {
+            let target = hit_target(&projection, col, row);
+            if host_owned
+                && let Some(capability) = current_host_panel_capability(state, &projection.id)
+            {
+                // Host-owned panels share the provider target→action
+                // semantics: an unselected item selects, a selected item
+                // activates; Submit/Action/paging/retry/cancel target the same
+                // affordances. Failures return unconsumed so the terminal never
+                // treats a host click as its own.
+                let action = match target {
+                    Some(t) => shared_host_target_action(t),
+                    None => None,
+                };
+                let consumed = action.is_some_and(|action| {
+                    state.apply_host_panel_action(
+                        capability,
+                        action,
+                        usize::from(projection.content.height),
+                    )
+                });
+                return (consumed, None);
+            }
+            apply_mouse_target(state, panel, projection.id, target)
+        }
     }
 }
 
@@ -126,7 +191,7 @@ fn apply_mouse_target(
     let Some(event) = mouse_event(state, instance, target) else {
         return (false, None);
     };
-    if !state.submit_provider_panel_event(instance, event) {
+    if !state.submit_provider_panel_semantic_event(instance, &panel_id, event) {
         return (false, None);
     }
     state.nav.current_mut().panel_focus = panel_id;
@@ -146,19 +211,17 @@ fn panel_projection(
     state: &jefe::state::AppState,
     panel_id: &jefe::workbench::PanelId,
 ) -> Option<jefe::provider_panel_view::PanelProjection> {
-    let layout = state.resolved_layout.as_ref()?;
+    let layout = state
+        .resolved_layout
+        .as_ref()
+        .filter(|layout| layout.screen_instance == state.nav.current().id)?;
     let registry = state.published_workbench().screen_registry();
     let descriptor = registry.get_identity(state.screen())?;
-    jefe::provider_panel_view::project_provider_screen(
-        descriptor,
-        state.nav.current().id.get(),
-        &state.provider_panels,
-        layout,
-        &state.nav.current().panel_focus,
-    )
-    .panels
-    .into_iter()
-    .find(|panel| &panel.id == panel_id)
+    jefe::provider_panel_view::project_current_screen(state, descriptor, layout)
+        .ok()?
+        .panels
+        .into_iter()
+        .find(|panel| &panel.id == panel_id)
 }
 
 fn hit_target(
@@ -180,7 +243,7 @@ fn scroll_mouse_panel(
     max_scroll_offset: u32,
 ) -> bool {
     let prior = state
-        .provider_panels
+        .provider_panels()
         .host_local(panel)
         .cloned()
         .unwrap_or_default();
@@ -195,7 +258,7 @@ fn scroll_mouse_panel(
         return false;
     }
     state
-        .provider_panels
+        .provider_panels_mut()
         .update_host_local(
             panel,
             jefe::runtime::provider::protocol::HostLocal {
@@ -212,12 +275,12 @@ fn focus_form_field(
     field_id: Id,
 ) -> bool {
     let prior = state
-        .provider_panels
+        .provider_panels()
         .host_local(panel)
         .cloned()
         .unwrap_or_default();
     state
-        .provider_panels
+        .provider_panels_mut()
         .update_host_local(
             panel,
             jefe::runtime::provider::protocol::HostLocal {
@@ -233,54 +296,87 @@ fn mouse_event(
     panel: PanelInstanceId,
     target: jefe::provider_panel_view::PanelHitTarget,
 ) -> Option<PanelEvent> {
-    let action = match target {
+    match &target {
+        // A selected item click activates it; an unselected one selects it. This
+        // shares the provider surface's target semantics for host-owned controls so
+        // identical visible rows behave identically.
         jefe::provider_panel_view::PanelHitTarget::ListItem(id)
         | jefe::provider_panel_view::PanelHitTarget::TreeNode(id)
         | jefe::provider_panel_view::PanelHitTarget::DiffFile(id) => {
-            if selected_item(state, panel).as_ref() == Some(&id) {
+            let action = if selected_item(state, panel).as_ref() == Some(id) {
                 ControlAction::Activate
             } else {
-                ControlAction::Select(id)
-            }
+                ControlAction::Select(id.clone())
+            };
+            control_event(state, panel, action)
         }
-        jefe::provider_panel_view::PanelHitTarget::Action(id) => ControlAction::Action(id),
-        jefe::provider_panel_view::PanelHitTarget::Submit => ControlAction::Submit,
-        jefe::provider_panel_view::PanelHitTarget::PageRequested => ControlAction::PageNext,
-        jefe::provider_panel_view::PanelHitTarget::Retry => ControlAction::Retry,
-        jefe::provider_panel_view::PanelHitTarget::Cancel => ControlAction::Cancel,
-        jefe::provider_panel_view::PanelHitTarget::Link(id) => ControlAction::Link(id),
+        jefe::provider_panel_view::PanelHitTarget::Action(id) => {
+            control_event(state, panel, ControlAction::Action(id.clone()))
+        }
+        jefe::provider_panel_view::PanelHitTarget::Submit => {
+            control_event(state, panel, ControlAction::Submit)
+        }
+        jefe::provider_panel_view::PanelHitTarget::PageRequested => {
+            control_event(state, panel, ControlAction::PageNext)
+        }
+        jefe::provider_panel_view::PanelHitTarget::Retry => {
+            control_event(state, panel, ControlAction::Retry)
+        }
+        jefe::provider_panel_view::PanelHitTarget::Cancel => {
+            control_event(state, panel, ControlAction::Cancel)
+        }
+        jefe::provider_panel_view::PanelHitTarget::Link(id) => {
+            control_event(state, panel, ControlAction::Link(id.clone()))
+        }
         jefe::provider_panel_view::PanelHitTarget::Field(_)
-        | jefe::provider_panel_view::PanelHitTarget::Unavailable => return None,
-    };
-    control_event(state, panel, action)
+        | jefe::provider_panel_view::PanelHitTarget::Unavailable => None,
+    }
 }
+
+/// Map one provider/host mouse hit target to the shared control action. This is
+/// the same pure mapping the provider surface uses so identical visible rows behave
+/// identically whether they are provider-owned or host-controlled.
+fn shared_host_target_action(
+    target: jefe::provider_panel_view::PanelHitTarget,
+) -> Option<ControlAction> {
+    match target {
+        jefe::provider_panel_view::PanelHitTarget::ListItem(id)
+        | jefe::provider_panel_view::PanelHitTarget::TreeNode(id)
+        | jefe::provider_panel_view::PanelHitTarget::DiffFile(id) => {
+            Some(ControlAction::Select(id))
+        }
+        jefe::provider_panel_view::PanelHitTarget::Action(id) => Some(ControlAction::Action(id)),
+        jefe::provider_panel_view::PanelHitTarget::Submit => Some(ControlAction::Submit),
+        jefe::provider_panel_view::PanelHitTarget::PageRequested => Some(ControlAction::PageNext),
+        jefe::provider_panel_view::PanelHitTarget::Retry => Some(ControlAction::Retry),
+        jefe::provider_panel_view::PanelHitTarget::Cancel => Some(ControlAction::Cancel),
+        jefe::provider_panel_view::PanelHitTarget::Link(id) => Some(ControlAction::Link(id)),
+        jefe::provider_panel_view::PanelHitTarget::Field(_)
+        | jefe::provider_panel_view::PanelHitTarget::Unavailable => None,
+    }
+}
+
+fn boundary_control_action(action: BoundaryAction) -> Option<ControlAction> {
+    match action {
+        BoundaryAction::ProviderPanelPrevious => Some(ControlAction::Previous),
+        BoundaryAction::ProviderPanelNext => Some(ControlAction::Next),
+        BoundaryAction::ProviderPanelActivate => Some(ControlAction::Activate),
+        BoundaryAction::ProviderPanelRetry => Some(ControlAction::Retry),
+        BoundaryAction::ProviderPanelCancel => Some(ControlAction::Cancel),
+        BoundaryAction::ProviderPanelAction => Some(ControlAction::FocusedAction),
+        BoundaryAction::ProviderPanelSubmit => Some(ControlAction::Submit),
+        BoundaryAction::ProviderPanelPageNext => Some(ControlAction::PageNext),
+        BoundaryAction::ProviderPanelLinkSelect => Some(ControlAction::FocusedLink),
+        _ => None,
+    }
+}
+
 fn event_for_action(
     action: BoundaryAction,
     state: &jefe::state::AppState,
     panel: PanelInstanceId,
 ) -> Option<PanelEvent> {
-    match action {
-        BoundaryAction::ProviderPanelPrevious => {
-            control_event(state, panel, ControlAction::Previous)
-        }
-        BoundaryAction::ProviderPanelNext => control_event(state, panel, ControlAction::Next),
-        BoundaryAction::ProviderPanelActivate => {
-            control_event(state, panel, ControlAction::Activate)
-        }
-        BoundaryAction::ProviderPanelRetry => control_event(state, panel, ControlAction::Retry),
-        BoundaryAction::ProviderPanelCancel => control_event(state, panel, ControlAction::Cancel),
-        BoundaryAction::ProviderPanelAction => {
-            control_event(state, panel, ControlAction::FocusedAction)
-        }
-        BoundaryAction::ProviderPanelSubmit => control_event(state, panel, ControlAction::Submit),
-        BoundaryAction::ProviderPanelPageNext => {
-            control_event(state, panel, ControlAction::PageNext)
-        }
-        BoundaryAction::ProviderPanelLinkSelect => {
-            control_event(state, panel, ControlAction::FocusedLink)
-        }
-        _ => None,
-    }
+    control_event(state, panel, boundary_control_action(action)?)
 }
 
 fn apply_local_action(
@@ -299,7 +395,7 @@ fn apply_local_action(
         return false;
     };
     let prior = state
-        .provider_panels
+        .provider_panels()
         .host_local(panel)
         .cloned()
         .unwrap_or_default();
@@ -312,7 +408,10 @@ fn apply_local_action(
         scroll_offset,
         ..prior
     };
-    state.provider_panels.update_host_local(panel, host).is_ok()
+    state
+        .provider_panels_mut()
+        .update_host_local(panel, host)
+        .is_ok()
 }
 
 fn control_intent_for_state(
@@ -320,10 +419,10 @@ fn control_intent_for_state(
     panel: PanelInstanceId,
     action: ControlAction,
 ) -> ControlIntent {
-    let Some(snapshot) = state.provider_panels.accepted_snapshot(panel) else {
+    let Some(snapshot) = state.provider_panels().accepted_snapshot(panel) else {
         return ControlIntent::None;
     };
-    let local = state.provider_panels.host_local(panel);
+    let local = state.provider_panels().host_local(panel);
     control_intent(
         snapshot,
         local.and_then(|value| value.selected_id.as_ref()),
@@ -348,9 +447,9 @@ fn selected_item(
     state: &jefe::state::AppState,
     panel: PanelInstanceId,
 ) -> Option<jefe::domain::Id> {
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
+    let snapshot = state.provider_panels().accepted_snapshot(panel)?;
     let local = state
-        .provider_panels
+        .provider_panels()
         .host_local(panel)
         .and_then(|value| value.selected_id.as_ref());
     selected_control_id(snapshot, local).cloned()
@@ -358,6 +457,7 @@ fn selected_item(
 
 enum RawKeyMutation {
     Local,
+    Draft { field_id: Id, value: TypedValue },
     Event(PanelEvent),
 }
 
@@ -390,12 +490,12 @@ pub fn apply_raw_key(
             return false;
         }
         let Some(panel) = state
-            .provider_panels
+            .provider_panels()
             .panel_for_screen(current.id.get(), &current.panel_focus)
         else {
             return false;
         };
-        if state.provider_panels.accepted_model_is_stale(panel) {
+        if state.provider_panels().accepted_model_is_stale(panel) {
             return false;
         }
         let mutation =
@@ -409,6 +509,10 @@ pub fn apply_raw_key(
             };
         match mutation {
             Some(RawKeyMutation::Local) => (true, Vec::new()),
+            Some(RawKeyMutation::Draft { field_id, value }) => (
+                update_form_draft(&mut state, panel, field_id, value),
+                Vec::new(),
+            ),
             Some(RawKeyMutation::Event(event)) => {
                 state.submit_provider_panel_event(panel, event);
                 (true, state.take_staged_effects())
@@ -466,7 +570,7 @@ fn cycle_panel_target(
     panel: PanelInstanceId,
     forward: bool,
 ) -> bool {
-    let Some(snapshot) = state.provider_panels.accepted_snapshot(panel) else {
+    let Some(snapshot) = state.provider_panels().accepted_snapshot(panel) else {
         return false;
     };
     let mut targets = match &snapshot.body {
@@ -488,7 +592,7 @@ fn cycle_panel_target(
         return false;
     }
     let prior = state
-        .provider_panels
+        .provider_panels()
         .host_local(panel)
         .cloned()
         .unwrap_or_default();
@@ -511,7 +615,30 @@ fn cycle_panel_target(
         focus_target: Some(targets[index].clone()),
         ..prior
     };
-    state.provider_panels.update_host_local(panel, host).is_ok()
+    state
+        .provider_panels_mut()
+        .update_host_local(panel, host)
+        .is_ok()
+}
+
+fn update_form_draft(
+    state: &mut jefe::state::AppState,
+    panel: PanelInstanceId,
+    field_id: Id,
+    value: TypedValue,
+) -> bool {
+    let mut host = state
+        .provider_panels()
+        .host_local(panel)
+        .cloned()
+        .unwrap_or_default();
+    host.form_draft
+        .get_or_insert_default()
+        .insert(field_id, value);
+    state
+        .provider_panels_mut()
+        .update_host_local(panel, host)
+        .is_ok()
 }
 
 fn edit_form_field(
@@ -521,21 +648,22 @@ fn edit_form_field(
 ) -> Option<RawKeyMutation> {
     use iocraft::prelude::{KeyCode, KeyModifiers};
     use jefe::domain::plugin::FieldKind;
+    use jefe::form_value_edit::{FormValueEdit, edit_form_value, form_value_is_complete};
 
     if key_event.modifiers.intersects(
         KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::META,
     ) {
         return None;
     }
-    if state.provider_panels.accepted_model_is_stale(panel) {
+    if state.provider_panels().accepted_model_is_stale(panel) {
         return None;
     }
-    let snapshot = state.provider_panels.accepted_snapshot(panel)?;
+    let snapshot = state.provider_panels().accepted_snapshot(panel)?;
     let PanelBody::Form(form) = &snapshot.body else {
         return None;
     };
     let prior = state
-        .provider_panels
+        .provider_panels()
         .host_local(panel)
         .cloned()
         .unwrap_or_default();
@@ -548,34 +676,26 @@ fn edit_form_field(
         .form_draft
         .as_ref()
         .and_then(|draft| draft.get(field.id()))
-        .or_else(|| form.values.get(field.id()))
-        .cloned();
-    let value = match (field.kind(), key_event.code) {
-        (FieldKind::String | FieldKind::Path, KeyCode::Char(character)) => {
-            let mut text = match current {
-                Some(TypedValue::String(text)) => text,
-                _ => String::new(),
-            };
-            text.push(character);
-            TypedValue::String(text)
-        }
-        (FieldKind::String | FieldKind::Path, KeyCode::Backspace) => {
-            let mut text = match current {
-                Some(TypedValue::String(text)) => text,
-                _ => String::new(),
-            };
-            text.pop()?;
-            TypedValue::String(text)
-        }
-        (FieldKind::Boolean, KeyCode::Char(' ')) => {
-            let value = matches!(current, Some(TypedValue::Bool(true)));
-            TypedValue::Bool(!value)
-        }
+        .or_else(|| form.values.get(field.id()));
+    let edit = match (field.kind(), key_event.code) {
+        (FieldKind::Boolean, KeyCode::Char(' ')) => FormValueEdit::Toggle,
+        (FieldKind::Enum, KeyCode::Char(' ')) => FormValueEdit::NextChoice,
+        (_, KeyCode::Char(character)) => FormValueEdit::Character(character),
+        (_, KeyCode::Backspace) => FormValueEdit::Backspace,
         _ => return None,
     };
-    jefe::domain::plugin_config::validate_field_value(&field, &value)
-        .is_ok()
-        .then(|| RawKeyMutation::Event(field_change_event(field.id().clone(), value)))
+    let value = edit_form_value(&field, current, edit)?;
+    if form_value_is_complete(&field, &value) {
+        Some(RawKeyMutation::Event(field_change_event(
+            field.id().clone(),
+            value,
+        )))
+    } else {
+        Some(RawKeyMutation::Draft {
+            field_id: field.id().clone(),
+            value,
+        })
+    }
 }
 
 /// Construct a PanelEvent::FieldChanged for a form field edit.
@@ -588,4 +708,5 @@ fn field_change_event(field_id: Id, value: TypedValue) -> PanelEvent {
 mod tests {
     include!("provider_panel_input_tests_core.rs");
     include!("provider_panel_input_tests_interaction.rs");
+    include!("provider_panel_input_tests_live.rs");
 }

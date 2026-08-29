@@ -172,6 +172,62 @@ impl fmt::Display for PortRef {
     }
 }
 
+/// Sealed source of one host-owned product model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostPanelModelSource {
+    RepositoryList,
+    SearchInput,
+    AgentList,
+    AgentPreview,
+}
+
+/// Authenticated host authority carried by a compiled panel declaration.
+///
+/// Definitions and package manifests cannot construct this capability; their
+/// lowered panel descriptors always carry `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostPanelCapability {
+    model_source: HostPanelModelSource,
+    control_kind: crate::host_controls::ControlKind,
+}
+
+impl HostPanelCapability {
+    pub(super) const fn compiled(
+        model_source: HostPanelModelSource,
+        control_kind: crate::host_controls::ControlKind,
+    ) -> Self {
+        Self {
+            model_source,
+            control_kind,
+        }
+    }
+
+    #[must_use]
+    pub const fn model_source(self) -> HostPanelModelSource {
+        self.model_source
+    }
+
+    #[must_use]
+    pub const fn control_kind(self) -> crate::host_controls::ControlKind {
+        self.control_kind
+    }
+
+    #[must_use]
+    pub(crate) fn is_consistent(self) -> bool {
+        self.model_source.control_kind() == self.control_kind
+    }
+}
+
+impl HostPanelModelSource {
+    const fn control_kind(self) -> crate::host_controls::ControlKind {
+        match self {
+            Self::RepositoryList | Self::AgentList => crate::host_controls::ControlKind::List,
+            Self::SearchInput => crate::host_controls::ControlKind::Form,
+            Self::AgentPreview => crate::host_controls::ControlKind::Detail,
+        }
+    }
+}
+
 /// One panel within a screen: its identity, kind, configuration, and role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PanelDescriptor {
@@ -181,6 +237,8 @@ pub struct PanelDescriptor {
     pub panel_type: PanelTypeId,
     /// Panel-specific configuration values.
     pub config: TypedMap,
+    /// Sealed host product authority for this compiled panel, when any.
+    pub(crate) host_capability: Option<HostPanelCapability>,
     /// Whether the panel participates in the focus cycle.
     pub focusable: bool,
     /// Whether the panel must remain visible for the screen to be usable.
@@ -192,11 +250,56 @@ pub struct PanelDescriptor {
 }
 
 impl PanelDescriptor {
+    /// Return sealed host authority carried by this compiled declaration.
+    #[must_use]
+    pub const fn host_capability(&self) -> Option<HostPanelCapability> {
+        self.host_capability
+    }
+
     /// Find a port by identity.
     #[must_use]
     pub fn port(&self, id: &PortId) -> Option<&PortDescriptor> {
         self.ports.iter().find(|port| &port.id == id)
     }
+}
+
+/// One closed host-owned layer a screen definition may open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum OverlayKind {
+    /// Keyboard-shortcut reference content, projected by the host Detail control.
+    Help,
+    /// Host text-query editor, projected by the host Form control.
+    Search,
+    /// Host yes/no decision surface, projected by the host Form control.
+    Confirmation,
+}
+
+impl OverlayKind {
+    /// Complete closed declaration vocabulary in stable order.
+    pub const ALL: [Self; 3] = [Self::Help, Self::Search, Self::Confirmation];
+
+    /// Stable external name used by definitions and diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Help => "help",
+            Self::Search => "search",
+            Self::Confirmation => "confirmation",
+        }
+    }
+}
+
+/// Sealed host authority granted only by compiled screen declarations.
+///
+/// Local and package syntax cannot lower these capabilities. Keeping them on
+/// the validated descriptor makes composition-root ordering independent from
+/// access to product-specific action and presentation authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostScreenCapability {
+    /// Resolve the host-owned Dashboard action context.
+    DashboardActionContext,
+    /// Project the complete host-owned Dashboard footer.
+    DashboardFooter,
 }
 
 /// The sole definition of one screen.
@@ -229,6 +332,10 @@ pub struct ScreenDescriptor {
     /// against this schema, so it lives beside the route rather than beside the
     /// syntax that happened to describe it.
     pub activation: Vec<ActivationField>,
+    /// Host-owned overlay implementations this screen may open.
+    pub overlays: Vec<OverlayKind>,
+    /// Sealed host authority this compiled declaration owns.
+    pub host_capabilities: Vec<HostScreenCapability>,
     /// Actions this screen asks to be reachable while it is focused.
     pub bindings: Vec<ScreenBinding>,
 }
@@ -238,6 +345,12 @@ impl ScreenDescriptor {
     #[must_use]
     pub fn panel(&self, id: &PanelId) -> Option<&PanelDescriptor> {
         self.panels.iter().find(|panel| &panel.id == id)
+    }
+
+    /// Whether this exact validated declaration owns a sealed host capability.
+    #[must_use]
+    pub fn has_host_capability(&self, capability: HostScreenCapability) -> bool {
+        self.host_capabilities.contains(&capability)
     }
 
     /// Resolve a `<panel>.<port>` reference against this screen.

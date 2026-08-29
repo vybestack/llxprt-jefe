@@ -1,5 +1,5 @@
 use super::AppState;
-use crate::domain::{GitHubRepoRefError, Id, Repository, TypedPortValue, TypedValue};
+use crate::domain::{GitHubRepoRefError, Id, InternalId, Repository, TypedPortValue, TypedValue};
 use crate::workbench::{
     ISSUES_LIST_PANEL, PULL_REQUESTS_LIST_PANEL, PanelId, PortId, PortRef, PortValue,
     SELECTION_PORT, SourceIntent,
@@ -54,8 +54,27 @@ impl std::fmt::Display for RelationshipCommandError {
 
 impl std::error::Error for RelationshipCommandError {}
 
-const ISSUE_TYPE: &str = "github.issue";
-const PULL_REQUEST_TYPE: &str = "github.pull-request";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SelectedResourceKind {
+    Issue,
+    PullRequest,
+}
+
+impl SelectedResourceKind {
+    const fn panel(self) -> PanelId {
+        match self {
+            Self::Issue => PanelId::from_static(ISSUES_LIST_PANEL),
+            Self::PullRequest => PanelId::from_static(PULL_REQUESTS_LIST_PANEL),
+        }
+    }
+
+    fn type_id(self) -> Id {
+        Id::internal(match self {
+            Self::Issue => InternalId::GitHubIssueResource,
+            Self::PullRequest => InternalId::GitHubPullRequestResource,
+        })
+    }
+}
 
 impl AppState {
     /// Validate one producer-correlated command and atomically apply its pure intent.
@@ -96,24 +115,32 @@ impl AppState {
 
     pub(super) fn publish_selected_resource(
         &mut self,
-        panel: &'static str,
-        type_id: &'static str,
+        kind: SelectedResourceKind,
         semantic_key: Option<String>,
+        head_sha: Option<String>,
     ) {
         let value = semantic_key.map_or(PortValue::Absent, |key| {
+            let mut fields = std::iter::once((
+                Id::internal(InternalId::ResourceSemanticKey),
+                TypedValue::String(key.clone()),
+            ))
+            .collect::<crate::domain::TypedMap>();
+            if let Some(head_sha) = head_sha {
+                fields.insert(
+                    Id::internal(InternalId::ResourceHeadSha),
+                    TypedValue::String(head_sha),
+                );
+            }
             PortValue::Typed(TypedPortValue {
-                type_id: parse_id(type_id),
+                type_id: kind.type_id(),
                 schema_version: 1,
-                semantic_key: key.clone(),
-                value: std::iter::once((parse_id("semantic-key"), TypedValue::String(key)))
-                    .collect(),
+                semantic_key: key,
+                value: fields,
             })
         });
         let port = PortRef {
-            panel: PanelId::parse(panel)
-                .unwrap_or_else(|error| unreachable!("compiled panel id is valid: {error}")),
-            port: PortId::parse(SELECTION_PORT)
-                .unwrap_or_else(|error| unreachable!("compiled port id is valid: {error}")),
+            panel: kind.panel(),
+            port: PortId::from_static(SELECTION_PORT),
         };
         let current = self.nav.current();
         let Some(panel_instance_id) = current
@@ -149,7 +176,7 @@ impl AppState {
             .selected_issue_index()
             .and_then(|index| self.issues_state.issues().get(index))
             .map(|issue| issue.number);
-        self.publish_github_resource(ISSUES_LIST_PANEL, ISSUE_TYPE, selected);
+        self.publish_github_resource(SelectedResourceKind::Issue, selected, None);
     }
 
     pub(super) fn sync_pr_selected_resource(&mut self) {
@@ -157,20 +184,23 @@ impl AppState {
             .prs_state
             .selected_pr_index()
             .and_then(|index| self.prs_state.pull_requests().get(index))
-            .map(|pr| pr.number);
-        self.publish_github_resource(PULL_REQUESTS_LIST_PANEL, PULL_REQUEST_TYPE, selected);
+            .map(|pr| (pr.number, pr.head_sha.clone()));
+        let (number, head_sha) = selected.map_or((None, None), |(number, head_sha)| {
+            (Some(number), Some(head_sha))
+        });
+        self.publish_github_resource(SelectedResourceKind::PullRequest, number, head_sha);
     }
 
     fn publish_github_resource(
         &mut self,
-        panel: &'static str,
-        type_id: &'static str,
+        kind: SelectedResourceKind,
         number: Option<u64>,
+        head_sha: Option<String>,
     ) {
         match github_resource_key(self.selected_repository(), number) {
-            Ok(key) => self.publish_selected_resource(panel, type_id, key),
+            Ok(key) => self.publish_selected_resource(kind, key, head_sha),
             Err(error) => {
-                self.publish_selected_resource(panel, type_id, None);
+                self.publish_selected_resource(kind, None, None);
                 self.error_message = Some(error.to_string());
             }
         }
@@ -206,8 +236,4 @@ pub(super) fn github_resource_key(
         tracker.owner(),
         tracker.repo()
     )))
-}
-
-fn parse_id(value: &'static str) -> Id {
-    Id::parse(value).unwrap_or_else(|error| unreachable!("compiled resource id is valid: {error}"))
 }

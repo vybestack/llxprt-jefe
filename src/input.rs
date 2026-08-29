@@ -20,8 +20,6 @@ pub enum InputMode {
     Confirm,
     /// In-app device-code auth dialog (issue #244).
     Auth,
-    /// Dashboard "search lite" input for repositories and agents (issue #405).
-    DashboardSearch,
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesNormal,
@@ -115,21 +113,12 @@ pub enum SearchKeyRoute {
 /// detection).
 fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
     match modal {
-        ModalState::Help => Some(InputMode::Help),
-        ModalState::Search { .. } => Some(InputMode::Search),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }
         | ModalState::EditAgent { .. }
         | ModalState::GeneratedAgent { .. }
         | ModalState::WorkflowDispatch { .. } => Some(InputMode::Form),
-        ModalState::ConfirmDeleteRepository { .. }
-        | ModalState::ConfirmDeleteAgent { .. }
-        | ModalState::ConfirmKillAgent { .. }
-        | ModalState::ConfirmServerLostRecovery { .. }
-        | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. }
-        | ModalState::ConfirmIssueOriginMismatch { .. } => Some(InputMode::Confirm),
         ModalState::Auth { .. } => Some(InputMode::Auth),
         ModalState::None => None,
     }
@@ -137,6 +126,12 @@ fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
 
 #[must_use]
 pub fn input_mode_for_state(state: &AppState) -> InputMode {
+    match state.active_overlay_kind() {
+        Some(crate::workbench::OverlayKind::Help) => return InputMode::Help,
+        Some(crate::workbench::OverlayKind::Search) => return InputMode::Search,
+        Some(crate::workbench::OverlayKind::Confirmation) => return InputMode::Confirm,
+        None => {}
+    }
     if let Some(mode) = modal_input_mode(&state.modal) {
         return mode;
     }
@@ -196,8 +191,6 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
 
     if state.terminal_focused && state.pane_focus == PaneFocus::Terminal {
         InputMode::TerminalCapture
-    } else if state.dashboard_search.input_focused {
-        InputMode::DashboardSearch
     } else {
         InputMode::Normal
     }

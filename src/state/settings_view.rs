@@ -145,7 +145,7 @@ pub enum SettingsRowKind {
     /// A start screen this row selects.
     Screen {
         /// The screen's identity.
-        id: ScreenId,
+        id: crate::workbench::ScreenIdentity,
         /// Whether the draft currently names it.
         active: bool,
     },
@@ -807,11 +807,14 @@ fn general_rows(state: &SettingsState) -> Vec<SettingsRow> {
         .and_then(|draft| draft.published().workbench.initial_screen.clone());
     rows.push(fact(
         "Start screen",
-        selected
-            .as_ref()
-            .map_or_else(|| ScreenId::default().as_str().to_owned(), Id::to_string),
+        selected.as_ref().map_or_else(
+            || crate::workbench::DASHBOARD_IDENTITY.as_str().to_owned(),
+            Id::to_string,
+        ),
     ));
-    for screen in ScreenId::ALL {
+    for screen in std::iter::once(crate::workbench::DASHBOARD_IDENTITY)
+        .chain(ScreenId::ALL.map(crate::workbench::ScreenIdentity::from))
+    {
         let active = selected
             .as_ref()
             .is_some_and(|id| id.as_str() == screen.as_str());

@@ -23,8 +23,11 @@
 
 use crate::domain::action_registry::Availability;
 use crate::domain::plugin::field::Field;
+use crate::runtime::provider::protocol::{Id, TypedMap};
 use crate::state::ConfirmFocus;
-use crate::state::provider_requests::{ActiveRequest, ProviderRequestState};
+use crate::state::provider_requests::{
+    ActiveRequest, PendingConfirmationView, ProviderRequestState,
+};
 
 /// Below this terminal-row count the provider surface renders in [`Small`]
 /// mode so a tiny viewport stays usable.
@@ -93,6 +96,10 @@ pub enum ProviderViewMode {
         confirm_label: String,
         /// Exact declared continuation field schema.
         continuation_schema: Vec<Field>,
+        /// Exact typed values displayed by the owning screen instance.
+        continuation_values: TypedMap,
+        /// Provider field currently focused by the owning screen instance.
+        focused_field: Option<Id>,
     },
     /// A runtime failure (crash/EOF/protocol/timeout) recovery state.
     Recovery {
@@ -119,6 +126,10 @@ pub struct ProviderViewProjection {
 pub struct ProviderViewInput<'a> {
     /// The handle-free request state.
     pub requests: &'a ProviderRequestState,
+    /// Exact screen identity that owns the projected surface.
+    pub context_screen: &'a str,
+    /// Exact screen-instance identity that owns the projected surface.
+    pub context_instance: &'a str,
     /// The shared action availability, when known.
     pub availability: Option<&'a Availability>,
     /// Whether the provider surface has keyboard focus.
@@ -137,9 +148,16 @@ pub struct ProviderViewInput<'a> {
 impl<'a> ProviderViewInput<'a> {
     /// Construct an input for a normal (non-modal) provider surface.
     #[must_use]
-    pub fn normal(requests: &'a ProviderRequestState, viewport_rows: usize) -> Self {
+    pub fn normal(
+        requests: &'a ProviderRequestState,
+        context_screen: &'a str,
+        context_instance: &'a str,
+        viewport_rows: usize,
+    ) -> Self {
         Self {
             requests,
+            context_screen,
+            context_instance,
             availability: None,
             focused: false,
             confirm: None,
@@ -165,14 +183,32 @@ impl<'a> ProviderViewInput<'a> {
 /// [`Normal`]: ProviderViewMode::Normal
 #[must_use]
 pub fn project_provider_view(input: &ProviderViewInput<'_>) -> ProviderViewProjection {
+    project_provider_view_with_confirmation(
+        input,
+        input
+            .requests
+            .first_pending_confirmation_for(input.context_screen, input.context_instance),
+    )
+}
+
+/// Project the provider view using one exact pending confirmation selected by the host.
+#[must_use]
+pub(crate) fn project_provider_view_with_confirmation(
+    input: &ProviderViewInput<'_>,
+    confirmation: Option<PendingConfirmationView<'_>>,
+) -> ProviderViewProjection {
     let rows = project_rows(input);
-    let has_active_request = input.requests.live_count() > 0;
+    let has_active_request = input
+        .requests
+        .requests()
+        .iter()
+        .any(|request| request_belongs_to_input(request, input) && !request.is_terminal());
 
     let mode = if input.viewport_rows < SMALL_VIEWPORT_ROW_THRESHOLD {
         ProviderViewMode::Small
     } else if let Some(reason) = dominant_recovery(input) {
         ProviderViewMode::Recovery { message: reason }
-    } else if let Some(pending) = input.requests.latest_pending_confirmation_view() {
+    } else if let Some(pending) = confirmation {
         // The confirmation modal content is read directly from the exact
         // pending token the reducer registered — title/body/confirm label/
         // schema are byte-identical to the provider declaration, and the focus
@@ -183,6 +219,8 @@ pub fn project_provider_view(input: &ProviderViewInput<'_>) -> ProviderViewProje
             body: pending.body().to_owned(),
             confirm_label: pending.confirm_label().to_owned(),
             continuation_schema: pending.continuation_schema().to_owned(),
+            continuation_values: TypedMap::new(),
+            focused_field: None,
         }
     } else if let Some(message) = dominant_error(input) {
         ProviderViewMode::Error { message }
@@ -204,6 +242,11 @@ pub fn project_provider_view(input: &ProviderViewInput<'_>) -> ProviderViewProje
 }
 
 /// Build the row list from active requests and the action label.
+fn request_belongs_to_input(request: &ActiveRequest, input: &ProviderViewInput<'_>) -> bool {
+    request.context_screen().as_str() == input.context_screen
+        && request.context_instance().as_str() == input.context_instance
+}
+
 fn project_rows(input: &ProviderViewInput<'_>) -> Vec<ProviderViewRow> {
     let mut rows = Vec::new();
 
@@ -221,7 +264,13 @@ fn project_rows(input: &ProviderViewInput<'_>) -> Vec<ProviderViewRow> {
         });
     }
 
-    for (index, request) in input.requests.requests().iter().enumerate() {
+    for (index, request) in input
+        .requests
+        .requests()
+        .iter()
+        .filter(|request| request_belongs_to_input(request, input))
+        .enumerate()
+    {
         let focused = input.focused_index.is_some_and(|idx| idx == index);
         let label = request_label(request, input.action_label);
         let status = row_status(request);
@@ -283,11 +332,17 @@ fn outcome_summary(outcome: &crate::runtime::provider::protocol::Outcome) -> Str
 
 /// Extract the dominant recovery message (crash/EOF/protocol/timeout).
 fn dominant_recovery(input: &ProviderViewInput<'_>) -> Option<String> {
-    input.requests.requests().iter().rev().find_map(|request| {
-        request
-            .unavailable_reason()
-            .map(|reason| reason.label().to_owned())
-    })
+    input
+        .requests
+        .requests()
+        .iter()
+        .rev()
+        .filter(|request| request_belongs_to_input(request, input))
+        .find_map(|request| {
+            request
+                .unavailable_reason()
+                .map(|reason| reason.label().to_owned())
+        })
 }
 
 /// Extract the dominant error message (terminal provider error).
@@ -297,6 +352,7 @@ fn dominant_error(input: &ProviderViewInput<'_>) -> Option<String> {
         .requests()
         .iter()
         .rev()
+        .filter(|request| request_belongs_to_input(request, input))
         .find_map(|request| request.failed_message().map(ToString::to_string))
 }
 

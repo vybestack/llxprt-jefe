@@ -1,5 +1,7 @@
 //! `AppEvent` <-> `TerminalManagerMessage` conversion (issue #361 PR B).
 
+use std::ops::ControlFlow;
+
 use crate::messages::{NavDir, TerminalManagerMessage};
 use crate::state::AppEvent;
 
@@ -10,25 +12,30 @@ impl From<TerminalManagerMessage> for AppEvent {
 }
 
 impl TerminalManagerMessage {
-    /// Convert an [`AppEvent`] into the corresponding [`TerminalManagerMessage`].
+    /// Convert a terminal-manager-domain [`AppEvent`] into the typed message.
     ///
-    /// # Panics
-    /// Panics via `unreachable!` if the event does not belong to the Terminal
-    /// Manager domain. Callers must only pass terminal-manager events
-    /// (guaranteed by [`AppMessage::from`]'s routing gate).
-    pub(super) fn from_app_event(event: AppEvent) -> Self {
+    /// Returns [`ControlFlow::Continue`] with the event when it belongs to no
+    /// terminal-manager layer, so the dispatcher can hand it to another domain
+    /// instead of panicking.
+    pub(super) fn try_from_app_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
-            AppEvent::EnterTerminalManagerMode => Self::EnterMode,
-            AppEvent::ExitTerminalManagerMode => Self::ExitMode,
-            AppEvent::TerminalManagerNavigateUp => Self::Navigate(NavDir::Up),
-            AppEvent::TerminalManagerNavigateDown => Self::Navigate(NavDir::Down),
-            AppEvent::TerminalManagerNavigateHome => Self::Navigate(NavDir::Home),
-            AppEvent::TerminalManagerNavigateEnd => Self::Navigate(NavDir::End),
-            AppEvent::RequestShellFocus { agent_id, origin } => {
-                Self::RequestFocus { agent_id, origin }
+            AppEvent::EnterTerminalManagerMode => ControlFlow::Break(Self::EnterMode),
+            AppEvent::ExitTerminalManagerMode => ControlFlow::Break(Self::ExitMode),
+            AppEvent::TerminalManagerNavigateUp => ControlFlow::Break(Self::Navigate(NavDir::Up)),
+            AppEvent::TerminalManagerNavigateDown => {
+                ControlFlow::Break(Self::Navigate(NavDir::Down))
             }
-            AppEvent::ConfirmShellFocus(agent_id) => Self::ConfirmFocus(agent_id),
-            AppEvent::FailShellFocus => Self::FailFocus,
+            AppEvent::TerminalManagerNavigateHome => {
+                ControlFlow::Break(Self::Navigate(NavDir::Home))
+            }
+            AppEvent::TerminalManagerNavigateEnd => ControlFlow::Break(Self::Navigate(NavDir::End)),
+            AppEvent::RequestShellFocus { agent_id, origin } => {
+                ControlFlow::Break(Self::RequestFocus { agent_id, origin })
+            }
+            AppEvent::ConfirmShellFocus(agent_id) => {
+                ControlFlow::Break(Self::ConfirmFocus(agent_id))
+            }
+            AppEvent::FailShellFocus => ControlFlow::Break(Self::FailFocus),
             AppEvent::ShellPreviewResult {
                 agent_id,
                 generation,
@@ -36,14 +43,14 @@ impl TerminalManagerMessage {
                 lines,
             } => {
                 let result = if ok { Ok(lines) } else { Err(()) };
-                Self::PreviewResult {
+                ControlFlow::Break(Self::PreviewResult {
                     agent_id,
                     generation,
                     result,
-                }
+                })
             }
-            AppEvent::ShellClosed(agent_id) => Self::ShellClosed(agent_id),
-            _ => unreachable!("unhandled event for TerminalManagerMessage: {:?}", event),
+            AppEvent::ShellClosed(agent_id) => ControlFlow::Break(Self::ShellClosed(agent_id)),
+            other => ControlFlow::Continue(other),
         }
     }
 
@@ -92,6 +99,8 @@ impl TerminalManagerMessage {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::ControlFlow;
+
     use crate::list_viewport::PageItemCount;
     use crate::messages::{NavDir, TerminalManagerMessage};
     use crate::state::AppEvent;
@@ -118,5 +127,17 @@ mod tests {
                 AppEvent::TerminalManagerNavigateDown
             ));
         }
+    }
+
+    #[test]
+    fn non_terminal_manager_events_continue_to_next_domain() {
+        assert!(matches!(
+            TerminalManagerMessage::try_from_app_event(AppEvent::Quit),
+            ControlFlow::Continue(AppEvent::Quit)
+        ));
+        assert!(matches!(
+            TerminalManagerMessage::try_from_app_event(AppEvent::FailShellFocus),
+            ControlFlow::Break(TerminalManagerMessage::FailFocus)
+        ));
     }
 }

@@ -54,6 +54,8 @@ pub struct ProviderActionDescriptor {
     pub environment: ProviderEnvironment,
     /// Base `configure` payload; the supervisor merges resolved secrets in.
     pub configure: ConfigurePayload,
+    /// Typed invocation arguments declared by the action.
+    pub arguments: Vec<crate::domain::plugin::field::Field>,
     /// Immutable action policy derived from the action declaration.
     pub policy: ActionPolicy,
     /// The declared invocation timeout, in seconds (manifest range 1..=600).

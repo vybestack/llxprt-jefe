@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 
 use jefe::domain::{AgentId, AgentLaunchRequest};
 use jefe::runtime::RuntimeError;
-use jefe::state::{AppEvent, AppState, ModalState};
+use jefe::state::screen_overlays::ConfirmationRequest;
+use jefe::state::{AppEvent, AppState};
 
 use tracing::warn;
 
@@ -31,8 +32,8 @@ use super::issue_self_assignment::{
 use super::issues_dispatch;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
-    close_modal_and_persist, durable_save_request, gh_async, github_client,
-    launch_signature_for_agent, preflight_or_prompt, process_on_success, schedule_durable_save,
+    durable_save_request, gh_async, github_client, launch_signature_for_agent, preflight_or_prompt,
+    process_on_success, schedule_durable_save,
 };
 
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -202,13 +203,12 @@ fn prompt_dirty_copy_confirm(
     payload: jefe::github::SendPayload,
 ) {
     let mut state = app_state.write();
-    state.modal = ModalState::ConfirmIssueDirtyCopy {
+    state.open_confirmation_payload(ConfirmationRequest::IssueDirtyCopy {
         agent_id: agent_id.clone(),
         work_dir: work_dir.to_path_buf(),
         signature: launch_sig,
         payload,
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    });
     let persisted = durable_save_request(&mut state);
     drop(state);
     schedule_durable_save(ctx, persisted);
@@ -223,15 +223,14 @@ fn prompt_origin_mismatch_confirm(
     origins: OriginMismatchInfo,
 ) {
     let mut state = app_state.write();
-    state.modal = ModalState::ConfirmIssueOriginMismatch {
+    state.open_confirmation_payload(ConfirmationRequest::IssueOriginMismatch {
         agent_id: prep_ctx.agent_id.clone(),
         work_dir: prep_ctx.work_dir.clone(),
         signature: prep_ctx.launch_sig.clone(),
         payload: prep_ctx.payload.clone(),
         actual: origins.actual,
         expected: origins.expected,
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    });
     let persisted = durable_save_request(&mut state);
     drop(state);
     schedule_durable_save(ctx, persisted);
@@ -245,12 +244,15 @@ fn prompt_origin_mismatch_confirm(
 fn prepare_confirm_send_target(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
+    expected: &ConfirmationRequest,
     _work_dir: &Path,
     launch_sig: &AgentLaunchRequest,
 ) -> Option<super::issue_prep::WorkTarget> {
-    // Close the confirm modal first so the UI reflects the user's decision
-    // before the (potentially slow) remote prep runs.
-    close_modal_and_persist(app_state, ctx);
+    // Close the exact owned confirmation before the (potentially slow) remote
+    // prep runs. A suspended or malformed pairing cannot authorize side effects.
+    if !super::close_expected_generic_confirmation_and_persist(app_state, ctx, expected) {
+        return None;
+    }
 
     // Re-check availability BEFORE prep side effects: the runtime may have
     // been removed while the confirm modal was open.
@@ -291,12 +293,24 @@ fn prepare_confirm_send_target(
 pub(super) fn confirm_issue_dirty_copy_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    agent_id: AgentId,
-    work_dir: PathBuf,
-    launch_sig: AgentLaunchRequest,
-    payload: jefe::github::SendPayload,
+    expected: &ConfirmationRequest,
 ) {
-    let Some(target) = prepare_confirm_send_target(app_state, ctx, &work_dir, &launch_sig) else {
+    let ConfirmationRequest::IssueDirtyCopy {
+        agent_id,
+        work_dir,
+        signature,
+        payload,
+    } = expected
+    else {
+        return;
+    };
+    let agent_id = agent_id.clone();
+    let work_dir = work_dir.clone();
+    let launch_sig = signature.clone();
+    let payload = payload.clone();
+    let Some(target) =
+        prepare_confirm_send_target(app_state, ctx, expected, &work_dir, &launch_sig)
+    else {
         return;
     };
 
@@ -368,12 +382,24 @@ pub(super) fn confirm_issue_dirty_copy_enter(
 pub(super) fn confirm_issue_origin_mismatch_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    agent_id: AgentId,
-    work_dir: PathBuf,
-    launch_sig: AgentLaunchRequest,
-    payload: jefe::github::SendPayload,
+    expected: &ConfirmationRequest,
 ) {
-    let Some(target) = prepare_confirm_send_target(app_state, ctx, &work_dir, &launch_sig) else {
+    let ConfirmationRequest::IssueOriginMismatch {
+        agent_id,
+        work_dir,
+        signature,
+        payload,
+        ..
+    } = expected
+    else {
+        return;
+    };
+    let agent_id = agent_id.clone();
+    let work_dir = work_dir.clone();
+    let launch_sig = signature.clone();
+    let Some(target) =
+        prepare_confirm_send_target(app_state, ctx, expected, &work_dir, &launch_sig)
+    else {
         return;
     };
 
@@ -402,7 +428,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                issue_assignment_from_payload(&payload),
+                issue_assignment_from_payload(payload),
             );
         }
         // A force-reclone produces a pristine clone, so Dirty here is an

@@ -23,8 +23,8 @@ use super::error::ProviderError;
 use super::panel_model::{
     Affordance, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError,
     ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
-    StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine, TreeBody,
-    TreeNode,
+    StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 use super::supervisor::{CleanupFailure, OneShotOutcome, SupervisorFailure};
 
@@ -216,8 +216,21 @@ fn redact_structured_diff_file(
 ) -> StructuredDiffFile {
     StructuredDiffFile {
         id: file.id,
-        old_path: file.old_path.map(|text| redact_text(text, redactor)),
-        new_path: file.new_path.map(|text| redact_text(text, redactor)),
+        path: match file.path {
+            StructuredDiffPath::Added(path) => {
+                StructuredDiffPath::Added(redact_text(path, redactor))
+            }
+            StructuredDiffPath::Removed(path) => {
+                StructuredDiffPath::Removed(redact_text(path, redactor))
+            }
+            StructuredDiffPath::Modified(path) => {
+                StructuredDiffPath::Modified(redact_text(path, redactor))
+            }
+            StructuredDiffPath::Renamed { old, new } => StructuredDiffPath::Renamed {
+                old: redact_text(old, redactor),
+                new: redact_text(new, redactor),
+            },
+        },
         old_mode: file.old_mode.map(|text| redact_text(text, redactor)),
         new_mode: file.new_mode.map(|text| redact_text(text, redactor)),
         binary: file.binary,

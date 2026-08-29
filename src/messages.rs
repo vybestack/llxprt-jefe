@@ -86,13 +86,6 @@ pub enum UiNavigationMessage {
     CyclePaneFocus,
     ToggleTerminalFocus,
     ToggleHideIdleRepositories,
-    /// Dashboard "search lite" events for repositories and agents (issue #405).
-    FocusDashboardSearch,
-    BlurDashboardSearch,
-    SetDashboardSearchQuery {
-        query: String,
-    },
-    ClearDashboardSearch,
     EnterSplitMode,
     ExitSplitMode,
     EnterGrabMode,

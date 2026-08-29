@@ -20,7 +20,6 @@ pub const AUDITED_DISPATCH_SOURCES: &[&str] = &[
     "src/app_shell_key_routing.rs",
     "src/app_input/mod.rs",
     "src/app_input/normal.rs",
-    "src/app_input/dashboard_search.rs",
     "src/app_input/errors.rs",
     "src/app_input/terminal_manager.rs",
     "src/app_input/shell_overlay.rs",

@@ -15,13 +15,15 @@
 
 use crate::test_support::Must;
 use crate::workbench::{
-    ActivationValues, LayoutNode, PanelDescriptor, PanelId, PanelTypeId, PluginScreenId, RouteId,
-    ScreenDescriptor, ScreenId, ScreenIdentity, ScreenRegistry, builtin_screens, intern,
+    ActivationValues, LayoutNode, OverlayKind, PanelDescriptor, PanelId, PanelTypeId,
+    PluginScreenId, RouteId, ScreenDescriptor, ScreenId, ScreenIdentity, ScreenRegistry,
+    builtin_screens, intern,
 };
 
 use super::navigation::{
     Activation, NavIntent, NavMessage, NavOutcome, NavState, reduce_navigation,
 };
+use super::screen_overlays::ActiveOverlay;
 
 /// The stable identity string of the composed package screen under test.
 const PACKAGE_SCREEN: &str = "vendor.pkg.review";
@@ -62,6 +64,7 @@ fn package_descriptor() -> ScreenDescriptor {
         panels: vec![PanelDescriptor {
             id: panel,
             panel_type,
+            host_capability: None,
             config: crate::domain::TypedMap::new(),
             focusable: true,
             required: true,
@@ -72,6 +75,8 @@ fn package_descriptor() -> ScreenDescriptor {
         layout: LayoutNode::Leaf { panel },
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: OverlayKind::ALL.to_vec(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
     }
 }
@@ -101,7 +106,7 @@ fn package_request(state: &NavState) -> Activation {
 #[test]
 fn push_to_a_package_screen_commits_and_enters_it() {
     let registry = registry_with_package();
-    let before = NavState::rooted(ScreenId::Dashboard);
+    let before = NavState::default();
     let suspended = before.current().id;
     let activation = package_request(&before);
 
@@ -143,7 +148,7 @@ fn a_pushed_package_instance_starts_at_the_descriptors_initial_focus() {
     let descriptor = registry
         .get_identity(package_identity())
         .must("the package screen is in the composed registry");
-    let before = NavState::rooted(ScreenId::Dashboard);
+    let before = NavState::default();
     let activation = package_request(&before);
 
     let transition = reduce_navigation(
@@ -164,7 +169,7 @@ fn a_pushed_package_instance_starts_at_the_descriptors_initial_focus() {
 #[test]
 fn replace_to_a_package_screen_disposes_the_current_without_stacking() {
     let registry = registry_with_package();
-    let before = NavState::rooted(ScreenId::Dashboard);
+    let before = NavState::default();
     let disposed = before.current().id;
     let activation = package_request(&before);
 
@@ -196,7 +201,7 @@ fn replace_to_a_package_screen_disposes_the_current_without_stacking() {
 #[test]
 fn back_from_a_package_screen_restores_the_exact_prior_instance() {
     let registry = registry_with_package();
-    let root = NavState::rooted(ScreenId::Dashboard);
+    let root = NavState::default();
     let original = root.current().clone();
 
     let pushed = reduce_navigation(
@@ -238,9 +243,51 @@ fn back_from_a_package_screen_restores_the_exact_prior_instance() {
 // ── Compiled navigation remains unchanged ───────────────────────────────────
 
 #[test]
+fn suspended_and_active_screens_retain_independent_overlay_state() {
+    let registry = registry_with_package();
+    let mut root = NavState::default();
+    let dashboard = registry
+        .get_identity(root.screen())
+        .unwrap_or_else(|| panic!("dashboard descriptor must exist"));
+    assert!(root.ensure_current_relationships(dashboard).is_ok());
+    assert!(root.current_mut().overlays_mut().open_search());
+    assert!(
+        root.current_mut()
+            .overlays_mut()
+            .replace_search("repositories".to_owned(), 12)
+    );
+
+    let activation = package_request(&root);
+    let mut pushed = reduce_navigation(
+        root,
+        &registry,
+        NavMessage::Navigate(NavIntent::Push(activation)),
+    );
+    assert!(matches!(pushed.outcome, NavOutcome::Pushed { .. }));
+    assert!(pushed.state.current_mut().overlays_mut().open_help());
+    assert_eq!(
+        pushed.state.current().overlays().active(),
+        Some(&ActiveOverlay::Help { viewport: 0 })
+    );
+
+    let restored = reduce_navigation(
+        pushed.state,
+        &registry,
+        NavMessage::Navigate(NavIntent::Back),
+    );
+    assert_eq!(
+        restored.state.current().overlays().active(),
+        Some(&ActiveOverlay::Search {
+            query: "repositories".to_owned(),
+            cursor: 12,
+        })
+    );
+}
+
+#[test]
 fn compiled_push_is_unchanged_when_a_package_screen_is_composed() {
     let registry = registry_with_package();
-    let before = NavState::rooted(ScreenId::Dashboard);
+    let before = NavState::default();
 
     let route = registry
         .get(ScreenId::Issues)

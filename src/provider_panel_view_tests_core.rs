@@ -2,13 +2,14 @@ use crate::domain::action_registry::ActionId;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
 use crate::domain::{Id, TypedMap, TypedValue};
 use crate::provider_panel_view::{
-    PanelHitTarget, PanelProjection, PanelStatus, ProviderScreenView, project_provider_screen,
+    PanelHitTarget, PanelProjection, PanelStatus, ProviderScreenView,
+    project_provider_screen as project_provider_screen_result,
 };
 use crate::runtime::provider::protocol::{
     Affordance, BodyKind, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody,
     FormFieldError, HostLocal, ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody,
-    StatusBody, StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile, TreeBody,
-    TreeNode,
+    StatusBody, StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 use crate::state::provider_panels::{
     AcceptSnapshot, DeclareInput, EventDeclaration, EventKind, MODEL_SCHEMA, PanelInstanceId,
@@ -23,6 +24,23 @@ use crate::workbench::{
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+fn project_provider_screen(
+    descriptor: &ScreenDescriptor,
+    screen_instance_id: u64,
+    panels: &ProviderPanelState,
+    layout: &ResolvedLayout,
+    focused_panel: &PanelId,
+) -> ProviderScreenView {
+    project_provider_screen_result(
+        descriptor,
+        screen_instance_id,
+        panels,
+        layout,
+        focused_panel,
+    )
+    .unwrap_or_else(|error| panic!("provider screen projection: {error}"))
+}
+
 
 fn id(value: &str) -> Id {
     Id::parse(value).unwrap_or_else(|error| panic!("test id: {error:?}"))
@@ -90,6 +108,7 @@ fn make_descriptor() -> ScreenDescriptor {
             PanelDescriptor {
                 id: PanelId::from_static("main"),
                 panel_type: PanelTypeId::from_static("provider-panel"),
+                host_capability: None,
                 config: panel_config(),
                 focusable: true,
                 required: true,
@@ -98,6 +117,7 @@ fn make_descriptor() -> ScreenDescriptor {
             PanelDescriptor {
                 id: PanelId::from_static("side"),
                 panel_type: PanelTypeId::from_static("provider-panel"),
+                host_capability: None,
                 config: panel_config(),
                 focusable: true,
                 required: false,
@@ -108,6 +128,8 @@ fn make_descriptor() -> ScreenDescriptor {
         focus_order: vec![PanelId::from_static("main"), PanelId::from_static("side")],
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: Vec::new(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: LayoutNode::Split {
             axis: Axis::Horizontal,

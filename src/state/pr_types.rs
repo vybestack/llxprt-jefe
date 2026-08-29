@@ -13,7 +13,7 @@
 
 use crate::domain::{ListRequestId, RepositoryId};
 
-use super::{AgentChooserState, ComposerTarget, InlineState, PriorAgentFocus};
+use super::{AgentChooserState, ComposerTarget, InlineState};
 
 /// Identity for the PRs list — a result is stale unless both the scope repo
 /// and the committed filter match exactly.
@@ -293,7 +293,6 @@ pub struct PullRequestsState {
     pub create_mutation_pending: Option<PrCreateMutationPending>,
     pub filter_ui: PrFilterUiState,
     pub search_input_focused: bool,
-    pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<PrMutationPending>,
     pub next_mutation_id: u64,

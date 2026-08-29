@@ -92,16 +92,16 @@ fn rows_follow_the_documents_order_and_then_the_registrys_own() {
 }
 
 #[test]
-fn a_compiled_screen_is_always_enabled_because_composition_always_includes_it() {
+fn every_mandatory_shipped_screen_is_enabled_and_locked() {
     let registry = registry();
 
     let rows = project_screens(&registry, &PublishedSettings::default());
 
     for row in &rows {
-        assert!(row.enabled, "{} is compiled in", row.screen_id.as_str());
+        assert!(row.enabled, "{} is shipped", row.screen_id.as_str());
         assert!(
             row.enablement_locked.is_some(),
-            "a compiled screen cannot be disabled, and says so"
+            "a mandatory shipped screen cannot be disabled, and says so"
         );
     }
 }

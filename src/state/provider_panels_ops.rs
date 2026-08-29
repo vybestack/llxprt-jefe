@@ -82,6 +82,24 @@ impl ProviderPanelState {
             .map(|panel| panel.id)
             .collect()
     }
+    /// Authenticate one live provider instance against its declared screen slot and owner.
+    #[must_use]
+    pub(crate) fn matches_active_binding(
+        &self,
+        panel: PanelInstanceId,
+        screen_instance_id: u64,
+        panel_id: &PanelId,
+        owner: &Id,
+    ) -> bool {
+        self.index(panel).is_some_and(|index| {
+            let record = &self.panels[index];
+            record.lifecycle == PanelLifecycle::Active
+                && record.screen_instance_id == screen_instance_id
+                && &record.panel_id == panel_id
+                && &record.owner == owner
+        })
+    }
+
 
     /// The retained host-local state, if any.
     #[must_use]
@@ -113,7 +131,8 @@ impl ProviderPanelState {
         Ok(())
     }
 
-    /// Mark every subscribed panel for one provider owner failed.
+    /// Mark every live panel for one provider owner failed, including panels
+    /// retained by suspended screen instances.
     pub fn fail_runtime_owner(&mut self, owner: &Id) -> usize {
         let mut failed = 0;
         for panel in &mut self.panels {
@@ -123,6 +142,7 @@ impl ProviderPanelState {
                     PanelLifecycle::Declared
                         | PanelLifecycle::Activating
                         | PanelLifecycle::Active
+                        | PanelLifecycle::Suspended
                         | PanelLifecycle::Failed
                 )
             {
@@ -189,13 +209,19 @@ impl ProviderPanelState {
     }
 
     /// Resume a suspended panel with a fresh generation and prior host-local.
+    /// A persistent owner failure may have marked the retained panel failed
+    /// while its screen was suspended; restoring that screen retries the same
+    /// exact panel rather than trapping navigation on a lifecycle mismatch.
     ///
     /// # Errors
     ///
     /// Returns [`PanelError::UnknownPanel`] or [`PanelError::InvalidLifecycle`].
     pub fn resume(&mut self, panel: PanelInstanceId) -> Result<ActivateOutcome, PanelError> {
         let index = self.require(panel)?;
-        if self.panels[index].lifecycle != PanelLifecycle::Suspended {
+        if !matches!(
+            self.panels[index].lifecycle,
+            PanelLifecycle::Suspended | PanelLifecycle::Failed
+        ) {
             return Err(PanelError::InvalidLifecycle);
         }
         let prior = self.panels[index].host_local.clone();

@@ -16,7 +16,7 @@ use super::navigation_unwind::{BackLayer, BackResolution, LocalIntent, resolve_b
 use super::types::{ActionsFocus, AppState, InlineState, IssueFocus, ModalState, PrFocus};
 use super::{AppEvent, ErrorsFocus, PrLifecycleEvent};
 use crate::messages::{AppMessage, SettingsMessage};
-use crate::workbench::ScreenId;
+use crate::workbench::{OverlayKind, ScreenId};
 
 impl AppState {
     /// The layers Back could unwind, in no particular order.
@@ -131,7 +131,7 @@ impl AppState {
             Some(ScreenId::Actions) => Some(AppEvent::ExitActionsMode),
             Some(ScreenId::Errors) => Some(AppEvent::ExitErrorsMode),
             Some(ScreenId::Terminals) => Some(AppEvent::ExitTerminalManagerMode),
-            Some(ScreenId::Dashboard | ScreenId::Settings) | None => None,
+            Some(ScreenId::Settings) | None => None,
         }
     }
 
@@ -141,21 +141,16 @@ impl AppState {
     /// has nothing left to do.
     #[must_use]
     pub fn can_leave_screen(&self) -> bool {
-        self.nav.depth() > 0 || self.screen() != ScreenId::default()
+        self.nav.depth() > 0 || !self.current_is_composition_root()
     }
 
-    /// A modal the host owns that must be answered before anything else.
+    /// A generic confirmation the current screen instance owns.
     fn host_confirmation_open(&self) -> bool {
-        matches!(
-            self.modal,
-            ModalState::ConfirmDeleteRepository { .. }
-                | ModalState::ConfirmDeleteAgent { .. }
-                | ModalState::ConfirmKillAgent { .. }
-                | ModalState::ConfirmServerLostRecovery { .. }
-                | ModalState::PreflightPrompt { .. }
-                | ModalState::ConfirmIssueDirtyCopy { .. }
-                | ModalState::ConfirmIssueOriginMismatch { .. }
-        )
+        self.nav
+            .current()
+            .overlays()
+            .generic_confirmation()
+            .is_some()
     }
 
     fn close_chooser_event(&self) -> Option<AppEvent> {
@@ -203,14 +198,10 @@ impl AppState {
     }
 
     fn close_search_event(&self) -> Option<AppEvent> {
+        if self.active_overlay_kind() == Some(OverlayKind::Search) {
+            return Some(AppEvent::CloseModal);
+        }
         match self.compiled_screen() {
-            Some(ScreenId::Dashboard | ScreenId::Repositories) => {
-                Some(if self.dashboard_search.query.is_empty() {
-                    AppEvent::BlurDashboardSearch
-                } else {
-                    AppEvent::ClearDashboardSearch
-                })
-            }
             Some(ScreenId::Issues) => Some(if self.issues_state.search_query.is_empty() {
                 AppEvent::BlurSearchInput
             } else {
@@ -301,13 +292,13 @@ impl AppState {
 
     /// A search input holds the keys.
     fn search_focused(&self) -> bool {
+        if self.active_overlay_kind() == Some(OverlayKind::Search) {
+            return true;
+        }
         match self.compiled_screen() {
             Some(ScreenId::Issues) => self.issues_state.search_input_focused,
             Some(ScreenId::PullRequests) => self.prs_state.search_input_focused,
             Some(ScreenId::Actions) => self.actions_state.ui.search_input_focused,
-            Some(ScreenId::Dashboard | ScreenId::Repositories) => {
-                self.dashboard_search.input_focused
-            }
             _ => false,
         }
     }
@@ -327,7 +318,8 @@ impl AppState {
     /// Host confirmations are counted by their own layer, so they are excluded
     /// here rather than counted twice.
     fn plain_overlay_open(&self) -> bool {
-        !matches!(self.modal, ModalState::None) && !self.host_confirmation_open()
+        self.active_overlay_kind() == Some(OverlayKind::Help)
+            || !matches!(self.modal, ModalState::None) && !self.host_confirmation_open()
     }
 
     /// The focused panel holds transient state of its own.
@@ -351,13 +343,7 @@ impl AppState {
                 self.actions_state.focus == super::types::ActionsFocus::Detail
             }
             Some(ScreenId::Errors) => self.errors_state.focus == ErrorsFocus::ErrorDetail,
-            Some(
-                ScreenId::Dashboard
-                | ScreenId::Repositories
-                | ScreenId::Terminals
-                | ScreenId::Settings,
-            )
-            | None => false,
+            Some(ScreenId::Repositories | ScreenId::Terminals | ScreenId::Settings) | None => false,
         }
     }
 }

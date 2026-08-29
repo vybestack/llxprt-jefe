@@ -2,9 +2,9 @@
 //! screens introduce (issue #385).
 
 use super::ids::{
-    CUSTOM_MEMBER_BYTE_LIMIT, CustomScreenId, ID_BYTE_LIMIT, IdError, MAX_ACTIVATION_FIELDS,
-    MAX_BINDINGS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, ScreenId,
-    ScreenIdentity, VersionedTypeId,
+    CUSTOM_MEMBER_BYTE_LIMIT, CustomScreenId, DASHBOARD_IDENTITY, ID_BYTE_LIMIT, IdError,
+    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_PORTS_PER_PANEL,
+    MAX_RELATIONSHIPS_PER_SCREEN, ScreenId, ScreenIdentity, VersionedTypeId,
 };
 use super::intern::intern;
 
@@ -100,10 +100,7 @@ fn a_compiled_identity_reports_its_routable_screen_and_a_custom_one_does_not() {
 
 #[test]
 fn every_identity_checks_against_its_own_grammar() {
-    assert_eq!(
-        ScreenIdentity::Compiled(ScreenId::Dashboard).check(),
-        Ok(())
-    );
+    assert_eq!(DASHBOARD_IDENTITY.check(), Ok(()));
     assert_eq!(
         ScreenIdentity::Custom(
             CustomScreenId::parse("local.review")

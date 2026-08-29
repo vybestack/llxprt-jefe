@@ -5,60 +5,62 @@
 //! drift, these converters fall through to the next dispatch layer so the
 //! TUI never panics on routing mistakes.
 
+use std::ops::ControlFlow;
+
 use crate::state::AppEvent;
 
 use super::IssuesMessage;
 
 impl IssuesMessage {
     /// Convert mutation AppEvents, or fall through to the close-family
-    /// dispatcher for non-mutation events.
-    pub(super) fn from_app_event_mutation_or_close(event: AppEvent) -> Self {
+    /// converter for non-mutation events.
+    pub(super) fn from_app_event_mutation_or_close(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
             AppEvent::MutationSubmitted {
                 scope_repo_id,
                 mutation_id,
                 target,
-            } => Self::MutationSubmitted {
+            } => ControlFlow::Break(Self::MutationSubmitted {
                 scope_repo_id,
                 mutation_id,
                 target,
-            },
+            }),
             AppEvent::IssueCreated {
                 scope_repo_id,
                 mutation_id,
                 issue,
-            } => Self::IssueCreated {
+            } => ControlFlow::Break(Self::IssueCreated {
                 scope_repo_id,
                 mutation_id,
                 issue,
-            },
+            }),
             AppEvent::CommentCreated {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 comment,
-            } => Self::CommentCreated {
+            } => ControlFlow::Break(Self::CommentCreated {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 comment,
-            },
+            }),
             AppEvent::CommentCreateFailed {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 error,
-            } => Self::CommentCreateFailed {
+            } => ControlFlow::Break(Self::CommentCreateFailed {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 error,
-            },
+            }),
             other => Self::from_app_event_mutation_finish_or_close(other),
         }
     }
 
-    fn from_app_event_mutation_finish_or_close(event: AppEvent) -> Self {
+    fn from_app_event_mutation_finish_or_close(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
             AppEvent::IssueBodyUpdated {
                 scope_repo_id,
@@ -66,13 +68,13 @@ impl IssuesMessage {
                 mutation_id,
                 title,
                 body,
-            } => Self::IssueBodyUpdated {
+            } => ControlFlow::Break(Self::IssueBodyUpdated {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 title,
                 body,
-            },
+            }),
             AppEvent::CommentUpdated {
                 scope_repo_id,
                 issue_number,
@@ -80,25 +82,25 @@ impl IssuesMessage {
                 comment_id,
                 comment_index,
                 body,
-            } => Self::CommentUpdated {
+            } => ControlFlow::Break(Self::CommentUpdated {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 comment_id,
                 comment_index,
                 body,
-            },
+            }),
             AppEvent::MutationFailed {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 error,
-            } => Self::MutationFailed {
+            } => ControlFlow::Break(Self::MutationFailed {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
                 error,
-            },
+            }),
             other => Self::from_app_event_close_family(other),
         }
     }

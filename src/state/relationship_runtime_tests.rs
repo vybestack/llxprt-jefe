@@ -1,5 +1,6 @@
 use super::issues_test_fixtures::begin_issue_list_reload;
 use super::prs_test_fixtures::{begin_pr_list_reload, test_pull_request};
+use super::relationship_runtime::SelectedResourceKind;
 use super::transition::TransitionExt;
 use super::{
     AppEvent, AppState, ComposerTarget, InlineState, IssueLifecycleMutationPending,
@@ -33,7 +34,16 @@ fn issue(number: &str) -> PortValue {
 }
 
 fn pull_request(number: &str) -> PortValue {
-    resource("github.pull-request", number)
+    PortValue::Typed(TypedPortValue {
+        type_id: id("github.pull-request"),
+        schema_version: 1,
+        semantic_key: number.to_owned(),
+        value: [
+            (id("semantic-key"), TypedValue::String(number.to_owned())),
+            (id("head-sha"), TypedValue::String("sha123".to_owned())),
+        ]
+        .into(),
+    })
 }
 
 fn port(panel: &'static str, port: &'static str) -> PortRef {
@@ -341,7 +351,7 @@ fn suspended_instances_restore_their_own_relationship_state() {
 }
 
 #[test]
-fn a_fresh_screen_instance_publishes_the_existing_global_selection_without_overwriting_restore() {
+fn a_fresh_screen_instance_starts_without_inheriting_selection_and_preserves_restore() {
     let mut state = AppState::new(crate::test_support::published_workbench());
     let _ = state.switch_screen(ScreenId::Issues);
     select_repository(&mut state);
@@ -362,15 +372,12 @@ fn a_fresh_screen_instance_publishes_the_existing_global_selection_without_overw
     let _ = state.enter_screen(ScreenId::Issues);
 
     assert_ne!(state.nav.current().id, first_id);
-    assert_eq!(
-        current_issue_subject(&state),
-        issue("vybestack/llxprt-jefe#42")
-    );
+    assert_eq!(current_issue_subject(&state), PortValue::Absent);
 
     state.publish_selected_resource(
-        ISSUES_LIST_PANEL,
-        "github.issue",
+        SelectedResourceKind::Issue,
         Some("vybestack/llxprt-jefe#43".to_owned()),
+        None,
     );
     let _ = state.leave_screen();
     let _ = state.leave_screen();
@@ -482,4 +489,273 @@ fn accepted_pr_loads_publish_and_clear_the_visible_selection() {
         })
         .committed_pure();
     assert_eq!(current_pr_subject(&state), PortValue::Absent);
+}
+
+#[test]
+fn provider_action_context_projects_exact_current_typed_resources() {
+    let mut state = AppState::new(crate::test_support::published_workbench());
+    let _ = state.switch_screen(ScreenId::Issues);
+    select_repository(&mut state);
+    state = accept_issue_list(state, vec![list_issue(42)]);
+
+    let context = super::provider_action_context::project_current_context(&state)
+        .unwrap_or_else(|error| unreachable!("valid issue context: {error}"));
+    assert_eq!(context.len(), 2);
+    assert_eq!(
+        context.get(&id("issue-detail.subject")),
+        Some(&TypedValue::Map(
+            [
+                (
+                    id("owner-id"),
+                    TypedValue::String("github.issues".to_owned())
+                ),
+                (id("type-id"), TypedValue::String("github.issue".to_owned())),
+                (id("schema-version"), TypedValue::Integer(1)),
+                (
+                    id("semantic-key"),
+                    TypedValue::String("vybestack/llxprt-jefe#42".to_owned()),
+                ),
+                (
+                    id("value"),
+                    TypedValue::Map(
+                        [(
+                            id("semantic-key"),
+                            TypedValue::String("vybestack/llxprt-jefe#42".to_owned()),
+                        )]
+                        .into(),
+                    ),
+                ),
+            ]
+            .into(),
+        )),
+    );
+}
+
+pub(super) struct DestructiveConfirmationFixture {
+    pub(super) state: AppState,
+    pub(super) owner: Id,
+    pub(super) action_id: Id,
+    pub(super) confirmation_id: Id,
+    pub(super) original_key: crate::domain::effects::ProviderRequestKey,
+    pub(super) retained_context: crate::domain::TypedMap,
+}
+
+pub(super) fn apply_provider(
+    state: AppState,
+    message: crate::messages::ProviderMessage,
+) -> super::transition::Transition {
+    let result = state.apply_message(crate::messages::AppMessage::Provider(Box::new(message)));
+    let Ok(transition) = result else {
+        panic!("provider test transition must succeed");
+    };
+    transition
+}
+
+pub(super) fn destructive_confirmation_fixture() -> DestructiveConfirmationFixture {
+    let mut state = AppState::new(crate::test_support::published_workbench());
+    let _ = state.switch_screen(ScreenId::Issues);
+    select_repository(&mut state);
+    state = accept_issue_list(state, vec![list_issue(42)]);
+    stage_destructive_confirmation(state)
+}
+
+fn destructive_pr_confirmation_fixture() -> DestructiveConfirmationFixture {
+    let mut state = AppState::new(crate::test_support::published_workbench());
+    let _ = state.switch_screen(ScreenId::PullRequests);
+    select_repository(&mut state);
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
+    state = state
+        .apply(AppEvent::PrListLoaded {
+            scope_repo_id: RepositoryId("repo-1".to_owned()),
+            filter: Box::new(PrFilter::default()),
+            request_id,
+            pull_requests: vec![test_pull_request(42)],
+            cursor: None,
+            has_more: false,
+        })
+        .committed_pure();
+    stage_destructive_confirmation(state)
+}
+
+fn stage_destructive_confirmation(state: AppState) -> DestructiveConfirmationFixture {
+    use crate::domain::effects::{Effect, ProviderEffect};
+    use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
+    use crate::messages::ProviderMessage;
+    use crate::runtime::provider::protocol::Outcome;
+
+    let owner = id("host");
+    let action_id = id("provider.run");
+    let confirmation_id = id("confirm.run");
+    let policy = super::provider_requests::ActionPolicy::new(
+        ActionConfirmation::ProviderContinuation,
+        vec![ActionOutcome::RequestHostConfirmation],
+        true,
+    );
+    let Ok(retained_context) = super::provider_action_context::project_current_context(&state)
+    else {
+        panic!("resource context must be valid");
+    };
+    let invoked = apply_provider(
+        state,
+        ProviderMessage::Invoke {
+            owner: owner.clone(),
+            action_id: action_id.clone(),
+            arguments: crate::domain::TypedMap::new(),
+            policy,
+        },
+    );
+    let original_key = match &invoked.effects[0].effect {
+        Effect::Provider(ProviderEffect::InvokeAction { invocation }) => {
+            assert_eq!(invocation.context_refs, retained_context);
+            invocation.key.clone()
+        }
+        other => panic!("expected invoke effect, got {other:?}"),
+    };
+    let requested = apply_provider(
+        invoked.next_state,
+        ProviderMessage::Outcome {
+            key: original_key.clone(),
+            outcome: Outcome::RequestHostConfirmation {
+                confirmation_id: confirmation_id.clone(),
+                title: "Confirm".to_owned(),
+                body: "Proceed?".to_owned(),
+                confirm_label: "Proceed".to_owned(),
+                destructive: true,
+                continuation_schema: Vec::new(),
+            },
+            now_epoch: 100,
+        },
+    );
+    DestructiveConfirmationFixture {
+        state: requested.next_state,
+        owner,
+        action_id,
+        confirmation_id,
+        original_key,
+        retained_context,
+    }
+}
+
+fn confirm_message(
+    fixture: &DestructiveConfirmationFixture,
+    now_epoch: u64,
+) -> crate::messages::ProviderMessage {
+    crate::messages::ProviderMessage::Confirm {
+        owner: fixture.owner.clone(),
+        action_id: fixture.action_id.clone(),
+        generation: fixture.original_key.generation,
+        confirmation_id: fixture.confirmation_id.clone(),
+        values: crate::domain::TypedMap::new(),
+        now_epoch,
+    }
+}
+
+fn assert_confirmed_reinvocation(
+    transition: &super::transition::Transition,
+    fixture: &DestructiveConfirmationFixture,
+) {
+    use crate::domain::effects::{Effect, ProviderEffect};
+
+    assert_eq!(transition.effects.len(), 1);
+    match &transition.effects[0].effect {
+        Effect::Provider(ProviderEffect::InvokeAction { invocation }) => {
+            assert_eq!(
+                invocation.key.generation,
+                fixture.original_key.generation + 1
+            );
+            assert_eq!(invocation.context_refs, fixture.retained_context);
+            assert!(invocation.continuation.is_some());
+        }
+        other => panic!("expected confirmed invoke effect, got {other:?}"),
+    }
+    assert_eq!(
+        transition
+            .next_state
+            .provider_requests
+            .pending_confirmation_count(),
+        0
+    );
+}
+
+#[test]
+fn destructive_confirmation_rejects_changed_semantic_identity_without_consuming_intent() {
+    let fixture = destructive_confirmation_fixture();
+    let mut changed = fixture.state.clone();
+    let overlay_before = changed.nav.current().overlays().clone();
+    let request_count = changed.provider_requests.requests().len();
+    assert_eq!(changed.provider_requests.pending_confirmation_count(), 1);
+    changed.publish_selected_resource(
+        SelectedResourceKind::Issue,
+        Some("vybestack/llxprt-jefe#43".to_owned()),
+        None,
+    );
+
+    let rejected = apply_provider(changed, confirm_message(&fixture, 101));
+    assert!(rejected.effects.is_empty());
+    assert_eq!(
+        rejected.next_state.provider_requests.requests().len(),
+        request_count
+    );
+    assert_eq!(
+        rejected
+            .next_state
+            .provider_requests
+            .pending_confirmation_count(),
+        1
+    );
+    assert_eq!(
+        rejected.next_state.nav.current().overlays(),
+        &overlay_before
+    );
+    assert_eq!(
+        rejected.next_state.error_message.as_deref(),
+        Some("provider action context no longer matches the authorized intent")
+    );
+
+    let mut restored = rejected.next_state;
+    restored.publish_selected_resource(
+        SelectedResourceKind::Issue,
+        Some("vybestack/llxprt-jefe#42".to_owned()),
+        None,
+    );
+    let confirmed = apply_provider(restored, confirm_message(&fixture, 102));
+    assert_confirmed_reinvocation(&confirmed, &fixture);
+}
+
+#[test]
+fn destructive_pr_confirmation_rejects_changed_head_without_consuming_intent() {
+    let fixture = destructive_pr_confirmation_fixture();
+    let mut changed = fixture.state.clone();
+    let overlay_before = changed.nav.current().overlays().clone();
+    let request_count = changed.provider_requests.requests().len();
+    changed.prs_state.list.items_mut()[0].head_sha = "force-pushed-head".to_owned();
+    changed.sync_pr_selected_resource();
+
+    let rejected = apply_provider(changed, confirm_message(&fixture, 101));
+    assert!(rejected.effects.is_empty());
+    assert_eq!(
+        rejected.next_state.provider_requests.requests().len(),
+        request_count
+    );
+    assert_eq!(
+        rejected
+            .next_state
+            .provider_requests
+            .pending_confirmation_count(),
+        1
+    );
+    assert_eq!(
+        rejected.next_state.nav.current().overlays(),
+        &overlay_before
+    );
+    assert_eq!(
+        rejected.next_state.error_message.as_deref(),
+        Some("provider action context no longer matches the authorized intent")
+    );
+
+    let mut restored = rejected.next_state;
+    restored.prs_state.list.items_mut()[0].head_sha = "sha123".to_owned();
+    restored.sync_pr_selected_resource();
+    let confirmed = apply_provider(restored, confirm_message(&fixture, 102));
+    assert_confirmed_reinvocation(&confirmed, &fixture);
 }

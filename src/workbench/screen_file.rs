@@ -62,6 +62,9 @@ pub struct ScreenFile {
     /// Typed same-screen port relationships.
     #[serde(default)]
     pub relationships: Vec<Spanned<RelationshipFile>>,
+    /// Closed host-owned layers this screen may open.
+    #[serde(default)]
+    pub overlays: Vec<Spanned<OverlayFile>>,
     /// Action bindings the screen requests.
     #[serde(default)]
     pub bindings: Vec<Spanned<BindingRefFile>>,
@@ -329,6 +332,26 @@ pub enum SessionEmptyPolicyFile {
     Detach,
     /// Leave the attachment in place.
     Retain,
+}
+
+/// One host-owned overlay declaration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlayFile {
+    /// Closed host implementation selected by this declaration.
+    pub kind: OverlayKindFile,
+}
+
+/// Closed host-owned overlay vocabulary admitted by screen definitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlayKindFile {
+    /// Keyboard-shortcut reference content.
+    Help,
+    /// Host text-query editor.
+    Search,
+    /// Host yes/no confirmation surface.
+    Confirmation,
 }
 
 /// One action binding the screen requests.

@@ -8,12 +8,11 @@ use std::num::NonZeroU16;
 use crate::domain::Id;
 
 use super::descriptor::{
-    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
-    ScreenDescriptor, Size,
+    Axis, HostPanelCapability, HostPanelModelSource, LayoutChild, LayoutNode, OverlayKind,
+    PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor, Size,
 };
 use super::ids::{
-    MAX_PORTS_PER_PANEL, PanelId, PanelTypeId, PortId, RouteId, ScreenId, ScreenIdentity,
-    VersionedTypeId,
+    DASHBOARD_IDENTITY, MAX_PORTS_PER_PANEL, PanelId, PanelTypeId, PortId, RouteId, VersionedTypeId,
 };
 use super::validate::{DescriptorError, validate_descriptor};
 
@@ -32,6 +31,7 @@ fn make_panel(id: &'static str, focusable: bool, required: bool) -> PanelDescrip
         id: panel_id(id),
         panel_type: PanelTypeId::parse("list")
             .unwrap_or_else(|_| unreachable!("fixture panel type is valid")),
+        host_capability: None,
         config: crate::domain::TypedMap::new(),
         focusable,
         required,
@@ -59,7 +59,7 @@ fn child(id: &'static str, collapsible: bool, collapse_priority: Option<i32>) ->
 /// A two-panel screen: `list` required+focusable, `detail` collapsible.
 fn valid_descriptor() -> ScreenDescriptor {
     ScreenDescriptor {
-        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
+        id: DASHBOARD_IDENTITY,
         title: "Fixture".to_owned(),
         route: RouteId::parse("fixture")
             .unwrap_or_else(|_| unreachable!("fixture route id is valid")),
@@ -71,6 +71,8 @@ fn valid_descriptor() -> ScreenDescriptor {
         focus_order: vec![panel_id("list"), panel_id("detail")],
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: Vec::new(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: LayoutNode::Split {
             axis: Axis::Vertical,
@@ -86,12 +88,43 @@ fn the_fixture_descriptor_is_valid() {
 }
 
 #[test]
+fn mismatched_compiled_host_model_and_control_kind_is_refused() {
+    let mut descriptor = valid_descriptor();
+    descriptor.panels[0].host_capability = Some(HostPanelCapability::compiled(
+        HostPanelModelSource::SearchInput,
+        crate::host_controls::ControlKind::List,
+    ));
+
+    assert_eq!(
+        validate_descriptor(&descriptor),
+        Err(DescriptorError::HostPanelCapabilityMismatch {
+            screen: descriptor.id.as_str(),
+            panel: descriptor.panels[0].id.as_str(),
+        })
+    );
+}
+
+#[test]
 fn a_screen_with_no_panels_is_rejected() {
     let mut descriptor = valid_descriptor();
     descriptor.panels.clear();
     assert!(matches!(
         validate_descriptor(&descriptor),
         Err(DescriptorError::NoPanels { .. })
+    ));
+}
+
+#[test]
+fn a_duplicate_host_overlay_kind_is_rejected() {
+    let mut descriptor = valid_descriptor();
+    descriptor.overlays = vec![OverlayKind::Help, OverlayKind::Help];
+
+    assert!(matches!(
+        validate_descriptor(&descriptor),
+        Err(DescriptorError::DuplicateOverlay {
+            overlay: "help",
+            ..
+        })
     ));
 }
 
@@ -271,7 +304,7 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
         };
     }
     ScreenDescriptor {
-        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
+        id: DASHBOARD_IDENTITY,
         title: "Nested".to_owned(),
         route: RouteId::parse("nested")
             .unwrap_or_else(|_| unreachable!("fixture route id is valid")),
@@ -284,6 +317,8 @@ fn nested_descriptor(depth: usize) -> ScreenDescriptor {
         focus_order: ids.iter().copied().map(panel_id).collect(),
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: Vec::new(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: node,
     }

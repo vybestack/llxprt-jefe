@@ -619,7 +619,7 @@ fn an_unsaved_edit_leaves_the_published_settings_and_screen_registry_alone() {
             .screen_registry()
             .screens()
             .len(),
-        ScreenId::ALL.len(),
+        ScreenId::ALL.len() + 1,
         "the committed registry is unchanged while the draft is unsaved"
     );
     assert_eq!(draft_status(&state), DraftStatus::Dirty);

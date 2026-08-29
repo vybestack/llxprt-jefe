@@ -30,7 +30,7 @@ use super::panel_model::{
     HostLocal, ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody,
     PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
     StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
-    TreeBody, TreeNode,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 use super::typed_value::{read_field_declaration, read_typed_map, read_typed_value};
 

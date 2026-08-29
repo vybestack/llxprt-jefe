@@ -65,7 +65,7 @@ mod tests {
 
         state.apply_actions_message(ActionsMessage::ExitMode);
         assert!(!state.actions_state.active);
-        assert_eq!(state.screen(), ScreenId::Dashboard);
+        assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     }
 
     #[test]

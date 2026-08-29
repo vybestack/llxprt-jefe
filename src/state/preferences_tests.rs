@@ -155,7 +155,8 @@ fn enter_prs_mode_restores_field_index() {
 #[test]
 fn pr_apply_filter_persists_to_prefs() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.restore_navigation_root(ScreenId::PullRequests);
+    state.selected_repository_index = Some(0);
     state.prs_state.active = true;
     state.prs_state.filter_ui.controls_open = true;
     state.prs_state.draft_filter.state = Some(PrFilterState::Closed);
@@ -172,7 +173,8 @@ fn pr_apply_filter_persists_to_prefs() {
 #[test]
 fn pr_clear_filter_persists_open_default() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.restore_navigation_root(ScreenId::PullRequests);
+    state.selected_repository_index = Some(0);
     state.prs_state.active = true;
     // Seed a search query so we can prove ClearFilter also clears it.
     state.prs_state.search_query = "stale query".to_string();
@@ -202,7 +204,8 @@ fn pr_open_filter_controls_keeps_restored_field_index() {
         ..RepoPreferences::default()
     };
     let mut state = state_with_repo_and_prefs("repo-1", prefs);
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.restore_navigation_root(ScreenId::PullRequests);
+    state.selected_repository_index = Some(0);
     state.prs_state.active = true;
 
     // Enter mode restores field_index=2 into live state; opening filter
@@ -232,7 +235,8 @@ fn pr_prefs_are_per_repo() {
         ..RepoPreferences::default()
     };
     let mut state = state_with_two_repos("repo-1", prefs1, "repo-2", prefs2);
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.restore_navigation_root(ScreenId::PullRequests);
+    state.selected_repository_index = Some(0);
     state.prs_state.active = true;
 
     // Enter PR mode with repo-1 selected → Closed.
@@ -295,7 +299,8 @@ fn issue_open_filter_controls_keeps_restored_field_index() {
         ..RepoPreferences::default()
     };
     let mut state = state_with_repo_and_prefs("repo-1", prefs);
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.restore_navigation_root(ScreenId::Issues);
+    state.selected_repository_index = Some(0);
     state.issues_state.active = true;
 
     // Enter mode restores field_index=4 into live state; opening filter
@@ -309,7 +314,8 @@ fn issue_open_filter_controls_keeps_restored_field_index() {
 #[test]
 fn issue_apply_filter_persists() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.restore_navigation_root(ScreenId::Issues);
+    state.selected_repository_index = Some(0);
     state.issues_state.active = true;
     state.issues_state.filter_ui.controls_open = true;
     state.issues_state.draft_filter.author = "alice".to_string();
@@ -324,7 +330,8 @@ fn issue_apply_filter_persists() {
 #[test]
 fn issue_clear_filter_persists() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.restore_navigation_root(ScreenId::Issues);
+    state.selected_repository_index = Some(0);
     state.issues_state.active = true;
     // Seed a search query so we can prove ClearFilter also clears it.
     state.issues_state.search_query = "stale query".to_string();
@@ -358,7 +365,8 @@ fn issue_clear_draft_filter_defaults_to_open() {
     // ClearDraftFilter resets the in-progress draft to the Open default (issue
     // #163: the filter-state default is Open, matching ClearFilter).
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.restore_navigation_root(ScreenId::Issues);
+    state.selected_repository_index = Some(0);
     state.issues_state.active = true;
     state.issues_state.draft_filter.state = Some(IssueFilterState::Closed);
 
@@ -927,74 +935,9 @@ fn issue_jump_to_agent_in_other_repo_does_not_leak_filter() {
     );
 }
 
-// ── Sort config persistence (issue #473) ────────────────────────────────────
+#[path = "preferences_sort_tests.rs"]
+mod sort;
 
-#[test]
-fn enter_issues_mode_restores_remembered_issue_sort_config() {
-    let prefs = RepoPreferences {
-        issue_sort_config: crate::domain::IssueSortConfig {
-            by: crate::domain::IssueSortBy::Number,
-            order: crate::domain::SortOrder::Asc,
-        },
-        ..RepoPreferences::default()
-    };
-    let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert_eq!(
-        state.issues_state.sort_config.by,
-        crate::domain::IssueSortBy::Number
-    );
-    assert_eq!(
-        state.issues_state.sort_config.order,
-        crate::domain::SortOrder::Asc
-    );
-}
-
-#[test]
-fn cycle_issue_sort_by_persists_to_prefs() {
-    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    // Default is Updated; cycle_next gives Priority.
-    state = state.apply(AppEvent::CycleIssueSortByNext).committed_pure();
-    let repo_id = RepositoryId("repo-1".to_string());
-    let prefs = state.user_preferences.for_repo(&repo_id);
-    assert_eq!(
-        prefs.issue_sort_config.by,
-        crate::domain::IssueSortBy::Priority
-    );
-}
-
-#[test]
-fn cycle_pr_sort_by_persists_to_prefs() {
-    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    state = state.apply(AppEvent::EnterPrsMode).committed_pure();
-    // Default is Updated; cycle_next gives Number.
-    state = state.apply(AppEvent::PrCycleSortByNext).committed_pure();
-    let repo_id = RepositoryId("repo-1".to_string());
-    let prefs = state.user_preferences.for_repo(&repo_id);
-    assert_eq!(prefs.pr_sort_config.by, crate::domain::PrSortBy::Number);
-}
-
-#[test]
-fn enter_prs_mode_restores_remembered_pr_sort_config() {
-    let prefs = RepoPreferences {
-        pr_sort_config: crate::domain::PrSortConfig {
-            by: crate::domain::PrSortBy::Created,
-            order: crate::domain::SortOrder::Asc,
-        },
-        ..RepoPreferences::default()
-    };
-    let state = state_with_repo_and_prefs("repo-1", prefs);
-    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
-    assert_eq!(
-        state.prs_state.sort_config.by,
-        crate::domain::PrSortBy::Created
-    );
-    assert_eq!(
-        state.prs_state.sort_config.order,
-        crate::domain::SortOrder::Asc
-    );
-}
 
 #[path = "cross_mode_transition_tests.rs"]
 mod cross_mode_transition;

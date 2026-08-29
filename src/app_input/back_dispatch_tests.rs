@@ -59,7 +59,7 @@ fn production_back_commit_returns_provider_deactivation_for_post_lock_dispatch()
     let panel_id = PanelId::from_static("main");
     let activation = TypedMap::new();
     let declared = state
-        .provider_panels
+        .provider_panels_mut()
         .declare(DeclareInput {
             owner: &owner,
             panel_id: &panel_id,
@@ -73,7 +73,7 @@ fn production_back_commit_returns_provider_deactivation_for_post_lock_dispatch()
         })
         .unwrap_or_else(|error| panic!("provider panel declaration must succeed: {error:?}"));
     state
-        .provider_panels
+        .provider_panels_mut()
         .activate(declared.instance)
         .unwrap_or_else(|error| panic!("provider panel activation must succeed: {error:?}"));
 

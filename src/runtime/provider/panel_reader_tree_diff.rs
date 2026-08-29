@@ -141,10 +141,10 @@ fn read_structured_diff_file(
     let new_path = read_optional_string(members, path, "new_path")?;
     let old_mode = read_optional_string(members, path, "old_mode")?;
     let new_mode = read_optional_string(members, path, "new_mode")?;
-    validate_diff_file_sides(
+    let file_path = structured_diff_path(
         path,
-        old_path.as_deref(),
-        new_path.as_deref(),
+        old_path,
+        new_path,
         old_mode.as_deref(),
         new_mode.as_deref(),
     )?;
@@ -170,8 +170,7 @@ fn read_structured_diff_file(
     validate_hunk_order(&hunks, &format!("{path}.hunks"))?;
     Ok(StructuredDiffFile {
         id: read_id(members, path, "id")?,
-        old_path,
-        new_path,
+        path: file_path,
         old_mode,
         new_mode,
         binary,
@@ -179,22 +178,16 @@ fn read_structured_diff_file(
     })
 }
 
-fn validate_diff_file_sides(
+fn structured_diff_path(
     path: &str,
-    old_path: Option<&str>,
-    new_path: Option<&str>,
+    old_path: Option<String>,
+    new_path: Option<String>,
     old_mode: Option<&str>,
     new_mode: Option<&str>,
-) -> Result<(), ProviderError> {
-    if old_path.is_none() && new_path.is_none() {
-        return Err(ProviderError::InvalidValue {
-            path: path.to_owned(),
-            reason: "a structured-diff file requires an old_path or new_path".to_owned(),
-        });
-    }
+) -> Result<StructuredDiffPath, ProviderError> {
     for (name, value) in [
-        ("old_path", old_path),
-        ("new_path", new_path),
+        ("old_path", old_path.as_deref()),
+        ("new_path", new_path.as_deref()),
         ("old_mode", old_mode),
         ("new_mode", new_mode),
     ] {
@@ -205,18 +198,27 @@ fn validate_diff_file_sides(
             });
         }
     }
-    for (name, mode, side_path) in [
-        ("old_mode", old_mode, old_path),
-        ("new_mode", new_mode, new_path),
+    for (name, mode, side_present) in [
+        ("old_mode", old_mode, old_path.is_some()),
+        ("new_mode", new_mode, new_path.is_some()),
     ] {
-        if mode.is_some() && side_path.is_none() {
+        if mode.is_some() && !side_present {
             return Err(ProviderError::InvalidValue {
                 path: format!("{path}.{name}"),
                 reason: format!("{name} requires its corresponding path"),
             });
         }
     }
-    Ok(())
+    match (old_path, new_path) {
+        (None, None) => Err(ProviderError::InvalidValue {
+            path: path.to_owned(),
+            reason: "a structured-diff file requires an old_path or new_path".to_owned(),
+        }),
+        (None, Some(new)) => Ok(StructuredDiffPath::Added(new)),
+        (Some(old), None) => Ok(StructuredDiffPath::Removed(old)),
+        (Some(old), Some(new)) if old == new => Ok(StructuredDiffPath::Modified(old)),
+        (Some(old), Some(new)) => Ok(StructuredDiffPath::Renamed { old, new }),
+    }
 }
 
 fn read_structured_diff_hunk(
@@ -327,6 +329,13 @@ fn validate_diff_lines(
         } else if line.new_line.is_some() {
             return Err(invalid_diff_line_number(path, index, "new_line"));
         }
+        validate_no_newline_position(
+            line,
+            (counted_old, old_lines),
+            (counted_new, new_lines),
+            path,
+            index,
+        )?;
     }
     if counted_old != old_lines || counted_new != new_lines {
         return Err(ProviderError::InvalidValue {
@@ -337,6 +346,31 @@ fn validate_diff_lines(
         });
     }
     Ok(())
+}
+
+fn validate_no_newline_position(
+    line: &StructuredDiffLine,
+    (counted_old, old_lines): (u64, u64),
+    (counted_new, new_lines): (u64, u64),
+    path: &str,
+    index: usize,
+) -> Result<(), ProviderError> {
+    if !line.no_newline {
+        return Ok(());
+    }
+    let at_final_line = match line.origin {
+        DiffLineOrigin::Context => counted_old == old_lines && counted_new == new_lines,
+        DiffLineOrigin::Added => counted_new == new_lines,
+        DiffLineOrigin::Removed => counted_old == old_lines,
+    };
+    if at_final_line {
+        Ok(())
+    } else {
+        Err(ProviderError::InvalidValue {
+            path: format!("{path}.lines[{index}].no_newline"),
+            reason: "no_newline is valid only on the final line of its diff side".to_owned(),
+        })
+    }
 }
 
 fn invalid_diff_line_number(path: &str, index: usize, field: &str) -> ProviderError {

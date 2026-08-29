@@ -106,6 +106,16 @@ impl PublishedWorkbench {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_test_declarations(
+        &mut self,
+        screens: ScreenComposition,
+        resource_schemas: ResourceSchemaRegistry,
+    ) {
+        self.screens = screens;
+        self.resource_schemas = resource_schemas;
+    }
+
     /// Immutable screen-source snapshot retained for pure candidate recomposition.
     #[must_use]
     pub(crate) const fn screen_sources(&self) -> &ScreenSources {

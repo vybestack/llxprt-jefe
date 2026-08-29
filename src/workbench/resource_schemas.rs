@@ -6,7 +6,7 @@ use std::fmt;
 use crate::domain::plugin::field::{Field, FieldDraft, FieldError, FieldKind, RestartScope};
 use crate::domain::plugin::surface::{ConfigSchema, ConfigSchemaError};
 use crate::domain::plugin_config::{ConfigValueError, validate_fields};
-use crate::domain::{ConfigContractError, Id, TypedPortValue, TypedValue};
+use crate::domain::{ConfigContractError, Id, InternalId, TypedPortValue, TypedValue};
 
 /// One immutable resource schema and the owner allowed to publish it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +163,50 @@ impl ResourceSchemaRegistry {
         Ok(())
     }
 
+    /// Project one control-owned semantic key through an exact resource declaration.
+    ///
+    /// The declaration chooses the typed field and complete schema contract. The
+    /// projected value is accepted only when that semantic key alone satisfies
+    /// the schema, so controls cannot invent values for additional required fields.
+    pub fn project_semantic_key(
+        &self,
+        owner_id: &Id,
+        type_id: &Id,
+        schema_version: u64,
+        semantic_key: &str,
+    ) -> Result<TypedPortValue, ResourceSchemaError> {
+        self.validate_reference(owner_id, type_id, schema_version)?;
+        let schema = &self.schemas[&(type_id.clone(), schema_version)];
+        let key_field = schema
+            .fields
+            .fields()
+            .iter()
+            .find(|field| field.id() == &schema.semantic_key_field)
+            .ok_or_else(|| ResourceSchemaError::MissingSemanticKeyField {
+                field: schema.semantic_key_field.clone(),
+            })?;
+        let key_value = match key_field.kind() {
+            FieldKind::Integer => semantic_key.parse::<i64>().map_or_else(
+                |_| TypedValue::String(semantic_key.to_owned()),
+                TypedValue::Integer,
+            ),
+            FieldKind::String => TypedValue::String(semantic_key.to_owned()),
+            _ => {
+                return Err(ResourceSchemaError::InvalidSemanticKeyField {
+                    field: schema.semantic_key_field.clone(),
+                });
+            }
+        };
+        let value = TypedPortValue {
+            type_id: type_id.clone(),
+            schema_version,
+            semantic_key: semantic_key.to_owned(),
+            value: std::iter::once((schema.semantic_key_field.clone(), key_value)).collect(),
+        };
+        self.validate(owner_id, &value)?;
+        Ok(value)
+    }
+
     /// Validate one typed value against its exact published schema and owner.
     ///
     /// # Errors
@@ -227,11 +271,11 @@ impl ResourceSchemaRegistry {
 /// the same identifier, field, or schema rules applied to external definitions.
 pub fn builtin_resource_schemas() -> Result<ResourceSchemaRegistry, BuiltinResourceSchemaError> {
     let declarations = [
-        ("github.issues", "github.issue"),
-        ("github.pull-requests", "github.pull-request"),
+        ("github.issues", "github.issue", false),
+        ("github.pull-requests", "github.pull-request", true),
     ];
     let mut schemas = Vec::with_capacity(declarations.len());
-    for (owner, type_id) in declarations {
+    for (owner, type_id, includes_head) in declarations {
         let semantic_key = Id::parse("semantic-key")?;
         let field = Field::parse(FieldDraft {
             id: semantic_key.clone(),
@@ -247,7 +291,24 @@ pub fn builtin_resource_schemas() -> Result<ResourceSchemaRegistry, BuiltinResou
             visible_when: None,
             restart: RestartScope::None,
         })?;
-        let fields = ConfigSchema::parse(1, vec![field])?;
+        let mut declared_fields = vec![field];
+        if includes_head {
+            declared_fields.push(Field::parse(FieldDraft {
+                id: Id::internal(InternalId::ResourceHeadSha),
+                label: "Head SHA".to_owned(),
+                description: Some("Current pull-request head identity".to_owned()),
+                kind: FieldKind::String,
+                required: true,
+                default: None,
+                min: None,
+                max: None,
+                choices: Vec::new(),
+                unique: false,
+                visible_when: None,
+                restart: RestartScope::None,
+            })?);
+        }
+        let fields = ConfigSchema::parse(1, declared_fields)?;
         schemas.push(ResourceSchema::new(
             Id::parse(owner)?,
             Id::parse(type_id)?,

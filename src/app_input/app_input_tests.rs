@@ -10,8 +10,9 @@ use jefe::domain::{
     RuntimeBinding,
 };
 use jefe::domain::{IssueDetail, IssueState};
+use jefe::state::screen_overlays::ConfirmationRequest;
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AgentChooserState, ModalState, ScreenId};
+use jefe::state::{AgentChooserState, ScreenId};
 
 pub(super) trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -865,13 +866,14 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
     use jefe::input::input_mode_for_state;
 
     let mut state = crate::test_app_state();
-    state.modal = ModalState::ConfirmIssueDirtyCopy {
-        agent_id: AgentId(String::from("a1")),
-        work_dir: PathBuf::from("/tmp/x"),
-        signature: sample_signature(),
-        payload: jefe::github::SendPayload::default(),
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    assert!(
+        state.open_confirmation_payload(ConfirmationRequest::IssueDirtyCopy {
+            agent_id: AgentId(String::from("a1")),
+            work_dir: PathBuf::from("/tmp/x"),
+            signature: sample_signature(),
+            payload: jefe::github::SendPayload::default(),
+        })
+    );
 
     assert_eq!(
         input_mode_for_state(&state),

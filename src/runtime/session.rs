@@ -153,7 +153,7 @@ pub struct TerminalCell {
 /// Terminal snapshot data for rendering.
 ///
 /// Represents a frozen, styled view of terminal state at a point in time.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TerminalSnapshot {
     /// Number of visible rows.
     pub rows: usize,

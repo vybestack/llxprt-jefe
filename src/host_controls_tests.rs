@@ -7,13 +7,13 @@ use crate::domain::{
     },
 };
 use crate::host_controls::{
-    ControlAction, ControlIntent, ControlKind, HostControlKind, PanelHitTarget, control_intent,
-    host_control_factory, host_terminal_capability, project_control,
+    ControlAction, ControlIntent, ControlKind, PanelHitTarget, control_intent, project_control,
+    public_factory,
 };
 use crate::runtime::provider::protocol::{
     Affordance, BodyKind, DiffLineOrigin, ErrorBody, FormBody, ListBody, ListItem, PanelBody,
     PanelEvent, PanelSnapshot, ProgressBody, StructuredDiffBody, StructuredDiffFile,
-    StructuredDiffHunk, StructuredDiffLine, TreeBody, TreeNode,
+    StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody, TreeNode,
 };
 
 #[test]
@@ -42,19 +42,10 @@ fn control_kind_is_the_exact_nine_value_public_vocabulary() {
 }
 
 #[test]
-fn host_control_dispatch_is_exhaustive_over_public_and_terminal() {
+fn host_control_dispatch_is_exhaustive_over_the_public_vocabulary() {
     for kind in ControlKind::ALL {
-        let dispatch = HostControlKind::Public(kind);
-        let factory = host_control_factory(dispatch, None)
-            .unwrap_or_else(|| unreachable!("public factory must be available"));
-        assert_eq!(factory.kind(), dispatch);
+        assert_eq!(public_factory(kind).kind(), kind);
     }
-    let terminal = HostControlKind::Terminal;
-    assert!(host_control_factory(terminal, None).is_none());
-    let capability = host_terminal_capability();
-    let factory = host_control_factory(terminal, Some(&capability))
-        .unwrap_or_else(|| unreachable!("capability must authorize terminal factory"));
-    assert_eq!(factory.kind(), terminal);
 }
 
 #[test]
@@ -265,8 +256,10 @@ fn structured_diff_lines_clip_to_one_row_instead_of_wrapping() {
         schema_version: 1,
         files: vec![StructuredDiffFile {
             id: id("file"),
-            old_path: Some("src/old.rs".to_owned()),
-            new_path: Some("src/new.rs".to_owned()),
+            path: StructuredDiffPath::Renamed {
+                old: "src/old.rs".to_owned(),
+                new: "src/new.rs".to_owned(),
+            },
             old_mode: None,
             new_mode: None,
             binary: false,
@@ -293,6 +286,47 @@ fn structured_diff_lines_clip_to_one_row_instead_of_wrapping() {
     assert!(rows.iter().all(|row| row.text.chars().count() <= 16));
     assert_eq!(rows[0].target, Some(PanelHitTarget::DiffFile(id("file"))));
     assert!(rows[1..].iter().all(|row| row.target.is_none()));
+}
+
+#[test]
+fn structured_diff_displays_every_typed_path_shape() {
+    let paths = [
+        StructuredDiffPath::Added("src/added.rs".to_owned()),
+        StructuredDiffPath::Removed("src/removed.rs".to_owned()),
+        StructuredDiffPath::Modified("src/modified.rs".to_owned()),
+        StructuredDiffPath::Renamed {
+            old: "src/old.rs".to_owned(),
+            new: "src/new.rs".to_owned(),
+        },
+    ];
+    let files = paths
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| StructuredDiffFile {
+            id: id(&format!("file-{index}")),
+            path,
+            old_mode: None,
+            new_mode: None,
+            binary: true,
+            hunks: Vec::new(),
+        })
+        .collect();
+    let snapshot = snapshot(PanelBody::StructuredDiff(StructuredDiffBody {
+        schema_version: 1,
+        files,
+        selected_file_id: Some(id("file-0")),
+    }));
+
+    let rows = project_control(&snapshot, None, None, 80);
+    assert_eq!(
+        rows.iter().map(|row| row.text.as_str()).collect::<Vec<_>>(),
+        [
+            ">> src/added.rs [binary]",
+            "   src/removed.rs [binary]",
+            "   src/modified.rs [binary]",
+            "   src/old.rs -> src/new.rs [binary]",
+        ]
+    );
 }
 
 #[test]
@@ -364,8 +398,11 @@ fn tree_intents_follow_visible_preorder_and_leave_expansion_authoritative() {
 fn structured_diff_intents_select_and_activate_files_in_provider_order() {
     let file = |name: &str| StructuredDiffFile {
         id: id(name),
-        old_path: Some(format!("old/{name}")),
-        new_path: Some(format!("new/{name}")),
+        path: StructuredDiffPath::Renamed {
+            old: format!("old/{name}"),
+            new: format!("new/{name}"),
+        },
+
         old_mode: None,
         new_mode: None,
         binary: true,
@@ -421,8 +458,10 @@ fn activation_repairs_stale_local_list_and_diff_selection_to_the_visible_row() {
         schema_version: 1,
         files: vec![StructuredDiffFile {
             id: id("current-file"),
-            old_path: Some("old".to_owned()),
-            new_path: Some("new".to_owned()),
+            path: StructuredDiffPath::Renamed {
+                old: "old".to_owned(),
+                new: "new".to_owned(),
+            },
             old_mode: None,
             new_mode: None,
             binary: true,

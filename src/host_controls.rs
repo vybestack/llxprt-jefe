@@ -8,8 +8,9 @@ use crate::domain::plugin::ModelKind;
 use crate::domain::{Id, TypedMap, TypedValue};
 use crate::list_viewport::fit_text_to_width;
 use crate::runtime::provider::protocol::{
-    BodyKind, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, PanelBody, PanelEvent, PanelSnapshot,
-    ProgressBody, StatusBody, StructuredDiffBody, StructuredDiffFile, TreeBody, TreeNode,
+    Affordance, BodyKind, DetailBody, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, ListBody,
+    PanelBody, PanelEvent, PanelSnapshot, ProgressBody, StatusBody, StructuredDiffBody,
+    StructuredDiffFile, StructuredDiffPath, TreeBody, TreeNode,
 };
 use crate::text_wrap::wrap_text;
 
@@ -127,23 +128,6 @@ pub enum PanelHitTarget {
     Unavailable,
 }
 
-/// Internal dispatch key. `Terminal` cannot cross the public control boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HostControlKind {
-    Public(ControlKind),
-    Terminal,
-}
-
-/// Unforgeable outside this crate and required for host-only terminal dispatch.
-pub(crate) struct HostTerminalCapability {
-    _private: (),
-}
-
-#[cfg(test)]
-pub(crate) const fn host_terminal_capability() -> HostTerminalCapability {
-    HostTerminalCapability { _private: () }
-}
-
 mod sealed {
     pub trait Sealed {}
 }
@@ -185,6 +169,8 @@ pub enum ControlAction {
     Action(Id),
     /// Invoke the focused action affordance.
     FocusedAction,
+    /// Edit one exact Form field with a typed value.
+    EditField { field_id: Id, value: TypedValue },
     /// Submit the current Form values.
     Submit,
     /// Request the next List page.
@@ -212,7 +198,7 @@ pub enum ControlIntent {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ProjectionInput<'a> {
-    snapshot: &'a PanelSnapshot,
+    action_affordances: &'a [crate::runtime::provider::protocol::Affordance],
     selected_id: Option<&'a Id>,
     form_draft: Option<&'a TypedMap>,
     width: usize,
@@ -220,34 +206,34 @@ pub(crate) struct ProjectionInput<'a> {
 
 #[derive(Clone)]
 pub(crate) struct IntentInput<'a> {
-    snapshot: &'a PanelSnapshot,
+    body: &'a PanelBody,
+    action_affordances: &'a [crate::runtime::provider::protocol::Affordance],
     selected_id: Option<&'a Id>,
     focus_target: Option<&'a Id>,
     form_draft: Option<&'a TypedMap>,
     action: ControlAction,
 }
 
-/// Sealed host factory selected solely by [`HostControlKind`].
+/// Sealed host factory selected solely by the exact public [`ControlKind`].
 pub(crate) trait HostControlFactory: sealed::Sealed + Sync {
-    fn kind(&self) -> HostControlKind;
-    fn project(&self, input: ProjectionInput<'_>) -> Vec<HostControlRow>;
+    fn kind(&self) -> ControlKind;
+    fn project(&self, body: &PanelBody, input: ProjectionInput<'_>) -> Vec<HostControlRow>;
     fn intent(&self, input: IntentInput<'_>) -> ControlIntent;
 }
 
 struct PublicFactory {
     kind: ControlKind,
-    project: fn(ProjectionInput<'_>) -> Vec<HostControlRow>,
 }
 
 impl sealed::Sealed for PublicFactory {}
 
 impl HostControlFactory for PublicFactory {
-    fn kind(&self) -> HostControlKind {
-        HostControlKind::Public(self.kind)
+    fn kind(&self) -> ControlKind {
+        self.kind
     }
 
-    fn project(&self, input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-        (self.project)(input)
+    fn project(&self, body: &PanelBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {
+        public_control_projection(self.kind, body, input)
     }
 
     fn intent(&self, input: IntentInput<'_>) -> ControlIntent {
@@ -255,100 +241,130 @@ impl HostControlFactory for PublicFactory {
     }
 }
 
-struct TerminalFactory;
-
-impl sealed::Sealed for TerminalFactory {}
-
-impl HostControlFactory for TerminalFactory {
-    fn kind(&self) -> HostControlKind {
-        HostControlKind::Terminal
-    }
-
-    fn project(&self, _input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-        unreachable!("provider snapshots cannot select the host-only terminal control")
-    }
-
-    fn intent(&self, _input: IntentInput<'_>) -> ControlIntent {
-        ControlIntent::None
-    }
-}
-
 static LIST: PublicFactory = PublicFactory {
     kind: ControlKind::List,
-    project: project_list,
 };
 static TREE: PublicFactory = PublicFactory {
     kind: ControlKind::Tree,
-    project: project_tree,
 };
 static DETAIL: PublicFactory = PublicFactory {
     kind: ControlKind::Detail,
-    project: project_detail,
 };
 static STRUCTURED_DIFF: PublicFactory = PublicFactory {
     kind: ControlKind::StructuredDiff,
-    project: project_structured_diff,
 };
 static FORM: PublicFactory = PublicFactory {
     kind: ControlKind::Form,
-    project: project_form,
 };
 static STATUS: PublicFactory = PublicFactory {
     kind: ControlKind::Status,
-    project: project_status,
 };
 static PROGRESS: PublicFactory = PublicFactory {
     kind: ControlKind::Progress,
-    project: project_progress,
 };
 static EMPTY: PublicFactory = PublicFactory {
     kind: ControlKind::Empty,
-    project: project_empty,
 };
 static ERROR: PublicFactory = PublicFactory {
     kind: ControlKind::Error,
-    project: project_error,
 };
-static TERMINAL: TerminalFactory = TerminalFactory;
 
-/// Sole host-control dispatch. The exhaustive match intentionally has no fallback.
-pub(crate) fn host_control_factory(
-    kind: HostControlKind,
-    terminal_capability: Option<&HostTerminalCapability>,
-) -> Option<&'static dyn HostControlFactory> {
+pub(crate) fn public_factory(kind: ControlKind) -> &'static dyn HostControlFactory {
     match kind {
-        HostControlKind::Public(ControlKind::List) => Some(&LIST),
-        HostControlKind::Public(ControlKind::Tree) => Some(&TREE),
-        HostControlKind::Public(ControlKind::Detail) => Some(&DETAIL),
-        HostControlKind::Public(ControlKind::StructuredDiff) => Some(&STRUCTURED_DIFF),
-        HostControlKind::Public(ControlKind::Form) => Some(&FORM),
-        HostControlKind::Public(ControlKind::Status) => Some(&STATUS),
-        HostControlKind::Public(ControlKind::Progress) => Some(&PROGRESS),
-        HostControlKind::Public(ControlKind::Empty) => Some(&EMPTY),
-        HostControlKind::Public(ControlKind::Error) => Some(&ERROR),
-        HostControlKind::Terminal => {
-            terminal_capability.map(|_| &TERMINAL as &dyn HostControlFactory)
-        }
+        ControlKind::List => &LIST,
+        ControlKind::Tree => &TREE,
+        ControlKind::Detail => &DETAIL,
+        ControlKind::StructuredDiff => &STRUCTURED_DIFF,
+        ControlKind::Form => &FORM,
+        ControlKind::Status => &STATUS,
+        ControlKind::Progress => &PROGRESS,
+        ControlKind::Empty => &EMPTY,
+        ControlKind::Error => &ERROR,
+    }
+}
+
+/// Project one validated typed body through the sole control factory boundary.
+pub(crate) fn project_control_body(
+    body: &PanelBody,
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
+    selected_id: Option<&Id>,
+    form_draft: Option<&TypedMap>,
+    width: usize,
+) -> Vec<HostControlRow> {
+    let kind = ControlKind::from(body.kind());
+    let factory = public_factory(kind);
+    debug_assert_eq!(factory.kind(), kind);
+    factory.project(
+        body,
+        ProjectionInput {
+            action_affordances,
+            selected_id,
+            form_draft,
+            width,
+        },
+    )
+}
+
+fn public_control_projection(
+    kind: ControlKind,
+    body: &PanelBody,
+    input: ProjectionInput<'_>,
+) -> Vec<HostControlRow> {
+    assert_eq!(
+        kind,
+        ControlKind::from(body.kind()),
+        "factory/body kind mismatch"
+    );
+    match body {
+        PanelBody::List(body) => project_list(body, input),
+        PanelBody::Tree(body) => project_tree(body, input),
+        PanelBody::Detail(body) => project_detail(body, input),
+        PanelBody::StructuredDiff(body) => project_structured_diff(body, input),
+        PanelBody::Form(body) => project_form(body, input),
+        PanelBody::Status(body) => project_status(body),
+        PanelBody::Progress(body) => project_progress(body),
+        PanelBody::Empty(body) => project_empty(body, input.action_affordances),
+        PanelBody::Error(body) => project_error(body, input.action_affordances),
     }
 }
 
 /// Project one validated provider body through the sole control factory boundary.
+#[cfg(test)]
 pub(crate) fn project_control(
     snapshot: &PanelSnapshot,
     selected_id: Option<&Id>,
     form_draft: Option<&TypedMap>,
     width: usize,
 ) -> Vec<HostControlRow> {
-    let kind = HostControlKind::Public(ControlKind::from(snapshot.kind));
-    let Some(factory) = host_control_factory(kind, None) else {
-        unreachable!("public control dispatch does not require terminal capability")
-    };
-    debug_assert_eq!(factory.kind(), kind);
-    factory.project(ProjectionInput {
-        snapshot,
+    project_control_body(
+        &snapshot.body,
+        &snapshot.action_affordances,
         selected_id,
         form_draft,
         width,
+    )
+}
+
+/// Interpret one typed body action through the same sole control factory boundary.
+#[must_use]
+pub(crate) fn control_intent_body(
+    body: &PanelBody,
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
+    selected_id: Option<&Id>,
+    focus_target: Option<&Id>,
+    form_draft: Option<&TypedMap>,
+    action: ControlAction,
+) -> ControlIntent {
+    let kind = ControlKind::from(body.kind());
+    let factory = public_factory(kind);
+    debug_assert_eq!(factory.kind(), kind);
+    factory.intent(IntentInput {
+        body,
+        action_affordances,
+        selected_id,
+        focus_target,
+        form_draft,
+        action,
     })
 }
 
@@ -361,18 +377,14 @@ pub fn control_intent(
     form_draft: Option<&TypedMap>,
     action: ControlAction,
 ) -> ControlIntent {
-    let kind = HostControlKind::Public(ControlKind::from(snapshot.kind));
-    let Some(factory) = host_control_factory(kind, None) else {
-        unreachable!("public control dispatch does not require terminal capability")
-    };
-    debug_assert_eq!(factory.kind(), kind);
-    factory.intent(IntentInput {
-        snapshot,
+    control_intent_body(
+        &snapshot.body,
+        &snapshot.action_affordances,
         selected_id,
         focus_target,
         form_draft,
         action,
-    })
+    )
 }
 /// Resolve the effective selectable identity for a validated control model.
 #[must_use]
@@ -380,7 +392,11 @@ pub fn selected_control_id<'a>(
     snapshot: &'a PanelSnapshot,
     local: Option<&'a Id>,
 ) -> Option<&'a Id> {
-    match &snapshot.body {
+    selected_control_id_body(&snapshot.body, local)
+}
+
+fn selected_control_id_body<'a>(body: &'a PanelBody, local: Option<&'a Id>) -> Option<&'a Id> {
+    match body {
         PanelBody::List(body) => local
             .filter(|selected| body.items.iter().any(|item| &item.id == *selected))
             .or(body.selected_id.as_ref())
@@ -399,10 +415,7 @@ pub fn selected_control_id<'a>(
     }
 }
 
-fn project_list(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::List(body) = &input.snapshot.body else {
-        unreachable!("list factory received another body kind")
-    };
+fn project_list(body: &ListBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     let mut rows = Vec::new();
     let selected = input
         .selected_id
@@ -440,7 +453,7 @@ fn project_list(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
         }
         for action in &item.actions {
             let target = action_target(
-                input.snapshot,
+                input.action_affordances,
                 action,
                 PanelHitTarget::Action(action.clone()),
             );
@@ -461,10 +474,7 @@ fn project_list(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     rows
 }
 
-fn project_tree(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Tree(body) = &input.snapshot.body else {
-        unreachable!("tree factory received another body kind")
-    };
+fn project_tree(body: &TreeBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     let selected = selected_tree_id(body, input.selected_id);
     let mut rows = Vec::new();
     for node in visible_tree_nodes(body) {
@@ -520,10 +530,7 @@ fn selected_tree_id<'a>(body: &'a TreeBody, local: Option<&'a Id>) -> Option<&'a
         .or_else(|| visible.first().map(|node| &node.id))
 }
 
-fn project_detail(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Detail(body) = &input.snapshot.body else {
-        unreachable!("detail factory received another body kind")
-    };
+fn project_detail(body: &DetailBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     let mut rows = Vec::new();
     push_wrapped(&mut rows, &body.document, input.width, None);
     for row in &body.metadata {
@@ -535,7 +542,11 @@ fn project_detail(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
         );
     }
     for action in &body.actions {
-        let target = action_target(input.snapshot, action, PanelHitTarget::Link(action.clone()));
+        let target = action_target(
+            input.action_affordances,
+            action,
+            PanelHitTarget::Link(action.clone()),
+        );
         push_wrapped(
             &mut rows,
             &format!("actions: {action}"),
@@ -546,10 +557,10 @@ fn project_detail(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     rows
 }
 
-fn project_structured_diff(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::StructuredDiff(body) = &input.snapshot.body else {
-        unreachable!("structured-diff factory received another body kind")
-    };
+fn project_structured_diff(
+    body: &StructuredDiffBody,
+    input: ProjectionInput<'_>,
+) -> Vec<HostControlRow> {
     let selected = selected_diff_file_id(body, input.selected_id);
     let mut rows = Vec::new();
     for file in &body.files {
@@ -603,17 +614,15 @@ fn selected_diff_file_id<'a>(
 }
 
 fn diff_file_name(file: &StructuredDiffFile) -> String {
-    match (&file.old_path, &file.new_path) {
-        (Some(old), Some(new)) if old != new => format!("{old} -> {new}"),
-        (Some(path), _) | (_, Some(path)) => path.clone(),
-        (None, None) => unreachable!("validated diff file has at least one path"),
+    match &file.path {
+        StructuredDiffPath::Added(path)
+        | StructuredDiffPath::Removed(path)
+        | StructuredDiffPath::Modified(path) => path.clone(),
+        StructuredDiffPath::Renamed { old, new } => format!("{old} -> {new}"),
     }
 }
 
-fn project_form(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Form(body) = &input.snapshot.body else {
-        unreachable!("form factory received another body kind")
-    };
+fn project_form(body: &FormBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     let mut rows = Vec::new();
     for field in &body.fields {
         let value = input
@@ -640,7 +649,6 @@ fn project_form(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
         );
     }
     let target = input
-        .snapshot
         .action_affordances
         .iter()
         .find(|affordance| affordance.action_id == body.submit_action)
@@ -660,10 +668,7 @@ fn project_form(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
     rows
 }
 
-fn project_status(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Status(body) = &input.snapshot.body else {
-        unreachable!("status factory received another body kind")
-    };
+fn project_status(body: &StatusBody) -> Vec<HostControlRow> {
     status_rows(body)
 }
 
@@ -681,10 +686,7 @@ fn status_rows(body: &StatusBody) -> Vec<HostControlRow> {
         .collect()
 }
 
-fn project_progress(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Progress(body) = &input.snapshot.body else {
-        unreachable!("progress factory received another body kind")
-    };
+fn project_progress(body: &ProgressBody) -> Vec<HostControlRow> {
     vec![progress_row(body)]
 }
 
@@ -700,38 +702,48 @@ fn progress_row(body: &ProgressBody) -> HostControlRow {
     }
 }
 
-fn project_empty(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Empty(body) = &input.snapshot.body else {
-        unreachable!("empty factory received another body kind")
-    };
-    vec![empty_row(input.snapshot, body)]
+fn project_empty(
+    body: &EmptyBody,
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
+) -> Vec<HostControlRow> {
+    vec![empty_row(action_affordances, body)]
 }
 
-fn empty_row(snapshot: &PanelSnapshot, body: &EmptyBody) -> HostControlRow {
+fn empty_row(
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
+    body: &EmptyBody,
+) -> HostControlRow {
     let Some(action) = &body.action else {
         return HostControlRow::plain(body.message.clone());
     };
     let text = format!("{} [{action}]", body.message);
-    match action_target(snapshot, action, PanelHitTarget::Action(action.clone())) {
+    match action_target(
+        action_affordances,
+        action,
+        PanelHitTarget::Action(action.clone()),
+    ) {
         Some(target) => HostControlRow::targeted(text, target),
         None => HostControlRow::plain(text),
     }
 }
 
-fn project_error(input: ProjectionInput<'_>) -> Vec<HostControlRow> {
-    let PanelBody::Error(body) = &input.snapshot.body else {
-        unreachable!("error factory received another body kind")
-    };
-    vec![error_row(input.snapshot, body)]
+fn project_error(
+    body: &ErrorBody,
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
+) -> Vec<HostControlRow> {
+    vec![error_row(action_affordances, body)]
 }
 
-fn error_row(snapshot: &PanelSnapshot, body: &ErrorBody) -> HostControlRow {
+fn error_row(
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
+    body: &ErrorBody,
+) -> HostControlRow {
     let Some(action) = &body.retry_action else {
         return HostControlRow::plain(format!("{} {}", body.code, body.message));
     };
     let text = format!("{} {} [Retry: {action}]", body.code, body.message);
     let target = if body.retryable {
-        action_target(snapshot, action, PanelHitTarget::Retry)
+        action_target(action_affordances, action, PanelHitTarget::Retry)
     } else {
         None
     };
@@ -742,12 +754,11 @@ fn error_row(snapshot: &PanelSnapshot, body: &ErrorBody) -> HostControlRow {
 }
 
 fn action_target(
-    snapshot: &PanelSnapshot,
+    action_affordances: &[crate::runtime::provider::protocol::Affordance],
     id: &Id,
     enabled_target: PanelHitTarget,
 ) -> Option<PanelHitTarget> {
-    snapshot
-        .action_affordances
+    action_affordances
         .iter()
         .find(|affordance| &affordance.id == id)
         .map(|affordance| {

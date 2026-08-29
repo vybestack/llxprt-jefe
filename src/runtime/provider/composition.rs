@@ -316,6 +316,7 @@ fn publish_available_actions(
                 host_api: request.containment.host_api.clone(),
                 environment: provider.environment.clone(),
                 configure: provider.configure.clone(),
+                arguments: declared.arguments().to_vec(),
                 policy: action_policy(declared, manifest),
                 timeout_seconds: declared.timeout_seconds(),
             },

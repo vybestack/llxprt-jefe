@@ -32,10 +32,13 @@ pub mod dashboard_git_info;
 /// Read-only local readiness diagnostics for `jefe doctor` (issue #264).
 pub mod doctor;
 pub mod domain;
+/// Pure typed editing shared by every Form-control input route.
+pub mod form_value_edit;
 /// Closed host-control vocabulary and identity-free factory dispatch.
 pub mod host_controls;
 #[cfg(test)]
 mod host_controls_tests;
+pub(crate) mod host_panel_models;
 pub mod input;
 pub mod issue_detail_content;
 pub mod layout;
@@ -50,6 +53,10 @@ pub mod markdown_html_strip;
 /// Plain-text markdown rendering for the detail panes (issue #155).
 pub mod markdown_render;
 pub mod messages;
+pub(crate) mod overlay_controls;
+#[cfg(test)]
+#[path = "overlay_controls_tests.rs"]
+mod overlay_controls_tests;
 /// Boundary-owned display data for mouse-selection content projection.
 pub mod pane_content_projection;
 pub mod persistence;

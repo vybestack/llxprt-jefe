@@ -146,7 +146,7 @@ pub enum EventKind {
 /// The full event schema is caller-supplied because the manifest
 /// `event_schema` cutover is wired in a later slice; the reducer validates
 /// events only against the declarations it receives here.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventDeclaration {
     /// The declared event kind.
     pub kind: EventKind,
@@ -451,7 +451,7 @@ struct AcceptedModel {
 // ---------------------------------------------------------------------------
 
 /// One panel's in-memory state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PanelRecord {
     id: PanelInstanceId,
     owner: Id,
@@ -504,7 +504,7 @@ impl PanelRecord {
 /// Owns bounded panel identity, lifecycle, generation, accepted model,
 /// revision, rate state, and host-local presentation state. No process handle,
 /// pipe, clock, or persisted field lives here.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderPanelState {
     panels: Vec<PanelRecord>,
 }

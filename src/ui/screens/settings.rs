@@ -86,14 +86,11 @@ pub fn SettingsScreen(props: &SettingsScreenProps) -> impl Into<AnyElement<'stat
                     .as_ref()
                     .unwrap_or_else(|| panic!("screen render requires AppState"))
                     .footer_hints(crate::action_projection::FooterProjectionInput {
-                        screen: props.state.as_ref().map_or(
-                            crate::state::ScreenId::Settings,
-                            |state| {
-                                state
-                                    .compiled_screen()
-                                    .unwrap_or(crate::state::ScreenId::Settings)
-                            },
-                        ),
+                        screen: props
+                            .state
+                            .as_ref()
+                            .unwrap_or_else(|| panic!("screen render requires AppState"))
+                            .screen(),
                         terminal_focused: false,
                         shell_overlay_active: false,
                         shell_resume_available: false,

@@ -4,16 +4,21 @@ use crate::domain::AgentId;
 use crate::screen_layout::{
     hidden_panel_ids, initial_runtime_geometry, resolve_screen, screen_rect,
 };
-use crate::state::AppState;
-use crate::workbench::{PanelId, ScreenId, builtin_screens};
+use crate::state::transition::TransitionExt;
+use crate::state::{AppEvent, AppState};
+use crate::workbench::{PanelId, ScreenId, ScreenIdentity, builtin_screens};
 
-fn state_on(screen: ScreenId) -> AppState {
+fn state_on(screen: impl Into<ScreenIdentity>) -> AppState {
     let mut state = AppState::test_fixture();
-    state.nav = crate::state::navigation::NavState::rooted(screen);
+    state.restore_navigation_root(screen);
     state
 }
 
-fn resolved(screen: ScreenId, cols: u16, rows: u16) -> crate::workbench::ResolvedLayout {
+fn resolved(
+    screen: impl Into<ScreenIdentity>,
+    cols: u16,
+    rows: u16,
+) -> crate::workbench::ResolvedLayout {
     resolve_screen(&state_on(screen), cols, rows)
         .unwrap_or_else(|| unreachable!("the shipped registry always resolves"))
 }
@@ -44,7 +49,7 @@ fn global_chrome_is_removed_exactly_once() {
 
 #[test]
 fn initial_runtime_geometry_comes_from_the_resolved_frame() {
-    let mut dashboard = state_on(ScreenId::Dashboard);
+    let mut dashboard = state_on(crate::workbench::DASHBOARD_IDENTITY);
     dashboard.resolved_layout = resolve_screen(&dashboard, 120, 40);
     let layout = dashboard
         .resolved_layout
@@ -53,7 +58,7 @@ fn initial_runtime_geometry_comes_from_the_resolved_frame() {
     let descriptor = dashboard
         .published_workbench()
         .screen_registry()
-        .get(ScreenId::Dashboard)
+        .get_identity(crate::workbench::DASHBOARD_IDENTITY)
         .unwrap_or_else(|| unreachable!("dashboard is compiled"));
     let terminal =
         crate::workbench::pty_content_rect(descriptor, layout, &PanelId::from_static("terminal"))
@@ -191,8 +196,7 @@ fn the_notice_banner_is_hidden_until_there_is_a_message() {
 
 #[test]
 fn the_dashboard_search_row_appears_only_while_searching() {
-    let mut state = state_on(ScreenId::Dashboard);
-    state.dashboard_search.input_focused = false;
+    let state = state_on(crate::workbench::DASHBOARD_IDENTITY);
     let idle = resolve_screen(&state, 120, 40)
         .unwrap_or_else(|| unreachable!("the shipped registry always resolves"));
     assert_eq!(
@@ -201,7 +205,7 @@ fn the_dashboard_search_row_appears_only_while_searching() {
         Some(false)
     );
 
-    state.dashboard_search.input_focused = true;
+    let state = state.apply(AppEvent::OpenSearch).committed_pure();
     let searching = resolve_screen(&state, 120, 40)
         .unwrap_or_else(|| unreachable!("the shipped registry always resolves"));
     assert_eq!(
@@ -216,7 +220,7 @@ fn the_dashboard_search_row_appears_only_while_searching() {
 fn the_terminal_pane_never_resolves_to_zero_cells() {
     for cols in 1_u16..=100 {
         for rows in 1_u16..=30 {
-            let layout = resolved(ScreenId::Dashboard, cols, rows);
+            let layout = resolved(crate::workbench::DASHBOARD_IDENTITY, cols, rows);
             let Some(terminal) = layout.panel(&PanelId::from_static("terminal")) else {
                 unreachable!("the dashboard always declares a terminal panel");
             };
@@ -240,7 +244,7 @@ fn hiding_states(screen: ScreenId) -> Vec<AppState> {
     showing.issues_state.filter_ui.controls_open = true;
     showing.prs_state.filter_ui.controls_open = true;
     showing.actions_state.ui.filter_ui_open = true;
-    showing.dashboard_search.input_focused = true;
+    showing = showing.apply(AppEvent::OpenSearch).committed_pure();
 
     let mut overlay = state_on(screen);
     overlay.open_shell_overlay(AgentId("agent-1".to_owned()));

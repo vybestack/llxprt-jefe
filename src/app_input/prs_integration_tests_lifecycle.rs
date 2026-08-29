@@ -10,7 +10,7 @@
 
 use iocraft::prelude::KeyCode;
 use jefe::domain::{Agent, AgentId, RepositoryId};
-use jefe::state::{AppEvent, AppState, PrFocus, ScreenId};
+use jefe::state::{AppEvent, AppState, PrFocus};
 use std::path::PathBuf;
 
 use super::prs_integration_test_fixtures::make_test_pr_detail;
@@ -183,7 +183,7 @@ fn esc_l5_nothing_open_exits() {
         !state.prs_state.active,
         "mode must be inactive after final Esc"
     );
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), jefe::workbench::DASHBOARD_IDENTITY);
 }
 
 /// Checkpoint 10 (REQ-PR-004): Esc unwinds by the full 6-level precedence

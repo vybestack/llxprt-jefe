@@ -8,10 +8,13 @@
 //! rectangles.
 
 pub use crate::host_controls::PanelHitTarget;
-use crate::host_controls::project_control;
+use crate::host_controls::project_control_body;
 use crate::runtime::provider::protocol::{Affordance, PanelBody};
+use crate::state::AppState;
 use crate::state::provider_panels::{PanelLifecycle, ProviderPanelState};
-use crate::workbench::{PanelId, Rect, ResolvedLayout, ScreenDescriptor};
+use crate::workbench::{
+    PTY_PANEL_TYPE, PanelId, Rect, ResolvedLayout, ScreenDescriptor, ScreenInstanceId,
+};
 
 // ---------------------------------------------------------------------------
 // View structures consumed by the iocraft component
@@ -50,7 +53,17 @@ pub struct PanelProjection {
     /// Largest valid host-local scroll offset for this projection.
     pub max_scroll_offset: u32,
     /// Semantic target occupying each display line, aligned with `lines`.
+    /// Which shared renderer consumes this panel's projected content.
+    pub render: PanelRender,
     pub hit_targets: Vec<Option<PanelHitTarget>>,
+}
+/// Shared content renderer selected by the descriptor panel type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelRender {
+    /// The closed public host-control projection.
+    Control,
+    /// The private host PTY rendered through `TerminalView`.
+    EmbeddedTerminal,
 }
 
 /// Distinct lifecycle-derived rendering status for a provider panel.
@@ -70,6 +83,37 @@ pub enum PanelStatus {
     Disposed,
 }
 
+/// Projection refusal when resolved geometry and the active screen diverge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelProjectionError {
+    /// Geometry belongs to another exact screen instance.
+    StaleLayout {
+        expected: ScreenInstanceId,
+        actual: ScreenInstanceId,
+    },
+    /// Geometry omitted one descriptor-owned panel.
+    MissingPanel(PanelId),
+}
+
+impl std::fmt::Display for PanelProjectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleLayout { expected, actual } => write!(
+                formatter,
+                "resolved layout belongs to screen instance {actual:?}, expected {expected:?}"
+            ),
+            Self::MissingPanel(panel) => {
+                write!(
+                    formatter,
+                    "resolved layout omitted descriptor panel {panel}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PanelProjectionError {}
+
 // ---------------------------------------------------------------------------
 // Public projection entry point
 // ---------------------------------------------------------------------------
@@ -80,31 +124,24 @@ pub enum PanelStatus {
 /// is re-derived. Body text is Unicode-aware wrapped at the content width and
 /// clipped by the host-local scroll offset.
 ///
-/// # Panics
-///
-/// Panics when `layout` is not the resolver output for `descriptor`. The layout
-/// resolver's closed postcondition is one entry for every descriptor panel,
-/// including collapsed panels; continuing with partial geometry would create a
-/// second layout interpretation and make rendering and hit testing disagree.
-#[must_use]
+/// Returns a typed refusal when `layout` is not the resolver output for
+/// `descriptor`. Continuing with partial geometry would create a second layout
+/// interpretation and make rendering and hit testing disagree.
 pub fn project_provider_screen(
     descriptor: &ScreenDescriptor,
     screen_instance_id: u64,
     panels: &ProviderPanelState,
     layout: &ResolvedLayout,
     focused_panel: &PanelId,
-) -> ProviderScreenView {
+) -> Result<ProviderScreenView, PanelProjectionError> {
     let projected = descriptor
         .panels
         .iter()
         .map(|descriptor_panel| {
-            let Some(resolved) = layout.panel(&descriptor_panel.id) else {
-                panic!(
-                    "resolved layout omitted descriptor panel {}",
-                    descriptor_panel.id
-                );
-            };
-            project_one_panel(PanelProjectionInput {
+            let resolved = layout
+                .panel(&descriptor_panel.id)
+                .ok_or(PanelProjectionError::MissingPanel(descriptor_panel.id))?;
+            Ok(project_one_panel(PanelProjectionInput {
                 id: descriptor_panel.id,
                 focused: &descriptor_panel.id == focused_panel,
                 visible: resolved.visible,
@@ -112,16 +149,100 @@ pub fn project_provider_screen(
                 content: resolved.content,
                 panels,
                 instance: panels.panel_for_screen(screen_instance_id, &descriptor_panel.id),
-            })
+            }))
         })
-        .collect();
-    ProviderScreenView {
+        .collect::<Result<Vec<_>, PanelProjectionError>>()?;
+    Ok(ProviderScreenView {
         title: descriptor.title.clone(),
         panels: projected,
         too_small: layout.too_small.is_some(),
-    }
+    })
 }
 
+/// Project the active definition through provider-backed and host-owned controls.
+pub fn project_current_screen(
+    state: &AppState,
+    descriptor: &ScreenDescriptor,
+    layout: &ResolvedLayout,
+) -> Result<ProviderScreenView, PanelProjectionError> {
+    let current_instance = state.nav.current().id;
+    if layout.screen_instance != current_instance {
+        return Err(PanelProjectionError::StaleLayout {
+            expected: current_instance,
+            actual: layout.screen_instance,
+        });
+    }
+    let instance_id = current_instance.get();
+    let registry = state.published_workbench().screen_registry();
+    let mut view = project_provider_screen(
+        descriptor,
+        instance_id,
+        state.provider_panels(),
+        layout,
+        &state.nav.current().panel_focus,
+    )?;
+    for (panel_descriptor, projection) in descriptor.panels.iter().zip(&mut view.panels) {
+        if !projection.visible
+            || registry
+                .panel_binding(descriptor.id, &panel_descriptor.id)
+                .is_some()
+            || state
+                .provider_panels()
+                .panel_for_screen(instance_id, &panel_descriptor.id)
+                .is_some()
+        {
+            continue;
+        }
+        if panel_descriptor.panel_type.as_str() == PTY_PANEL_TYPE {
+            "Terminal".clone_into(&mut projection.title);
+            projection.status = PanelStatus::Active;
+            projection.lines.clear();
+            projection.hit_targets.clear();
+            projection.max_scroll_offset = 0;
+            projection.render = PanelRender::EmbeddedTerminal;
+            continue;
+        }
+        if let Some(capability) = panel_descriptor.host_capability {
+            let model =
+                crate::host_panel_models::project_host_panel(state, capability.model_source());
+            if crate::host_controls::ControlKind::from(model.body.kind())
+                == capability.control_kind()
+            {
+                project_host_model(projection, model);
+            }
+        }
+    }
+    Ok(view)
+}
+
+/// Fill one host-owned panel from its projected model, clamping the retained
+/// scroll offset to the visible row window after any source shrink.
+fn project_host_model(
+    projection: &mut PanelProjection,
+    model: crate::host_panel_models::HostPanelModel,
+) {
+    let body_width = usize::from(projection.content.width.max(1));
+    let rows = project_model_rows(ModelProjectionInput {
+        body: &model.body,
+        affordances: &model.action_affordances,
+        description: None,
+        loading: false,
+        stale: false,
+        selected_id: model.selected_id.as_ref(),
+        form_draft: None,
+        body_width,
+    });
+    projection.title = model.title;
+    projection.status = PanelStatus::Active;
+    let maximum = rows
+        .len()
+        .saturating_sub(usize::from(projection.content.height));
+    projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
+    let clipped = clip_to_content(rows, model.scroll_offset, projection.content.height);
+    projection.lines = clipped.iter().map(|row| row.text.clone()).collect();
+    projection.hit_targets = clipped.into_iter().map(|row| row.target).collect();
+    projection.render = PanelRender::Control;
+}
 // ---------------------------------------------------------------------------
 // Per-panel projection
 // ---------------------------------------------------------------------------
@@ -158,6 +279,44 @@ impl ProjectedRow {
     }
 }
 
+struct ModelProjectionInput<'a> {
+    body: &'a PanelBody,
+    affordances: &'a [Affordance],
+    description: Option<&'a str>,
+    loading: bool,
+    stale: bool,
+    selected_id: Option<&'a crate::domain::Id>,
+    form_draft: Option<&'a crate::domain::TypedMap>,
+    body_width: usize,
+}
+
+fn project_model_rows(input: ModelProjectionInput<'_>) -> Vec<ProjectedRow> {
+    let mut rows = Vec::new();
+    if input.loading {
+        rows.push(ProjectedRow::plain("loading…"));
+    }
+    if input.stale {
+        rows.push(ProjectedRow::plain("stale"));
+    }
+    rows.extend(project_description(input.description, input.body_width));
+    rows.extend(
+        project_control_body(
+            input.body,
+            input.affordances,
+            input.selected_id,
+            input.form_draft,
+            input.body_width,
+        )
+        .into_iter()
+        .map(|row| ProjectedRow {
+            text: row.text,
+            target: row.target,
+        }),
+    );
+    project_affordances(input.body, input.affordances, &mut rows);
+    rows
+}
+
 fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
     if !input.visible {
         return hidden_panel(input.id);
@@ -178,29 +337,18 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
         || input.id.as_str().to_owned(),
         |snapshot| snapshot.title.clone(),
     );
-    let mut rows = Vec::new();
-    if let Some(snapshot) = snapshot {
-        if snapshot.loading {
-            rows.push(ProjectedRow::plain("loading…"));
-        }
-        if stale {
-            rows.push(ProjectedRow::plain("stale"));
-        }
-        let body_width = usize::from(input.content.width.max(1));
-        rows.extend(project_description(
-            snapshot.description.as_deref(),
-            body_width,
-        ));
-        rows.extend(
-            project_control(snapshot, selected_id, form_draft, body_width)
-                .into_iter()
-                .map(|row| ProjectedRow {
-                    text: row.text,
-                    target: row.target,
-                }),
-        );
-        project_affordances(snapshot, &mut rows);
-    }
+    let rows = snapshot.map_or_else(Vec::new, |snapshot| {
+        project_model_rows(ModelProjectionInput {
+            body: &snapshot.body,
+            affordances: &snapshot.action_affordances,
+            description: snapshot.description.as_deref(),
+            loading: snapshot.loading,
+            stale,
+            selected_id,
+            form_draft,
+            body_width: usize::from(input.content.width.max(1)),
+        })
+    });
     let max_scroll_offset =
         u32::try_from(rows.len().saturating_sub(usize::from(input.content.height)))
             .unwrap_or(u32::MAX);
@@ -218,6 +366,7 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
         lines,
         max_scroll_offset,
         hit_targets,
+        render: PanelRender::Control,
     }
 }
 
@@ -234,6 +383,7 @@ fn hidden_panel(id: PanelId) -> PanelProjection {
         lines: Vec::new(),
         max_scroll_offset: 0,
         hit_targets: Vec::new(),
+        render: PanelRender::Control,
     }
 }
 
@@ -250,6 +400,7 @@ fn unavailable_panel(id: PanelId, focused: bool, chrome: Rect, content: Rect) ->
         lines: vec!["provider unavailable".to_owned()],
         max_scroll_offset: 0,
         hit_targets: vec![None],
+        render: PanelRender::Control,
     }
 }
 
@@ -298,20 +449,16 @@ fn project_description(description: Option<&str>, width: usize) -> Vec<Projected
 // Affordance projection
 // ---------------------------------------------------------------------------
 
-fn project_affordances(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    rows: &mut Vec<ProjectedRow>,
-) {
+fn project_affordances(body: &PanelBody, affordances: &[Affordance], rows: &mut Vec<ProjectedRow>) {
     rows.extend(
-        snapshot
-            .action_affordances
+        affordances
             .iter()
-            .filter(|affordance| !body_projects_affordance(&snapshot.body, affordance))
+            .filter(|affordance| !body_projects_affordance(body, affordance))
             .map(|affordance| {
                 if affordance.enabled {
                     ProjectedRow::targeted(
                         format!("[{}] {}", affordance.id, affordance.label),
-                        affordance_target(snapshot, affordance),
+                        affordance_target(body, affordance),
                     )
                 } else {
                     ProjectedRow::targeted(
@@ -346,11 +493,8 @@ fn body_projects_affordance(body: &PanelBody, affordance: &Affordance) -> bool {
     }
 }
 
-fn affordance_target(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    affordance: &Affordance,
-) -> PanelHitTarget {
-    match &snapshot.body {
+fn affordance_target(body: &PanelBody, affordance: &Affordance) -> PanelHitTarget {
+    match body {
         PanelBody::Detail(detail) if detail.actions.contains(&affordance.id) => {
             PanelHitTarget::Link(affordance.id.clone())
         }

@@ -16,7 +16,7 @@ use crate::state::AppState;
 /// - Neither → `None` (nothing rendered).
 #[must_use]
 pub fn dashboard_filter_indicator(state: &AppState) -> Option<String> {
-    let search_active = state.dashboard_search_active();
+    let search_active = state.dashboard_filter_active();
     let active_only = state.hide_idle_repositories;
     if !search_active && !active_only {
         return None;
@@ -32,7 +32,7 @@ pub fn dashboard_filter_indicator(state: &AppState) -> Option<String> {
     if search_active {
         Some(format!(
             "filter [{label}]: {:?}",
-            state.dashboard_search.query
+            state.search_query().unwrap_or_default()
         ))
     } else {
         Some(format!("filter [{label}]"))

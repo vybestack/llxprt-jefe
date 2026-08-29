@@ -11,7 +11,7 @@
 //! the compiled initial screen, because a single unreadable field must not cost
 //! the user the rest of their restored session.
 
-use super::ids::ScreenId;
+use super::ids::ScreenIdentity;
 use super::screens::ScreenRegistry;
 
 /// Every legacy screen value, paired with the stable identity it maps to.
@@ -39,16 +39,16 @@ pub const LEGACY_SCREEN_VALUES: [(&str, &str); 7] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationOutcome {
     /// The legacy value was recognised and mapped.
-    Mapped(ScreenId),
+    Mapped(ScreenIdentity),
     /// The legacy value was absent, unrecognised, or names a screen the
-    /// registry does not contain; the compiled initial screen was selected.
-    FellBackToInitial(ScreenId),
+    /// registry does not contain; the published initial screen was selected.
+    FellBackToInitial(ScreenIdentity),
 }
 
 impl MigrationOutcome {
     /// The screen identity to use, whichever path produced it.
     #[must_use]
-    pub const fn screen_id(self) -> ScreenId {
+    pub const fn screen_id(self) -> ScreenIdentity {
         match self {
             Self::Mapped(id) | Self::FellBackToInitial(id) => id,
         }
@@ -85,12 +85,11 @@ pub fn migrate_persisted_screen_value(
 
     registry
         .initial_screen()
-        .and_then(|screen| screen.id.compiled())
-        .map(MigrationOutcome::FellBackToInitial)
+        .map(|screen| MigrationOutcome::FellBackToInitial(screen.id))
 }
 
 /// Map one legacy variant name onto its stable identity.
-fn resolve_legacy(value: &str, registry: &ScreenRegistry) -> Option<ScreenId> {
+fn resolve_legacy(value: &str, registry: &ScreenRegistry) -> Option<ScreenIdentity> {
     LEGACY_SCREEN_VALUES
         .iter()
         .find(|(legacy_value, _)| *legacy_value == value)

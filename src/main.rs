@@ -12,10 +12,15 @@ mod app_shell_attach;
 mod app_shell_key_routing;
 mod app_shell_liveness;
 mod app_shell_panic;
+mod app_shell_provider_projection;
 mod app_shell_provider_worker;
+mod app_shell_terminal_geometry;
 mod app_shell_workers;
 mod detail_wrap_map;
+mod mouse_overlay_routing;
 mod mouse_routing;
+mod mouse_selection_reset;
+mod mouse_terminal_geometry;
 mod panic_capture;
 mod pty_encoding;
 mod state {
@@ -299,7 +304,7 @@ fn run_internal_agent_launch_if_requested() {
     }
     match jefe::runtime::run_launch_plan(std::path::Path::new(&plan_path)) {
         Ok(status) => {
-            let code = status.code().map_or(1, |value| value);
+            let code = status.code().unwrap_or(1);
             std::process::exit(code);
         }
         Err(error) => {

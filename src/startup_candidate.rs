@@ -341,7 +341,7 @@ pub(crate) fn recompose_workbench_candidate_failures_with_screens(
     let providers = compose_providers(&inputs, &packages);
     match compose_actions(&inputs, &providers) {
         Ok(actions) => {
-            if let Err(error) = validate_screen_bindings(&registry, &actions)
+            if let Err(error) = validate_screen_bindings(&registry, &actions, providers.catalog())
                 .map_err(WorkbenchStaticFailure::Actions)
             {
                 failures.push(error);
@@ -392,7 +392,7 @@ fn compose_after_screens(
     validate_selected_providers(&inputs, &selected)?;
     let providers = compose_providers(&inputs, packages);
     let actions = compose_actions(&inputs, &providers)?;
-    validate_screen_bindings(&screens.registry, &actions)
+    validate_screen_bindings(&screens.registry, &actions, providers.catalog())
         .map_err(WorkbenchStaticFailure::Actions)?;
     Ok(PublishedWorkbench::from_parts(WorkbenchParts {
         screen_sources,
@@ -411,6 +411,7 @@ fn compose_after_screens(
 pub(crate) fn validate_screen_bindings(
     screens: &crate::workbench::ScreenRegistry,
     actions: &ActionRegistrySnapshot,
+    providers: &crate::runtime::provider::ProviderCatalog,
 ) -> Result<(), crate::persistence::keymap_edit::KeymapDiagnostic> {
     let fallback =
         crate::domain::input_context::ContextStack::from_ordered(["workbench", "global"], false)
@@ -420,6 +421,20 @@ pub(crate) fn validate_screen_bindings(
     for screen in screens.screens() {
         if screen.bindings.is_empty() {
             continue;
+        }
+        for binding in &screen.bindings {
+            if let Some(descriptor) = providers.get(&binding.action)
+                && !descriptor.arguments.is_empty()
+            {
+                return Err(
+                    crate::persistence::keymap_edit::KeymapDiagnostic::from_detail(format!(
+                        "screen '{}' binding '{}:{}' cannot invoke provider action with declared arguments",
+                        screen.id,
+                        binding.context,
+                        binding.action.as_str()
+                    )),
+                );
+            }
         }
         let declared = screen
             .bindings

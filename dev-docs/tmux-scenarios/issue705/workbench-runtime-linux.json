@@ -1,0 +1,242 @@
+{
+  "schema": 1,
+  "name": "issue705-workbench-runtime-linux",
+  "platform": "linux",
+  "terminal": {
+    "cols": 100,
+    "rows": 30
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime/1.0.0",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime/1.0.0/bin",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime/1.0.0/screens",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.runtime\"]\nenabled = true\nversion = \"1.0.0\"\n\n[keymap.\"dashboard\"]\n\"vendor.runtime.open\" = [\"F2\"]\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime/1.0.0/plugin.json",
+        "content": {
+          "utf8": "{\n  \"manifest_schema\": 1,\n  \"id\": \"vendor.runtime\",\n  \"version\": \"1.0.0\",\n  \"display_name\": \"Workbench runtime fixture\",\n  \"host_api\": { \"minimum\": \"0.0.1\", \"maximum\": \"99.0.0\" },\n  \"protocol\": 1,\n  \"provider\": { \"mode\": \"persistent\", \"binaries\": { \"aarch64-apple-darwin\": \"bin/provider\", \"x86_64-unknown-linux-gnu\": \"bin/provider\" } },\n  \"actions\": [{\n    \"id\": \"vendor.runtime.open\",\n    \"label\": \"Open workbench runtime\",\n    \"description\": \"Open another exact-definition workbench instance\",\n    \"category\": \"vendor.runtime\",\n    \"contexts\": [\"dashboard\"],\n    \"arguments\": [],\n    \"timeout_seconds\": 60,\n    \"destructive\": false,\n    \"confirmation\": \"none\",\n    \"handler\": \"open\",\n    \"allowed_outcomes\": [\"navigate-declared-route\"]\n  }],\n  \"panels\": [{\n    \"id\": \"vendor.runtime.list\",\n    \"model_kinds\": [\"list\"],\n    \"event_schema\": [{ \"kind\": \"selected\", \"arguments\": [] }],\n    \"handler\": \"runtime-list\",\n    \"ports\": []\n  }],\n  \"routes\": [{ \"id\": \"vendor.runtime.open\", \"activation_fields\": [], \"target_screen\": \"vendor.runtime.review\" }],\n  \"screens\": [{ \"path\": \"screens/main.screen.toml\", \"screen_ids\": [\"vendor.runtime.review\"] }]\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime/1.0.0/screens/main.screen.toml",
+        "content": {
+          "utf8": "screen_schema = 1\nid = \"vendor.runtime.review\"\ntitle = \"Workbench Runtime Review\"\nroute = \"vendor.runtime.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[overlays]]\nkind = \"help\"\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"vendor.runtime.open\"\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"dashboard.open-help\"\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.runtime.list\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.runtime/1.0.0/bin/provider",
+        "content": {
+          "utf8": "#!/bin/sh\nset -eu\nnext_request=100003\nnext_request_id() {\n  request_id=\"p-$next_request\"\n  next_request=$((next_request + 1))\n}\nsend_outcome() {\n  next_request_id\n  printf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"outcome\\\",\\\"request_id\\\":\\\"$request_id\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"kind\\\":\\\"navigate\\\",\\\"route_id\\\":\\\"vendor.runtime.open\\\",\\\"activation\\\":{}}}\"\n}\nsend_snapshot() {\n  panel_instance_id=$1\n  panel_generation=$2\n  revision=$3\n  title=$4\n  selected_id=$5\n  next_request_id\n  printf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"$request_id\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":$revision,\\\"kind\\\":\\\"list\\\",\\\"title\\\":\\\"$title\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"list\\\",\\\"items\\\":[{\\\"id\\\":\\\"alpha\\\",\\\"label\\\":\\\"Alpha runtime item\\\",\\\"actions\\\":[]},{\\\"id\\\":\\\"beta\\\",\\\"label\\\":\\\"Beta runtime item\\\",\\\"actions\\\":[]}],\\\"selected_id\\\":\\\"$selected_id\\\"}}}\"\n}\nread -r hello\nprocess_generation=$(printf '%s\\n' \"$hello\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"hello-ack\\\",\\\"request_id\\\":\\\"p-100001\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"provider_name\\\":\\\"workbench-runtime\\\",\\\"protocol\\\":1}}\"\nread -r configure\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"ready\\\",\\\"request_id\\\":\\\"p-100002\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"capabilities\\\":[\\\"actions\\\",\\\"panels\\\"]}}\"\nactivation_count=0\nfirst_panel_id=\nfirst_panel_generation=\nwhile read -r message; do\n  case \"$message\" in\n    *'\"type\":\"invoke-action\"'*)\n      send_outcome\n      ;;\n    *'\"type\":\"activate-panel\"'*)\n      panel_instance_id=$(printf '%s\\n' \"$message\" | sed -n 's/.*\"panel_instance_id\":\\([0-9][0-9]*\\).*/\\1/p')\n      panel_generation=$(printf '%s\\n' \"$message\" | sed -n 's/.*\"payload\":{.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\n      activation_count=$((activation_count + 1))\n      case \"$activation_count\" in\n        1)\n          first_panel_id=$panel_instance_id\n          first_panel_generation=$panel_generation\n          send_snapshot \"$panel_instance_id\" \"$panel_generation\" 1 \"First workbench instance\" alpha\n          ;;\n        2)\n          send_snapshot \"$panel_instance_id\" \"$panel_generation\" 1 \"Second workbench instance\" alpha\n          ;;\n        3)\n          case \"$message\" in\n            *'\"prior_host_local\":{\"scroll_offset\":0,\"selected_id\":\"beta\"}'*) ;;\n            *) printf '%s\\n' \"missing exact-instance prior host state: $message\" >&2; exit 42 ;;\n          esac\n          send_snapshot \"$panel_instance_id\" \"$panel_generation\" 1 \"First workbench instance resumed\" beta\n          ;;\n        *)\n          ;;\n      esac\n      ;;\n    *'\"type\":\"panel-event\"'*)\n      panel_instance_id=$(printf '%s\\n' \"$message\" | sed -n 's/.*\"panel_instance_id\":\\([0-9][0-9]*\\).*/\\1/p')\n      panel_generation=$(printf '%s\\n' \"$message\" | sed -n 's/.*\"payload\":{.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\n      if [ \"$panel_instance_id\" = \"$first_panel_id\" ] && [ \"$panel_generation\" = \"$first_panel_generation\" ]; then\n        send_snapshot \"$panel_instance_id\" \"$panel_generation\" 2 \"First workbench instance selected beta\" beta\n      fi\n      ;;\n    *'\"type\":\"shutdown\"'*)\n      next_request_id\n      printf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"shutdown-ack\\\",\\\"request_id\\\":\\\"$request_id\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{}}\"\n      exit 0\n      ;;\n  esac\ndone\n"
+        },
+        "mode": 493
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agents",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "f2",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "First workbench instance",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Workbench Runtime Review",
+        "First workbench instance",
+        "Alpha runtime item",
+        "Beta runtime item"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "First workbench instance selected beta",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "First workbench instance selected beta",
+        ">> Beta runtime item"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "h",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Help - Keyboard Shortcuts",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "First workbench instance selected beta",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f2",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Second workbench instance",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Second workbench instance",
+        ">> Alpha runtime item"
+      ],
+      "absent": [
+        "First workbench instance selected beta",
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "First workbench instance resumed",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "First workbench instance resumed",
+        ">> Beta runtime item"
+      ],
+      "absent": [
+        "Second workbench instance",
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agents",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agents"
+      ],
+      "absent": [
+        "provider unavailable",
+        "1 error"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

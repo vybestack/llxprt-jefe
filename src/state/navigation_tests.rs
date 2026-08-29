@@ -27,6 +27,18 @@ fn rooted(screen: ScreenId) -> NavState {
     NavState::rooted(screen)
 }
 
+fn rooted_dashboard() -> NavState {
+    NavState::default()
+}
+
+fn rooted_identity(screen: crate::workbench::ScreenIdentity) -> NavState {
+    let registry = registry();
+    let Some(descriptor) = registry.get_identity(screen) else {
+        panic!("every restored identity has a descriptor");
+    };
+    NavState::rooted_definition(descriptor.id, descriptor.route, descriptor.initial_focus)
+}
+
 /// An activation for `screen`, computed from `state`'s live current instance.
 fn request(state: &NavState, screen: ScreenId) -> Activation {
     Activation::from_source(route_of(screen), ActivationValues::empty(), state.current())
@@ -51,7 +63,7 @@ fn replace(state: NavState, screen: ScreenId) -> (NavState, NavOutcome) {
 
 #[test]
 fn push_suspends_the_exact_current_instance_and_enters_a_fresh_one() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let suspended_instance = before.current().clone();
 
     let (after, outcome) = push(before, ScreenId::PullRequests);
@@ -84,7 +96,7 @@ fn push_suspends_the_exact_current_instance_and_enters_a_fresh_one() {
 
 #[test]
 fn a_pushed_instance_starts_focused_where_its_descriptor_says() {
-    let (after, _) = push(rooted(ScreenId::Dashboard), ScreenId::Issues);
+    let (after, _) = push(rooted_dashboard(), ScreenId::Issues);
     let registry = registry();
     let Some(descriptor) = registry.get(ScreenId::Issues) else {
         unreachable!("every compiled screen has a descriptor");
@@ -94,7 +106,7 @@ fn a_pushed_instance_starts_focused_where_its_descriptor_says() {
 
 #[test]
 fn every_entered_instance_has_an_identity_no_other_instance_had() {
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     let mut seen = vec![state.current().id];
     for screen in [
         ScreenId::Issues,
@@ -112,7 +124,7 @@ fn every_entered_instance_has_an_identity_no_other_instance_had() {
 
 #[test]
 fn the_activation_an_instance_was_entered_with_records_which_instance_asked() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let source = before.current().id;
     let (after, _) = push(before, ScreenId::Issues);
     assert_eq!(after.current().activation.source_instance, source);
@@ -123,7 +135,7 @@ fn the_activation_an_instance_was_entered_with_records_which_instance_asked() {
 
 #[test]
 fn a_push_to_an_undeclared_route_changes_nothing() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let Ok(unknown) = RouteId::parse("nonesuch") else {
         unreachable!("test route id is valid");
     };
@@ -151,7 +163,7 @@ fn a_push_to_an_undeclared_route_changes_nothing() {
 fn a_push_whose_activation_does_not_satisfy_the_schema_changes_nothing() {
     // A compiled screen declares no activation fields, so any supplied value is
     // undeclared and the whole request is refused before anything moves.
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let Ok(name) = Id::parse("number") else {
         unreachable!("test field name is a valid identifier");
     };
@@ -178,7 +190,7 @@ fn a_push_whose_activation_does_not_satisfy_the_schema_changes_nothing() {
 fn a_push_computed_from_an_instance_that_is_no_longer_current_changes_nothing() {
     // The request was computed from a snapshot that has since been replaced,
     // so acting on it would navigate on behalf of a screen that is gone.
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let stale = Activation::from_source(
         route_of(ScreenId::Issues),
         ActivationValues::empty(),
@@ -200,7 +212,7 @@ fn a_push_computed_from_an_instance_that_is_no_longer_current_changes_nothing() 
 
 #[test]
 fn replace_enters_the_target_and_disposes_the_old_instance_without_stacking() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let disposed_instance = before.current().id;
 
     let (after, outcome) = replace(before, ScreenId::Actions);
@@ -217,7 +229,7 @@ fn replace_enters_the_target_and_disposes_the_old_instance_without_stacking() {
 
 #[test]
 fn a_replace_that_fails_validation_disposes_nothing() {
-    let before = push(rooted(ScreenId::Dashboard), ScreenId::Issues).0;
+    let before = push(rooted_dashboard(), ScreenId::Issues).0;
     let Ok(unknown) = RouteId::parse("nonesuch") else {
         unreachable!("test route id is valid");
     };
@@ -239,7 +251,7 @@ fn a_replace_that_fails_validation_disposes_nothing() {
 
 #[test]
 fn replace_keeps_the_stack_it_was_given() {
-    let (pushed, _) = push(rooted(ScreenId::Dashboard), ScreenId::Issues);
+    let (pushed, _) = push(rooted_dashboard(), ScreenId::Issues);
     let suspended = pushed.suspended().to_vec();
 
     let (after, _) = replace(pushed, ScreenId::Actions);
@@ -252,7 +264,7 @@ fn replace_keeps_the_stack_it_was_given() {
 
 #[test]
 fn back_restores_the_exact_prior_instance() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let original = before.current().clone();
     let (pushed, _) = push(before, ScreenId::PullRequests);
     let disposed_instance = pushed.current().id;
@@ -274,7 +286,7 @@ fn back_restores_the_exact_prior_instance() {
 
 #[test]
 fn back_unwinds_a_deep_stack_in_reverse_entry_order() {
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     let order = [ScreenId::Issues, ScreenId::PullRequests, ScreenId::Actions];
     for screen in order {
         state = push(state, screen).0;
@@ -284,13 +296,13 @@ fn back_unwinds_a_deep_stack_in_reverse_entry_order() {
         assert_eq!(state.current().screen, screen);
     }
     state = apply(state, NavIntent::Back).0;
-    assert_eq!(state.current().screen, ScreenId::Dashboard);
+    assert_eq!(state.current().screen, crate::workbench::DASHBOARD_IDENTITY);
     assert_eq!(state.depth(), 0);
 }
 
 #[test]
 fn back_at_the_root_changes_nothing_and_reports_nothing_to_do() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let expected = before.clone();
 
     let (after, outcome) = apply(before, NavIntent::Back);
@@ -303,7 +315,7 @@ fn back_at_the_root_changes_nothing_and_reports_nothing_to_do() {
 
 #[test]
 fn the_stack_holds_exactly_the_declared_maximum() {
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     for _ in 0..MAX_NAVIGATION_STACK {
         let (next, outcome) = push(state, ScreenId::Issues);
         assert!(matches!(outcome, NavOutcome::Pushed { .. }));
@@ -314,7 +326,7 @@ fn the_stack_holds_exactly_the_declared_maximum() {
 
 #[test]
 fn a_push_beyond_the_declared_maximum_is_refused_and_changes_nothing() {
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     for _ in 0..MAX_NAVIGATION_STACK {
         state = push(state, ScreenId::Issues).0;
     }
@@ -334,7 +346,7 @@ fn a_push_beyond_the_declared_maximum_is_refused_and_changes_nothing() {
 #[test]
 fn replace_is_still_available_at_the_stack_bound() {
     // Replace does not stack, so a full stack must not strand the session.
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     for _ in 0..MAX_NAVIGATION_STACK {
         state = push(state, ScreenId::Issues).0;
     }
@@ -380,7 +392,7 @@ fn every_persisted_screen_restores_one_clean_instance_and_no_stack() {
         else {
             panic!("every legacy screen value maps to a screen");
         };
-        let restored = NavState::rooted(outcome.screen_id());
+        let restored = rooted_identity(outcome.screen_id());
 
         assert_eq!(restored.current().screen, outcome.screen_id());
         assert_eq!(restored.depth(), 0, "a restored session carries no stack");
@@ -398,24 +410,27 @@ fn every_persisted_screen_restores_one_clean_instance_and_no_stack() {
 fn an_unreadable_persisted_screen_restores_the_home_screen() {
     let outcome = crate::workbench::migrate_persisted_screen_value(Some("nonesuch"), &registry());
     let screen = outcome.map_or_else(
-        ScreenId::default,
+        || crate::workbench::DASHBOARD_IDENTITY,
         crate::workbench::MigrationOutcome::screen_id,
     );
-    let restored = NavState::rooted(screen);
-    assert_eq!(restored.current().screen, ScreenId::default());
+    let restored = rooted_identity(screen);
+    assert_eq!(
+        restored.current().screen,
+        crate::workbench::DASHBOARD_IDENTITY
+    );
     assert_eq!(restored.depth(), 0);
 }
 
 #[test]
 fn instance_identity_is_never_reused_across_states() {
-    let first = rooted(ScreenId::Dashboard);
-    let second = rooted(ScreenId::Dashboard);
+    let first = rooted_dashboard();
+    let second = rooted_dashboard();
     assert_ne!(first.current().id, second.current().id);
 }
 
 #[test]
 fn a_suspended_instance_is_not_the_live_one() {
-    let (state, _) = push(rooted(ScreenId::Dashboard), ScreenId::Issues);
+    let (state, _) = push(rooted_dashboard(), ScreenId::Issues);
     let live: ScreenInstanceId = state.current().id;
     assert!(
         !state
@@ -429,7 +444,7 @@ fn a_suspended_instance_is_not_the_live_one() {
 
 #[test]
 fn the_live_generations_are_the_current_instances_own() {
-    let state = rooted(ScreenId::Dashboard);
+    let state = rooted_dashboard();
     let current = state.current();
     assert_eq!(
         state.live_generations(),
@@ -440,7 +455,7 @@ fn the_live_generations_are_the_current_instances_own() {
 
 #[test]
 fn a_suspended_instances_work_is_not_answered_while_it_waits() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let (suspended_screen, suspended_activation) = before.live_generations();
 
     let (after, _) = push(before, ScreenId::Issues);
@@ -453,7 +468,7 @@ fn a_suspended_instances_work_is_not_answered_while_it_waits() {
 
 #[test]
 fn restoring_an_instance_makes_its_work_answerable_again() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let (suspended_screen, suspended_activation) = before.live_generations();
     let (pushed, _) = push(before, ScreenId::Issues);
 
@@ -467,7 +482,7 @@ fn restoring_an_instance_makes_its_work_answerable_again() {
 
 #[test]
 fn a_disposed_instances_work_is_never_answered_again() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let (pushed, _) = push(before, ScreenId::Issues);
     let (disposed_screen, disposed_activation) = pushed.live_generations();
 
@@ -481,7 +496,7 @@ fn a_disposed_instances_work_is_never_answered_again() {
 
 #[test]
 fn a_replaced_instances_work_is_never_answered_again() {
-    let before = rooted(ScreenId::Dashboard);
+    let before = rooted_dashboard();
     let (disposed_screen, disposed_activation) = before.live_generations();
 
     let (after, _) = replace(before, ScreenId::Actions);
@@ -491,7 +506,7 @@ fn a_replaced_instances_work_is_never_answered_again() {
 
 #[test]
 fn generations_only_ever_move_forward() {
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     let mut previous = state.live_generations();
     for screen in [ScreenId::Issues, ScreenId::PullRequests, ScreenId::Actions] {
         state = push(state, screen).0;
@@ -506,7 +521,7 @@ fn generations_only_ever_move_forward() {
 
 #[test]
 fn a_refused_navigation_does_not_advance_generations() {
-    let mut state = rooted(ScreenId::Dashboard);
+    let mut state = rooted_dashboard();
     for _ in 0..MAX_NAVIGATION_STACK {
         state = push(state, ScreenId::Issues).0;
     }

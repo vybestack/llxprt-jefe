@@ -3,7 +3,7 @@
   "screens": [
     {
       "id": "core.dashboard",
-      "title": "Dashboard",
+      "title": "LLxprt Jefe",
       "route": "dashboard",
       "initial_focus": "repositories",
       "focus_order": ["repositories", "agents", "terminal"],

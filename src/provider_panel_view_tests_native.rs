@@ -56,8 +56,8 @@ fn tree_and_structured_diff_render_native_selectable_rows() {
                 schema_version: 1,
                 files: vec![StructuredDiffFile {
                     id: id("vendor.file"),
-                    old_path: None,
-                    new_path: Some("src/new.rs".to_owned()),
+            path: StructuredDiffPath::Added("src/new.rs".to_owned()),
+
                     old_mode: None,
                     new_mode: None,
                     binary: true,

@@ -77,6 +77,39 @@ fn structured_diff_body_parses_the_exact_versioned_dto() {
     assert_eq!(diff.files[0].hunks[0].lines.len(), 3);
 }
 
+
+#[test]
+fn structured_diff_wire_paths_parse_to_the_exact_typed_shape() {
+    let cases = [
+        (
+            r#"{"id":"vendor.added","new_path":"src/added.rs","binary":true,"hunks":[]}"#,
+            StructuredDiffPath::Added("src/added.rs".to_owned()),
+        ),
+        (
+            r#"{"id":"vendor.removed","old_path":"src/removed.rs","binary":true,"hunks":[]}"#,
+            StructuredDiffPath::Removed("src/removed.rs".to_owned()),
+        ),
+        (
+            r#"{"id":"vendor.modified","old_path":"src/modified.rs","new_path":"src/modified.rs","binary":true,"hunks":[]}"#,
+            StructuredDiffPath::Modified("src/modified.rs".to_owned()),
+        ),
+        (
+            r#"{"id":"vendor.renamed","old_path":"src/old.rs","new_path":"src/new.rs","binary":true,"hunks":[]}"#,
+            StructuredDiffPath::Renamed {
+                old: "src/old.rs".to_owned(),
+                new: "src/new.rs".to_owned(),
+            },
+        ),
+    ];
+
+    for (file, expected) in cases {
+        let snapshot = parse_snapshot("structured-diff", &diff_body(file, None));
+        let PanelBody::StructuredDiff(diff) = snapshot.body else {
+            panic!("expected StructuredDiff body");
+        };
+        assert_eq!(diff.files[0].path, expected);
+    }
+}
 #[test]
 fn tree_and_diff_reject_unknown_versions_and_fields() {
     for (kind, body) in [
@@ -260,6 +293,50 @@ fn structured_diff_line_origins_require_exact_line_number_sides() {
             rejected(&bytes, Direction::ProviderToHost),
             ProviderError::InvalidValue { .. }
         ));
+    }
+}
+
+#[test]
+fn structured_diff_rejects_no_newline_before_the_final_line_on_its_side() {
+    let cases = [
+        r#"{"header":"context","old_start":1,"old_lines":2,"new_start":1,"new_lines":2,"lines":[{"origin":"context","old_line":1,"new_line":1,"content":"early","no_newline":true},{"origin":"context","old_line":2,"new_line":2,"content":"final","no_newline":false}]}"#,
+        r#"{"header":"removed","old_start":1,"old_lines":2,"new_start":1,"new_lines":1,"lines":[{"origin":"removed","old_line":1,"content":"early","no_newline":true},{"origin":"context","old_line":2,"new_line":1,"content":"final","no_newline":false}]}"#,
+        r#"{"header":"added","old_start":1,"old_lines":1,"new_start":1,"new_lines":2,"lines":[{"origin":"added","new_line":1,"content":"early","no_newline":true},{"origin":"context","old_line":1,"new_line":2,"content":"final","no_newline":false}]}"#,
+    ];
+    for hunk in cases {
+        let bytes = envelope(
+            "panel-snapshot",
+            "p-000001",
+            1,
+            &snapshot_body(
+                "structured-diff",
+                &diff_body(&text_diff_file(hunk), None),
+            ),
+        );
+        assert!(matches!(
+            rejected(&bytes, Direction::ProviderToHost),
+            ProviderError::InvalidValue { .. }
+        ));
+    }
+}
+
+#[test]
+fn structured_diff_accepts_no_newline_only_on_each_sides_final_line() {
+    let cases = [
+        r#"{"header":"context","old_start":1,"old_lines":1,"new_start":1,"new_lines":1,"lines":[{"origin":"context","old_line":1,"new_line":1,"content":"final","no_newline":true}]}"#,
+        r#"{"header":"changed","old_start":1,"old_lines":1,"new_start":1,"new_lines":1,"lines":[{"origin":"removed","old_line":1,"content":"old-final","no_newline":true},{"origin":"added","new_line":1,"content":"new-final","no_newline":true}]}"#,
+    ];
+    for hunk in cases {
+        let bytes = envelope(
+            "panel-snapshot",
+            "p-000001",
+            1,
+            &snapshot_body(
+                "structured-diff",
+                &diff_body(&text_diff_file(hunk), None),
+            ),
+        );
+        assert!(parse_message(&bytes, Direction::ProviderToHost).is_ok());
     }
 }
 

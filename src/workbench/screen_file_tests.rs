@@ -3,8 +3,8 @@
 
 use super::screen_file::parse_screen_file;
 use super::screen_file::{
-    ActivationKind, ActivationModeFile, EmptyPolicyFile, LayoutFile, PortDirectionFile,
-    RelationshipFile, ResourceFieldKind, SizeFile,
+    ActivationKind, ActivationModeFile, EmptyPolicyFile, LayoutFile, OverlayKindFile,
+    PortDirectionFile, RelationshipFile, ResourceFieldKind, SizeFile,
 };
 use super::screen_file_bounds::ScreenSyntaxReason;
 use super::screen_file_fixtures::{HEADER, LAYOUT, PANELS, parsed, rejected, valid_text};
@@ -24,6 +24,68 @@ fn a_complete_valid_file_parses_into_the_closed_syntax() {
     assert_eq!(file.panels.len(), 2);
     assert_eq!(file.relationships.len(), 1);
     assert_eq!(file.bindings.len(), 1);
+}
+
+#[test]
+fn host_owned_overlays_use_a_closed_declaration_vocabulary() {
+    let overlays = r#"
+[[overlays]]
+kind = "help"
+
+[[overlays]]
+kind = "search"
+
+[[overlays]]
+kind = "confirmation"
+"#;
+    let file = parsed(&format!("{HEADER}{overlays}{PANELS}{LAYOUT}"));
+
+    assert_eq!(
+        file.overlays
+            .iter()
+            .map(|overlay| overlay.get_ref().kind)
+            .collect::<Vec<_>>(),
+        vec![
+            OverlayKindFile::Help,
+            OverlayKindFile::Search,
+            OverlayKindFile::Confirmation,
+        ]
+    );
+
+    let unknown = format!("{HEADER}[[overlays]]\nkind = \"package-widget\"\n{PANELS}{LAYOUT}");
+    assert!(matches!(
+        rejected(&unknown),
+        ScreenSyntaxReason::Malformed { .. }
+    ));
+}
+
+#[test]
+fn overlay_declarations_reject_package_supplied_implementation_fields() {
+    for field in ["implementation", "drawing", "input", "snapshot", "handler"] {
+        let source = format!(
+            "{HEADER}[[overlays]]\nkind = \"help\"\n{field} = \"overlay.rs\"\n{PANELS}{LAYOUT}"
+        );
+        assert!(
+            matches!(rejected(&source), ScreenSyntaxReason::Malformed { .. }),
+            "a package-supplied overlay `{field}` must be rejected"
+        );
+    }
+}
+#[test]
+fn host_owned_overlays_are_schema_independent_declarations() {
+    // Overlay declarations are a closed host vocabulary on any supported
+    // screen schema (1 or 2): both legacy and current schema-1 files accept
+    // the same help/search/confirmation kinds and still reject package-supplied
+    // implementation fields.
+    for schema in [1, 2] {
+        let header = format!(
+            "screen_schema = {schema}\nid = \"local.review\"\ntitle = \"Review\"\nroute = \"review\"\ninitial_focus = \"pr-list\"\nfocus_order = [\"pr-list\", \"pr-detail\"]\n"
+        );
+        let overlays = "[[overlays]]\nkind = \"help\"\n[[overlays]]\nkind = \"search\"\n[[overlays]]\nkind = \"confirmation\"\n";
+        let text = format!("{header}{overlays}{PANELS}{LAYOUT}");
+        let file = parsed(&text);
+        assert_eq!(file.overlays.len(), 3, "schema {schema} overlays");
+    }
 }
 
 #[test]

@@ -84,6 +84,7 @@ impl Scene {
                 secrets: BTreeMap::new(),
                 environment: BTreeMap::new(),
             },
+            arguments: Vec::new(),
             policy: ActionPolicy::new(
                 ActionConfirmation::None,
                 vec![

@@ -7,7 +7,8 @@ mod provider_dispatch;
 pub use provider_dispatch::schedule_provider_effects;
 mod provider_panel_input;
 pub use provider_dispatch::{
-    ProviderSurfaceControl, dispatch_provider_surface_control, invoke_provider_action,
+    ProviderSurfaceControl, dispatch_provider_confirmation_field_edit,
+    dispatch_provider_surface_control, invoke_provider_action,
 };
 pub use provider_panel_input::apply_raw_key as apply_provider_panel_raw_key;
 pub use provider_panel_input::{
@@ -17,7 +18,6 @@ pub use provider_panel_input::{
 #[path = "action_handlers_tests.rs"]
 mod action_handlers_tests;
 mod agent_chooser_entries;
-mod dashboard_search;
 mod filter_controls;
 mod issues;
 pub use settings::write_pending;
@@ -374,6 +374,21 @@ fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: A
 
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     apply_and_persist(app_state, ctx, AppEvent::CloseModal);
+}
+
+fn close_expected_generic_confirmation_and_persist(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    expected: &jefe::state::screen_overlays::ConfirmationRequest,
+) -> bool {
+    let mut state = app_state.write();
+    if !state.close_expected_generic_confirmation(expected) {
+        return false;
+    }
+    let persisted = durable_save_request(&mut state);
+    drop(state);
+    schedule_durable_save(ctx, persisted);
+    true
 }
 
 /// Spawn + attach an agent session (shared by fresh-launch and post-preflight

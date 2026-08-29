@@ -397,6 +397,7 @@ fn active_definition_resolves_only_its_exact_declared_action_pair() {
 
     let chord = |raw| Chord::parse(raw).unwrap_or_else(|error| panic!("chord: {error}"));
     let (mut state, stack) = active_definition_state();
+    assert!(!state.has_dashboard_action_context());
     let declared_action =
         ActionId::parse("dashboard.open-help").unwrap_or_else(|error| panic!("action: {error}"));
 

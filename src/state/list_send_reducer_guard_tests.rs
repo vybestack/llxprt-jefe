@@ -6,7 +6,7 @@ use crate::state::events::AppEvent;
 use crate::state::transition::TransitionExt;
 use crate::state::{
     AppState, ComposerTarget, InlineState, IssueCloseReasonChooserState, IssueDeleteConfirmState,
-    IssueFocus, IssuePropertyEditorState, IssuePropertyKind, ModalState, NewIssueFormState,
+    IssueFocus, IssuePropertyEditorState, IssuePropertyKind, NewIssueFormState,
     PrFocus, PrMergeChooserState, PrPropertyEditorState, PrPropertyKind,
 };
 
@@ -87,7 +87,8 @@ fn pull_request(number: u64) -> PullRequest {
 
 fn issue_list_state() -> AppState {
     let mut state = eligible_state();
-    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
+    state.restore_navigation_root(crate::state::ScreenId::Issues);
+    state.selected_repository_index = Some(0);
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.list.replace_items(vec![issue(621)]);
@@ -97,7 +98,8 @@ fn issue_list_state() -> AppState {
 
 fn pr_list_state() -> AppState {
     let mut state = eligible_state();
-    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::PullRequests);
+    state.restore_navigation_root(crate::state::ScreenId::PullRequests);
+    state.selected_repository_index = Some(0);
     state.prs_state.active = true;
     state.prs_state.pr_focus = PrFocus::PrList;
     state.prs_state.list.replace_items(vec![pull_request(621)]);
@@ -185,11 +187,9 @@ fn pr_list_send_begin_atomically_stages_exact_detail_request() {
 
 #[test]
 fn list_send_begin_rejects_invalid_context_without_detail_side_effects() {
-    let mut issue = issue_list_state()
-        .apply(AppEvent::BeginIssueListSendDetail(metadata()))
-        .committed_pure();
-    issue.modal = ModalState::Help;
-    let issue = issue
+    let issue = issue_list_state()
+        .apply(AppEvent::OpenHelp)
+        .committed_pure()
         .apply(AppEvent::BeginIssueListSendDetail(metadata()))
         .committed_pure();
     assert!(issue.issues_state.list_send_pending.is_none());
@@ -290,11 +290,13 @@ fn assert_pr_chooser_rejected(state: AppState) {
 #[test]
 fn issue_chooser_open_is_ignored_under_every_competing_interaction() {
     let mut base = eligible_state();
-    base.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Issues);
+    base.restore_navigation_root(crate::state::ScreenId::Issues);
     base.issues_state.active = true;
     base.issues_state.issue_focus = IssueFocus::IssueList;
     let guards: &[fn(&mut AppState)] = &[
-        |state| state.modal = ModalState::Help,
+        |state| {
+            state.nav.current_mut().overlays_mut().open_help();
+        },
         |state| state.issues_state.issue_focus = IssueFocus::RepoList,
         |state| state.issues_state.inline_state = inline_composer(),
         |state| state.issues_state.property_editor = Some(issue_property_editor()),
@@ -326,11 +328,13 @@ fn issue_chooser_open_is_ignored_under_every_competing_interaction() {
 #[test]
 fn pr_chooser_open_is_ignored_under_every_competing_interaction() {
     let mut base = eligible_state();
-    base.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::PullRequests);
+    base.restore_navigation_root(crate::state::ScreenId::PullRequests);
     base.prs_state.active = true;
     base.prs_state.pr_focus = PrFocus::PrList;
     let guards: &[fn(&mut AppState)] = &[
-        |state| state.modal = ModalState::Help,
+        |state| {
+            state.nav.current_mut().overlays_mut().open_help();
+        },
         |state| state.prs_state.pr_focus = PrFocus::RepoList,
         |state| state.prs_state.inline_state = inline_composer(),
         |state| {

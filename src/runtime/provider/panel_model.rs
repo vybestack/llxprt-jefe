@@ -314,15 +314,26 @@ pub struct StructuredDiffHunk {
     pub lines: Vec<StructuredDiffLine>,
 }
 
+/// Validated path shape for one structured-diff file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StructuredDiffPath {
+    /// A newly added file has only its new path.
+    Added(String),
+    /// A removed file has only its old path.
+    Removed(String),
+    /// An unchanged path carries modifications on both sides.
+    Modified(String),
+    /// A renamed file carries distinct old and new paths.
+    Renamed { old: String, new: String },
+}
+
 /// One file in a structured diff body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructuredDiffFile {
     /// Stable file identity within the body.
     pub id: Id,
-    /// Old-side path, absent for a newly created file.
-    pub old_path: Option<String>,
-    /// New-side path, absent for a deleted file.
-    pub new_path: Option<String>,
+    /// Validated added, removed, modified, or renamed path shape.
+    pub path: StructuredDiffPath,
     /// Old-side mode, only valid when an old path exists.
     pub old_mode: Option<String>,
     /// New-side mode, only valid when a new path exists.

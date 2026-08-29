@@ -97,7 +97,7 @@ fn runtime_generation(
 
 fn pr_footer_input() -> FooterProjectionInput {
     FooterProjectionInput {
-        screen: ScreenId::PullRequests,
+        screen: ScreenId::PullRequests.into(),
         terminal_focused: false,
         shell_overlay_active: false,
         shell_resume_available: false,
@@ -232,7 +232,7 @@ fn actions_footer_appends_unavailable_status_only_for_the_active_focus() {
     let footer = project_footer(
         &snapshot,
         FooterProjectionInput {
-            screen: ScreenId::Actions,
+            screen: ScreenId::Actions.into(),
             terminal_focused: false,
             shell_overlay_active: false,
             shell_resume_available: false,
@@ -251,7 +251,7 @@ fn available_projection_preserves_existing_help_and_footer_bytes() {
         project_footer(
             &snapshot,
             FooterProjectionInput {
-                screen: ScreenId::Repositories,
+                screen: ScreenId::Repositories.into(),
                 terminal_focused: false,
                 shell_overlay_active: false,
                 shell_resume_available: false,
@@ -281,7 +281,25 @@ fn available_projection_preserves_existing_help_and_footer_bytes() {
 }
 
 #[test]
-fn settings_override_replaces_compiled_chord_in_help_and_footer() {
+fn footer_mode_only_maps_residual_compiled_adapters() {
+    let custom = crate::workbench::CustomScreenId::parse("local.dashboard")
+        .unwrap_or_else(|error| panic!("custom screen identity: {error}"));
+
+    assert_eq!(
+        footer_mode(crate::workbench::ScreenIdentity::Compiled(
+            ScreenId::Repositories
+        )),
+        Some(FooterMode::Split)
+    );
+    assert_eq!(
+        footer_mode(crate::workbench::ScreenIdentity::Custom(custom)),
+        None,
+        "custom screens obtain footer context from their published composition"
+    );
+}
+
+#[test]
+fn settings_override_replaces_compiled_chord_in_help_and_split_footer() {
     let snapshot = snapshot_with_dashboard_terminal_override();
     let help = project_help_lines(&snapshot);
     let Some(help_line) = help
@@ -293,12 +311,12 @@ fn settings_override_replaces_compiled_chord_in_help_and_footer() {
     let footer = project_footer(
         &snapshot,
         FooterProjectionInput {
-            screen: ScreenId::Dashboard,
+            screen: crate::workbench::DASHBOARD_IDENTITY,
             terminal_focused: false,
             shell_overlay_active: false,
             shell_resume_available: false,
             actions_focus: None,
-            mode_override: None,
+            mode_override: Some(FooterMode::Dashboard),
         },
     );
 

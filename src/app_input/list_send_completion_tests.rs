@@ -156,7 +156,8 @@ fn pull_request_detail(number: u64) -> PullRequestDetail {
 
 fn issue_list_state_after_detail_completion() -> AppState {
     let mut state = eligible_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.restore_navigation_root(ScreenId::Issues);
+    state.selected_repository_index = Some(0);
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state
@@ -205,7 +206,7 @@ fn assert_issue_send_payload(state: &AppState) {
 }
 fn issue_list_state_with_pending_detail() -> AppState {
     let mut state = eligible_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Issues);
+    state.restore_navigation_root(ScreenId::Issues);
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state
@@ -243,7 +244,7 @@ fn issue_list_send_ready_event() -> AppEvent {
 
 fn pr_list_state_with_pending_detail() -> AppState {
     let mut state = eligible_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.restore_navigation_root(ScreenId::PullRequests);
     state.prs_state.active = true;
     state.prs_state.pr_focus = PrFocus::PrList;
     state
@@ -463,7 +464,8 @@ fn issue_list_detail_completion_opens_chooser_with_full_payload_and_preserves_li
 
 fn pr_list_state_after_detail_completion() -> AppState {
     let mut state = eligible_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::PullRequests);
+    state.restore_navigation_root(ScreenId::PullRequests);
+    state.selected_repository_index = Some(0);
     state.prs_state.active = true;
     state.prs_state.pr_focus = PrFocus::PrList;
     state

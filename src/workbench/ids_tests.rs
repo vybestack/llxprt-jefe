@@ -65,8 +65,9 @@ fn screen_resolution_does_not_depend_on_declaration_position() {
 }
 
 #[test]
-fn the_default_screen_is_the_dashboard() {
-    assert_eq!(ScreenId::default(), ScreenId::Dashboard);
+fn dashboard_is_not_a_compiled_residual_screen() {
+    assert_eq!(ScreenId::from_stable("core.dashboard"), None);
+    assert_eq!(ScreenId::ALL.len(), 7);
 }
 
 #[test]

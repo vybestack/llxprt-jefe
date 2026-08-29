@@ -22,6 +22,7 @@ use crate::domain::default_action_inventory::display::{
 use crate::domain::input_context::ContextId;
 use crate::domain::keymap::{Chord, Key, Modifier, ModifierSet};
 use crate::state::{ActionsFocus, ScreenId};
+use crate::workbench::ScreenIdentity;
 
 const UNAVAILABLE_PREFIX: &str = "Unavailable: ";
 
@@ -68,7 +69,7 @@ impl ProjectedAction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FooterProjectionInput {
-    pub screen: ScreenId,
+    pub screen: ScreenIdentity,
     pub terminal_focused: bool,
     pub shell_overlay_active: bool,
     pub shell_resume_available: bool,
@@ -440,9 +441,9 @@ pub fn project_footer_effective(
     runtime: Option<&AvailabilityGeneration>,
     input: FooterProjectionInput,
 ) -> String {
-    let mode = input
-        .mode_override
-        .unwrap_or_else(|| footer_mode(input.screen));
+    let Some(mode) = input.mode_override.or_else(|| footer_mode(input.screen)) else {
+        return String::new();
+    };
     let hints = if input.shell_overlay_active {
         sorted_hints(SHELL_OVERLAY_HINTS)
     } else if input.terminal_focused {
@@ -476,9 +477,8 @@ pub fn project_footer_effective(
     parts.join(" | ")
 }
 
-fn footer_mode(screen: ScreenId) -> FooterMode {
-    match screen {
-        ScreenId::Dashboard => FooterMode::Dashboard,
+fn footer_mode(screen: ScreenIdentity) -> Option<FooterMode> {
+    Some(match screen.compiled()? {
         ScreenId::Repositories => FooterMode::Split,
         ScreenId::Issues => FooterMode::Issues,
         ScreenId::PullRequests => FooterMode::PullRequests,
@@ -486,7 +486,7 @@ fn footer_mode(screen: ScreenId) -> FooterMode {
         ScreenId::Errors => FooterMode::Errors,
         ScreenId::Terminals => FooterMode::Terminals,
         ScreenId::Settings => FooterMode::Settings,
-    }
+    })
 }
 
 fn footer_hints(mode: FooterMode, actions_focus: Option<ActionsFocus>) -> Vec<FooterDisplayHint> {

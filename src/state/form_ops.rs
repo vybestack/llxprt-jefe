@@ -172,11 +172,11 @@ impl AppState {
         repository_type_ids: &[AgentTypeId],
         c: char,
     ) -> bool {
+        if self.active_overlay_kind() == Some(crate::workbench::OverlayKind::Search) {
+            self.push_search_char(c);
+            return false;
+        }
         match &mut self.modal {
-            ModalState::Search { query } => {
-                query.push(c);
-                false
-            }
             ModalState::NewRepository {
                 fields,
                 focus,
@@ -469,10 +469,11 @@ impl AppState {
     }
 
     pub(super) fn handle_form_backspace(&mut self) {
+        if self.active_overlay_kind() == Some(crate::workbench::OverlayKind::Search) {
+            self.pop_search_char();
+            return;
+        }
         match &mut self.modal {
-            ModalState::Search { query } => {
-                query.pop();
-            }
             ModalState::NewRepository {
                 fields,
                 focus,
@@ -739,11 +740,6 @@ impl AppState {
                     super::form_runtime::cycle_agent_field(&agent_type_ids, fields, *focus, ' ');
                 }
                 Self::toggle_agent_checkbox_fields(fields, *focus);
-            }
-            ModalState::ConfirmDeleteAgent {
-                delete_work_dir, ..
-            } => {
-                *delete_work_dir = !*delete_work_dir;
             }
             _ => {}
         }

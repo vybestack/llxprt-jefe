@@ -10,14 +10,13 @@
 //! Mirrors `pr_types.rs`: these are the `IssuesState` aggregate + its helper
 //! pending/loading/filter structs and the `impl IssuesState` viewport helpers.
 //! The shared display-state enums (`IssueFocus`, `DetailSubfocus`,
-//! `InlineState`, `ComposerTarget`, `EditorTarget`, `AgentChooserState`,
-//! `PriorAgentFocus`) remain in `types.rs` and are imported via `super::`.
+//! `InlineState`, `ComposerTarget`, `EditorTarget`, and `AgentChooserState`)
+//! remain in `types.rs` and are imported via `super::`.
 
 use crate::domain::{CloseReason, ListRequestId, RepositoryId};
 
 use super::{
     AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, NewIssueFormState,
-    PriorAgentFocus,
 };
 
 /// Aggregate state for Issues Mode.
@@ -49,7 +48,6 @@ pub struct IssuesState {
     pub agent_chooser: Option<AgentChooserState>,
     pub filter_ui: IssueFilterUiState,
     pub search_input_focused: bool,
-    pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<IssueMutationPending>,
     pub next_mutation_id: u64,

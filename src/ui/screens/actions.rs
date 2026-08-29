@@ -242,9 +242,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                 hints: state
                     .unwrap_or_else(|| panic!("screen render requires AppState"))
                     .footer_hints(crate::action_projection::FooterProjectionInput {
-                        screen: state.map_or(ScreenId::Actions, |s| {
-                            s.compiled_screen().unwrap_or(ScreenId::Actions)
-                        }),
+                        screen: ScreenId::Actions.into(),
                         terminal_focused: false,
                         shell_overlay_active: false,
                         shell_resume_available: false,

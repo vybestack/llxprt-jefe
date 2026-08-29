@@ -13,7 +13,7 @@
 
 use crate::domain::action_registry::ActionId;
 use crate::domain::effects::ProviderRequestKey;
-use crate::domain::{Id, TypedMap};
+use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{Outcome, ProgressPayload};
 use crate::state::provider_requests::{ActionPolicy, UnavailableReason};
 
@@ -26,12 +26,6 @@ pub enum ProviderMessage {
         owner: Id,
         /// The provider action to invoke.
         action_id: Id,
-        /// Screen the action was invoked from.
-        context_screen: Id,
-        /// Screen instance the action was invoked from.
-        context_instance: Id,
-        /// Resource references currently in view.
-        context_refs: TypedMap,
         /// Collected arguments.
         arguments: TypedMap,
         /// Immutable action policy derived from the action declaration.
@@ -80,12 +74,6 @@ pub enum ProviderMessage {
         owner: Id,
         /// The action being invoked.
         action_id: Id,
-        /// Screen the action was invoked from.
-        context_screen: Id,
-        /// Screen instance the action was invoked from.
-        context_instance: Id,
-        /// Resource references currently in view.
-        context_refs: TypedMap,
         /// The generation that requested confirmation.
         generation: u64,
         /// The single-use confirmation id.
@@ -95,6 +83,13 @@ pub enum ProviderMessage {
         /// Epoch seconds when confirm was called (deterministic).
         now_epoch: u64,
     },
+    /// Replace one displayed field in the exact pending provider confirmation.
+    EditConfirmationField {
+        /// Declared provider continuation field.
+        field_id: Id,
+        /// Exact typed value accepted by the shared Form control.
+        value: TypedValue,
+    },
     /// Move focus between the controls of a pending provider confirmation.
     CycleConfirmationFocus,
     /// Cancel and consume a pending provider confirmation without invocation B.
@@ -103,20 +98,6 @@ pub enum ProviderMessage {
     Retry {
         /// The old request/generation identity.
         old_key: ProviderRequestKey,
-        /// The host-side owner.
-        owner: Id,
-        /// The provider action to invoke.
-        action_id: Id,
-        /// Screen the action was invoked from.
-        context_screen: Id,
-        /// Screen instance the action was invoked from.
-        context_instance: Id,
-        /// Resource references currently in view.
-        context_refs: TypedMap,
-        /// Collected arguments.
-        arguments: TypedMap,
-        /// Immutable action policy derived from the action declaration.
-        policy: ActionPolicy,
     },
     /// Replace the data-only post-Ready health projection for provider actions.
     HealthChanged {
@@ -138,6 +119,7 @@ impl ProviderMessage {
             Self::Cancel { .. } => "ProviderCancel",
             Self::GenerationFailed { .. } => "ProviderGenerationFailed",
             Self::Confirm { .. } => "ProviderConfirm",
+            Self::EditConfirmationField { .. } => "ProviderEditConfirmationField",
             Self::CycleConfirmationFocus => "ProviderCycleConfirmationFocus",
             Self::CancelConfirmation => "ProviderCancelConfirmation",
             Self::Retry { .. } => "ProviderRetry",

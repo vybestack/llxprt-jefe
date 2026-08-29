@@ -12,6 +12,7 @@ use iocraft::prelude::*;
 
 use crate::domain::AgentId;
 use crate::git_info::GitRepoInfo;
+use crate::overlay_controls::project_search;
 use crate::state::{AppState, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::workbench_view::{
@@ -73,15 +74,6 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
     let selected_repo_idx = state
         .and_then(AppState::selected_repository_visible_index)
         .unwrap_or(0);
-    let search_query = state
-        .and_then(|s| {
-            if let crate::state::ModalState::Search { query } = &s.modal {
-                Some(query.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
 
     let colors = props.colors.clone().unwrap_or_default();
     let rc = ResolvedColors::from_theme(Some(&colors));
@@ -107,6 +99,15 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
     let sidebar_width = u32::from(crate::layout::LEFT_COL_WIDTH);
     let card_area_width = render_cols.saturating_sub(crate::layout::LEFT_COL_WIDTH);
     let card_area_width_u32 = u32::from(card_area_width);
+
+    let search_line = state
+        .and_then(|state| {
+            project_search(state, usize::from(crate::layout::LEFT_COL_WIDTH))
+                .rows
+                .into_iter()
+                .next()
+        })
+        .map_or_else(|| "Filter: ".to_owned(), |row| row.text);
 
     element! {
         Box(
@@ -145,7 +146,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 ) {
                     // Search/filter bar
                     Box(height: 1u32, width: sidebar_width, background_color: rc.bg, padding_left: 1u32) {
-                        Text(content: format!("Filter: {}_", search_query), color: rc.fg)
+                        Text(content: format!("{search_line}_"), color: rc.fg)
                     }
 
                     Box(
@@ -196,7 +197,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 hints: state
                     .unwrap_or_else(|| panic!("screen render requires AppState"))
                     .footer_hints(crate::action_projection::FooterProjectionInput {
-                        screen: ScreenId::Repositories,
+                        screen: ScreenId::Repositories.into(),
                         terminal_focused: false,
                         shell_overlay_active: false,
                         shell_resume_available: false,

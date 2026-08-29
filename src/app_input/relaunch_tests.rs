@@ -197,10 +197,9 @@ fn selected_server_lost_agent_opens_cancel_focused_batch_confirmation() {
 
     assert!(open_server_lost_recovery(&mut state, &first_id));
     assert!(matches!(
-        state.modal,
-        jefe::state::ModalState::ConfirmServerLostRecovery {
-            ref agent_ids,
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        } if agent_ids == &vec![AgentId("lost-one".to_owned()), AgentId("lost-two".to_owned())]
+        state.nav.current().overlays().generic_confirmation(),
+        Some(
+            jefe::state::screen_overlays::ConfirmationRequest::ServerLostRecovery { agent_ids }
+        ) if agent_ids == &vec![AgentId("lost-one".to_owned()), AgentId("lost-two".to_owned())]
     ));
 }

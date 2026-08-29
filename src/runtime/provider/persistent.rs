@@ -787,28 +787,19 @@ pub(super) fn classify_health(
     wait_result: io::Result<Option<ExitStatus>>,
     capabilities: &[Capability],
 ) -> CandidateHealth {
-    if let StdoutProbe::Illegal(evidence) = stdout_probe {
-        return CandidateHealth::ProtocolFault { evidence };
-    }
-    // A process exit (Ok(Some)) wins over a normally-closed stdout channel; the
-    // closed channel is only a fault when the process is still alive (Ok(None)).
-    match wait_result {
-        Ok(Some(status)) => CandidateHealth::Exited {
+    match (stdout_probe, wait_result) {
+        (StdoutProbe::Illegal(evidence), _) => CandidateHealth::ProtocolFault { evidence },
+        (_, Ok(Some(status))) => CandidateHealth::Exited {
             exit_code: status.code(),
         },
-        Err(error) => CandidateHealth::ProbeFailed {
+        (_, Err(error)) => CandidateHealth::ProbeFailed {
             error: error.to_string(),
         },
-        Ok(None) => match stdout_probe {
-            StdoutProbe::Closed => CandidateHealth::ProtocolFault {
-                evidence: IllegalStdout::Closed,
-            },
-            StdoutProbe::Idle => CandidateHealth::Ready {
-                capabilities: capabilities.to_vec(),
-            },
-            StdoutProbe::Illegal(_) => {
-                unreachable!("illegal stdout is classified as a protocol fault above")
-            }
+        (StdoutProbe::Closed, Ok(None)) => CandidateHealth::ProtocolFault {
+            evidence: IllegalStdout::Closed,
+        },
+        (StdoutProbe::Idle, Ok(None)) => CandidateHealth::Ready {
+            capabilities: capabilities.to_vec(),
         },
     }
 }

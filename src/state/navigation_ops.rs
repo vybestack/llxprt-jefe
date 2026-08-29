@@ -1,20 +1,8 @@
-//! How the rest of the reducer asks to change screen (issue #386).
+//! Sole reducer boundary for screen navigation (issue #386).
 //!
-//! Every screen change in the program funnels through these three verbs, and
-//! each is one call into [`reduce_navigation`]. Nothing assigns a screen any
-//! more, so the stack, the generations, and the dirty guard cannot disagree
-//! with what is on screen.
-//!
-//! The three verbs preserve exactly the movement the modes used to perform by
-//! hand:
-//!
-//! - [`AppState::enter_screen`] is how a mode was opened from the dashboard,
-//!   and it keeps the screen it came from so Back returns there;
-//! - [`AppState::switch_screen`] is the cross-mode jump (`i` from pull
-//!   requests, `p` from issues), which took the place of the current screen
-//!   rather than stacking on it, so Back still returns to the dashboard;
-//! - [`AppState::leave_screen`] is how a mode was closed, returning to
-//!   whatever was underneath.
+//! Enter, switch, Back, and composition-root fallback all dispatch through
+//! [`reduce_navigation`], keeping stack, generation, and dirty-guard state in
+//! one authority.
 
 use crate::domain::effects::{Correlation, EffectError};
 use crate::workbench::{ActivationValues, RouteId, ScreenId, ScreenIdentity};
@@ -85,6 +73,27 @@ impl AppState {
         self.enter_screen(screen)
     }
 
+    pub(crate) fn show_dashboard(&mut self) -> DraftAction {
+        if self.current_is_composition_root() {
+            return DraftAction::None;
+        }
+        let activation = Activation::from_source(
+            self.composition_root_route(),
+            ActivationValues::empty(),
+            self.nav.current(),
+        );
+        self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
+    }
+
+    fn switch_to_composition_root(&mut self) -> DraftAction {
+        let activation = Activation::from_source(
+            self.composition_root_route(),
+            ActivationValues::empty(),
+            self.nav.current(),
+        );
+        self.navigate(NavMessage::Navigate(NavIntent::Replace(activation)))
+    }
+
     /// Move to `screen` in place of the current one.
     pub fn switch_screen(&mut self, screen: ScreenId) -> DraftAction {
         let activation = self.activation_for(screen);
@@ -99,10 +108,28 @@ impl AppState {
     /// there is somewhere to go back to, otherwise go home — and if this
     /// already is home, stay.
     pub fn leave_screen(&mut self) -> DraftAction {
-        if self.nav.depth() == 0 && self.nav.screen() != ScreenId::default() {
-            return self.switch_screen(ScreenId::default());
+        if self.nav.depth() == 0 && !self.current_is_composition_root() {
+            return self.switch_to_composition_root();
         }
         self.navigate(NavMessage::Navigate(NavIntent::Back))
+    }
+
+    pub(super) fn current_is_composition_root(&self) -> bool {
+        self.published_workbench()
+            .screen_registry()
+            .initial_screen()
+            .is_some_and(|descriptor| descriptor.id == self.screen())
+    }
+
+    fn composition_root_route(&self) -> RouteId {
+        let Some(descriptor) = self
+            .published_workbench()
+            .screen_registry()
+            .initial_screen()
+        else {
+            std::process::abort();
+        };
+        descriptor.route
     }
 
     /// Record that this screen now holds unsaved work.
@@ -161,6 +188,7 @@ impl AppState {
     /// Commit one navigation message, surfacing any refusal and reporting what
     /// the draft's owner must now do.
     fn navigate(&mut self, message: NavMessage) -> DraftAction {
+        let prior = self.clone();
         let workbench = std::sync::Arc::clone(self.published_workbench());
         let registry = workbench.screen_registry();
         let placeholder = self.nav.clone();
@@ -189,7 +217,13 @@ impl AppState {
                     "dropped pending work belonging to a screen the session left"
                 );
             }
-            self.update_provider_panel_lifecycle(&transition.outcome, registry);
+            if let Err(error) =
+                self.update_provider_panel_lifecycle(&transition.outcome, registry, &prior)
+            {
+                *self = prior;
+                self.error_message = Some(error);
+                return DraftAction::None;
+            }
             if matches!(
                 &transition.outcome,
                 NavOutcome::Pushed { .. } | NavOutcome::Replaced { .. }
@@ -204,77 +238,118 @@ impl AppState {
         &mut self,
         outcome: &NavOutcome,
         registry: &crate::workbench::ScreenRegistry,
-    ) {
+        prior: &Self,
+    ) -> Result<(), String> {
         match outcome {
             NavOutcome::Pushed { suspended, .. } => {
-                self.suspend_provider_panels(suspended.get());
-                self.activate_current_provider_panels(registry);
+                self.suspend_provider_panels(*suspended)?;
+                self.activate_current_provider_panels(registry)?;
             }
             NavOutcome::Replaced { disposed, .. } => {
-                self.dispose_provider_panels(disposed.get(), true);
-                self.activate_current_provider_panels(registry);
+                self.dispose_provider_panels(prior, *disposed, true)?;
+                self.activate_current_provider_panels(registry)?;
             }
             NavOutcome::Restored { disposed, restored } => {
-                self.dispose_provider_panels(disposed.get(), false);
-                self.resume_provider_panels(restored.get());
+                self.dispose_provider_panels(prior, *disposed, false)?;
+                self.resume_provider_panels(*restored)?;
             }
             _ => {}
         }
+        Ok(())
     }
 
-    fn suspend_provider_panels(&mut self, screen_instance: u64) {
-        for instance in self.provider_panels.panels_for_screen(screen_instance) {
-            match self.provider_panels.suspend(instance) {
-                Ok(effect) => self.stage_panel_deactivate(effect),
-                Err(error) => self.error_message = Some(error.to_string()),
-            }
+    fn suspend_provider_panels(
+        &mut self,
+        owner: crate::workbench::ScreenInstanceId,
+    ) -> Result<(), String> {
+        let effects = {
+            let instance = self
+                .nav
+                .instance_mut(owner)
+                .ok_or_else(|| "suspended screen instance is not live".to_owned())?;
+            let panels = instance.provider_panels_mut();
+            panels
+                .panels_for_screen(owner.get())
+                .into_iter()
+                .map(|panel| panels.suspend(panel).map_err(|error| error.to_string()))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for effect in effects {
+            self.stage_panel_deactivate(effect)?;
         }
+        Ok(())
     }
 
-    fn dispose_provider_panels(&mut self, screen_instance: u64, replaced: bool) {
-        for instance in self.provider_panels.panels_for_screen(screen_instance) {
-            match if replaced {
-                self.provider_panels.replace(instance)
+    fn dispose_provider_panels(
+        &mut self,
+        prior: &Self,
+        owner: crate::workbench::ScreenInstanceId,
+        replaced: bool,
+    ) -> Result<(), String> {
+        let instance = prior
+            .nav
+            .instance(owner)
+            .ok_or_else(|| "disposed screen instance was not live".to_owned())?;
+        let mut panels = instance.provider_panels().clone();
+        let panel_ids = panels.panels_for_screen(owner.get());
+        for panel in panel_ids {
+            let outcome = if replaced {
+                panels.replace(panel)
             } else {
-                self.provider_panels.dispose(instance)
-            } {
-                Ok(crate::state::provider_panels::DeactivateOutcome::Sent(effect)) => {
-                    self.stage_panel_deactivate(effect);
-                }
-                Ok(crate::state::provider_panels::DeactivateOutcome::None) => {}
-                Err(error) => self.error_message = Some(error.to_string()),
+                panels.dispose(panel)
+            }
+            .map_err(|error| error.to_string())?;
+            if let crate::state::provider_panels::DeactivateOutcome::Sent(effect) = outcome {
+                self.stage_panel_deactivate(effect)?;
             }
         }
+        Ok(())
     }
 
-    fn resume_provider_panels(&mut self, screen_instance: u64) {
-        for instance in self.provider_panels.panels_for_screen(screen_instance) {
-            match self.provider_panels.resume(instance) {
-                Ok(activated) => self.stage_panel_activate(activated.effect),
-                Err(error) => self.error_message = Some(error.to_string()),
-            }
+    fn resume_provider_panels(
+        &mut self,
+        owner: crate::workbench::ScreenInstanceId,
+    ) -> Result<(), String> {
+        let effects = {
+            let instance = self
+                .nav
+                .instance_mut(owner)
+                .ok_or_else(|| "restored screen instance is not live".to_owned())?;
+            let panels = instance.provider_panels_mut();
+            panels
+                .panels_for_screen(owner.get())
+                .into_iter()
+                .map(|panel| {
+                    panels
+                        .resume(panel)
+                        .map(|activated| activated.effect)
+                        .map_err(|error| error.to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for effect in effects {
+            self.stage_panel_activate(effect)?;
         }
+        Ok(())
     }
 
-    fn activate_current_provider_panels(&mut self, registry: &crate::workbench::ScreenRegistry) {
+    fn activate_current_provider_panels(
+        &mut self,
+        registry: &crate::workbench::ScreenRegistry,
+    ) -> Result<(), String> {
         let screen = self.nav.current().screen;
-        let Some(descriptor) = registry.get_identity(screen) else {
-            return;
-        };
+        let descriptor = registry
+            .get_identity(screen)
+            .ok_or_else(|| "published screen has no registry descriptor".to_owned())?;
         let current = self.nav.current().clone();
-        let activation = match activation_typed_map(&current.activation.values) {
-            Ok(values) => values,
-            Err(reason) => {
-                self.error_message = Some(reason);
-                return;
-            }
-        };
+        let activation = activation_typed_map(&current.activation.values)?;
         for panel in &descriptor.panels {
             let Some(binding) = registry.panel_binding(current.screen, &panel.id) else {
                 continue;
             };
-            self.activate_provider_panel(&current, panel, binding, &activation);
+            self.activate_provider_panel(&current, panel, binding, &activation)?;
         }
+        Ok(())
     }
 
     fn activate_provider_panel(
@@ -283,7 +358,7 @@ impl AppState {
         panel: &crate::workbench::PanelDescriptor,
         binding: &crate::workbench::PackagePanelBinding,
         activation: &crate::domain::TypedMap,
-    ) {
+    ) -> Result<(), String> {
         let allowed_model_kinds = binding
             .model_kinds
             .iter()
@@ -302,34 +377,31 @@ impl AppState {
             .relationships()
             .and_then(|relationships| relationships.panel_instance_id(&panel.id))
         else {
-            self.error_message = Some("published panel has no runtime identity".to_owned());
-            return;
+            return Err("published panel has no runtime identity".to_owned());
         };
-        let declared = self.provider_panels.declare_instance(
-            panel_instance,
-            crate::state::provider_panels::DeclareInput {
-                owner: &binding.owner,
-                panel_id: &panel.id,
-                screen_instance_id: current.id.get(),
-                panel_type: &binding.panel_type,
-                activation,
-                allowed_model_kinds: &allowed_model_kinds,
-                allowed_events: &allowed_events,
-                action_authority: &binding.action_authority,
-                process_generation: crate::runtime::provider::protocol::INITIAL_PROCESS_GENERATION,
-            },
-        );
-        let declared = match declared {
-            Ok(declared) => declared,
-            Err(error) => {
-                self.error_message = Some(error.to_string());
-                return;
-            }
-        };
-        match self.provider_panels.activate(declared.instance) {
-            Ok(activated) => self.stage_panel_activate(activated.effect),
-            Err(error) => self.error_message = Some(error.to_string()),
-        }
+        let declared = self
+            .provider_panels_mut()
+            .declare_instance(
+                panel_instance,
+                crate::state::provider_panels::DeclareInput {
+                    owner: &binding.owner,
+                    panel_id: &panel.id,
+                    screen_instance_id: current.id.get(),
+                    panel_type: &binding.panel_type,
+                    activation,
+                    allowed_model_kinds: &allowed_model_kinds,
+                    allowed_events: &allowed_events,
+                    action_authority: &binding.action_authority,
+                    process_generation:
+                        crate::runtime::provider::protocol::INITIAL_PROCESS_GENERATION,
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        let activated = self
+            .provider_panels_mut()
+            .activate(declared.instance)
+            .map_err(|error| error.to_string())?;
+        self.stage_panel_activate(activated.effect)
     }
 
     /// Validate and stage one host-owned semantic event for a live provider panel.
@@ -349,7 +421,7 @@ impl AppState {
             PanelEvent::FieldChanged { field_id, value } => Some((field_id.clone(), value.clone())),
             _ => None,
         };
-        match self.provider_panels.submit_live_event(panel, event) {
+        match self.provider_panels_mut().submit_live_event(panel, event) {
             Ok(EventOutcome::Event(effect)) => {
                 let local_result = if let Some(id) = selected {
                     self.update_panel_host_selection(panel, id)
@@ -364,12 +436,144 @@ impl AppState {
                 self.stage_panel_event(effect);
                 true
             }
-            Ok(EventOutcome::Activate(effect)) => {
-                self.stage_panel_activate(effect);
-                true
-            }
+            Ok(EventOutcome::Activate(effect)) => match self.stage_panel_activate(effect) {
+                Ok(()) => true,
+                Err(error) => {
+                    self.error_message = Some(error);
+                    false
+                }
+            },
             Ok(EventOutcome::None) | Err(_) => false,
         }
+    }
+
+    /// Atomically commit one provider semantic event and its declared typed relationships.
+    ///
+    /// Selection-capable controls project their stable semantic key through each
+    /// participating output-port schema. Any invalid projection or authenticated
+    /// relationship refusal leaves both the provider event and relationship state unchanged.
+    pub fn submit_provider_panel_semantic_event(
+        &mut self,
+        panel_instance_id: crate::state::provider_panels::PanelInstanceId,
+        panel_id: &crate::workbench::PanelId,
+        event: crate::runtime::provider::protocol::PanelEvent,
+    ) -> bool {
+        let commands =
+            match self.selection_relationship_commands(panel_instance_id, panel_id, &event) {
+                Ok(commands) => commands,
+                Err(error) => {
+                    self.error_message = Some(error);
+                    return false;
+                }
+            };
+        if commands.is_empty() {
+            return self.submit_provider_panel_event(panel_instance_id, event);
+        }
+
+        let mut candidate = self.clone();
+        if !candidate.submit_provider_panel_event(panel_instance_id, event) {
+            return false;
+        }
+        for command in commands {
+            if let Err(error) = candidate.apply_relationship_command(command) {
+                self.error_message = Some(error.to_string());
+                return false;
+            }
+        }
+        *self = candidate;
+        true
+    }
+
+    pub(super) fn selection_relationship_commands(
+        &self,
+        panel_instance_id: crate::state::provider_panels::PanelInstanceId,
+        panel_id: &crate::workbench::PanelId,
+        event: &crate::runtime::provider::protocol::PanelEvent,
+    ) -> Result<Vec<super::RelationshipCommand>, String> {
+        let crate::runtime::provider::protocol::PanelEvent::Selected { id } = event else {
+            return Ok(Vec::new());
+        };
+        let current = self.nav.current();
+        let Some(descriptor) = self.active_relationship_descriptor(panel_id)? else {
+            return Ok(Vec::new());
+        };
+        let semantic_key = self.provider_selection_semantic_key(panel_instance_id, id)?;
+        let binding = self
+            .published_workbench()
+            .screen_registry()
+            .panel_binding(current.screen, panel_id)
+            .ok_or_else(|| "active panel has no authenticated provider binding".to_owned())?;
+        if !self.provider_panels().matches_active_binding(
+            panel_instance_id,
+            current.id.get(),
+            panel_id,
+            &binding.owner,
+        ) {
+            return Err("selected provider control names a stale panel instance".to_owned());
+        }
+        let relationship_panel_instance = current
+            .relationships()
+            .and_then(|runtime| runtime.panel_instance_id(panel_id))
+            .ok_or_else(|| {
+                "active provider panel has no relationship runtime identity".to_owned()
+            })?;
+        let panel = descriptor
+            .panels
+            .iter()
+            .find(|panel| panel.id == *panel_id)
+            .ok_or_else(|| {
+                format!("active provider panel declaration {panel_id} is unavailable")
+            })?;
+        let schemas = self.published_workbench().resource_schemas();
+        panel
+            .ports
+            .iter()
+            .filter(|port| {
+                port.direction == crate::workbench::PortDirection::Output
+                    && descriptor.relationships.iter().any(|relationship| {
+                        relationship.source.panel == *panel_id
+                            && relationship.source.port == port.id
+                    })
+            })
+            .map(|port| {
+                semantic_relationship_command(
+                    schemas,
+                    current,
+                    relationship_panel_instance,
+                    panel_id,
+                    port,
+                    &semantic_key,
+                )
+            })
+            .collect()
+    }
+    fn active_relationship_descriptor(
+        &self,
+        panel_id: &crate::workbench::PanelId,
+    ) -> Result<Option<&crate::workbench::ScreenDescriptor>, String> {
+        let descriptor = self
+            .published_workbench()
+            .screen_registry()
+            .get_identity(self.nav.current().screen)
+            .ok_or_else(|| "active provider screen declaration is unavailable".to_owned())?;
+        Ok(descriptor
+            .relationships
+            .iter()
+            .any(|relationship| relationship.source.panel == *panel_id)
+            .then_some(descriptor))
+    }
+
+    fn provider_selection_semantic_key(
+        &self,
+        panel_instance_id: crate::state::provider_panels::PanelInstanceId,
+        selected_id: &crate::domain::Id,
+    ) -> Result<String, String> {
+        let snapshot = self
+            .provider_panels()
+            .accepted_snapshot(panel_instance_id)
+            .ok_or_else(|| "selected provider control has no accepted snapshot".to_owned())?;
+        selected_provider_semantic_key(&snapshot.body, selected_id)
+            .ok_or_else(|| format!("selected provider control does not contain item {selected_id}"))
     }
 
     fn update_panel_host_selection(
@@ -377,14 +581,14 @@ impl AppState {
         panel: crate::state::provider_panels::PanelInstanceId,
         selected_id: crate::domain::Id,
     ) -> Result<(), crate::state::provider_panels::PanelError> {
-        let prior = self.provider_panels.host_local(panel).cloned();
+        let prior = self.provider_panels().host_local(panel).cloned();
         let host = crate::runtime::provider::protocol::HostLocal {
             focus_target: prior.as_ref().and_then(|local| local.focus_target.clone()),
             scroll_offset: prior.as_ref().map_or(0, |local| local.scroll_offset),
             selected_id: Some(selected_id),
             form_draft: prior.and_then(|local| local.form_draft),
         };
-        self.provider_panels.update_host_local(panel, host)
+        self.provider_panels_mut().update_host_local(panel, host)
     }
 
     fn update_panel_host_field(
@@ -394,7 +598,7 @@ impl AppState {
         value: crate::domain::TypedValue,
     ) -> Result<(), crate::state::provider_panels::PanelError> {
         let prior = self
-            .provider_panels
+            .provider_panels()
             .host_local(panel)
             .cloned()
             .unwrap_or_default();
@@ -405,7 +609,7 @@ impl AppState {
             form_draft: Some(form_draft),
             ..prior
         };
-        self.provider_panels.update_host_local(panel, host)
+        self.provider_panels_mut().update_host_local(panel, host)
     }
 
     fn stage_panel_event(&mut self, panel_event: crate::state::provider_panels::PanelEventEffect) {
@@ -429,7 +633,10 @@ impl AppState {
             self.error_message = Some(error.to_string());
         }
     }
-    fn stage_panel_activate(&mut self, activate: crate::state::provider_panels::ActivateEffect) {
+    fn stage_panel_activate(
+        &mut self,
+        activate: crate::state::provider_panels::ActivateEffect,
+    ) -> Result<(), String> {
         use crate::domain::effects::{
             Effect, EffectFamily, ProviderEffect, RetryPolicy, SemanticKey,
         };
@@ -452,17 +659,15 @@ impl AppState {
             panel_generation: activate.generation,
         });
         let semantic_key = SemanticKey::new(EffectFamily::Provider, &subject);
-        if let Err(error) =
-            self.register_pending_effect(owner, semantic_key, effect, RetryPolicy::Never)
-        {
-            self.error_message = Some(error.to_string());
-        }
+        self.register_pending_effect(owner, semantic_key, effect, RetryPolicy::Never)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
 
     fn stage_panel_deactivate(
         &mut self,
         deactivate: crate::state::provider_panels::DeactivateEffect,
-    ) {
+    ) -> Result<(), String> {
         use crate::domain::effects::{
             Effect, EffectFamily, ProviderEffect, ProviderPanelDeactivateReason, RetryPolicy,
             SemanticKey,
@@ -483,12 +688,43 @@ impl AppState {
             reason,
         });
         let semantic_key = SemanticKey::new(EffectFamily::Provider, &subject);
-        if let Err(error) =
-            self.register_pending_effect(owner, semantic_key, effect, RetryPolicy::Never)
-        {
-            self.error_message = Some(error.to_string());
-        }
+        self.register_pending_effect(owner, semantic_key, effect, RetryPolicy::Never)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
     }
+}
+
+fn semantic_relationship_command(
+    schemas: &crate::workbench::ResourceSchemaRegistry,
+    current: &super::navigation::ScreenInstance,
+    panel_instance_id: crate::state::provider_panels::PanelInstanceId,
+    panel_id: &crate::workbench::PanelId,
+    port: &crate::workbench::PortDescriptor,
+    semantic_key: &str,
+) -> Result<super::RelationshipCommand, String> {
+    let type_id =
+        crate::domain::Id::parse(port.type_id.name()).map_err(|error| error.to_string())?;
+    let value = schemas
+        .project_semantic_key(
+            &port.owner_id,
+            &type_id,
+            port.type_id.version(),
+            semantic_key,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(super::RelationshipCommand {
+        open_screen_id: current.id,
+        panel_instance_id,
+        generation: current.generation,
+        owner_id: port.owner_id.clone(),
+        intent: crate::workbench::SourceIntent::Publish {
+            port: crate::workbench::PortRef {
+                panel: *panel_id,
+                port: port.id,
+            },
+            value: crate::workbench::PortValue::Typed(value),
+        },
+    })
 }
 
 fn protocol_body_kind(
@@ -529,6 +765,37 @@ const fn panel_event_kind(
         Manifest::ExpansionChanged => Panel::ExpansionChanged,
     }
 }
+fn selected_provider_semantic_key(
+    body: &crate::runtime::provider::protocol::PanelBody,
+    selected: &crate::domain::Id,
+) -> Option<String> {
+    use crate::runtime::provider::protocol::PanelBody;
+
+    match body {
+        PanelBody::List(list) => list
+            .items
+            .iter()
+            .find(|item| item.id == *selected)
+            .map(|item| item.id.as_str().to_owned()),
+        PanelBody::Tree(tree) => tree
+            .nodes
+            .iter()
+            .find(|node| node.id == *selected)
+            .map(|node| node.semantic_key.as_str().to_owned()),
+        PanelBody::StructuredDiff(diff) => diff
+            .files
+            .iter()
+            .find(|file| file.id == *selected)
+            .map(|file| file.id.as_str().to_owned()),
+        PanelBody::Detail(_)
+        | PanelBody::Form(_)
+        | PanelBody::Status(_)
+        | PanelBody::Progress(_)
+        | PanelBody::Empty(_)
+        | PanelBody::Error(_) => None,
+    }
+}
+
 fn domain_panel_event(
     event: crate::runtime::provider::protocol::PanelEvent,
 ) -> crate::domain::effects::ProviderPanelEvent {

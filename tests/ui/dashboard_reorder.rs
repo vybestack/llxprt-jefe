@@ -69,7 +69,7 @@ fn create_dashboard_test_state() -> AppState {
 
     {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
         state.repositories = vec![repo1, repo2, repo3];
         state.agents = vec![a1, a2, a3];
         state.selected_repository_index = Some(0);
@@ -273,7 +273,7 @@ fn create_multi_agent_dashboard_state() -> AppState {
 
     {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
         state.repositories = vec![repo];
         state.agents = vec![a1, a2, a3];
         state.selected_repository_index = Some(0);
@@ -436,7 +436,7 @@ fn agent_grab_only_affects_agents_within_selected_repository() {
 
     let mut state = {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
         state.repositories = vec![repo1, repo2];
         state.agents = vec![a1, a2, b1, b2];
         state.selected_repository_index = Some(0);
@@ -650,13 +650,13 @@ fn agent_grab_carries_repository_id() {
 
     state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
 
-    match state.dashboard_grab {
+    match &state.dashboard_grab {
         Some(DashboardGrabPane::Agent {
             repository_id,
             local_index,
         }) => {
-            assert_eq!(repository_id, RepositoryId("repo-a".into()));
-            assert_eq!(local_index, 1);
+            assert_eq!(repository_id, &RepositoryId("repo-a".into()));
+            assert_eq!(*local_index, 1);
         }
         other => panic!("expected Agent grab with repository_id, got {other:?}"),
     }
@@ -675,7 +675,7 @@ fn enter_issues_mode_clears_dashboard_grab_via_finalize() {
     // validation must clear the stale grab.
     state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
 
-    assert_ne!(state.screen(), ScreenId::Dashboard);
+    assert_ne!(state.screen(), jefe::workbench::DASHBOARD_IDENTITY);
     assert_eq!(state.dashboard_grab, None);
 }
 
@@ -736,5 +736,33 @@ fn agent_grab_for_deleted_repository_clears_via_finalize() {
     state = state.apply(AppEvent::OpenHelp).committed_pure();
 
     // repository_id no longer exists → grab cleared.
+    assert_eq!(state.dashboard_grab, None);
+}
+
+#[test]
+fn leaving_dashboard_clears_grab_under_sealed_action_context() {
+    let mut state = create_dashboard_test_state();
+    state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
+    assert!(state.has_dashboard_action_context());
+
+    // Navigate to Issues: the sidebar is a host List panel, but it does not
+    // own the sealed Dashboard action context, so the grab must be treated as
+    // stale even though a reorder-capable panel is present.
+    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+    assert_ne!(state.screen(), jefe::workbench::DASHBOARD_IDENTITY);
+    assert!(!state.has_dashboard_action_context());
+    assert_eq!(state.dashboard_grab, None);
+}
+
+#[test]
+fn non_dashboard_list_screen_cannot_start_a_grab() {
+    let mut state = create_dashboard_test_state();
+    state.pane_focus = PaneFocus::Repositories;
+    state.selected_repository_index = Some(0);
+    state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+    assert!(!state.has_dashboard_action_context());
+
+    state = state.apply(AppEvent::EnterDashboardGrab).committed_pure();
+
     assert_eq!(state.dashboard_grab, None);
 }

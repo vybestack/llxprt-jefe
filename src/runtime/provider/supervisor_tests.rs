@@ -26,7 +26,7 @@ use super::panel_model::{
     Affordance, BodyKind, DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody,
     FormBody, FormFieldError, ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody,
     StatusBody, StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile,
-    StructuredDiffHunk, StructuredDiffLine, TreeBody, TreeNode,
+    StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody, TreeNode,
 };
 
 #[test]
@@ -107,28 +107,57 @@ fn secret_tree_body(secret: &str) -> PanelBody {
 fn secret_structured_diff_body(secret: &str) -> PanelBody {
     PanelBody::StructuredDiff(StructuredDiffBody {
         schema_version: 1,
-        files: vec![StructuredDiffFile {
-            id: panel_fixture_id("diff-file"),
-            old_path: Some(format!("old/{secret}")),
-            new_path: Some(format!("new/{secret}")),
-            old_mode: Some(format!("old-mode-{secret}")),
-            new_mode: Some(format!("new-mode-{secret}")),
-            binary: false,
-            hunks: vec![StructuredDiffHunk {
-                header: format!("header {secret}"),
-                old_start: 1,
-                old_lines: 1,
-                new_start: 1,
-                new_lines: 1,
-                lines: vec![StructuredDiffLine {
-                    origin: DiffLineOrigin::Context,
-                    old_line: Some(1),
-                    new_line: Some(1),
-                    content: format!("line {secret}"),
-                    no_newline: false,
+        files: vec![
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-added"),
+                path: StructuredDiffPath::Added(format!("added/{secret}")),
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: Vec::new(),
+            },
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-removed"),
+                path: StructuredDiffPath::Removed(format!("removed/{secret}")),
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: Vec::new(),
+            },
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-modified"),
+                path: StructuredDiffPath::Modified(format!("modified/{secret}")),
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: Vec::new(),
+            },
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-file"),
+                path: StructuredDiffPath::Renamed {
+                    old: format!("old/{secret}"),
+                    new: format!("new/{secret}"),
+                },
+
+                old_mode: Some(format!("old-mode-{secret}")),
+                new_mode: Some(format!("new-mode-{secret}")),
+                binary: false,
+                hunks: vec![StructuredDiffHunk {
+                    header: format!("header {secret}"),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 1,
+                    lines: vec![StructuredDiffLine {
+                        origin: DiffLineOrigin::Context,
+                        old_line: Some(1),
+                        new_line: Some(1),
+                        content: format!("line {secret}"),
+                        no_newline: false,
+                    }],
                 }],
-            }],
-        }],
+            },
+        ],
         selected_file_id: Some(panel_fixture_id("diff-file")),
     })
 }

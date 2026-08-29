@@ -19,7 +19,7 @@ use crate::domain::{
 use crate::state::PaneFocus;
 
 use super::durable_projection::{Projected, ProjectionError, RestoredState, error, map_detail};
-use crate::workbench::{MigrationOutcome, ScreenId};
+use crate::workbench::MigrationOutcome;
 
 /// Restore runtime fields from a durable schema-2 document.
 ///
@@ -89,10 +89,15 @@ pub fn from_durable_state(
 /// legacy variant name. Either way the translation happens in exactly one
 /// place, and an unreadable value costs the user only which screen opens, not
 /// the rest of the restored session.
-fn restore_screen(state: &StateV2, screens: &crate::workbench::ScreenRegistry) -> ScreenId {
+fn restore_screen(
+    state: &StateV2,
+    screens: &crate::workbench::ScreenRegistry,
+) -> crate::workbench::ScreenIdentity {
     let persisted = state.selection.screen_id.as_ref().map(Id::as_str);
-    crate::workbench::migrate_persisted_screen_value(persisted, screens)
-        .map_or_else(ScreenId::default, MigrationOutcome::screen_id)
+    crate::workbench::migrate_persisted_screen_value(persisted, screens).map_or_else(
+        crate::workbench::ScreenIdentity::default,
+        MigrationOutcome::screen_id,
+    )
 }
 
 fn restore_last_selected(

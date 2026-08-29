@@ -1,0 +1,192 @@
+{
+  "schema": 1,
+  "name": "issue705-dashboard-parity-linux",
+  "platform": "linux",
+  "terminal": {
+    "cols": 100,
+    "rows": 30
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.alpha\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"alpha\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    },\n    {\n      \"id\": \"repo.bravo\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"bravo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    },\n    {\n      \"id\": \"repo.charlie\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"charlie\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent.alpha\",\n      \"repository_id\": \"repo.alpha\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {},\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": \"jefe-alpha\",\n        \"invocation_generation\": 1,\n        \"last_known\": \"running\"\n      }\n    },\n    {\n      \"id\": \"agent.bravo\",\n      \"repository_id\": \"repo.bravo\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {},\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": \"jefe-bravo\",\n        \"invocation_generation\": 1,\n        \"last_known\": \"running\"\n      }\n    },\n    {\n      \"id\": \"agent.charlie\",\n      \"repository_id\": \"repo.charlie\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {},\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": \"jefe-charlie\",\n        \"invocation_generation\": 1,\n        \"last_known\": \"running\"\n      }\n    }\n  ],\n  \"selection\": {\n    \"repository_id\": \"repo.alpha\",\n    \"agent_id\": \"agent.alpha\",\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {\n    \"repo.alpha\": \"agent.alpha\",\n    \"repo.bravo\": \"agent.bravo\",\n    \"repo.charlie\": \"agent.charlie\"\n  },\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"repositories\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "alpha",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agents",
+        "alpha",
+        "bravo",
+        "charlie",
+        "Agent preview"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "h",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Help - Keyboard Shortcuts",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Help - Keyboard Shortcuts"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "alpha",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">> bravo",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Repositories",
+        "Agents",
+        ">> bravo"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "/",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Filter:",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Filter:"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 20,
+        "rows": 8
+      }
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "screen too small"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 100,
+        "rows": 30
+      }
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "bravo",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Repositories",
+        "Agents",
+        "alpha",
+        "bravo",
+        "charlie"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

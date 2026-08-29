@@ -1,11 +1,10 @@
 use crate::domain::{
-    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository,
-    RepositoryId,
+    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{
-    ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenId,
+    ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PaneFocus, ScreenId,
 };
 use std::path::PathBuf;
 
@@ -100,124 +99,57 @@ fn test_enter_issues_mode_sets_active_screen() {
     assert_eq!(new_state.issues_state.issue_focus, IssueFocus::IssueList);
 }
 
-/// Test 2: EnterIssuesMode saves prior agent focus for restoration on exit.
+/// Entering Issues seeds route context into the fresh exact instance.
 /// @plan PLAN-20260329-ISSUES-MODE.P04
 /// @requirement REQ-ISS-005
-/// @pseudocode component-001 lines 20-25
 #[test]
-fn test_enter_issues_mode_saves_prior_focus() {
+fn test_enter_issues_mode_seeds_route_context() {
     let mut state = AppState::test_fixture();
-    state.pane_focus = PaneFocus::Agents;
-    state.selected_agent_index = Some(2);
-    state.selected_repository_index = Some(1);
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "Repo 1".to_owned(),
+        "repo-1".to_owned(),
+        PathBuf::from("/tmp/repo1"),
+    ));
+    state.selected_repository_index = Some(0);
 
     let new_state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    assert!(new_state.issues_state.prior_agent_focus.is_some());
-    let saved = new_state
-        .issues_state
-        .prior_agent_focus
-        .unwrap_or_else(|| panic!("expected value"));
-    assert_eq!(saved.pane_focus, PaneFocus::Agents);
-    assert_eq!(saved.selected_agent_index, Some(2));
-    assert_eq!(saved.selected_repository_index, Some(1));
+
+    assert_eq!(new_state.selected_repository_index, Some(0));
+    assert_eq!(new_state.pane_focus, PaneFocus::Agents);
 }
 
-/// Test 3: ExitIssuesMode restores the saved prior focus.
+/// Back restores the exact source instance instead of reconstructing focus.
 /// @plan PLAN-20260329-ISSUES-MODE.P04
 /// @requirement REQ-ISS-005
-/// @pseudocode component-001 lines 30-35
 #[test]
-fn test_exit_issues_mode_restores_focus() {
-    let mut state = dashboard_issues_state();
-    state.issues_state.active = true;
-    state.issues_state.prior_agent_focus = Some(PriorAgentFocus {
-        pane_focus: PaneFocus::Agents,
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(1),
-    });
-
-    // Set up 2 agents for the selected repository
+fn test_exit_issues_mode_restores_the_exact_source_instance() {
+    let mut state = AppState::test_fixture();
     state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
+        RepositoryId("repo-1".to_owned()),
         crate::domain::shipped_agent_type(3),
         crate::domain::TypedMap::new(),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
+        "Repo 1".to_owned(),
+        "repo-1".to_owned(),
         PathBuf::from("/tmp/repo1"),
     ));
+    state.pane_focus = PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
+    let source_id = state.nav.current().id;
 
-    // Create agents for the repository
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Agent 1".to_string(),
-        PathBuf::from("/tmp/agent1"),
-    ));
-    state.agents.push(Agent::new(
-        AgentId("agent-2".to_string()),
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Agent 2".to_string(),
-        PathBuf::from("/tmp/agent2"),
-    ));
+    let mut state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+    state.pane_focus = PaneFocus::Agents;
+    state.selected_repository_index = None;
+    let restored = state.apply(AppEvent::ExitIssuesMode).committed_pure();
 
-    let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(new_state.screen(), ScreenId::Dashboard);
-    assert_eq!(new_state.pane_focus, PaneFocus::Agents);
-    assert_eq!(new_state.selected_agent_index, Some(1));
+    assert_eq!(restored.nav.current().id, source_id);
+    assert_eq!(restored.screen(), crate::workbench::DASHBOARD_IDENTITY);
+    assert_eq!(restored.pane_focus, PaneFocus::Repositories);
+    assert_eq!(restored.selected_repository_index, Some(0));
 }
 
-/// Test 4: ExitIssuesMode falls back gracefully when saved agent index is out of bounds.
-/// @plan PLAN-20260329-ISSUES-MODE.P04
-/// @requirement REQ-ISS-005
-/// @pseudocode component-001 lines 36-40
-#[test]
-fn test_exit_issues_mode_fallback_when_target_gone() {
-    let mut state = dashboard_issues_state();
-    state.issues_state.active = true;
-    state.issues_state.prior_agent_focus = Some(PriorAgentFocus {
-        pane_focus: PaneFocus::Agents,
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(5), // Out of bounds - only 2 agents
-    });
-
-    // Set up repository with 2 agents
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        PathBuf::from("/tmp/repo1"),
-    ));
-    state.selected_repository_index = Some(0);
-
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Agent 1".to_string(),
-        PathBuf::from("/tmp/agent1"),
-    ));
-    state.agents.push(Agent::new(
-        AgentId("agent-2".to_string()),
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Agent 2".to_string(),
-        PathBuf::from("/tmp/agent2"),
-    ));
-
-    let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(new_state.pane_focus, PaneFocus::Agents);
-    // Should fall back to Some(0) or None
-    assert!(new_state.selected_agent_index == Some(0) || new_state.selected_agent_index.is_none());
-}
 
 /// Test 5: ExitIssuesMode discards active drafts and shows a notice.
 /// @plan PLAN-20260329-ISSUES-MODE.P04

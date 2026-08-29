@@ -65,6 +65,12 @@ mod screen_lowering_resource_tests;
 mod compose_fixtures;
 
 #[cfg(test)]
+pub(crate) use compose_fixtures::{
+    control_origin_composition, control_origin_definition, try_control_origin_composition,
+    try_control_origin_composition_with_definitions,
+};
+
+#[cfg(test)]
 #[path = "compose_tests.rs"]
 mod compose_tests;
 
@@ -74,7 +80,7 @@ mod compose_package_tests;
 
 #[cfg(test)]
 #[path = "relationship_fixtures.rs"]
-mod relationship_fixtures;
+pub(crate) mod relationship_fixtures;
 
 #[cfg(test)]
 #[path = "relationships_tests.rs"]
@@ -132,18 +138,19 @@ pub use allocate::LayoutError;
 pub use compose::{CompositionRefused, ScreenComposition, compose_screens};
 pub use config::panel_insets;
 pub use descriptor::{
-    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
-    ScreenDescriptor, Size,
+    Axis, HostPanelCapability, HostPanelModelSource, HostScreenCapability, LayoutChild, LayoutNode,
+    OverlayKind, PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor, Size,
 };
 pub use diagnostics::{ScrCode, ScreenDiagnostic};
 pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
-    CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId, ID_BYTE_LIMIT, IdError,
-    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH,
-    MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN,
-    MAX_RESOURCES_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN, OpenScreenId, PanelId,
-    PanelInstanceId, PanelTypeId, PluginScreenId, PortId, RouteId, ScreenId, ScreenIdentity,
-    ScreenInstanceId, ScreenInstanceIdExhausted, VersionedTypeId,
+    BuiltinScreenId, CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId,
+    DASHBOARD_IDENTITY, DASHBOARD_SCREEN_ID, ID_BYTE_LIMIT, IdError, MAX_ACTIVATION_FIELDS,
+    MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
+    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_RESOURCES_PER_SCREEN, MAX_SCREENS,
+    MAX_SPLIT_CHILDREN, OpenScreenId, PanelId, PanelInstanceId, PanelTypeId, PluginScreenId,
+    PortId, RouteId, ScreenId, ScreenIdentity, ScreenInstanceId, ScreenInstanceIdExhausted,
+    VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use lowering_error::LoweringError;

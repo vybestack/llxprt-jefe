@@ -121,11 +121,13 @@ fn enter_exit_restores_focus() {
     state.pane_focus = crate::state::PaneFocus::Repositories;
     state.selected_repository_index = Some(0);
 
+    let source_id = state.nav.current().id;
     apply_in_place(&mut state, AppEvent::EnterErrorsMode);
-    assert!(state.errors_state.prior_agent_focus.is_some());
+    assert_ne!(state.nav.current().id, source_id);
 
     apply_in_place(&mut state, AppEvent::ExitErrorsMode);
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.nav.current().id, source_id);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert!(!state.errors_state.active);
     // Prior focus restored.
     assert_eq!(state.pane_focus, crate::state::PaneFocus::Repositories);

@@ -81,13 +81,17 @@ fn question_mark_opens_help() {
 
     state = state.apply(AppEvent::OpenHelp).committed_pure();
 
-    assert_eq!(state.modal, ModalState::Help);
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help)
+    );
 }
 
 #[test]
 fn help_closes_on_close_modal() {
-    let mut state = create_search_test_state();
-    state.modal = ModalState::Help;
+    let mut state = create_search_test_state()
+        .apply(AppEvent::OpenHelp)
+        .committed_pure();
 
     state = state.apply(AppEvent::CloseModal).committed_pure();
 
@@ -106,15 +110,20 @@ fn slash_opens_search_mode() {
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 
-    assert!(matches!(state.modal, ModalState::Search { .. }));
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Search)
+    );
 }
 
 #[test]
 fn search_esc_clears_and_closes() {
-    let mut state = create_search_test_state();
-    state.modal = ModalState::Search {
-        query: "some query".into(),
-    };
+    let mut state = create_search_test_state()
+        .apply(AppEvent::OpenSearch)
+        .committed_pure();
+    for character in "some query".chars() {
+        state = state.apply(AppEvent::FormChar(character)).committed_pure();
+    }
 
     state = state.apply(AppEvent::CloseModal).committed_pure();
 
@@ -168,19 +177,25 @@ fn search_no_match_shows_empty() {
 #[test]
 fn search_works_in_dashboard_mode() {
     let mut state = create_search_test_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+    state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 
-    assert!(matches!(state.modal, ModalState::Search { .. }));
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Search)
+    );
 }
 
 #[test]
 fn search_works_in_split_mode() {
     let mut state = create_search_test_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
+    state.restore_navigation_root(ScreenId::Repositories);
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 
-    assert!(matches!(state.modal, ModalState::Search { .. }));
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Search)
+    );
 }

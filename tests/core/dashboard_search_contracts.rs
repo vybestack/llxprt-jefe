@@ -1,15 +1,14 @@
-//! Dashboard search mode for repositories and agents (issue #405).
+//! Dashboard filtering through the shared, instance-owned Search overlay.
 //!
-//! Power users accumulate many repositories and agents. This module proves the
-//! "filter but lite" search mode: typing a query in the dashboard narrows the
-//! repository sidebar AND the agent pane by name, case-insensitively,
-//! AND-composed with the existing active-only (`v`) filter. The search query
-//! is runtime-only (never persisted), and a dashboard filtered-view indicator
-//! makes it obvious when the visible list is reduced by either the search or
-//! active-only mode.
+//! The Dashboard, local screens, and package screens use the same declared
+//! Search control. Its runtime query is owned by the exact open screen instance,
+//! filters repositories and agents case-insensitively, composes with active-only,
+//! and is never persisted.
 //!
-//! @plan project-plans/issue405-plan.md
-//! @requirement REQ-FUNC-002
+//! @plan project-plans/issue705-plan.md
+//! @requirement CWR2-02
+//! @requirement CWR2-04
+//! @requirement CWR2-09
 
 use std::path::PathBuf;
 
@@ -17,6 +16,7 @@ use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::persistence::State as PersistedState;
 use jefe::state::transition::TransitionExt as _;
 use jefe::state::{AppEvent, AppState, PaneFocus, ScreenId};
+use jefe::workbench::OverlayKind;
 
 fn repository(id: &str, name: &str) -> Repository {
     Repository::new(
@@ -30,7 +30,7 @@ fn repository(id: &str, name: &str) -> Repository {
 }
 
 fn running_agent(id: &str, name: &str, repo_id: &str) -> Agent {
-    let mut a = Agent::new(
+    let mut agent = Agent::new(
         AgentId(id.into()),
         RepositoryId(repo_id.into()),
         jefe::domain::shipped_agent_type(3),
@@ -38,480 +38,201 @@ fn running_agent(id: &str, name: &str, repo_id: &str) -> Agent {
         name.into(),
         PathBuf::from(format!("/{repo_id}/{id}")),
     );
-    a.status = AgentStatus::Running;
-    a
+    agent.status = AgentStatus::Running;
+    agent
 }
 
-/// A dashboard with three named repositories, the first of which owns running
-/// agents whose names span distinct fragments.
 fn dashboard_state() -> AppState {
-    let mut state = {
-        let mut state = crate::common_app_state::app_state();
-        state.repositories = vec![
-            repository("r1", "alpha"),
-            repository("r2", "beta"),
-            repository("r3", "gamma"),
-        ];
-        state.agents = vec![
-            running_agent("a1", "zig", "r1"),
-            running_agent("a2", "cargo", "r1"),
-            running_agent("a3", "rustc", "r1"),
-        ];
-        state.selected_repository_index = Some(0);
-        state.selected_agent_index = Some(0);
-        state.pane_focus = PaneFocus::Repositories;
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
-        state
-    };
+    let mut state = crate::common_app_state::app_state();
+    state.repositories = vec![
+        repository("r1", "alpha"),
+        repository("r2", "beta"),
+        repository("r3", "gamma"),
+    ];
+    state.agents = vec![
+        running_agent("a1", "zig", "r1"),
+        running_agent("a2", "cargo", "r1"),
+        running_agent("a3", "rustc", "r1"),
+    ];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+    state.pane_focus = PaneFocus::Repositories;
+    state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
     state.normalize_selection_indices();
     state
 }
 
-// =============================================================================
-// A1: `/` focuses the dashboard search input
-// =============================================================================
-
-#[test]
-fn slash_focuses_dashboard_search() {
-    let state = dashboard_state();
-    assert!(!state.dashboard_search.input_focused);
-
-    let after = state.apply(AppEvent::FocusDashboardSearch).committed_pure();
-    assert!(
-        after.dashboard_search.input_focused,
-        "`/` (FocusDashboardSearch) must focus the dashboard search input"
-    );
+fn open_search(state: AppState) -> AppState {
+    state.apply(AppEvent::OpenSearch).committed_pure()
 }
 
-// =============================================================================
-// A2: Typing filters repositories live
-// =============================================================================
+fn set_search_query(mut state: AppState, query: &str) -> AppState {
+    if state.active_overlay_kind() != Some(OverlayKind::Search) {
+        state = open_search(state);
+    }
+    while state
+        .search_query()
+        .is_some_and(|current| !current.is_empty())
+    {
+        state = state.apply(AppEvent::FormBackspace).committed_pure();
+    }
+    for value in query.chars() {
+        state = state.apply(AppEvent::FormChar(value)).committed_pure();
+    }
+    state
+}
+
+/// The Dashboard "search lite" filter lives on the active Search overlay, and that
+/// instance-owned query is what narrows the visible lists. Closing the editor
+/// (SearchApply/CloseModal) dismisses the overlay and with it the query, restoring
+/// the full view; the filter is editor-scoped, so `close_search_equal` is the
+/// explicit-clear path.
+#[test]
+fn closing_search_clears_the_filter_and_restores_the_full_view() {
+    let typed = set_search_query(dashboard_state(), "al");
+    assert_eq!(typed.search_query(), Some("al"));
+    assert_eq!(typed.active_overlay_kind(), Some(OverlayKind::Search));
+
+    let closed = typed.apply(AppEvent::CloseModal).committed_pure();
+
+    assert_eq!(closed.active_overlay_kind(), None);
+    assert_eq!(closed.search_query(), None);
+    assert_eq!(closed.visible_repository_indices(), vec![0, 1, 2]);
+}
+
+#[test]
+fn slash_action_opens_the_declared_dashboard_search_overlay() {
+    let state = dashboard_state();
+    assert_eq!(state.active_overlay_kind(), None);
+
+    let after = open_search(state);
+
+    assert_eq!(after.active_overlay_kind(), Some(OverlayKind::Search));
+    assert_eq!(after.search_query(), Some(""));
+}
 
 #[test]
 fn search_filters_repositories_by_name() {
     let state = dashboard_state();
     assert_eq!(state.visible_repository_indices().len(), 3);
 
-    let after = state
-        .apply(AppEvent::FocusDashboardSearch)
-        .committed_pure()
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "al".to_string(),
-        })
-        .committed_pure();
+    let after = set_search_query(state, "al");
 
     let visible = after.visible_repository_indices();
-    assert_eq!(
-        visible.len(),
-        1,
-        "only the 'alpha' repo matches the 'al' query"
-    );
-    assert_eq!(
-        after.repositories[visible[0]].name, "alpha",
-        "the matched repo must be 'alpha'"
-    );
+    assert_eq!(visible, vec![0]);
+    assert_eq!(after.repositories[visible[0]].name, "alpha");
 }
-
-// =============================================================================
-// A3: Repository match is case-insensitive
-// =============================================================================
 
 #[test]
-fn repo_search_is_case_insensitive() {
-    let state = {
-        let mut state = crate::common_app_state::app_state();
-        state.repositories = vec![repository("r1", "Alpha"), repository("r2", "BETA")];
-        state.selected_repository_index = Some(0);
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
-        state
-    };
+fn repository_search_is_case_insensitive() {
+    let mut state = dashboard_state();
+    state.repositories = vec![repository("r1", "Alpha"), repository("r2", "BETA")];
 
-    // Verify case-insensitive matching: 'aLp' matches 'Alpha' but not 'BETA'.
-    let after = state
-        .clone()
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "aLp".to_string(),
-        })
-        .committed_pure();
-    let visible = after.visible_repository_indices();
-    assert_eq!(
-        visible.len(),
-        1,
-        "case-insensitive 'aLp' must match 'Alpha'"
-    );
+    let alpha = set_search_query(state.clone(), "aLp");
+    assert_eq!(alpha.visible_repository_indices(), vec![0]);
 
-    // A query with opposite case to the stored name must still match.
-    let after2 = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "beTA".to_string(),
-        })
-        .committed_pure();
-    let visible2 = after2.visible_repository_indices();
-    assert_eq!(
-        visible2.len(),
-        1,
-        "case-insensitive 'beTA' must match 'BETA'"
-    );
-    assert_eq!(after2.repositories[visible2[0]].name, "BETA");
+    let beta = set_search_query(state, "beTA");
+    assert_eq!(beta.visible_repository_indices(), vec![1]);
 }
-
-// =============================================================================
-// A4: Empty query disables the search filter
-// =============================================================================
 
 #[test]
-fn empty_query_disables_search_filter() {
-    let state = dashboard_state();
-    let filtered = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "al".to_string(),
-        })
-        .committed_pure();
-    assert_eq!(filtered.visible_repository_indices().len(), 1);
+fn clearing_the_overlay_query_disables_the_search_filter() {
+    let filtered = set_search_query(dashboard_state(), "al");
+    assert_eq!(filtered.visible_repository_indices(), vec![0]);
 
-    let restored = filtered
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: String::new(),
-        })
-        .committed_pure();
-    assert_eq!(
-        restored.visible_repository_indices().len(),
-        3,
-        "clearing the query must restore all repositories"
-    );
+    let restored = set_search_query(filtered, "");
+
+    assert_eq!(restored.visible_repository_indices(), vec![0, 1, 2]);
+    assert_eq!(restored.search_query(), Some(""));
 }
-
-// =============================================================================
-// A5: Search AND-composes with active-only
-// =============================================================================
 
 #[test]
 fn search_composes_with_active_only() {
-    // r1 has running agents; r2 and r3 are idle.
-    let mut state = {
-        let mut state = crate::common_app_state::app_state();
-        state.repositories = vec![
-            repository("r1", "alpha"),
-            repository("r2", "beta"),
-            repository("r3", "gamma"),
-        ];
-        state.agents = vec![running_agent("a1", "alpha-agent", "r1")];
-        state.selected_repository_index = Some(0);
-        state.pane_focus = PaneFocus::Repositories;
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
-        state
-    };
-    state.normalize_selection_indices();
-
-    // Turn active-only ON.
+    let mut state = dashboard_state();
+    state.agents = vec![running_agent("a1", "alpha-agent", "r1")];
     let active_only = state
         .apply(AppEvent::ToggleHideIdleRepositories)
         .committed_pure();
-    assert_eq!(
-        active_only.visible_repository_indices().len(),
-        1,
-        "active-only keeps only r1 (has a running agent)"
-    );
+    assert_eq!(active_only.visible_repository_indices(), vec![0]);
 
-    // A query matching an idle repo (beta) must NOT reveal it — active-only wins.
-    let with_search = active_only
-        .clone()
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "be".to_string(),
-        })
-        .committed_pure();
-    assert!(
-        with_search.visible_repository_indices().is_empty(),
-        "active-only AND search: beta is idle so it must stay hidden even though it matches the query"
-    );
+    let idle_match = set_search_query(active_only.clone(), "be");
+    assert!(idle_match.visible_repository_indices().is_empty());
 
-    // A query matching r1 (alpha, has a running agent) must reveal it.
-    let alpha_match = active_only
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "al".to_string(),
-        })
-        .committed_pure();
-    let visible = alpha_match.visible_repository_indices();
-    assert_eq!(visible.len(), 1);
-    assert_eq!(alpha_match.repositories[visible[0]].name, "alpha");
+    let active_match = set_search_query(active_only, "al");
+    assert_eq!(active_match.visible_repository_indices(), vec![0]);
 }
-
-// =============================================================================
-// A6: Search filters agents in the selected repository
-// =============================================================================
 
 #[test]
 fn search_filters_agents_by_name() {
-    let state = dashboard_state();
-    let repo_id = RepositoryId("r1".into());
-    assert_eq!(state.visible_agents_for_repository(&repo_id).len(), 3);
+    let state = set_search_query(dashboard_state(), "ru");
 
-    let after = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "ru".to_string(),
-        })
-        .committed_pure();
-    let visible = after.visible_agents_for_repository(&repo_id);
-    assert_eq!(
-        visible.len(),
-        1,
-        "only the 'rustc' agent matches the 'ru' query"
-    );
+    let visible = state.visible_agents_for_repository(&RepositoryId("r1".into()));
+    assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].name, "rustc");
 }
 
-// =============================================================================
-// A7: Backspace pops the last character (via SetDashboardSearchQuery)
-// =============================================================================
-
 #[test]
-fn backspace_pops_search_char() {
-    let state = dashboard_state();
-    let typed = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "ab".to_string(),
-        })
-        .committed_pure();
-    assert_eq!(typed.dashboard_search.query, "ab");
+fn shared_search_backspace_updates_the_query_and_results() {
+    let typed = set_search_query(dashboard_state(), "ab");
+    assert_eq!(typed.search_query(), Some("ab"));
 
-    // The key resolver emits a SetDashboardSearchQuery with the popped query.
-    let popped = typed
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "a".to_string(),
-        })
-        .committed_pure();
-    assert_eq!(popped.dashboard_search.query, "a");
-    // The agent list must refilter: 'a' still matches 'cargo' and 'alpha'
-    // agents are in r1; only 'cargo' contains 'a' within r1's {zig, cargo, rustc}.
+    let popped = typed.apply(AppEvent::FormBackspace).committed_pure();
+
+    assert_eq!(popped.search_query(), Some("a"));
     let visible = popped.visible_agents_for_repository(&RepositoryId("r1".into()));
-    assert_eq!(
-        visible.len(),
-        1,
-        "after backspace the 'a' query matches only 'cargo' among r1's agents"
-    );
+    assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].name, "cargo");
 }
 
-// =============================================================================
-// A8: Esc clears a non-empty query then blurs
-// =============================================================================
-
 #[test]
-fn esc_clears_nonempty_search() {
-    let state = dashboard_state();
-    let typed = state
-        .apply(AppEvent::FocusDashboardSearch)
-        .committed_pure()
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "ab".to_string(),
-        })
-        .committed_pure();
-    assert!(typed.dashboard_search.input_focused);
-    assert!(!typed.dashboard_search.query.is_empty());
-
-    let after_esc = typed.apply(AppEvent::ClearDashboardSearch).committed_pure();
-    assert!(
-        after_esc.dashboard_search.query.is_empty(),
-        "Esc on a non-empty query must clear the query"
-    );
-    assert!(
-        !after_esc.dashboard_search.input_focused,
-        "Esc on a non-empty query must blur the input"
-    );
-    assert_eq!(
-        after_esc.visible_repository_indices().len(),
-        3,
-        "clearing the query must restore the full repo list"
-    );
-}
-
-// =============================================================================
-// A9: Esc on an empty query blurs only (no crash)
-// =============================================================================
-
-#[test]
-fn esc_on_empty_query_blurs_only() {
-    let state = dashboard_state();
-    let focused = state.apply(AppEvent::FocusDashboardSearch).committed_pure();
-    assert!(focused.dashboard_search.input_focused);
-    assert!(focused.dashboard_search.query.is_empty());
-
-    let after_esc = focused
-        .apply(AppEvent::BlurDashboardSearch)
-        .committed_pure();
-    assert!(
-        !after_esc.dashboard_search.input_focused,
-        "Esc on an empty query must blur the input"
-    );
-    assert!(
-        after_esc.dashboard_search.query.is_empty(),
-        "Esc on an empty query must leave the query empty"
-    );
-    assert_eq!(
-        after_esc.visible_repository_indices().len(),
-        3,
-        "no filtering when the query is empty"
-    );
-}
-
-// =============================================================================
-// A10: Enter blurs but keeps the query (filter persists)
-// =============================================================================
-
-#[test]
-fn enter_blurs_keeps_query() {
-    let state = dashboard_state();
-    let typed = state
-        .apply(AppEvent::FocusDashboardSearch)
-        .committed_pure()
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "al".to_string(),
-        })
-        .committed_pure();
-
-    let after_enter = typed.apply(AppEvent::BlurDashboardSearch).committed_pure();
-    assert!(
-        !after_enter.dashboard_search.input_focused,
-        "Enter must blur the search input"
-    );
-    assert_eq!(
-        after_enter.dashboard_search.query, "al",
-        "Enter must retain the query so the filter persists"
-    );
-    assert_eq!(
-        after_enter.visible_repository_indices().len(),
-        1,
-        "the filtered view must persist after Enter blurs"
-    );
-}
-
-// =============================================================================
-// A11: Selection normalizes when the filter shrinks the visible set
-// =============================================================================
-
-#[test]
-fn selection_normalizes_when_filtered() {
-    // Select the 'gamma' repo (index 2) before filtering.
+fn selection_normalizes_when_the_search_filter_shrinks_the_visible_set() {
     let mut state = dashboard_state();
     state.selected_repository_index = Some(2);
     state.normalize_selection_indices();
 
-    // Apply a query that only matches 'alpha' (index 0). The selection must
-    // clamp to a still-visible repo rather than dangle at index 2.
-    let filtered = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "al".to_string(),
-        })
-        .committed_pure();
-    let visible = filtered.visible_repository_indices();
-    assert!(visible.contains(&0));
-    assert!(!visible.contains(&2));
-    assert_eq!(
-        filtered.selected_repository_index,
-        Some(0),
-        "selection must clamp to a visible repo (no dangling index, no panic)"
-    );
+    let filtered = set_search_query(state, "al");
+
+    assert_eq!(filtered.visible_repository_indices(), vec![0]);
+    assert_eq!(filtered.selected_repository_index, Some(0));
 }
 
-// =============================================================================
-// A12: `/` is dashboard-only — the dashboard search events are independent of
-// the SplitScreen ModalState::Search path (regression contract).
-// =============================================================================
-
 #[test]
-fn dashboard_search_does_not_open_split_search_modal() {
-    use jefe::state::ModalState;
+fn search_is_the_same_declared_overlay_on_another_compiled_screen() {
     let mut state = dashboard_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
-    // FocusDashboardSearch must NOT open the split's ModalState::Search.
-    let after = state.apply(AppEvent::FocusDashboardSearch).committed_pure();
-    // The split screen's search is a ModalState::Search; the dashboard search
-    // is a separate focused-input state. They must remain distinct.
-    assert!(
-        after.dashboard_search.input_focused,
-        "dashboard search input must be focusable in any active screen (state-level)"
-    );
-    assert!(
-        !matches!(after.modal, ModalState::Search { .. }),
-        "dashboard search must not open the split screen's ModalState::Search"
-    );
-}
+    state.restore_navigation_root(ScreenId::Repositories);
 
-// =============================================================================
-// A13/A14/A15: Filtered-view indicator projection
-// =============================================================================
+    let after = open_search(state);
 
-#[test]
-fn search_active_renders_indicator() {
-    let state = dashboard_state();
-    // Empty query + active-only off => no filter active.
-    assert!(
-        jefe::ui::dashboard_filter_indicator(&state).is_none(),
-        "no indicator when unfiltered"
-    );
-
-    let with_search = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "al".to_string(),
-        })
-        .committed_pure();
-    let indicator = jefe::ui::dashboard_filter_indicator(&with_search).unwrap_or_default();
-    assert!(
-        indicator.contains("al"),
-        "indicator must name the active query when search is active, got: {indicator}"
-    );
+    assert_eq!(after.active_overlay_kind(), Some(OverlayKind::Search));
+    assert_eq!(after.search_query(), Some(""));
 }
 
 #[test]
-fn active_only_renders_indicator() {
+fn active_search_and_active_only_project_the_filter_indicator() {
     let state = dashboard_state();
-    // Empty query + active-only off => no indicator.
-    assert!(
-        jefe::ui::dashboard_filter_indicator(&state).is_none(),
-        "no indicator when unfiltered"
-    );
+    assert!(jefe::ui::dashboard_filter_indicator(&state).is_none());
 
-    // Turn active-only ON with the query empty.
+    let with_search = set_search_query(state.clone(), "al");
+    let search_indicator = jefe::ui::dashboard_filter_indicator(&with_search).unwrap_or_default();
+    assert!(search_indicator.contains("al"));
+
     let active_only = state
         .apply(AppEvent::ToggleHideIdleRepositories)
         .committed_pure();
-    let indicator = jefe::ui::dashboard_filter_indicator(&active_only).unwrap_or_default();
-    assert!(
-        !indicator.is_empty(),
-        "indicator must be present when active-only is on, got: {indicator:?}"
-    );
-    assert!(
-        indicator.contains("active"),
-        "indicator must signal active-only, got: {indicator}"
-    );
+    let active_indicator = jefe::ui::dashboard_filter_indicator(&active_only).unwrap_or_default();
+    assert!(active_indicator.contains("active"));
 }
 
 #[test]
-fn unfiltered_renders_no_indicator() {
-    let state = dashboard_state();
-    // Default state: no query, active-only off.
-    assert!(
-        jefe::ui::dashboard_filter_indicator(&state).is_none(),
-        "no indicator must render when neither search nor active-only is active"
-    );
+fn unfiltered_dashboard_projects_no_filter_indicator() {
+    assert!(jefe::ui::dashboard_filter_indicator(&dashboard_state()).is_none());
 }
 
-// =============================================================================
-// A16: The dashboard search query is NOT persisted
-// =============================================================================
-
 #[test]
-fn dashboard_search_query_not_persisted() {
-    let state = dashboard_state();
-    let with_search = state
-        .apply(AppEvent::SetDashboardSearchQuery {
-            query: "persistent?".to_string(),
-        })
-        .committed_pure();
-    assert_eq!(with_search.dashboard_search.query, "persistent?");
+fn dashboard_search_query_is_not_persisted() {
+    let with_search = set_search_query(dashboard_state(), "persistent?");
+    assert_eq!(with_search.search_query(), Some("persistent?"));
 
-    // The persisted DTO (`jefe::persistence::State`) has no field for the
-    // dashboard search query, so a round-trip must yield an empty query.
     let persisted = PersistedState {
         schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
         repositories: with_search.repositories.clone(),
@@ -524,9 +245,7 @@ fn dashboard_search_query_not_persisted() {
         terminal_focused: false,
         user_preferences: with_search.user_preferences.clone(),
     };
-    let json = serde_json::to_string(&persisted).unwrap_or_else(|_| String::new());
-    assert!(
-        !json.contains("dashboard_search"),
-        "dashboard_search state must NOT appear in the persisted DTO: {json}"
-    );
+    let json = serde_json::to_string(&persisted).unwrap_or_default();
+    assert!(!json.contains("persistent?"));
+    assert!(!json.contains("search_query"));
 }

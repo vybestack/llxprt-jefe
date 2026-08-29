@@ -1,7 +1,7 @@
 use super::{
-    ControlAction, ControlIntent, ControlKind, ErrorBody, FormBody, HostControlRow, Id,
-    IntentInput, PanelBody, PanelEvent, PanelHitTarget, PanelSnapshot, TreeBody, TypedMap,
-    TypedValue, selected_control_id, selected_tree_id, visible_tree_nodes, wrap_text,
+    Affordance, ControlAction, ControlIntent, ControlKind, ErrorBody, FormBody, HostControlRow, Id,
+    IntentInput, PanelBody, PanelEvent, PanelHitTarget, TreeBody, TypedMap, TypedValue,
+    selected_control_id_body, selected_tree_id, visible_tree_nodes, wrap_text,
 };
 
 pub(super) fn public_control_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlIntent {
@@ -9,30 +9,50 @@ pub(super) fn public_control_intent(kind: ControlKind, input: IntentInput<'_>) -
         ControlAction::Previous => selection_intent(kind, input, false),
         ControlAction::Next => selection_intent(kind, input, true),
         ControlAction::Activate => activation_intent(kind, input),
-        ControlAction::Select(id) => select_intent(kind, input.snapshot, &id),
-        ControlAction::Action(id) => exact_action_intent(input.snapshot, &id),
-        ControlAction::FocusedAction => action_intent(input.snapshot, input.focus_target),
+        ControlAction::Select(id) => select_intent(kind, input.body, &id),
+        ControlAction::EditField { field_id, value } => {
+            edit_field_intent(kind, input.body, field_id, value)
+        }
+        ControlAction::Action(id) => exact_action_intent(input.action_affordances, &id),
+        ControlAction::FocusedAction => action_intent(input.action_affordances, input.focus_target),
         ControlAction::Submit => submit_intent(kind, input),
-        ControlAction::PageNext => page_next_intent(kind, input.snapshot),
-        ControlAction::Retry => match (kind, &input.snapshot.body) {
-            (ControlKind::Error, PanelBody::Error(body)) if retry_enabled(input.snapshot, body) => {
+        ControlAction::PageNext => page_next_intent(kind, input.body),
+        ControlAction::Retry => match (kind, input.body) {
+            (ControlKind::Error, PanelBody::Error(body))
+                if retry_enabled(input.action_affordances, body) =>
+            {
                 ControlIntent::Event(PanelEvent::Retry)
             }
             _ => ControlIntent::None,
         },
-        ControlAction::Cancel => match (kind, &input.snapshot.body) {
+        ControlAction::Cancel => match (kind, input.body) {
             (ControlKind::Progress, PanelBody::Progress(body)) if body.cancellable => {
                 ControlIntent::Event(PanelEvent::Cancel)
             }
             _ => ControlIntent::None,
         },
-        ControlAction::Link(id) => link_intent(kind, input.snapshot, &id),
+        ControlAction::Link(id) => link_intent(kind, input.body, input.action_affordances, &id),
         ControlAction::FocusedLink => focused_link_intent(kind, input),
     }
 }
 
-fn select_intent(kind: ControlKind, snapshot: &PanelSnapshot, id: &Id) -> ControlIntent {
-    let exists = match (kind, &snapshot.body) {
+fn edit_field_intent(
+    kind: ControlKind,
+    body: &PanelBody,
+    field_id: Id,
+    value: TypedValue,
+) -> ControlIntent {
+    let (ControlKind::Form, PanelBody::Form(form)) = (kind, body) else {
+        return ControlIntent::None;
+    };
+    if !form.fields.iter().any(|field| field.id() == &field_id) {
+        return ControlIntent::None;
+    }
+    ControlIntent::Event(PanelEvent::FieldChanged { field_id, value })
+}
+
+fn select_intent(kind: ControlKind, body: &PanelBody, id: &Id) -> ControlIntent {
+    let exists = match (kind, body) {
         (ControlKind::List, PanelBody::List(body)) => body.items.iter().any(|item| &item.id == id),
         (ControlKind::Tree, PanelBody::Tree(body)) => {
             visible_tree_nodes(body).iter().any(|node| &node.id == id)
@@ -49,9 +69,8 @@ fn select_intent(kind: ControlKind, snapshot: &PanelSnapshot, id: &Id) -> Contro
     }
 }
 
-fn exact_action_intent(snapshot: &PanelSnapshot, id: &Id) -> ControlIntent {
-    snapshot
-        .action_affordances
+fn exact_action_intent(affordances: &[Affordance], id: &Id) -> ControlIntent {
+    affordances
         .iter()
         .find(|affordance| &affordance.id == id && affordance.enabled)
         .map_or(ControlIntent::None, |affordance| {
@@ -63,8 +82,10 @@ fn exact_action_intent(snapshot: &PanelSnapshot, id: &Id) -> ControlIntent {
 }
 
 fn submit_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlIntent {
-    match (kind, &input.snapshot.body) {
-        (ControlKind::Form, PanelBody::Form(body)) if submit_enabled(input.snapshot, body) => {
+    match (kind, input.body) {
+        (ControlKind::Form, PanelBody::Form(body))
+            if submit_enabled(input.action_affordances, body) =>
+        {
             ControlIntent::Event(PanelEvent::Submit {
                 values: form_values(body, input.form_draft),
             })
@@ -73,9 +94,8 @@ fn submit_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlIntent {
     }
 }
 
-fn submit_enabled(snapshot: &PanelSnapshot, body: &FormBody) -> bool {
-    snapshot
-        .action_affordances
+fn submit_enabled(affordances: &[Affordance], body: &FormBody) -> bool {
+    affordances
         .iter()
         .any(|affordance| affordance.action_id == body.submit_action && affordance.enabled)
 }
@@ -92,16 +112,16 @@ fn form_values(body: &FormBody, draft: Option<&TypedMap>) -> TypedMap {
         .collect()
 }
 
-fn retry_enabled(snapshot: &PanelSnapshot, body: &ErrorBody) -> bool {
+fn retry_enabled(affordances: &[Affordance], body: &ErrorBody) -> bool {
     body.retryable
         && body
             .retry_action
             .as_ref()
-            .is_some_and(|action| affordance_enabled(snapshot, action))
+            .is_some_and(|action| affordance_enabled(affordances, action))
 }
 
-fn page_next_intent(kind: ControlKind, snapshot: &PanelSnapshot) -> ControlIntent {
-    match (kind, &snapshot.body) {
+fn page_next_intent(kind: ControlKind, body: &PanelBody) -> ControlIntent {
+    match (kind, body) {
         (ControlKind::List, PanelBody::List(body)) => {
             body.next_page_token
                 .as_ref()
@@ -115,10 +135,15 @@ fn page_next_intent(kind: ControlKind, snapshot: &PanelSnapshot) -> ControlInten
     }
 }
 
-fn link_intent(kind: ControlKind, snapshot: &PanelSnapshot, id: &Id) -> ControlIntent {
-    match (kind, &snapshot.body) {
+fn link_intent(
+    kind: ControlKind,
+    body: &PanelBody,
+    affordances: &[Affordance],
+    id: &Id,
+) -> ControlIntent {
+    match (kind, body) {
         (ControlKind::Detail, PanelBody::Detail(body))
-            if body.actions.contains(id) && affordance_enabled(snapshot, id) =>
+            if body.actions.contains(id) && affordance_enabled(affordances, id) =>
         {
             ControlIntent::Event(PanelEvent::LinkSelected {
                 link_id: id.clone(),
@@ -129,16 +154,18 @@ fn link_intent(kind: ControlKind, snapshot: &PanelSnapshot, id: &Id) -> ControlI
 }
 
 fn focused_link_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlIntent {
-    let (ControlKind::Detail, PanelBody::Detail(body)) = (kind, &input.snapshot.body) else {
+    let (ControlKind::Detail, PanelBody::Detail(body)) = (kind, input.body) else {
         return ControlIntent::None;
     };
     body.actions
         .iter()
-        .find(|id| input.focus_target == Some(*id) && affordance_enabled(input.snapshot, id))
+        .find(|id| {
+            input.focus_target == Some(*id) && affordance_enabled(input.action_affordances, id)
+        })
         .or_else(|| {
             body.actions
                 .iter()
-                .find(|id| affordance_enabled(input.snapshot, id))
+                .find(|id| affordance_enabled(input.action_affordances, id))
         })
         .map_or(ControlIntent::None, |id| {
             ControlIntent::Event(PanelEvent::LinkSelected {
@@ -148,23 +175,23 @@ fn focused_link_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlInte
 }
 
 fn selection_intent(kind: ControlKind, input: IntentInput<'_>, forward: bool) -> ControlIntent {
-    match (kind, &input.snapshot.body) {
+    match (kind, input.body) {
         (ControlKind::List, PanelBody::List(body)) => cycle_selection(
             body.items.iter().map(|item| &item.id).collect(),
-            selected_control_id(input.snapshot, input.selected_id),
+            selected_control_id_body(input.body, input.selected_id),
             forward,
         ),
         (ControlKind::Tree, PanelBody::Tree(body)) => {
             let nodes = visible_tree_nodes(body);
             cycle_selection(
                 nodes.iter().map(|node| &node.id).collect(),
-                selected_control_id(input.snapshot, input.selected_id),
+                selected_control_id_body(input.body, input.selected_id),
                 forward,
             )
         }
         (ControlKind::StructuredDiff, PanelBody::StructuredDiff(body)) => cycle_selection(
             body.files.iter().map(|file| &file.id).collect(),
-            selected_control_id(input.snapshot, input.selected_id),
+            selected_control_id_body(input.body, input.selected_id),
             forward,
         ),
         _ => ControlIntent::Scroll(if forward { 1 } else { -1 }),
@@ -189,13 +216,15 @@ fn cycle_selection(ids: Vec<&Id>, selected: Option<&Id>, forward: bool) -> Contr
 }
 
 fn activation_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlIntent {
-    match (kind, &input.snapshot.body) {
+    match (kind, input.body) {
         (ControlKind::List, PanelBody::List(_))
         | (ControlKind::StructuredDiff, PanelBody::StructuredDiff(_)) => {
-            activation_for_id(selected_control_id(input.snapshot, input.selected_id))
+            activation_for_id(selected_control_id_body(input.body, input.selected_id))
         }
         (ControlKind::Tree, PanelBody::Tree(body)) => activate_tree(body, input.selected_id),
-        (ControlKind::Form, PanelBody::Form(body)) if submit_enabled(input.snapshot, body) => {
+        (ControlKind::Form, PanelBody::Form(body))
+            if submit_enabled(input.action_affordances, body) =>
+        {
             ControlIntent::Event(PanelEvent::Submit {
                 values: form_values(body, input.form_draft),
             })
@@ -203,28 +232,32 @@ fn activation_intent(kind: ControlKind, input: IntentInput<'_>) -> ControlIntent
         (ControlKind::Detail, PanelBody::Detail(body)) => body
             .actions
             .iter()
-            .find(|id| input.focus_target == Some(*id) && affordance_enabled(input.snapshot, id))
+            .find(|id| {
+                input.focus_target == Some(*id) && affordance_enabled(input.action_affordances, id)
+            })
             .or_else(|| {
                 body.actions
                     .iter()
-                    .find(|id| affordance_enabled(input.snapshot, id))
+                    .find(|id| affordance_enabled(input.action_affordances, id))
             })
             .map_or_else(
-                || action_intent(input.snapshot, input.focus_target),
+                || action_intent(input.action_affordances, input.focus_target),
                 |link_id| {
                     ControlIntent::Event(PanelEvent::LinkSelected {
                         link_id: link_id.clone(),
                     })
                 },
             ),
-        (ControlKind::Error, PanelBody::Error(body)) if retry_enabled(input.snapshot, body) => {
+        (ControlKind::Error, PanelBody::Error(body))
+            if retry_enabled(input.action_affordances, body) =>
+        {
             ControlIntent::Event(PanelEvent::Retry)
         }
         (ControlKind::Progress, PanelBody::Progress(body)) if body.cancellable => {
             ControlIntent::Event(PanelEvent::Cancel)
         }
         (ControlKind::Status, PanelBody::Status(_)) | (ControlKind::Empty, PanelBody::Empty(_)) => {
-            action_intent(input.snapshot, input.focus_target)
+            action_intent(input.action_affordances, input.focus_target)
         }
         _ => ControlIntent::None,
     }
@@ -253,24 +286,17 @@ fn activation_for_id(id: Option<&Id>) -> ControlIntent {
     })
 }
 
-fn affordance_enabled(snapshot: &PanelSnapshot, id: &Id) -> bool {
-    snapshot
-        .action_affordances
+fn affordance_enabled(affordances: &[Affordance], id: &Id) -> bool {
+    affordances
         .iter()
         .any(|affordance| &affordance.id == id && affordance.enabled)
 }
 
-fn action_intent(snapshot: &PanelSnapshot, focus_target: Option<&Id>) -> ControlIntent {
-    snapshot
-        .action_affordances
+fn action_intent(affordances: &[Affordance], focus_target: Option<&Id>) -> ControlIntent {
+    affordances
         .iter()
         .find(|affordance| Some(&affordance.id) == focus_target && affordance.enabled)
-        .or_else(|| {
-            snapshot
-                .action_affordances
-                .iter()
-                .find(|affordance| affordance.enabled)
-        })
+        .or_else(|| affordances.iter().find(|affordance| affordance.enabled))
         .map_or(ControlIntent::None, |affordance| {
             ControlIntent::Event(PanelEvent::Action {
                 id: affordance.id.clone(),

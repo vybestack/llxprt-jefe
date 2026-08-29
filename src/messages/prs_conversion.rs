@@ -4,6 +4,8 @@
 //! @requirement REQ-PR-002
 //! @pseudocode component-004 lines 45-85
 
+use std::ops::ControlFlow;
+
 use crate::state::AppEvent;
 
 use super::{NavDir, PrFilterField, PrInlineMsg, PullRequestsMessage, ScrollDir};
@@ -22,83 +24,42 @@ impl From<PullRequestsMessage> for AppEvent {
 impl PullRequestsMessage {
     /// Convert a PR-domain [`AppEvent`] into the typed message.
     ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-NFR-001
-    /// @pseudocode component-004 lines 51-67
-    pub(super) fn from_app_event(event: AppEvent) -> Self {
-        match event {
-            AppEvent::EnterPrsMode
-            | AppEvent::ExitPrsMode
-            | AppEvent::RefocusPrList
-            | AppEvent::PrNavigateUp
-            | AppEvent::PrNavigateDown
-            | AppEvent::PrNavigatePageUp(_)
-            | AppEvent::PrNavigatePageDown(_)
-            | AppEvent::PrNavigateHome
-            | AppEvent::PrNavigateEnd
-            | AppEvent::PrListEnter
-            | AppEvent::PrCycleFocus
-            | AppEvent::PrCycleFocusReverse
-            | AppEvent::PrScrollDetailUp
-            | AppEvent::PrScrollDetailDown
-            | AppEvent::PrScrollDetailPageUp
-            | AppEvent::PrScrollDetailPageDown
-            | AppEvent::PrDetailSubfocusNext
-            | AppEvent::PrDetailSubfocusPrev => Self::from_app_event_navigation(event),
-            other => Self::from_app_event_payload(other),
-        }
-    }
-
-    /// Navigation and scroll events that carry no payload.
+    /// Each layer claims its own variants and hands the residual to the next
+    /// layer; an event no PR layer claims returns
+    /// [`ControlFlow::Continue`] so the dispatcher can route it elsewhere.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_navigation(event: AppEvent) -> Self {
+    pub(super) fn try_from_app_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
-            AppEvent::EnterPrsMode => Self::EnterMode,
-            AppEvent::ExitPrsMode => Self::ExitMode,
-            AppEvent::RefocusPrList => Self::RefocusList,
-            AppEvent::PrNavigateUp => Self::Navigate(NavDir::Up),
-            AppEvent::PrNavigateDown => Self::Navigate(NavDir::Down),
-            AppEvent::PrNavigatePageUp(page) => Self::Navigate(NavDir::PageUp(page)),
-            AppEvent::PrNavigatePageDown(page) => Self::Navigate(NavDir::PageDown(page)),
-            AppEvent::PrNavigateHome => Self::Navigate(NavDir::Home),
-            AppEvent::PrNavigateEnd => Self::Navigate(NavDir::End),
-            AppEvent::PrListEnter => Self::Enter,
-            AppEvent::PrCycleFocus => Self::CycleFocus,
-            AppEvent::PrCycleFocusReverse => Self::CycleFocusReverse,
-            AppEvent::PrScrollDetailUp => Self::ScrollDetail(ScrollDir::Up),
-            AppEvent::PrScrollDetailDown => Self::ScrollDetail(ScrollDir::Down),
-            AppEvent::PrScrollDetailPageUp => Self::ScrollDetail(ScrollDir::PageUp),
-            AppEvent::PrScrollDetailPageDown => Self::ScrollDetail(ScrollDir::PageDown),
-            AppEvent::PrDetailSubfocusNext => Self::DetailSubfocusNext,
-            AppEvent::PrDetailSubfocusPrev => Self::DetailSubfocusPrev,
-            _ => unreachable!("non-navigation AppEvent routed to navigation converter"),
-        }
-    }
-
-    /// Loaded/error payload events and data/filter/mutation/agent variants.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-NFR-001
-    /// @pseudocode component-004 lines 51-67
-    fn from_app_event_payload(event: AppEvent) -> Self {
-        match event {
-            AppEvent::PrListLoaded { .. }
-            | AppEvent::PrListLoadFailed { .. }
-            | AppEvent::PrListPageLoaded { .. }
-            | AppEvent::PrListSilentRefreshed { .. }
-            | AppEvent::PrListSilentRefreshFailed { .. } => Self::from_app_event_list(event),
-            AppEvent::PrDetailLoaded { .. }
-            | AppEvent::PrDetailLoadFailed { .. }
-            | AppEvent::PrDetailAuthRequired(..)
-            | AppEvent::PrDetailSilentRefreshed { .. }
-            | AppEvent::PrDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
-            AppEvent::PrCommentsPageLoaded { .. }
-            | AppEvent::PrCommentsPageFailed { .. }
-            | AppEvent::PrCommentsPageDispatchFailed { .. } => Self::from_app_event_comments(event),
-            other => Self::from_app_event_controls(other),
+            AppEvent::EnterPrsMode => ControlFlow::Break(Self::EnterMode),
+            AppEvent::ExitPrsMode => ControlFlow::Break(Self::ExitMode),
+            AppEvent::RefocusPrList => ControlFlow::Break(Self::RefocusList),
+            AppEvent::PrNavigateUp => ControlFlow::Break(Self::Navigate(NavDir::Up)),
+            AppEvent::PrNavigateDown => ControlFlow::Break(Self::Navigate(NavDir::Down)),
+            AppEvent::PrNavigatePageUp(page) => {
+                ControlFlow::Break(Self::Navigate(NavDir::PageUp(page)))
+            }
+            AppEvent::PrNavigatePageDown(page) => {
+                ControlFlow::Break(Self::Navigate(NavDir::PageDown(page)))
+            }
+            AppEvent::PrNavigateHome => ControlFlow::Break(Self::Navigate(NavDir::Home)),
+            AppEvent::PrNavigateEnd => ControlFlow::Break(Self::Navigate(NavDir::End)),
+            AppEvent::PrListEnter => ControlFlow::Break(Self::Enter),
+            AppEvent::PrCycleFocus => ControlFlow::Break(Self::CycleFocus),
+            AppEvent::PrCycleFocusReverse => ControlFlow::Break(Self::CycleFocusReverse),
+            AppEvent::PrScrollDetailUp => ControlFlow::Break(Self::ScrollDetail(ScrollDir::Up)),
+            AppEvent::PrScrollDetailDown => ControlFlow::Break(Self::ScrollDetail(ScrollDir::Down)),
+            AppEvent::PrScrollDetailPageUp => {
+                ControlFlow::Break(Self::ScrollDetail(ScrollDir::PageUp))
+            }
+            AppEvent::PrScrollDetailPageDown => {
+                ControlFlow::Break(Self::ScrollDetail(ScrollDir::PageDown))
+            }
+            AppEvent::PrDetailSubfocusNext => ControlFlow::Break(Self::DetailSubfocusNext),
+            AppEvent::PrDetailSubfocusPrev => ControlFlow::Break(Self::DetailSubfocusPrev),
+            other => Self::from_app_event_list(other),
         }
     }
 
@@ -107,9 +68,9 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_list(event: AppEvent) -> Self {
+    fn from_app_event_list(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         if let Some(msg) = Self::from_app_event_silent_refresh(&event) {
-            return msg;
+            return ControlFlow::Break(msg);
         }
         match event {
             AppEvent::PrListLoaded {
@@ -119,37 +80,37 @@ impl PullRequestsMessage {
                 pull_requests,
                 cursor,
                 has_more,
-            } => Self::ListLoaded {
+            } => ControlFlow::Break(Self::ListLoaded {
                 scope_repo_id,
                 filter,
                 request_id,
                 pull_requests,
                 cursor,
                 has_more,
-            },
+            }),
             AppEvent::PrListLoadFailed {
                 scope_repo_id,
                 request_id,
                 error,
-            } => Self::ListLoadFailed {
+            } => ControlFlow::Break(Self::ListLoadFailed {
                 scope_repo_id,
                 request_id,
                 error,
-            },
+            }),
             AppEvent::PrListPageLoaded {
                 scope_repo_id,
                 request_id,
                 pull_requests,
                 cursor,
                 has_more,
-            } => Self::ListPageLoaded {
+            } => ControlFlow::Break(Self::ListPageLoaded {
                 scope_repo_id,
                 request_id,
                 pull_requests,
                 cursor,
                 has_more,
-            },
-            _ => unreachable!("non-list AppEvent routed to list converter"),
+            }),
+            other => Self::from_app_event_detail(other),
         }
     }
 
@@ -187,58 +148,58 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_detail(event: AppEvent) -> Self {
+    fn from_app_event_detail(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
             AppEvent::PrDetailLoaded {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 detail,
-            } => Self::DetailLoaded {
+            } => ControlFlow::Break(Self::DetailLoaded {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 detail,
-            },
+            }),
             AppEvent::PrDetailLoadFailed {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 error,
-            } => Self::DetailLoadFailed {
+            } => ControlFlow::Break(Self::DetailLoadFailed {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 error,
-            },
+            }),
             AppEvent::PrDetailAuthRequired(scope_repo_id, pr_number, request_id) => {
-                Self::DetailAuthRequired {
+                ControlFlow::Break(Self::DetailAuthRequired {
                     scope_repo_id,
                     pr_number,
                     request_id,
-                }
+                })
             }
             AppEvent::PrDetailSilentRefreshed {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 detail,
-            } => Self::DetailSilentRefreshed {
+            } => ControlFlow::Break(Self::DetailSilentRefreshed {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 detail,
-            },
+            }),
             AppEvent::PrDetailSilentRefreshFailed {
                 scope_repo_id,
                 pr_number,
                 request_id,
-            } => Self::DetailSilentRefreshFailed {
+            } => ControlFlow::Break(Self::DetailSilentRefreshFailed {
                 scope_repo_id,
                 pr_number,
                 request_id,
-            },
-            _ => unreachable!("non-detail AppEvent routed to detail converter"),
+            }),
+            other => Self::from_app_event_comments(other),
         }
     }
 
@@ -247,7 +208,7 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_comments(event: AppEvent) -> Self {
+    fn from_app_event_comments(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
             AppEvent::PrCommentsPageLoaded {
                 scope_repo_id,
@@ -256,35 +217,35 @@ impl PullRequestsMessage {
                 comments,
                 cursor,
                 has_more,
-            } => Self::CommentsPageLoaded {
+            } => ControlFlow::Break(Self::CommentsPageLoaded {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 comments,
                 cursor,
                 has_more,
-            },
+            }),
             AppEvent::PrCommentsPageFailed {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 error,
-            } => Self::CommentsPageFailed {
+            } => ControlFlow::Break(Self::CommentsPageFailed {
                 scope_repo_id,
                 pr_number,
                 request_id,
                 error,
-            },
+            }),
             AppEvent::PrCommentsPageDispatchFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            } => Self::CommentsPageDispatchFailed {
+            } => ControlFlow::Break(Self::CommentsPageDispatchFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            },
-            _ => unreachable!("non-comments AppEvent routed to comments converter"),
+            }),
+            other => Self::from_app_event_controls(other),
         }
     }
 
@@ -293,30 +254,36 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_controls(event: AppEvent) -> Self {
+    fn from_app_event_controls(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         let event = match Self::changes_from_app_event(event) {
-            std::ops::ControlFlow::Break(message) => return message,
-            std::ops::ControlFlow::Continue(event) => event,
+            ControlFlow::Break(message) => return ControlFlow::Break(message),
+            ControlFlow::Continue(event) => event,
         };
         match event {
-            AppEvent::PrOpenFilterControls => Self::OpenFilterControls,
-            AppEvent::PrCloseFilterControls => Self::CloseFilterControls,
-            AppEvent::PrApplyFilter => Self::ApplyFilter,
-            AppEvent::PrClearFilter => Self::ClearFilter,
-            AppEvent::PrFilterNavigateNext => Self::FilterNavigate(NavDir::Next),
-            AppEvent::PrFilterNavigatePrev => Self::FilterNavigate(NavDir::Prev),
-            AppEvent::PrCycleFilterState => Self::CycleFilterState,
-            AppEvent::PrCycleDraftFilter => Self::CycleDraftFilter,
-            AppEvent::PrCycleReviewFilter => Self::CycleReviewFilter,
-            AppEvent::PrCycleChecksFilter => Self::CycleChecksFilter,
-            AppEvent::PrCycleSortByNext => Self::PrCycleSortByNext,
-            AppEvent::PrCycleSortByPrev => Self::PrCycleSortByPrev,
-            AppEvent::PrToggleSortOrder => Self::PrToggleSortOrder,
-            AppEvent::PrFocusSearchInput => Self::FocusSearchInput,
-            AppEvent::PrBlurSearchInput => Self::BlurSearchInput,
-            AppEvent::PrSetSearchQuery { query } => Self::SetSearchQuery { query },
-            AppEvent::PrApplySearch => Self::ApplySearch,
-            AppEvent::PrClearSearch => Self::ClearSearch,
+            AppEvent::PrOpenFilterControls => ControlFlow::Break(Self::OpenFilterControls),
+            AppEvent::PrCloseFilterControls => ControlFlow::Break(Self::CloseFilterControls),
+            AppEvent::PrApplyFilter => ControlFlow::Break(Self::ApplyFilter),
+            AppEvent::PrClearFilter => ControlFlow::Break(Self::ClearFilter),
+            AppEvent::PrFilterNavigateNext => {
+                ControlFlow::Break(Self::FilterNavigate(NavDir::Next))
+            }
+            AppEvent::PrFilterNavigatePrev => {
+                ControlFlow::Break(Self::FilterNavigate(NavDir::Prev))
+            }
+            AppEvent::PrCycleFilterState => ControlFlow::Break(Self::CycleFilterState),
+            AppEvent::PrCycleDraftFilter => ControlFlow::Break(Self::CycleDraftFilter),
+            AppEvent::PrCycleReviewFilter => ControlFlow::Break(Self::CycleReviewFilter),
+            AppEvent::PrCycleChecksFilter => ControlFlow::Break(Self::CycleChecksFilter),
+            AppEvent::PrCycleSortByNext => ControlFlow::Break(Self::PrCycleSortByNext),
+            AppEvent::PrCycleSortByPrev => ControlFlow::Break(Self::PrCycleSortByPrev),
+            AppEvent::PrToggleSortOrder => ControlFlow::Break(Self::PrToggleSortOrder),
+            AppEvent::PrFocusSearchInput => ControlFlow::Break(Self::FocusSearchInput),
+            AppEvent::PrBlurSearchInput => ControlFlow::Break(Self::BlurSearchInput),
+            AppEvent::PrSetSearchQuery { query } => {
+                ControlFlow::Break(Self::SetSearchQuery { query })
+            }
+            AppEvent::PrApplySearch => ControlFlow::Break(Self::ApplySearch),
+            AppEvent::PrClearSearch => ControlFlow::Break(Self::ClearSearch),
             other => Self::from_app_event_composer_and_inline(other),
         }
     }
@@ -326,28 +293,40 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_composer_and_inline(event: AppEvent) -> Self {
+    fn from_app_event_composer_and_inline(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
-            AppEvent::PrUpdateDraftFilter { field, value } => Self::UpdateDraftFilter {
-                field: PrFilterField::from_string(&field),
-                value,
-            },
-            AppEvent::PrOpenNewCommentComposer => Self::OpenNewCommentComposer,
-            AppEvent::PrOpenReplyComposer { comment_index } => {
-                Self::OpenReplyComposer { comment_index }
+            AppEvent::PrUpdateDraftFilter { field, value } => {
+                ControlFlow::Break(Self::UpdateDraftFilter {
+                    field: PrFilterField::from_string(&field),
+                    value,
+                })
             }
-            AppEvent::PrInlineChar(c) => Self::Inline(PrInlineMsg::Char(c)),
-            AppEvent::PrInlineNewline => Self::Inline(PrInlineMsg::Newline),
-            AppEvent::PrInlineBackspace => Self::Inline(PrInlineMsg::Backspace),
-            AppEvent::PrInlineDelete => Self::Inline(PrInlineMsg::Delete),
-            AppEvent::PrInlineCursorLeft => Self::Inline(PrInlineMsg::CursorLeft),
-            AppEvent::PrInlineCursorRight => Self::Inline(PrInlineMsg::CursorRight),
-            AppEvent::PrInlineCursorUp => Self::Inline(PrInlineMsg::CursorUp),
-            AppEvent::PrInlineCursorDown => Self::Inline(PrInlineMsg::CursorDown),
-            AppEvent::PrInlineCursorHome => Self::Inline(PrInlineMsg::CursorHome),
-            AppEvent::PrInlineCursorEnd => Self::Inline(PrInlineMsg::CursorEnd),
-            AppEvent::PrInlineSubmit => Self::Inline(PrInlineMsg::Submit),
-            AppEvent::PrInlineCancelOrEsc => Self::Inline(PrInlineMsg::CancelOrEsc),
+            AppEvent::PrOpenNewCommentComposer => ControlFlow::Break(Self::OpenNewCommentComposer),
+            AppEvent::PrOpenReplyComposer { comment_index } => {
+                ControlFlow::Break(Self::OpenReplyComposer { comment_index })
+            }
+            AppEvent::PrInlineChar(c) => ControlFlow::Break(Self::Inline(PrInlineMsg::Char(c))),
+            AppEvent::PrInlineNewline => ControlFlow::Break(Self::Inline(PrInlineMsg::Newline)),
+            AppEvent::PrInlineBackspace => ControlFlow::Break(Self::Inline(PrInlineMsg::Backspace)),
+            AppEvent::PrInlineDelete => ControlFlow::Break(Self::Inline(PrInlineMsg::Delete)),
+            AppEvent::PrInlineCursorLeft => {
+                ControlFlow::Break(Self::Inline(PrInlineMsg::CursorLeft))
+            }
+            AppEvent::PrInlineCursorRight => {
+                ControlFlow::Break(Self::Inline(PrInlineMsg::CursorRight))
+            }
+            AppEvent::PrInlineCursorUp => ControlFlow::Break(Self::Inline(PrInlineMsg::CursorUp)),
+            AppEvent::PrInlineCursorDown => {
+                ControlFlow::Break(Self::Inline(PrInlineMsg::CursorDown))
+            }
+            AppEvent::PrInlineCursorHome => {
+                ControlFlow::Break(Self::Inline(PrInlineMsg::CursorHome))
+            }
+            AppEvent::PrInlineCursorEnd => ControlFlow::Break(Self::Inline(PrInlineMsg::CursorEnd)),
+            AppEvent::PrInlineSubmit => ControlFlow::Break(Self::Inline(PrInlineMsg::Submit)),
+            AppEvent::PrInlineCancelOrEsc => {
+                ControlFlow::Break(Self::Inline(PrInlineMsg::CancelOrEsc))
+            }
             other => Self::from_app_event_mutation_and_agent(other),
         }
     }
@@ -357,59 +336,59 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-002
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_mutation_and_agent(event: AppEvent) -> Self {
+    fn from_app_event_mutation_and_agent(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
             AppEvent::PrCommentCreated {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 comment,
-            } => Self::CommentCreated {
+            } => ControlFlow::Break(Self::CommentCreated {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 comment,
-            },
+            }),
             AppEvent::PrCommentCreateFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            } => Self::CommentCreateFailed {
+            } => ControlFlow::Break(Self::CommentCreateFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            },
+            }),
             AppEvent::PrMutationFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            } => Self::MutationFailed {
+            } => ControlFlow::Break(Self::MutationFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            },
-            AppEvent::PrShowNotice(kind) => Self::ShowNotice(kind),
-            AppEvent::PrOpenInBrowser => Self::OpenInBrowser,
+            }),
+            AppEvent::PrShowNotice(kind) => ControlFlow::Break(Self::ShowNotice(kind)),
+            AppEvent::PrOpenInBrowser => ControlFlow::Break(Self::OpenInBrowser),
             AppEvent::PrOpenedInBrowser {
                 scope_repo_id,
                 pr_number,
-            } => Self::OpenedInBrowser {
+            } => ControlFlow::Break(Self::OpenedInBrowser {
                 scope_repo_id,
                 pr_number,
-            },
+            }),
             AppEvent::PrOpenInBrowserFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            } => Self::OpenInBrowserFailed {
+            } => ControlFlow::Break(Self::OpenInBrowserFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            },
+            }),
             other => Self::from_app_event_agent(other),
         }
     }
@@ -419,26 +398,36 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
-    fn from_app_event_agent(event: AppEvent) -> Self {
+    fn from_app_event_agent(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
-            AppEvent::PrOpenAgentChooser { metadata } => Self::OpenAgentChooser { metadata },
-            AppEvent::BeginPrListSendDetail(metadata) => Self::BeginListSendDetail { metadata },
-            AppEvent::CancelPrListSendDetail => Self::CancelListSendDetail,
+            AppEvent::PrOpenAgentChooser { metadata } => {
+                ControlFlow::Break(Self::OpenAgentChooser { metadata })
+            }
+            AppEvent::BeginPrListSendDetail(metadata) => {
+                ControlFlow::Break(Self::BeginListSendDetail { metadata })
+            }
+            AppEvent::CancelPrListSendDetail => ControlFlow::Break(Self::CancelListSendDetail),
             AppEvent::PrListSendDetailReady {
                 scope_repo_id,
                 pr_number,
                 request_id,
-            } => Self::ListSendDetailReady {
+            } => ControlFlow::Break(Self::ListSendDetailReady {
                 scope_repo_id,
                 pr_number,
                 request_id,
-            },
-            AppEvent::PrAgentChooserNavigateUp => Self::AgentChooserNavigate(NavDir::Up),
-            AppEvent::PrAgentChooserNavigateDown => Self::AgentChooserNavigate(NavDir::Down),
-            AppEvent::PrAgentChooserConfirm => Self::AgentChooserConfirm,
-            AppEvent::PrAgentChooserCancel => Self::AgentChooserCancel,
-            AppEvent::PrSendToAgentCompleted => Self::SendToAgentCompleted,
-            AppEvent::PrSendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            }),
+            AppEvent::PrAgentChooserNavigateUp => {
+                ControlFlow::Break(Self::AgentChooserNavigate(NavDir::Up))
+            }
+            AppEvent::PrAgentChooserNavigateDown => {
+                ControlFlow::Break(Self::AgentChooserNavigate(NavDir::Down))
+            }
+            AppEvent::PrAgentChooserConfirm => ControlFlow::Break(Self::AgentChooserConfirm),
+            AppEvent::PrAgentChooserCancel => ControlFlow::Break(Self::AgentChooserCancel),
+            AppEvent::PrSendToAgentCompleted => ControlFlow::Break(Self::SendToAgentCompleted),
+            AppEvent::PrSendToAgentFailed { error } => {
+                ControlFlow::Break(Self::SendToAgentFailed { error })
+            }
             other => Self::from_app_event_lifecycle(other),
         }
     }
@@ -486,7 +475,7 @@ impl PullRequestsMessage {
             | Self::ScrollDetail(_)
             | Self::DetailSubfocusNext
             | Self::DetailSubfocusPrev => self.into_app_event_navigation(),
-            other => other.into_app_event_data(),
+            other => other.into_app_event_list(),
         }
     }
 
@@ -522,31 +511,7 @@ impl PullRequestsMessage {
             Self::ScrollDetail(ScrollDir::PageDown) => AppEvent::PrScrollDetailPageDown,
             Self::DetailSubfocusNext => AppEvent::PrDetailSubfocusNext,
             Self::DetailSubfocusPrev => AppEvent::PrDetailSubfocusPrev,
-            _ => unreachable!("non-navigation PullRequestsMessage routed to navigation"),
-        }
-    }
-
-    /// Loaded/error payloads and control/filter/inline/mutation/agent messages.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-NFR-001
-    /// @pseudocode component-004 lines 68-85
-    fn into_app_event_data(self) -> AppEvent {
-        match self {
-            Self::ListLoaded { .. }
-            | Self::ListLoadFailed { .. }
-            | Self::ListPageLoaded { .. }
-            | Self::ListSilentRefreshed { .. }
-            | Self::ListSilentRefreshFailed { .. } => self.into_app_event_list(),
-            Self::DetailLoaded { .. }
-            | Self::DetailLoadFailed { .. }
-            | Self::DetailAuthRequired { .. }
-            | Self::DetailSilentRefreshed { .. }
-            | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
-            Self::CommentsPageLoaded { .. }
-            | Self::CommentsPageFailed { .. }
-            | Self::CommentsPageDispatchFailed { .. } => self.into_app_event_comments(),
-            other => other.into_app_event_controls(),
+            other => other.into_app_event_list(),
         }
     }
 
@@ -597,7 +562,7 @@ impl PullRequestsMessage {
                 cursor,
                 has_more,
             },
-            _ => unreachable!("non-list PullRequestsMessage routed to list converter"),
+            other => other.into_app_event_detail(),
         }
     }
 
@@ -684,7 +649,7 @@ impl PullRequestsMessage {
                 pr_number,
                 request_id,
             },
-            _ => unreachable!("non-detail PullRequestsMessage routed to detail"),
+            other => other.into_app_event_comments(),
         }
     }
 
@@ -730,7 +695,7 @@ impl PullRequestsMessage {
                 pr_number,
                 error,
             },
-            _ => unreachable!("non-comments PullRequestsMessage routed to comments"),
+            other => other.into_app_event_controls(),
         }
     }
 
@@ -741,8 +706,8 @@ impl PullRequestsMessage {
     /// @pseudocode component-004 lines 68-85
     fn into_app_event_controls(self) -> AppEvent {
         let message = match self.changes_into_app_event() {
-            std::ops::ControlFlow::Break(event) => return event,
-            std::ops::ControlFlow::Continue(message) => message,
+            ControlFlow::Break(event) => return event,
+            ControlFlow::Continue(message) => message,
         };
         match message {
             Self::OpenFilterControls => AppEvent::PrOpenFilterControls,

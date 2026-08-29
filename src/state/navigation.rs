@@ -36,6 +36,34 @@ use crate::workbench::{
 use super::navigation_dirty::{
     DirtyChoice, DirtyGuard, DirtyState, DraftAction, DraftToken, SaveIntent,
 };
+use super::provider_panels::ProviderPanelState;
+use super::screen_overlays::ScreenOverlayState;
+use super::types::{DashboardGrabPane, PaneFocus};
+
+/// Presentation state retained by one exact open-screen instance.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InstancePresentationState {
+    pub selected_repository_index: Option<usize>,
+    pub selected_agent_index: Option<usize>,
+    pub selected_agent_type_index: usize,
+    pub pane_focus: PaneFocus,
+    pub terminal_focused: bool,
+    pub split_filter: Option<crate::domain::RepositoryId>,
+    pub split_grab_index: Option<usize>,
+    pub dashboard_grab: Option<DashboardGrabPane>,
+    pub resolved_layout: Option<crate::workbench::ResolvedLayout>,
+    pub repository_scroll_offset: u32,
+    pub agent_scroll_offset: u32,
+    pub terminal_history_offset: Option<usize>,
+    pub terminal_viewport_rows: usize,
+    pub terminal_total_lines: usize,
+    pub selection: Option<crate::selection::TextSelection>,
+    pub selection_dashboard_git_info: Option<crate::dashboard_git_info::DashboardGitInfoSnapshot>,
+    pub selection_snapshot: Option<crate::runtime::TerminalSnapshot>,
+    pub terminal_gesture_state: crate::selection::GestureState,
+    pub shell_overlay: super::ShellOverlayState,
+    pub shell_return_target: super::ShellReturnTarget,
+}
 
 /// Maximum number of suspended instances the navigation stack may hold.
 pub const MAX_NAVIGATION_STACK: usize = 32;
@@ -99,12 +127,20 @@ pub struct ScreenInstance {
     pub panel_focus: PanelId,
     /// Screen generation; a completion naming an older one is stale.
     pub generation: u64,
+    /// Provider action whose unavailable surface belongs to this instance.
+    provider_surface_action: Option<crate::domain::action_registry::ActionId>,
+    /// Selection, focus, drafts, and viewport state retained with this instance.
+    presentation: InstancePresentationState,
+    /// Provider panel lifecycle, models, and host-local state for this instance.
+    provider_panels: ProviderPanelState,
     /// Whether this instance holds unsaved work.
     pub dirty: DirtyState,
     /// Runtime bindings for this instance's declared panels and ports.
     relationships: Option<RelationshipInstance>,
     /// Retained typed values and staged explicit selections for this instance.
     relationship_state: RelationshipState,
+    /// Declared host overlays and their live presentation state for this instance.
+    overlays: ScreenOverlayState,
 }
 
 impl ScreenInstance {
@@ -119,6 +155,40 @@ impl ScreenInstance {
     pub const fn compiled_screen(&self) -> Option<ScreenId> {
         self.screen.compiled()
     }
+
+    #[must_use]
+    pub const fn provider_surface_action(
+        &self,
+    ) -> Option<&crate::domain::action_registry::ActionId> {
+        self.provider_surface_action.as_ref()
+    }
+
+    pub(crate) fn set_provider_surface_action(
+        &mut self,
+        action: Option<crate::domain::action_registry::ActionId>,
+    ) {
+        self.provider_surface_action = action;
+    }
+
+    #[must_use]
+    pub const fn presentation(&self) -> &InstancePresentationState {
+        &self.presentation
+    }
+
+    pub(crate) const fn presentation_mut(&mut self) -> &mut InstancePresentationState {
+        &mut self.presentation
+    }
+
+    /// Provider panel state owned only by this open instance.
+    #[must_use]
+    pub const fn provider_panels(&self) -> &ProviderPanelState {
+        &self.provider_panels
+    }
+
+    pub(crate) const fn provider_panels_mut(&mut self) -> &mut ProviderPanelState {
+        &mut self.provider_panels
+    }
+
     /// Runtime panel/port identities for this open instance.
     #[must_use]
     pub const fn relationships(&self) -> Option<&RelationshipInstance> {
@@ -129,6 +199,16 @@ impl ScreenInstance {
     #[must_use]
     pub const fn relationship_state(&self) -> &RelationshipState {
         &self.relationship_state
+    }
+
+    /// Declared host overlays and live presentation owned by this instance.
+    #[must_use]
+    pub const fn overlays(&self) -> &ScreenOverlayState {
+        &self.overlays
+    }
+
+    pub(crate) fn overlays_mut(&mut self) -> &mut ScreenOverlayState {
+        &mut self.overlays
     }
 
     pub(crate) fn relationship_parts_mut(
@@ -163,6 +243,10 @@ impl SuspendedInstance {
     pub const fn instance(&self) -> &ScreenInstance {
         &self.0
     }
+
+    const fn instance_mut(&mut self) -> &mut ScreenInstance {
+        &mut self.0
+    }
 }
 
 /// What the session is asking navigation to do.
@@ -186,47 +270,57 @@ pub struct NavState {
     next_activation_generation: u64,
 }
 
+#[cfg(test)]
 impl Default for NavState {
-    /// A session on the default screen, which is what a run with no restored
-    /// state opens on.
+    /// A session on the built-in Dashboard definition.
     fn default() -> Self {
-        Self::rooted(ScreenId::default())
+        Self::rooted_definition(
+            crate::workbench::DASHBOARD_IDENTITY,
+            RouteId::from_static("dashboard"),
+            PanelId::from_static("repositories"),
+        )
     }
 }
 
 impl NavState {
-    /// The state a session starts in: one clean instance on `screen`, no stack.
-    ///
-    /// Rooting is total. Both the route and the initial focus come from
-    /// compiled tables rather than a registry lookup, so starting a session
-    /// has no failure mode to handle at the moment it is needed. Those tables
-    /// duplicate the descriptors, and the drift tests in `screens_tests` are
-    /// what holds the two together.
-    ///
-    /// Rooting stays compiled-only: a session can only be *started* (or
-    /// restored from durable state) onto a screen the executable ships, because
-    /// persistence and the initial frame must always be drawable. Reaching a
-    /// lowered screen afterwards goes through navigation, which reads its focus
-    /// from the descriptor.
+    /// Root one residual compiled adapter.
     #[must_use]
     pub fn rooted(screen: ScreenId) -> Self {
+        Self::rooted_definition(
+            ScreenIdentity::Compiled(screen),
+            route_of(screen),
+            initial_focus(screen),
+        )
+    }
+
+    /// Root one validated published definition without a navigation stack.
+    #[must_use]
+    pub fn rooted_definition(
+        screen: ScreenIdentity,
+        route: RouteId,
+        initial_focus: PanelId,
+    ) -> Self {
         let id = ScreenInstanceId::next();
         Self {
             current: ScreenInstance {
                 id,
-                screen: ScreenIdentity::Compiled(screen),
+                screen,
                 activation: Activation {
-                    route: route_of(screen),
+                    route,
                     values: ActivationValues::empty(),
                     // The root instance was activated by nothing but itself.
                     source_instance: id,
                     activation_generation: 1,
                 },
-                panel_focus: initial_focus(screen),
+                panel_focus: initial_focus,
                 generation: 1,
+                provider_surface_action: None,
+                presentation: InstancePresentationState::default(),
+                provider_panels: ProviderPanelState::new(),
                 dirty: DirtyState::Clean,
                 relationships: None,
                 relationship_state: RelationshipState::new(),
+                overlays: ScreenOverlayState::new(Vec::new()),
             },
             stack: Vec::new(),
             guard: None,
@@ -253,6 +347,7 @@ impl NavState {
         if self.current.relationships.is_none() {
             self.current.bind_relationships(descriptor)?;
         }
+        self.current.overlays = ScreenOverlayState::new(descriptor.overlays.clone());
         Ok(())
     }
 
@@ -375,12 +470,16 @@ impl NavState {
             },
             panel_focus: descriptor.initial_focus,
             generation: self.next_generation,
+            provider_surface_action: None,
+            presentation: InstancePresentationState::default(),
+            provider_panels: ProviderPanelState::new(),
             dirty: DirtyState::Clean,
             relationships: Some(
                 RelationshipInstance::allocate(descriptor, id)
                     .map_err(|_| NavRefusal::PanelIdentityExhausted)?,
             ),
             relationship_state: RelationshipState::new(),
+            overlays: ScreenOverlayState::new(descriptor.overlays.clone()),
         })
     }
 
@@ -411,6 +510,8 @@ impl NavState {
         self.next_activation_generation = self.next_activation_generation.saturating_add(1);
     }
 }
+
+include!("navigation_instance_ops.rs");
 
 /// What a committed navigation left for its caller to do.
 #[derive(Debug, Clone, PartialEq, Eq)]

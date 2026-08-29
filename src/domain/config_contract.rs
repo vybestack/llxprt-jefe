@@ -7,6 +7,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::InternalId;
 macro_rules! impl_string_value {
     ($type:ty, $error:expr) => {
         impl Display for $type {
@@ -68,6 +69,16 @@ impl std::error::Error for ConfigContractError {}
 pub struct Id(String);
 
 impl Id {
+    /// Construct one closed host-internal identifier.
+    pub(crate) fn internal(value: InternalId) -> Self {
+        Self(value.as_str().to_owned())
+    }
+
+    /// Construct a validated indexed identifier in a closed host-owned namespace.
+    pub(crate) fn internal_indexed(namespace: InternalId, index: usize) -> Self {
+        Self(format!("{}-{index}", namespace.as_str()))
+    }
+
     /// Parse and validate a configuration identifier.
     pub fn parse(value: &str) -> Result<Self, ConfigContractError> {
         if value.len() > ID_BYTE_LIMIT || !valid_id(value.as_bytes()) {

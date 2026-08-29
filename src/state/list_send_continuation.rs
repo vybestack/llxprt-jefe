@@ -1,6 +1,7 @@
 use crate::domain::RepositoryId;
 
 use super::{AppState, InlineState, IssueFocus, ModalState, PaneFocus, PrFocus, ScreenIdentity};
+use crate::workbench::OverlayKind;
 
 #[derive(Clone, Copy)]
 enum BlockingInteraction {
@@ -36,6 +37,7 @@ impl InteractionFlags {
 pub(super) struct IssueListSendContext {
     screen: ScreenIdentity,
     modal: ModalState,
+    overlay: Option<OverlayKind>,
     pane_focus: PaneFocus,
     focus: IssueFocus,
     repository_id: Option<RepositoryId>,
@@ -48,6 +50,7 @@ pub(super) struct IssueListSendContext {
 pub(super) struct PrListSendContext {
     screen: ScreenIdentity,
     modal: ModalState,
+    overlay: Option<OverlayKind>,
     pane_focus: PaneFocus,
     focus: PrFocus,
     repository_id: Option<RepositoryId>,
@@ -60,6 +63,7 @@ impl IssueListSendContext {
     fn accepts_list_send(&self) -> bool {
         self.screen == super::ScreenId::Issues
             && self.modal == ModalState::None
+            && self.overlay.is_none()
             && self.focus == IssueFocus::IssueList
             && self.inline_state == InlineState::None
             && self.interactions.is_clear()
@@ -70,6 +74,7 @@ impl PrListSendContext {
     fn accepts_list_send(&self) -> bool {
         self.screen == super::ScreenId::PullRequests
             && self.modal == ModalState::None
+            && self.overlay.is_none()
             && self.focus == PrFocus::PrList
             && self.inline_state == InlineState::None
             && self.interactions.is_clear()
@@ -95,6 +100,7 @@ impl AppState {
         IssueListSendContext {
             screen: self.screen(),
             modal: self.modal.clone(),
+            overlay: self.active_overlay_kind(),
             pane_focus: self.pane_focus,
             focus: self.issues_state.issue_focus,
             repository_id: self.selected_repository_id().cloned(),
@@ -138,6 +144,7 @@ impl AppState {
         PrListSendContext {
             screen: self.screen(),
             modal: self.modal.clone(),
+            overlay: self.active_overlay_kind(),
             pane_focus: self.pane_focus,
             focus: self.prs_state.pr_focus,
             repository_id: self.selected_repository_id().cloned(),

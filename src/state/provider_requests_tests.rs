@@ -24,9 +24,8 @@
 //! - Generation exhaustion fails typed (pure helper)
 
 use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
-use crate::domain::{Id, TypedMap};
+use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{Outcome, ProgressPayload, Severity};
-use crate::state::ConfirmFocus;
 
 use super::{
     ActionPolicy, CONFIRMATION_TTL_SECONDS, CancelOutcome, ConfirmInput, InvokeInput,
@@ -175,6 +174,48 @@ fn drain_terminal_frees_active_slots() {
     assert_eq!(state.active_count(), 0);
     do_invoke(&mut state);
     assert_eq!(state.active_count(), 1);
+}
+
+#[test]
+fn draining_terminal_requests_for_one_instance_preserves_other_instances() {
+    let mut state = ProviderRequestState::new();
+    let context_screen = screen();
+    let owner = owner();
+    let action = action();
+    let policy = default_policy();
+    let context_refs = empty_map();
+    let arguments = empty_map();
+    let instance_a = Id::parse("instance-a").unwrap_or_else(|error| panic!("instance A: {error}"));
+    let instance_b = Id::parse("instance-b").unwrap_or_else(|error| panic!("instance B: {error}"));
+    let mut invoke = |instance: &Id| {
+        state
+            .invoke(InvokeInput {
+                owner: &owner,
+                action_id: &action,
+                context_screen: &context_screen,
+                context_instance: instance,
+                context_refs: &context_refs,
+                arguments: &arguments,
+                policy: &policy,
+            })
+            .unwrap_or_else(|error| panic!("invoke: {error}"))
+            .key
+    };
+    let key_a = invoke(&instance_a);
+    let key_b = invoke(&instance_b);
+    state
+        .record_outcome(&key_a, notice_outcome(), 1000)
+        .unwrap_or_else(|error| panic!("instance A outcome: {error}"));
+    state
+        .record_outcome(&key_b, notice_outcome(), 1000)
+        .unwrap_or_else(|error| panic!("instance B outcome: {error}"));
+
+    assert_eq!(
+        state.drain_terminal_for(context_screen.as_str(), instance_b.as_str()),
+        1
+    );
+    assert_eq!(state.requests().len(), 1);
+    assert_eq!(state.requests()[0].key(), &key_a);
 }
 
 // ── S18: terminal-capacity semantics ─────────────────────────────────────
@@ -629,6 +670,67 @@ fn confirm_rejects_wrong_generation() {
 }
 
 #[test]
+fn confirm_reports_stale_context_without_consuming_the_exact_token() {
+    let mut state = ProviderRequestState::new();
+    let policy = continuation_policy();
+    let resource_id = Id::parse("resource").unwrap_or_else(|error| panic!("resource id: {error}"));
+    let mut retained_refs = TypedMap::new();
+    retained_refs.insert(resource_id.clone(), TypedValue::String("head-a".to_owned()));
+    let outcome = do_invoke_with(&mut state, &policy, retained_refs.clone(), empty_map());
+    state
+        .record_outcome(
+            &outcome.key,
+            confirmation_outcome("conf.token1", false),
+            1000,
+        )
+        .unwrap_or_else(|error| panic!("outcome: {error}"));
+    let request_count = state.requests().len();
+    let mut fresh_refs = TypedMap::new();
+    fresh_refs.insert(resource_id, TypedValue::String("head-b".to_owned()));
+    let empty = empty_map();
+
+    let result = state.confirm(
+        ConfirmInput {
+            owner: &owner(),
+            action_id: &action(),
+            context_screen: &screen(),
+            context_instance: &screen(),
+            context_refs: &fresh_refs,
+            generation: outcome.key.generation,
+            confirmation_id: &Id::parse("conf.token1")
+                .unwrap_or_else(|error| panic!("confirmation id: {error}")),
+            values: &empty,
+        },
+        1100,
+    );
+
+    assert_eq!(result, Err(ProviderRequestError::StaleContext));
+    assert_eq!(state.pending_confirmation_count(), 1);
+    assert_eq!(state.requests().len(), request_count);
+
+    let confirmed = state
+        .confirm(
+            ConfirmInput {
+                owner: &owner(),
+                action_id: &action(),
+                context_screen: &screen(),
+                context_instance: &screen(),
+                context_refs: &retained_refs,
+                generation: outcome.key.generation,
+                confirmation_id: &Id::parse("conf.token1")
+                    .unwrap_or_else(|error| panic!("confirmation id: {error}")),
+                values: &empty,
+            },
+            1100,
+        )
+        .unwrap_or_else(|error| panic!("confirm with retained context: {error}"));
+    assert_eq!(confirmed.key.generation, outcome.key.generation + 1);
+    assert_eq!(confirmed.invocation.context_refs, retained_refs);
+    assert_eq!(state.pending_confirmation_count(), 0);
+    assert_eq!(state.requests().len(), request_count + 1);
+}
+
+#[test]
 fn confirm_token_is_single_use() {
     let mut state = ProviderRequestState::new();
     let pol = continuation_policy();
@@ -716,30 +818,6 @@ fn confirm_at_exact_ttl_boundary_is_expired() {
 }
 
 #[test]
-fn provider_confirmation_focus_defaults_safe_and_cycles_only_while_pending() {
-    let mut state = ProviderRequestState::new();
-    assert_eq!(state.confirmation_focus(), ConfirmFocus::Cancel);
-    assert!(!state.cycle_confirmation_focus());
-
-    let policy = continuation_policy();
-    let invocation = do_invoke_with(&mut state, &policy, empty_map(), empty_map());
-    assert!(
-        state
-            .record_outcome(
-                &invocation.key,
-                confirmation_outcome("conf.focus", false),
-                1000,
-            )
-            .is_ok()
-    );
-    assert_eq!(state.confirmation_focus(), ConfirmFocus::Cancel);
-    assert!(state.cycle_confirmation_focus());
-    assert_eq!(state.confirmation_focus(), ConfirmFocus::Confirm);
-    assert!(state.cycle_confirmation_focus());
-    assert_eq!(state.confirmation_focus(), ConfirmFocus::Cancel);
-}
-
-#[test]
 fn cancelling_provider_confirmation_consumes_token_without_invocation_b() {
     let mut state = ProviderRequestState::new();
     let policy = continuation_policy();
@@ -755,14 +833,18 @@ fn cancelling_provider_confirmation_consumes_token_without_invocation_b() {
     );
 
     let generation_before_cancel = invocation.key.generation;
-    assert!(state.cancel_latest_confirmation());
+    let identity = state
+        .first_pending_confirmation()
+        .unwrap_or_else(|| panic!("pending confirmation"))
+        .identity();
+    assert!(state.cancel_confirmation(&identity));
     assert_eq!(state.pending_confirmation_count(), 0);
     assert_eq!(state.active_count(), 1);
     assert_eq!(
         state.requests()[0].key().generation,
         generation_before_cancel
     );
-    assert!(!state.cancel_latest_confirmation());
+    assert!(!state.cancel_confirmation(&identity));
 }
 
 #[test]
@@ -776,9 +858,6 @@ fn accepted_notice_outcome_stages_one_closed_post_commit_host_effect() {
     let invoke = ProviderMessage::Invoke {
         owner: owner(),
         action_id: action(),
-        context_screen: screen(),
-        context_instance: screen(),
-        context_refs: empty_map(),
         arguments: empty_map(),
         policy: default_policy(),
     };

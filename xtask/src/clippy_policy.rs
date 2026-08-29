@@ -315,7 +315,7 @@ fn starts_with(bytes: &[char], index: usize, needle: &str) -> bool {
     true
 }
 
-fn skip_line_comment(bytes: &[char], index: usize) -> usize {
+const fn skip_line_comment(bytes: &[char], index: usize) -> usize {
     let mut i = index + 2;
     while i < bytes.len() && bytes[i] != '\n' {
         i += 1;
@@ -340,7 +340,7 @@ fn skip_block_comment(bytes: &[char], index: usize) -> usize {
     i
 }
 
-fn skip_string(bytes: &[char], index: usize) -> usize {
+const fn skip_string(bytes: &[char], index: usize) -> usize {
     let mut i = index + 1;
     while i < bytes.len() {
         if bytes[i] == '\\' {
@@ -359,7 +359,7 @@ fn skip_string(bytes: &[char], index: usize) -> usize {
 /// quote is not followed by a closing quote, treat it as a lifetime and
 /// advance only one char (the quote), preserving the rest of the file for
 /// scanning.
-fn skip_char_literal(bytes: &[char], index: usize) -> usize {
+const fn skip_char_literal(bytes: &[char], index: usize) -> usize {
     let mut cursor = index + 1;
     if cursor >= bytes.len() {
         return index + 1;

@@ -5,8 +5,9 @@ use crate::support::TestOptionExt;
 use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use jefe::state::screen_overlays::ConfirmationRequest;
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
+use jefe::state::{AppEvent, AppState, PaneFocus};
 
 fn repository(id: &str) -> Repository {
     Repository::new(
@@ -195,8 +196,10 @@ fn delete_targets_correct_agent_when_idle_hidden() {
     let with_modal = hidden
         .apply(AppEvent::OpenDeleteAgent(selected_id))
         .committed_pure();
-    let ModalState::ConfirmDeleteAgent { id, .. } = &with_modal.modal else {
-        panic!("expected ConfirmDeleteAgent, got {:?}", with_modal.modal);
+    let Some(ConfirmationRequest::DeleteAgent { id, .. }) =
+        with_modal.nav.current().overlays().generic_confirmation()
+    else {
+        panic!("expected exact-instance delete-agent confirmation");
     };
     assert_eq!(
         *id,

@@ -246,6 +246,10 @@ plain_id! {
     PanelTypeId
 }
 plain_id! {
+    /// Identity of one built-in screen definition executed by the shared runtime.
+    BuiltinScreenId
+}
+plain_id! {
     /// Identity of one screen lowered from a selected plugin package's
     /// descriptor file.
     ///
@@ -503,8 +507,10 @@ pub fn check_custom_member(member: &str) -> Result<(), IdError> {
 /// same code as a compiled one without inventing a second descriptor type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ScreenIdentity {
-    /// A screen compiled into this executable.
+    /// A residual screen implemented by a compiled adapter.
     Compiled(ScreenId),
+    /// A built-in definition executed by the shared screen runtime.
+    Builtin(BuiltinScreenId),
     /// A screen lowered from a user definition file.
     Custom(CustomScreenId),
     /// A screen lowered from a selected plugin package's descriptor file.
@@ -517,6 +523,7 @@ impl ScreenIdentity {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Compiled(id) => id.as_str(),
+            Self::Builtin(id) => id.as_str(),
             Self::Custom(id) => id.as_str(),
             Self::Package(id) => id.as_str(),
         }
@@ -527,7 +534,7 @@ impl ScreenIdentity {
     pub const fn compiled(self) -> Option<ScreenId> {
         match self {
             Self::Compiled(id) => Some(id),
-            Self::Custom(_) | Self::Package(_) => None,
+            Self::Builtin(_) | Self::Custom(_) | Self::Package(_) => None,
         }
     }
 
@@ -539,6 +546,7 @@ impl ScreenIdentity {
     pub fn check(self) -> Result<(), IdError> {
         match self {
             Self::Compiled(id) => id.check(),
+            Self::Builtin(id) => id.check(),
             Self::Custom(id) => CustomScreenId::parse(id.as_str()).map(|_| ()),
             Self::Package(id) => id.check(),
         }
@@ -548,6 +556,12 @@ impl ScreenIdentity {
 impl From<ScreenId> for ScreenIdentity {
     fn from(id: ScreenId) -> Self {
         Self::Compiled(id)
+    }
+}
+
+impl Default for ScreenIdentity {
+    fn default() -> Self {
+        DASHBOARD_IDENTITY
     }
 }
 
@@ -592,10 +606,8 @@ impl fmt::Display for ScreenIdentity {
 /// screen a compile error at each of those places instead of a silent fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum ScreenId {
-    /// Repositories, agents over the embedded terminal, and the preview pane.
-    #[default]
-    Dashboard,
     /// The split repository view.
+    #[default]
     Repositories,
     /// The GitHub issues screen.
     Issues,
@@ -612,9 +624,8 @@ pub enum ScreenId {
 }
 
 impl ScreenId {
-    /// Every screen, in registry order.
-    pub const ALL: [Self; 8] = [
-        Self::Dashboard,
+    /// Every residual compiled adapter, in registry order.
+    pub const ALL: [Self; 7] = [
         Self::Repositories,
         Self::Issues,
         Self::PullRequests,
@@ -629,7 +640,6 @@ impl ScreenId {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Dashboard => "core.dashboard",
             Self::Repositories => "core.repositories",
             Self::Issues => "github.issues",
             Self::PullRequests => "github.pull-requests",
@@ -668,6 +678,12 @@ impl ScreenId {
         }
     }
 }
+
+/// Canonical identity of the built-in Dashboard definition.
+pub const DASHBOARD_SCREEN_ID: BuiltinScreenId = BuiltinScreenId::from_static("core.dashboard");
+
+/// Open Dashboard definition identity used by navigation and persistence.
+pub const DASHBOARD_IDENTITY: ScreenIdentity = ScreenIdentity::Builtin(DASHBOARD_SCREEN_ID);
 
 impl fmt::Display for ScreenId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

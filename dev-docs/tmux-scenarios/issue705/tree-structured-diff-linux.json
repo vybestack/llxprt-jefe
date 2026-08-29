@@ -60,7 +60,7 @@
       {
         "path": "config/plugins/installed/vendor.controls/1.0.0/screens/main.screen.toml",
         "content": {
-          "utf8": "screen_schema = 1\nid = \"vendor.controls.review\"\ntitle = \"Native Control Review\"\nroute = \"vendor.controls.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"dashboard.open-help\"\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.controls.tree-diff\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
+          "utf8": "screen_schema = 1\nid = \"vendor.controls.review\"\ntitle = \"Native Control Review\"\nroute = \"vendor.controls.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[overlays]]\nkind = \"help\"\n\n[[overlays]]\nkind = \"search\"\n\n[[overlays]]\nkind = \"confirmation\"\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"dashboard.open-help\"\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.controls.tree-diff\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
         },
         "mode": 384
       },
@@ -93,23 +93,12 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Types",
+      "literal": "Agents",
       "timeout_ms": 20000
     },
     {
       "op": "key",
       "key": "f2",
-      "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Navigate to",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "escape",
       "modifiers": []
     },
     {
@@ -283,13 +272,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Types",
+      "literal": "Agents",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Agent Types"
+        "Agents"
       ],
       "absent": [
         "1 error",

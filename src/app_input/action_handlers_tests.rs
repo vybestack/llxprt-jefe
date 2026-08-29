@@ -3,7 +3,7 @@
 use jefe::domain::action_registry::HandlerKey;
 use jefe::domain::keymap::Chord;
 use jefe::list_viewport::PageItemCount;
-use jefe::state::{AppEvent, ErrorsFocus, ScreenId};
+use jefe::state::{AppEvent, ErrorsFocus, ScreenId, transition::TransitionExt};
 
 use super::action_handlers::{BoundaryAction, HandlerExecution, execution_for};
 
@@ -123,9 +123,29 @@ fn terminal_tail_at_follow_tail_forwards_to_pty() {
 }
 
 #[test]
+fn active_search_submit_is_interpreted_by_the_form_control() {
+    let state = crate::test_app_state()
+        .apply(AppEvent::OpenSearch)
+        .committed_pure()
+        .apply(AppEvent::FormChar('x'))
+        .committed_pure();
+
+    assert!(matches!(
+        execution_for(
+            HandlerKey::SearchApply,
+            chord("Enter"),
+            &state,
+            PageItemCount::new(1),
+        ),
+        HandlerExecution::Event(AppEvent::CloseModal)
+    ));
+}
+
+#[test]
 fn s4_modal_controls_have_typed_executions() {
-    let mut state = crate::test_app_state();
-    state.modal = jefe::state::ModalState::Help;
+    let state = crate::test_app_state()
+        .apply(jefe::state::AppEvent::OpenHelp)
+        .committed_pure();
     assert!(matches!(
         execution_for(
             HandlerKey::HelpScrollDown,

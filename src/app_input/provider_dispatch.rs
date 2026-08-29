@@ -60,60 +60,117 @@ pub fn dispatch_provider_surface_control(
     true
 }
 
+/// Dispatch one typed edit accepted by the exact pending provider-confirmation Form.
+pub fn dispatch_provider_confirmation_field_edit(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    field_id: Id,
+    value: TypedValue,
+) -> bool {
+    let message = {
+        let state = app_state.read();
+        state
+            .provider_confirmation_field_edit(field_id, value)
+            .map(|(field_id, value)| ProviderMessage::EditConfirmationField { field_id, value })
+    };
+    let Some(message) = message else {
+        return false;
+    };
+    dispatch_provider_messages(app_state, ctx, message);
+    true
+}
+
+fn provider_confirmation_control(
+    state: &jefe::state::AppState,
+    control: ProviderSurfaceControl,
+) -> Option<ConfirmFocus> {
+    if control == ProviderSurfaceControl::ActivateConfirmation
+        && state
+            .nav
+            .current()
+            .overlays()
+            .confirmation_focused_field()
+            .is_some()
+    {
+        return None;
+    }
+    let action = match control {
+        ProviderSurfaceControl::CycleConfirmationFocus => jefe::host_controls::ControlAction::Next,
+        ProviderSurfaceControl::ActivateConfirmation => {
+            jefe::host_controls::ControlAction::Activate
+        }
+        ProviderSurfaceControl::Retry | ProviderSurfaceControl::Escape => return None,
+    };
+    state.provider_confirmation_focus_for(action, 60)
+}
+
 fn provider_surface_message(
     state: &jefe::state::AppState,
     control: ProviderSurfaceControl,
 ) -> Option<ProviderMessage> {
-    let Some(request) = state.provider_requests.requests().last() else {
-        return (state.provider_surface_action.is_some()
+    let Some(request) = state.latest_current_provider_request() else {
+        return (state.provider_surface_action().is_some()
             && control == ProviderSurfaceControl::Escape)
             .then_some(ProviderMessage::DismissTerminals);
     };
-    let confirmation = state.provider_requests.latest_pending_confirmation_view();
+    let confirmation = state.current_provider_confirmation();
     match control {
-        ProviderSurfaceControl::CycleConfirmationFocus if confirmation.is_some() => {
+        ProviderSurfaceControl::CycleConfirmationFocus
+            if provider_confirmation_control(state, control).is_some() =>
+        {
             Some(ProviderMessage::CycleConfirmationFocus)
         }
         ProviderSurfaceControl::ActivateConfirmation
-            if confirmation.is_some()
-                && state.provider_requests.confirmation_focus() == ConfirmFocus::Cancel =>
+            if provider_confirmation_control(state, control) == Some(ConfirmFocus::Cancel) =>
         {
             Some(ProviderMessage::CancelConfirmation)
         }
-        ProviderSurfaceControl::ActivateConfirmation => {
+        ProviderSurfaceControl::ActivateConfirmation
+            if provider_confirmation_control(state, control) == Some(ConfirmFocus::Confirm) =>
+        {
             let confirmation = confirmation?;
             Some(ProviderMessage::Confirm {
-                owner: request.key().owner.clone(),
-                action_id: request.key().action_id.clone(),
-                context_screen: request.context_screen().clone(),
-                context_instance: request.context_instance().clone(),
-                context_refs: request.context_refs().clone(),
-                generation: request.key().generation,
+                owner: confirmation.owner().clone(),
+                action_id: confirmation.action_id().clone(),
+                generation: confirmation.generation(),
                 confirmation_id: confirmation.confirmation_id().clone(),
-                values: TypedMap::new(),
+                values: state
+                    .nav
+                    .current()
+                    .overlays()
+                    .confirmation_values()?
+                    .clone(),
                 now_epoch: current_epoch_seconds()?,
             })
         }
         ProviderSurfaceControl::Escape if confirmation.is_some() => {
             Some(ProviderMessage::CancelConfirmation)
         }
-        ProviderSurfaceControl::Retry if request.is_terminal() => Some(ProviderMessage::Retry {
-            old_key: request.key().clone(),
-            owner: request.key().owner.clone(),
-            action_id: request.key().action_id.clone(),
-            context_screen: request.context_screen().clone(),
-            context_instance: request.context_instance().clone(),
-            context_refs: request.context_refs().clone(),
-            arguments: request.arguments().clone(),
-            policy: request.policy().clone(),
-        }),
+        ProviderSurfaceControl::Retry
+            if request.is_terminal() && state.provider_retry_control_accepts() =>
+        {
+            Some(provider_retry_message(request))
+        }
         ProviderSurfaceControl::Escape if request.is_terminal() => {
             Some(ProviderMessage::DismissTerminals)
         }
-        ProviderSurfaceControl::Escape => Some(ProviderMessage::Cancel {
-            key: request.key().clone(),
-        }),
-        ProviderSurfaceControl::Retry | ProviderSurfaceControl::CycleConfirmationFocus => None,
+        ProviderSurfaceControl::Escape if state.provider_cancel_control_accepts() => {
+            Some(ProviderMessage::Cancel {
+                key: request.key().clone(),
+            })
+        }
+        ProviderSurfaceControl::Retry
+        | ProviderSurfaceControl::CycleConfirmationFocus
+        | ProviderSurfaceControl::ActivateConfirmation
+        | ProviderSurfaceControl::Escape => None,
+    }
+}
+
+fn provider_retry_message(
+    request: &jefe::state::provider_requests::ActiveRequest,
+) -> ProviderMessage {
+    ProviderMessage::Retry {
+        old_key: request.key().clone(),
     }
 }
 
@@ -136,6 +193,12 @@ pub(super) fn dispatch_provider_messages(
     super::refresh_action_availability(app_state);
 }
 
+fn keybind_invocation_arguments(
+    declared: &[jefe::domain::plugin::field::Field],
+) -> Option<TypedMap> {
+    declared.is_empty().then(TypedMap::new)
+}
+
 /// Initiate a provider action invocation from a keybind dispatch.
 ///
 /// Looks up the descriptor from the committed workbench catalog, builds the
@@ -146,9 +209,6 @@ pub fn invoke_provider_action(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     action_id: &ActionId,
-    context_screen: &Id,
-    context_instance: &Id,
-    context_refs: &TypedMap,
 ) -> bool {
     let Some(ctx_arc) = ctx else {
         tracing::warn!(action_id = %action_id.as_str(), "provider dispatch has no application context");
@@ -174,27 +234,44 @@ pub fn invoke_provider_action(
         return false;
     };
 
+    dispatch_keybind_invocation(
+        &descriptor.action_id,
+        &descriptor.arguments,
+        &descriptor.policy,
+        |message| dispatch_provider_messages(app_state, ctx, message),
+    )
+}
+
+fn dispatch_keybind_invocation(
+    action_id: &ActionId,
+    declared_arguments: &[jefe::domain::plugin::field::Field],
+    policy: &jefe::state::provider_requests::ActionPolicy,
+    dispatch: impl FnOnce(ProviderMessage),
+) -> bool {
     // The descriptor stores the already-parsed ActionId; convert its validated
     // string form into a domain Id without re-validating (both share the same
     // grammar constraints).
-    let Ok(action_id_domain) = Id::parse(descriptor.action_id.as_str()) else {
+    let Ok(action_id_domain) = Id::parse(action_id.as_str()) else {
         tracing::error!(
-            action_id = %descriptor.action_id.as_str(),
+            action_id = %action_id.as_str(),
             "provider_dispatch: descriptor action_id is not a valid Id"
         );
         return false;
     };
     let Some(owner) = host_id() else { return false };
-    let message = ProviderMessage::Invoke {
+    let Some(arguments) = keybind_invocation_arguments(declared_arguments) else {
+        tracing::warn!(
+            action_id = %action_id.as_str(),
+            "provider action requires typed arguments that keybind dispatch cannot collect"
+        );
+        return false;
+    };
+    dispatch(ProviderMessage::Invoke {
         owner,
         action_id: action_id_domain,
-        context_screen: context_screen.clone(),
-        context_instance: context_instance.clone(),
-        context_refs: context_refs.clone(),
-        arguments: TypedMap::new(),
-        policy: descriptor.policy.clone(),
-    };
-    dispatch_provider_messages(app_state, ctx, message);
+        arguments,
+        policy: policy.clone(),
+    });
     true
 }
 
@@ -306,9 +383,7 @@ fn apply_provider_host_outcome(
                     issued,
                     Ok(ProviderResponse::OutcomeApplied { key }),
                 );
-                if let ProviderHostAction::Navigate { route, values } = &action {
-                    state.enter_provider_route(*route, values.clone());
-                }
+                apply_provider_host_action_state(&mut state, &action);
                 action
             }
             Err(detail) => {
@@ -349,6 +424,19 @@ enum ProviderHostAction {
     Refresh(jefe::state::ScreenId),
 }
 
+fn apply_provider_host_action_state(
+    state: &mut jefe::state::AppState,
+    action: &ProviderHostAction,
+) {
+    if let ProviderHostAction::Navigate { route, values } = action {
+        transition::commit_pure_site(
+            state,
+            AppMessage::Provider(Box::new(ProviderMessage::DismissTerminals)),
+        );
+        state.enter_provider_route(*route, values.clone());
+    }
+}
+
 fn prepare_provider_host_outcome_state(
     state: &mut jefe::state::AppState,
     key: &jefe::domain::effects::ProviderRequestKey,
@@ -372,11 +460,18 @@ fn prepare_provider_host_outcome_state(
             if request.context_refs() != &resource_ref {
                 return Err("provider refresh no longer owns the current resource".to_owned());
             }
-            match screen {
-                jefe::state::ScreenId::Issues | jefe::state::ScreenId::PullRequests => {
-                    Ok(ProviderHostAction::Refresh(screen))
-                }
-                _ => Err("provider refresh is unsupported for the current screen".to_owned()),
+            match screen.compiled() {
+                Some(
+                    screen @ (jefe::state::ScreenId::Issues | jefe::state::ScreenId::PullRequests),
+                ) => Ok(ProviderHostAction::Refresh(screen)),
+                Some(
+                    jefe::state::ScreenId::Repositories
+                    | jefe::state::ScreenId::Actions
+                    | jefe::state::ScreenId::Errors
+                    | jefe::state::ScreenId::Terminals
+                    | jefe::state::ScreenId::Settings,
+                )
+                | None => Err("provider refresh is unsupported for the current screen".to_owned()),
             }
         }
     })
@@ -385,14 +480,12 @@ fn prepare_provider_host_outcome_state(
 fn authorize_provider_outcome(
     state: &jefe::state::AppState,
     key: &jefe::domain::effects::ProviderRequestKey,
-) -> Result<jefe::state::ScreenId, String> {
+) -> Result<jefe::workbench::ScreenIdentity, String> {
     let request = state
         .provider_requests
         .request(key)
         .ok_or_else(|| "provider outcome request is no longer current".to_owned())?;
-    let screen = state
-        .compiled_screen()
-        .ok_or_else(|| "provider outcome is unsupported for the current screen".to_owned())?;
+    let screen = state.screen();
     if request.context_screen().as_str() != screen.as_str()
         || request.context_instance().as_str() != state.nav.current().id.to_string()
     {
@@ -517,262 +610,5 @@ fn current_epoch_seconds() -> Option<u64> {
 }
 
 #[cfg(test)]
-mod host_outcome_tests {
-    use jefe::domain::effects::{
-        Effect, EffectFamily, IssuedEffect, ProviderEffect, ProviderHostOutcome, ProviderNotice,
-        ProviderNoticeSeverity, RetryPolicy, SemanticKey,
-    };
-    use jefe::domain::plugin::action::{ActionConfirmation, ActionOutcome};
-    use jefe::state::ScreenId;
-    use jefe::state::provider_requests::{ActionPolicy, InvokeInput};
-
-    use super::*;
-
-    fn active_request(
-        state: &mut jefe::state::AppState,
-    ) -> jefe::domain::effects::ProviderRequestKey {
-        active_request_with_policy(
-            state,
-            ActionPolicy::new(ActionConfirmation::None, vec![ActionOutcome::Notice], false),
-        )
-    }
-
-    fn active_request_with_policy(
-        state: &mut jefe::state::AppState,
-        policy: ActionPolicy,
-    ) -> jefe::domain::effects::ProviderRequestKey {
-        let owner = Id::parse("host").unwrap_or_else(|error| panic!("owner: {error}"));
-        let action = Id::parse("provider.notice").unwrap_or_else(|error| panic!("action: {error}"));
-        let screen =
-            Id::parse(state.screen().as_str()).unwrap_or_else(|error| panic!("screen: {error}"));
-        let instance = Id::parse(&state.nav.current().id.to_string())
-            .unwrap_or_else(|error| panic!("instance: {error}"));
-        state
-            .provider_requests
-            .invoke(InvokeInput {
-                owner: &owner,
-                action_id: &action,
-                context_screen: &screen,
-                context_instance: &instance,
-                context_refs: &TypedMap::new(),
-                arguments: &TypedMap::new(),
-                policy: &policy,
-            })
-            .unwrap_or_else(|error| panic!("invoke: {error}"))
-            .key
-    }
-
-    #[test]
-    fn accepted_notice_applies_only_while_exact_screen_instance_is_current() {
-        let mut state = crate::test_app_state();
-        let key = active_request(&mut state);
-        let notice = ProviderNotice {
-            severity: ProviderNoticeSeverity::Info,
-            message: "completed".to_owned(),
-        };
-
-        let applied = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Notice(notice.clone()),
-        );
-        assert!(matches!(applied, Ok(ProviderHostAction::None)));
-        assert_eq!(state.provider_notice, Some(notice));
-        assert_eq!(state.warning_message.as_deref(), Some("completed"));
-
-        state.show_screen(ScreenId::Issues);
-        state.provider_notice = None;
-        state.warning_message = None;
-        let refusal = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Notice(ProviderNotice {
-                severity: ProviderNoticeSeverity::Warning,
-                message: "stale".to_owned(),
-            }),
-        );
-        assert_eq!(
-            refusal,
-            Err("provider outcome authority is stale".to_owned())
-        );
-        assert!(state.provider_notice.is_none());
-        assert!(state.warning_message.is_none());
-    }
-
-    #[test]
-    fn provider_activation_conversion_rejects_nested_and_wrong_kind_values() {
-        let name = Id::parse("query").unwrap_or_else(|error| panic!("field: {error}"));
-        let schema = vec![jefe::workbench::ActivationField {
-            name: name.clone(),
-            kind: jefe::workbench::ActivationKind::Text,
-        }];
-        let mut nested = TypedMap::new();
-        nested.insert(name.clone(), TypedValue::Map(TypedMap::new()));
-        assert!(provider_activation_values(&schema, nested).is_err());
-
-        let mut valid = TypedMap::new();
-        valid.insert(name, TypedValue::String("open".to_owned()));
-        assert!(provider_activation_values(&schema, valid).is_ok());
-    }
-
-    #[test]
-    fn refresh_requires_the_exact_current_resource_and_supported_screen() {
-        let mut state = crate::test_app_state();
-        state.show_screen(ScreenId::Issues);
-        let key = active_request(&mut state);
-
-        let accepted = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Refresh {
-                resource_ref: TypedMap::new(),
-            },
-        );
-        assert_eq!(accepted, Ok(ProviderHostAction::Refresh(ScreenId::Issues)));
-
-        let mut different = TypedMap::new();
-        different.insert(
-            Id::parse("repository").unwrap_or_else(|error| panic!("field: {error}")),
-            TypedValue::String("other/repository".to_owned()),
-        );
-        let refused = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Refresh {
-                resource_ref: different,
-            },
-        );
-        assert_eq!(
-            refused,
-            Err("provider refresh no longer owns the current resource".to_owned())
-        );
-    }
-
-    #[test]
-    fn provider_navigation_rejects_core_local_and_foreign_package_routes() {
-        let declared =
-            Id::parse("vendor.pkg.open").unwrap_or_else(|error| panic!("declared route: {error}"));
-        let policy = ActionPolicy::new(
-            ActionConfirmation::None,
-            vec![ActionOutcome::NavigateDeclaredRoute],
-            false,
-        )
-        .with_declared_routes(vec![declared.clone()]);
-        let mut state = crate::test_app_state();
-        let key = active_request_with_policy(&mut state, policy);
-
-        for route in ["actions", "local.open", "vendor.other.open"] {
-            let refusal = prepare_provider_host_outcome_state(
-                &mut state,
-                &key,
-                ProviderHostOutcome::Navigate {
-                    route_id: Id::parse(route)
-                        .unwrap_or_else(|error| panic!("route {route}: {error}")),
-                    activation: TypedMap::new(),
-                },
-            );
-            assert_eq!(
-                refusal,
-                Err("provider requested a route not declared by its package".to_owned())
-            );
-        }
-
-        let declared_but_not_composed = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Navigate {
-                route_id: declared,
-                activation: TypedMap::new(),
-            },
-        );
-        assert_eq!(
-            declared_but_not_composed,
-            Err("provider requested an unknown route".to_owned())
-        );
-    }
-
-    #[test]
-    fn provider_navigation_refuses_to_bypass_the_dirty_guard() {
-        use jefe::state::navigation_dirty::{DraftToken, SaveIntent};
-
-        let mut state = crate::test_app_state();
-        let key = active_request(&mut state);
-        let original_screen = state.screen();
-        state.mark_screen_dirty(
-            DraftToken::next(),
-            SaveIntent::Unavailable {
-                reason: "test draft has no save target",
-            },
-        );
-
-        let refused = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            ProviderHostOutcome::Navigate {
-                route_id: Id::parse("actions").unwrap_or_else(|error| panic!("route: {error}")),
-                activation: TypedMap::new(),
-            },
-        );
-        assert_eq!(
-            refused,
-            Err("provider navigation is blocked by unsaved changes".to_owned())
-        );
-        assert_eq!(state.screen(), original_screen);
-    }
-
-    #[test]
-    fn outcome_completion_closes_the_ledger_before_navigation_changes_generation() {
-        let mut state = crate::test_app_state();
-        let route = Id::parse("actions").unwrap_or_else(|error| panic!("declared route: {error}"));
-        let policy = ActionPolicy::new(
-            ActionConfirmation::None,
-            vec![ActionOutcome::NavigateDeclaredRoute],
-            false,
-        )
-        .with_declared_routes(vec![route.clone()]);
-        let key = active_request_with_policy(&mut state, policy);
-        let owner = key.owner.clone();
-        let correlation = state
-            .pending_effects
-            .register(
-                owner,
-                SemanticKey::new(EffectFamily::Provider, "outcome-provider.notice-1"),
-                RetryPolicy::Never,
-            )
-            .unwrap_or_else(|error| panic!("register effect: {error}"));
-        let issued = IssuedEffect {
-            effect: Effect::Provider(ProviderEffect::ApplyOutcome {
-                key: key.clone(),
-                outcome: ProviderHostOutcome::Navigate {
-                    route_id: route,
-                    activation: TypedMap::new(),
-                },
-            }),
-            correlation: correlation.clone(),
-            retry: RetryPolicy::Never,
-        };
-        let action = prepare_provider_host_outcome_state(
-            &mut state,
-            &key,
-            match &issued.effect {
-                Effect::Provider(ProviderEffect::ApplyOutcome { outcome, .. }) => outcome.clone(),
-                _ => panic!("fixture must carry a provider host outcome"),
-            },
-        )
-        .unwrap_or_else(|error| panic!("prepare outcome: {error}"));
-
-        complete_provider_outcome_state(
-            &mut state,
-            &issued,
-            Ok(ProviderResponse::OutcomeApplied { key }),
-        );
-        assert!(!state.pending_effects.is_pending(&correlation));
-
-        let ProviderHostAction::Navigate { route, values } = action else {
-            panic!("expected navigation");
-        };
-        state.enter_provider_route(route, values);
-        assert_eq!(state.screen(), ScreenId::Actions);
-        assert!(!state.pending_effects.is_pending(&correlation));
-    }
-}
+#[path = "provider_dispatch_tests.rs"]
+mod host_outcome_tests;

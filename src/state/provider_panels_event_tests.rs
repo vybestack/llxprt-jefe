@@ -14,7 +14,7 @@ use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{
     Affordance, BodyKind, DetailBody, EmptyBody, ErrorBody, FormBody, ListBody, ListItem,
     PanelBody, PanelEvent, PanelSnapshot, ProgressBody, StructuredDiffBody, StructuredDiffFile,
-    TreeBody, TreeNode,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 use crate::test_support::{Must, MustErr};
 use crate::workbench::PanelId;
@@ -203,8 +203,11 @@ fn structured_diff_panel(state: &mut ProviderPanelState) -> (PanelInstanceId, u6
             schema_version: 1,
             files: vec![StructuredDiffFile {
                 id: id("vendor.file"),
-                old_path: Some("a/file".to_owned()),
-                new_path: Some("b/file".to_owned()),
+            path: StructuredDiffPath::Renamed {
+                old: "a/file".to_owned(),
+                new: "b/file".to_owned(),
+            },
+
                 old_mode: None,
                 new_mode: None,
                 binary: true,

@@ -6,7 +6,7 @@
 
 use jefe::domain::input_context::{ContextStack, ContextStackError};
 use jefe::input::InputMode;
-use jefe::state::{ActionsFocus, AppState, IssueFocus, ModalState, PaneFocus, PrFocus, ScreenId};
+use jefe::state::{ActionsFocus, AppState, IssueFocus, ModalState, PrFocus, ScreenId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DispatchScope {
@@ -37,16 +37,25 @@ pub fn derive_action_context(
             DispatchScope::TerminalCapture,
         );
     }
+    if let Some(overlay) = state.active_overlay_kind() {
+        let context = match overlay {
+            jefe::workbench::OverlayKind::Help => "help",
+            jefe::workbench::OverlayKind::Search => "search",
+            jefe::workbench::OverlayKind::Confirmation => "modal.confirm",
+        };
+        return modal_stack(state, context);
+    }
     if let Some(modal) = modal_context(&state.modal) {
-        return modal_stack(state.compiled_screen(), modal);
+        return modal_stack(state, modal);
+    }
+    if is_host_workspace(state) {
+        return if input_mode == InputMode::Normal {
+            host_workspace_context(state)
+        } else {
+            pre_mode(&["dashboard", "global"])
+        };
     }
     match state.compiled_screen() {
-        Some(ScreenId::Dashboard) if input_mode == InputMode::DashboardSearch => action_context(
-            &["dashboard.search", "dashboard.pre-mode", "global"],
-            false,
-            DispatchScope::FullS4,
-        ),
-        Some(ScreenId::Dashboard) if input_mode == InputMode::Normal => dashboard_context(state),
         Some(ScreenId::Repositories) if input_mode == InputMode::Normal => {
             full_s3(&["split", "global"])
         }
@@ -60,7 +69,6 @@ pub fn derive_action_context(
         Some(ScreenId::Issues) => issues_context(state),
         Some(ScreenId::PullRequests) => prs_context(state),
         Some(ScreenId::Actions) => actions_context(state),
-        Some(ScreenId::Dashboard) => pre_mode(&["dashboard", "global"]),
         Some(ScreenId::Repositories) => pre_mode(&["split", "global"]),
         Some(ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings) => pre_mode(&["global"]),
         // Lowered package and custom screens share the protected host Back
@@ -71,35 +79,24 @@ pub fn derive_action_context(
 
 fn modal_context(modal: &ModalState) -> Option<&'static str> {
     match modal {
-        ModalState::Help => Some("help"),
-        // The Keys editor owns its own input, but it must still derive a
-        // distinct context: naming `global` here repeats the stack's own tail
-        // and `ContextStack` rejects duplicates, which would swallow the
-        // protected emergency exit the editor deliberately lets through.
-        ModalState::Search { .. } => Some("search"),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }
         | ModalState::EditAgent { .. }
         | ModalState::GeneratedAgent { .. }
         | ModalState::WorkflowDispatch { .. } => Some("modal.form"),
-        ModalState::ConfirmDeleteRepository { .. }
-        | ModalState::ConfirmDeleteAgent { .. }
-        | ModalState::ConfirmKillAgent { .. }
-        | ModalState::ConfirmServerLostRecovery { .. }
-        | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. }
-        | ModalState::ConfirmIssueOriginMismatch { .. } => Some("modal.confirm"),
         ModalState::Auth { .. } => Some("modal.auth"),
         ModalState::None => None,
     }
 }
 
-fn modal_stack(screen: Option<ScreenId>, modal: &str) -> Result<ActionContext, ContextStackError> {
-    if matches!(
-        screen,
-        Some(ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions)
-    ) {
+fn modal_stack(state: &AppState, modal: &str) -> Result<ActionContext, ContextStackError> {
+    if is_host_workspace(state)
+        || matches!(
+            state.compiled_screen(),
+            Some(ScreenId::Repositories | ScreenId::Actions)
+        )
+    {
         return action_context(
             &[modal, "dashboard.pre-mode", "global"],
             false,
@@ -193,14 +190,15 @@ fn workspace_stack(
     }
 }
 
-fn dashboard_context(state: &AppState) -> Result<ActionContext, ContextStackError> {
+fn is_host_workspace(state: &AppState) -> bool {
+    state.has_dashboard_action_context()
+}
+
+fn host_workspace_context(state: &AppState) -> Result<ActionContext, ContextStackError> {
     if state.dashboard_grab.is_some() {
         return full_s3(&["dashboard.grab", "dashboard.reorder", "dashboard", "global"]);
     }
-    if matches!(
-        state.pane_focus,
-        PaneFocus::Repositories | PaneFocus::Agents
-    ) {
+    if state.focused_host_reorder_panel() {
         return full_s3(&["dashboard.reorder", "dashboard", "global"]);
     }
     full_s3(&["dashboard", "global"])

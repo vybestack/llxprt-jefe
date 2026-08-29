@@ -6,7 +6,7 @@
 use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use jefe::input::{InputMode, SearchKeyRoute, input_mode_for_state, route_search_key};
-use jefe::state::{ModalState, PaneFocus};
+use jefe::state::{ModalState, PaneFocus, transition::TransitionExt};
 
 fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     let mut event = KeyEvent::new(KeyEventKind::Press, code);
@@ -20,15 +20,16 @@ fn mode_prefers_search_over_terminal_capture() {
         let mut state = crate::common_app_state::app_state();
         state.terminal_focused = true;
         state.pane_focus = PaneFocus::Terminal;
-        state.modal = ModalState::Search {
-            query: String::from("abc"),
-        };
         state
-    };
+    }
+    .apply(jefe::state::AppEvent::OpenSearch)
+    .committed_pure();
 
     assert_eq!(input_mode_for_state(&state), InputMode::Search);
 
-    state.modal = ModalState::None;
+    state = state
+        .apply(jefe::state::AppEvent::CloseModal)
+        .committed_pure();
     assert_eq!(input_mode_for_state(&state), InputMode::TerminalCapture);
 }
 

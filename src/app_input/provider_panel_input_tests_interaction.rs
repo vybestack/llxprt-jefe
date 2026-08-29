@@ -68,7 +68,7 @@
             form_draft: None,
         };
         state
-            .provider_panels
+            .provider_panels_mut()
             .update_host_local(panel, host)
             .unwrap_or_else(|error| panic!("host-local fixture: {error}"));
 
@@ -153,7 +153,7 @@
             form_draft: Some(draft),
         };
         state
-            .provider_panels
+            .provider_panels_mut()
             .update_host_local(panel, host)
             .unwrap_or_else(|error| panic!("host-local fixture: {error}"));
 
@@ -418,7 +418,7 @@
             &snapshot,
         );
         state
-            .provider_panels
+            .provider_panels_mut()
             .suspend(panel)
             .unwrap_or_else(|error| panic!("suspend: {error}"));
 
@@ -456,14 +456,14 @@
             &snapshot,
         );
 
-        let prior_host = state.provider_panels.host_local(panel).cloned();
+        let prior_host = state.provider_panels().host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
         let Some(event) = control_event(&state, panel, ControlAction::FocusedAction) else {
             panic!("enabled action must project an event");
         };
         assert!(!state.submit_provider_panel_event(panel, event));
         assert!(state.take_staged_effects().is_empty());
-        assert_eq!(state.provider_panels.host_local(panel), prior_host.as_ref());
+        assert_eq!(state.provider_panels().host_local(panel), prior_host.as_ref());
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
     }
 
@@ -571,7 +571,7 @@
             "unfocused character input must remain available to global bindings"
         );
         state
-            .provider_panels
+            .provider_panels_mut()
             .update_host_local(
                 panel,
                 HostLocal {
@@ -589,7 +589,7 @@
         let effects = state.take_staged_effects();
         assert_eq!(effects.len(), 1);
         let draft = state
-            .provider_panels
+            .provider_panels()
             .host_local(panel)
             .and_then(|host| host.form_draft.as_ref())
             .unwrap_or_else(|| panic!("accepted edit must create a draft"));
@@ -604,16 +604,36 @@
     }
 
     #[test]
-    fn invalid_raw_form_edit_leaves_host_state_and_effects_unchanged() {
+    fn constraint_incomplete_raw_form_edit_stays_host_local_without_provider_effect() {
         use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
         use jefe::domain::plugin::field::Scalar;
 
         let (mut state, panel) = active_form(Some(Scalar::Integer(3)));
-        let prior = state.provider_panels.host_local(panel).cloned();
+        state
+            .provider_panels_mut()
+            .update_host_local(
+                panel,
+                HostLocal {
+                    focus_target: Some(id("name")),
+                    ..HostLocal::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("focus field: {error}"));
         let key = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
-
-        assert!(edit_form_field(&state, panel, &key).is_none());
-        assert_eq!(state.provider_panels.host_local(panel), prior.as_ref());
+        let Some(RawKeyMutation::Draft { field_id, value }) =
+            edit_form_field(&state, panel, &key)
+        else {
+            panic!("constraint-incomplete edit must remain a host-local draft");
+        };
+        assert!(update_form_draft(&mut state, panel, field_id, value));
+        assert_eq!(
+            state
+                .provider_panels()
+                .host_local(panel)
+                .and_then(|host| host.form_draft.as_ref())
+                .and_then(|draft| draft.get(&id("name"))),
+            Some(&TypedValue::String("oldx".to_owned()))
+        );
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -623,14 +643,14 @@
 
         let (mut state, panel) = active_form(None);
         state
-            .provider_panels
+            .provider_panels_mut()
             .fail_runtime(panel)
             .unwrap_or_else(|error| panic!("runtime failure: {error}"));
-        let prior = state.provider_panels.host_local(panel).cloned();
+        let prior = state.provider_panels().host_local(panel).cloned();
         let key = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
 
         assert!(edit_form_field(&state, panel, &key).is_none());
-        assert_eq!(state.provider_panels.host_local(panel), prior.as_ref());
+        assert_eq!(state.provider_panels().host_local(panel), prior.as_ref());
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -645,6 +665,6 @@
 
         assert!(edit_form_field(&state, panel, &escape).is_none());
         assert!(edit_form_field(&state, panel, &emergency).is_none());
-        assert!(state.provider_panels.host_local(panel).is_none());
+        assert!(state.provider_panels().host_local(panel).is_none());
         assert!(state.take_staged_effects().is_empty());
     }

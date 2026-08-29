@@ -17,7 +17,7 @@ use super::identifiers::RequestId;
 use super::panel_model::{
     ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
     DiffLineOrigin, HostLocal, ListBody, ListItem, MigrateConfigPayload, PanelBody, PanelEvent,
-    PanelEventPayload, PanelSnapshot,
+    PanelEventPayload, PanelSnapshot, StructuredDiffPath,
 };
 use super::protocol::{Direction, Id, RequestOrigin, TypedMap, parse_message};
 use crate::domain::action_registry::ActionId;

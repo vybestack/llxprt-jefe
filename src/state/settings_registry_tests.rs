@@ -23,7 +23,7 @@ use crate::workbench::descriptor::LayoutNode;
 use super::AppState;
 use super::agent_types_editor::AgentIntent;
 use super::keys_editor_project::KeyIntent;
-use super::screens_editor::{COMPILED_MEMBERSHIP_REASON, ScreenIntent, project_screens};
+use super::screens_editor::{MANDATORY_SCREEN_REASON, ScreenIntent, project_screens};
 use super::settings_types::SettingsDraft;
 
 fn theme(slug: &str) -> ThemeId {
@@ -307,7 +307,7 @@ fn moving_a_screen_that_is_not_enabled_says_so_and_changes_nothing() {
 }
 
 #[test]
-fn a_compiled_screen_cannot_be_turned_off_and_says_why() {
+fn a_mandatory_shipped_screen_cannot_be_turned_off_and_says_why() {
     let mut state = opened(
         b"settings_schema = 2
 ",
@@ -326,7 +326,7 @@ fn a_compiled_screen_cannot_be_turned_off_and_says_why() {
     assert!(!state.settings_state.is_dirty());
     assert_eq!(
         state.settings_state.notice.as_deref(),
-        Some(COMPILED_MEMBERSHIP_REASON)
+        Some(MANDATORY_SCREEN_REASON)
     );
 }
 
