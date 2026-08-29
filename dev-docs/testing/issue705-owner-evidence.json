@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "40dcc14a1e6bb4d7986ab01d275ad6a2979846fbce05cc856e07cac328f5da8a"
+    "artifact_set_sha256": "b369b6ba7e829cd9504e7e6e808789ef0f820ab21b21cf45b51074613b422b09"
   },
   "artifacts": [
     {
@@ -599,7 +599,7 @@
     },
     {
       "path": "src/state/settings_registry_provider_tests.rs",
-      "sha256": "7d002cf615e83572f299e5a184baace3cb078f8d25fa2eb50594db9bd324a995",
+      "sha256": "16de8a5e17421f49000f0368f5d725c474c7bf196e7e3e923a99e1003263c81e",
       "mode": "100644",
       "criteria": [
         "CWR2-01",

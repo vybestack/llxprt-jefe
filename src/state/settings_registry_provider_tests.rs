@@ -511,6 +511,7 @@ fn candidate_screen_lowering_diagnostic_is_a_settings_refusal() {
         refusals[0]
             .path
             .as_str()
+            .replace('\\', "/")
             .ends_with("vendor.demo/2.0.0/screens/main.screen.toml")
     );
     assert_eq!(refusals[0].redacted_detail, "invalid array\nexpected `]`");
