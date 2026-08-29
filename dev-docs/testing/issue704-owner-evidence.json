@@ -4,7 +4,7 @@
   "artifacts": [
     {
       "path": "dev-docs/standards/architecture.md",
-      "sha256": "bef2ec3e89b7581b82f90e3546c83410f6c2f6aa83ab91e370ef2bc89ae20581",
+      "sha256": "225ab588f530bc225c567cce80648da51251fe08454c150a02088661e6f1e3a5",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -12,7 +12,7 @@
     },
     {
       "path": "dev-docs/standards/persistence-and-runtime.md",
-      "sha256": "1cf717e9281d27512240d95eead199485dba955a918647ce5d2ff4e9a7b96fa1",
+      "sha256": "6c01599b30c6bf6e436cf00b77986bc5b105bfa1c6a13404e422515322301770",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -20,7 +20,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "ab7786252f8a111eec083869b88d8141bfb89bd647a401eb43e179cf707dc30c",
+      "sha256": "f98958f7cc825495df7caa5046da090c53d24cd5b99174e31c983e78f489bb6e",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "e2d4e5b0c2c305ab31ea7b68164beb67982fbfe8a0d3e02c446add72ac27d3b7",
+      "sha256": "bce3d4a3c16620b56eaad25b02fa8e146c3773aef17802d80cc0e91cb651ca95",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -73,7 +73,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/static-failure.json",
-      "sha256": "bb277a9b5b870b4427a68491a9dcb5a6c8d0d9ed0d5d90eea941b237d5f17641",
+      "sha256": "a134419958f596f402174bebe0d670e42e33c972d765af08c04d29cf560c6040",
       "mode": "100644",
       "criteria": [
         "CWR1-02",
@@ -83,7 +83,7 @@
     },
     {
       "path": "docs/technical-overview.md",
-      "sha256": "a3444d89f39a3f55e04ac5c28cf53d77083902242df7be188e82fdacbbf49341",
+      "sha256": "365d8e15a0b778d685612aa8c66f4594ebceb3247e64cb3778d9278844131d21",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -91,7 +91,7 @@
     },
     {
       "path": "src/action_projection.rs",
-      "sha256": "367305426c6b2724d43b66e7d805fc2e541e99ae29489182228c3797d4d77e8f",
+      "sha256": "92164ae375a3504c26e8684d22ff372c329cf59f39bf25f51c0d576a43a20124",
       "mode": "100644",
       "criteria": [
         "CWR1-08"
@@ -99,7 +99,7 @@
     },
     {
       "path": "src/app_init.rs",
-      "sha256": "f24dcdfdae13cff729b52b2df852327434890440afbdc06c65160db6c30097fc",
+      "sha256": "a8ab1c2a186fe817115eff08459bb0cc855ec513a29085a230b84d07ab7bdca5",
       "mode": "100644",
       "criteria": [
         "CWR1-06",
@@ -108,7 +108,7 @@
     },
     {
       "path": "src/domain/action_registry.rs",
-      "sha256": "fb4ce0f690dd0024e2e64722ce580bfa0ad8de2561dd21c6885d3d334358335a",
+      "sha256": "75d3aaa79dbfb0bf1346fe3d7ea5aca300f1c1b24ada00e8eb92532173ece388",
       "mode": "100644",
       "criteria": [
         "CWR1-09"
@@ -124,7 +124,7 @@
     },
     {
       "path": "src/main.rs",
-      "sha256": "95c33b40930fa3222c4a12bbb97000ca5035703b85f8f2650c396237605e4158",
+      "sha256": "f8f0ec58c8206e2cc21b736995c87aa13d428df105e5edc1e7e06cf4529d0f9e",
       "mode": "100644",
       "criteria": [
         "CWR1-01",
@@ -133,7 +133,7 @@
     },
     {
       "path": "src/published_workbench.rs",
-      "sha256": "b2fed0f8837cfd1bd79e42415a65ba01522ba07bb52a47dea89d790d3354f2da",
+      "sha256": "b182a018178a69ee5aecca5564839a29b69dd08c0b9e11642988d84fe8a176e3",
       "mode": "100644",
       "criteria": [
         "CWR1-01",
@@ -151,7 +151,7 @@
     },
     {
       "path": "src/startup_candidate.rs",
-      "sha256": "41362a081342f08a3a3ec1ef097d1a512b426ec5adc6f7cd46619356844a93ea",
+      "sha256": "80e07f0012be141e79e7008c52a813f7f3b345601a1a2ec26ac4b8ea6e66f44b",
       "mode": "100644",
       "criteria": [
         "CWR1-00",
@@ -190,7 +190,7 @@
     },
     {
       "path": "src/state/action_availability.rs",
-      "sha256": "5d62804f2c95601eeb7e19dfa00b3e7898385a46da7744599b763d55dfb5bd2f",
+      "sha256": "f3dd75e4b6263c9ec6c39e8a1dcb1cf8af41e8309462c24354db46edf9fd3c09",
       "mode": "100644",
       "criteria": [
         "CWR1-09"
@@ -198,7 +198,7 @@
     },
     {
       "path": "src/state/types.rs",
-      "sha256": "1c435c41e2553d50e539d09fd4c93b06d1f8bf30634bbd539dab8511bf4cbbbe",
+      "sha256": "ffcb2411ce799d5b45108382f046a829a1957af39ea21fb48b2afca2eeb06a99",
       "mode": "100644",
       "criteria": [
         "CWR1-06",
