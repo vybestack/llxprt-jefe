@@ -112,7 +112,9 @@ new issue/action variant, a dependency change, or behavior outside the matrix.
   `scripts/harness-ssh-add-loaded-shim.sh`: hermetic host fixtures for those scenarios.
 - `dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json`: ready-host fixture only; steps and assertions unchanged.
 - `dev-docs/testing/scenario-execution-manifest.json`, `dev-docs/testing/scenario-owner-evidence.json`: scenario registration and evidence.
-- `dev-docs/testing/issue704-owner-evidence.json`: the two hashes it records for those files.
+- `dev-docs/testing/issue704-owner-evidence.json`: the hashes it records for changed files.
+- `src/domain/sha256.rs`, `src/domain/agent_definition/sha256.rs`, `src/workbench/compose.rs`,
+  `src/main.rs`, `xtask/src/clippy_policy.rs`: approved lint-only unblocking (S5).
 - `project-plans/issue713-plan.md`: this plan.
 
 No dependency, manifest, `.github`, `.llxprt`, persistence-schema, or
@@ -123,6 +125,7 @@ quality-gate change is planned.
 | Entry | Status |
 |---|---|
 | S3, source reachability contract (P9) in `tests/core/`, beyond the two slices originally planned. Added because the unit tests prove the gate decides correctly but cannot prove the launch paths still consult it, and losing that one call is the entire defect. Follows the existing precedent in `tests/core/attach_ownership_contracts.rs`, which asserts an equivalent one-line invariant in source for the same reason. | Accepted; no production behavior added |
+| S5, eight pre-existing Clippy findings in `src/domain/sha256.rs`, `src/domain/agent_definition/sha256.rs`, `src/workbench/compose.rs`, `src/main.rs` and `xtask/src/clippy_policy.rs`, plus five more that were masked behind them. None is in a file this issue owns. `main`'s CI has failed the Lint job since 2026-08-26 because the workflow pins `dtolnay/rust-toolchain@stable` and stable moved, and the failure cascades: `Build`, `Test`, the Linux shards and the TUI completion gate are all skipped or failed behind it, so no PR in this repository can go green. | Accepted by explicit user approval, asked for and granted before any of those files were touched. Mechanical lint fixes only, no behavior change; the sha256 rewrites are covered by 20 existing digest tests. |
 | S4, TUI scenario coverage (P11) plus the harness fixtures it needs, and a fixture change to `dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json`. The original plan recorded "no TUI scenario" on the belief that the gate depends on uncontrollable host state. That was wrong: `src/harness/v1/env.rs` gives every scenario a hermetic environment with `PATH` rooted in the workspace and no `SSH_AUTH_SOCK`, so both the container runtime and the SSH agent are exactly what a scenario installs. The #652 scenario, whose subject is sandbox-value persistence rather than the sandbox host, is restored to its original steps and assertions by installing a ready host. | Accepted; required by the project rule that UI-visible behavior carries scenario coverage, and by the #652 scenario legitimately observing the restored gate |
 
 ## Review counters
@@ -162,11 +165,8 @@ Local, on the candidate head, logs under `tmp/verify713/`:
 - `cargo test --workspace --all-features --locked`: 7343 passed, 0 failed.
 - `cargo xtask coverage`: total line coverage 72.06% against the 30% floor.
 - `CLIPPY_CONF_DIR=.github/clippy cargo clippy --workspace --all-targets --all-features -- -D warnings`:
-  five findings in `src/domain/sha256.rs`, `src/domain/agent_definition/sha256.rs`,
-  `src/workbench/compose.rs` and three in `xtask/src/clippy_policy.rs`. All are
-  reproducible on unmodified `76e5d714` (verified by stashing this change) and
-  come from a newer local clippy than the pinned CI stable. No finding touches
-  a file in this change. CI runs the pinned toolchain.
+  clean, after the approved S5 unblocking. Local rustc is 1.98.0, the same
+  version CI's floating stable resolves to, so this reproduces the CI job.
 
 Scenarios, `scripts/run-scenario-manifest.py --platform macos`:
 

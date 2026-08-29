@@ -124,7 +124,7 @@
     },
     {
       "path": "src/main.rs",
-      "sha256": "424bf89b39e3c0a5527012a2eec9b3757060374e30402dffaea90f02d85dd26f",
+      "sha256": "95c33b40930fa3222c4a12bbb97000ca5035703b85f8f2650c396237605e4158",
       "mode": "100644",
       "criteria": [
         "CWR1-01",

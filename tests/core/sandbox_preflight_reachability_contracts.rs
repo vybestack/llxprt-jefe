@@ -52,14 +52,13 @@ fn the_launch_gate_rechecks_the_host_after_running_a_remediation() {
 
 #[test]
 fn the_host_sandbox_preflight_has_a_production_caller_outside_its_own_module() {
-    let callers: Vec<String> = production_sources()
+    let has_caller = production_sources()
         .into_iter()
         .filter(|relative| relative != CHECK_OWNER)
-        .filter(|relative| uses_check_symbol(&read_repo_text(relative)))
-        .collect();
+        .any(|relative| uses_check_symbol(&read_repo_text(&relative)));
 
     assert!(
-        !callers.is_empty(),
+        has_caller,
         "`{CHECK}` has no production use outside {CHECK_OWNER}. An unreachable \
          preflight check protects nothing: the prompt, the issue variant and \
          the ssh-add remediation all survive review while no launch ever runs \
@@ -140,7 +139,10 @@ fn collect_sources(directory: &Path, found: &mut Vec<String>) {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !name.ends_with(".rs") || name.contains("_test") {
+        let is_rust = path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"));
+        if !is_rust || name.contains("_test") {
             continue;
         }
         let Ok(relative) = path.strip_prefix(repo_path("")) else {

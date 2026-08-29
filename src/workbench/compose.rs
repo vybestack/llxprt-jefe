@@ -292,7 +292,7 @@ fn order_screens(screens: &mut [ScreenDescriptor], order: &[Id]) {
         order
             .iter()
             .position(|named| named.as_str() == screen.id.as_str())
-            .map_or(usize::MAX, |position| position)
+            .unwrap_or(usize::MAX)
     });
 }
 

@@ -79,11 +79,13 @@ fn declares_sandbox(definition: &jefe::domain::agent_definition::AgentDefinition
 /// The shipped definition this gate applies to, found by the field it declares
 /// rather than by its position in the registry.
 fn sandbox_capable_type() -> jefe::domain::agent_definition::AgentTypeId {
-    jefe::domain::agent_definition::AgentDefinition::shipped()
+    let Some(definition) = jefe::domain::agent_definition::AgentDefinition::shipped()
         .into_iter()
         .find(declares_sandbox)
-        .map(|definition| definition.id)
-        .unwrap_or_else(|| panic!("a shipped definition declaring a sandbox must exist"))
+    else {
+        panic!("a shipped definition declaring a sandbox must exist");
+    };
+    definition.id
 }
 
 /// A local sandbox-capable request.
@@ -154,14 +156,15 @@ fn sandbox_disabled_launch_never_consults_the_host() {
 #[test]
 fn stale_sandbox_values_on_a_non_sandbox_definition_never_consult_the_host() {
     let host = RecordingHostCheck::reporting(PreflightIssue::SshAgentNoIdentities);
-    let non_sandbox_type = jefe::domain::agent_definition::AgentDefinition::shipped()
+    let Some(non_sandbox) = jefe::domain::agent_definition::AgentDefinition::shipped()
         .into_iter()
         .find(|definition| !declares_sandbox(definition))
-        .map(|definition| definition.id)
-        .unwrap_or_else(|| panic!("a shipped definition without sandbox fields must exist"));
+    else {
+        panic!("a shipped definition without sandbox fields must exist");
+    };
 
     let request = AgentLaunchRequest {
-        type_id: non_sandbox_type,
+        type_id: non_sandbox.id,
         ..llxprt_request(sandbox_values("podman"))
     };
 
