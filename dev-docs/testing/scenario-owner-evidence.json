@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
+  "scenario_manifest_sha256": "ab7786252f8a111eec083869b88d8141bfb89bd647a401eb43e179cf707dc30c",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -499,7 +499,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json",
-      "sha256": "79ea1502758ea11e9f48a73b647771ea3e3407df7c3963c081d7a90e7d366c39",
+      "sha256": "3dd654620409f405b5de6293558e5edb88b0456403dcccece0145703e652a7c7",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -507,7 +507,7 @@
       ],
       "platform": "macos",
       "ci_job": "tui_scenarios_macos",
-      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json --install jefe=cargo-bin:jefe --install podman=repo:scripts/harness-podman-ready-shim.sh --install ssh-add=repo:scripts/harness-ssh-add-loaded-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issue687/config-isolation.json",
@@ -604,6 +604,18 @@
       "platform": "linux",
       "ci_job": "tui_scenarios_linux",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/static-failure.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
+      "sha256": "40ec0dcd822537b964472883019fcea823df1d1280c4d47da68053a847b39ada",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json --install jefe=cargo-bin:jefe --install podman=repo:scripts/harness-podman-ready-shim.sh --install ssh-add=repo:scripts/harness-ssh-add-empty-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
@@ -1995,7 +2007,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
+      "sha256": "ab7786252f8a111eec083869b88d8141bfb89bd647a401eb43e179cf707dc30c",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2198,6 +2210,15 @@
       ]
     },
     {
+      "path": "scripts/harness-podman-ready-shim.sh",
+      "sha256": "5995dd63a0fa35b8f3191299d133a2a243062a15b47aab4ca5c0b2d6a2f0f10f",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
       "path": "scripts/harness-repository-prep-git-shim.sh",
       "sha256": "41db0aff59cd0939d28edba3547db36d0ee41ac0ccf12df5224c0ae3fe0c47b5",
       "mode": "100755",
@@ -2209,6 +2230,24 @@
     {
       "path": "scripts/harness-shell-tools-shim.sh",
       "sha256": "c5481104a22e5dbeef65a989545eb3bc4722e8b576d4509717323090d3589f28",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/harness-ssh-add-empty-shim.sh",
+      "sha256": "00fe1bafcd9ea35ddccf08160dfcce5ea3e409f93391ef8e7f030ec9d30b53a9",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/harness-ssh-add-loaded-shim.sh",
+      "sha256": "2fcbf5ab464ce041167d445a5d5c9f7bed4f6d36b880c910e30776bc50e8e389",
       "mode": "100755",
       "criteria": [
         "CW00B-02",
@@ -3370,6 +3409,7 @@
         "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
         "dev-docs/tmux-scenarios/issue704/restart-publication.json",
         "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3491,8 +3531,11 @@
         "scripts/harness-agent-availability-shim.sh",
         "scripts/harness-github-scenario-shim.sh",
         "scripts/harness-interactive-agent-shim.sh",
+        "scripts/harness-podman-ready-shim.sh",
         "scripts/harness-repository-prep-git-shim.sh",
         "scripts/harness-shell-tools-shim.sh",
+        "scripts/harness-ssh-add-empty-shim.sh",
+        "scripts/harness-ssh-add-loaded-shim.sh",
         "scripts/harness-tmux-shim.sh",
         "scripts/issue189-gh-shim.sh",
         "scripts/issue189-run-pr-scenario.sh",
@@ -3649,6 +3692,7 @@
         "dev-docs/tmux-scenarios/issue704/required-provider-failure.json",
         "dev-docs/tmux-scenarios/issue704/restart-publication.json",
         "dev-docs/tmux-scenarios/issue704/static-failure.json",
+        "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3767,8 +3811,11 @@
         "scripts/harness-agent-availability-shim.sh",
         "scripts/harness-github-scenario-shim.sh",
         "scripts/harness-interactive-agent-shim.sh",
+        "scripts/harness-podman-ready-shim.sh",
         "scripts/harness-repository-prep-git-shim.sh",
         "scripts/harness-shell-tools-shim.sh",
+        "scripts/harness-ssh-add-empty-shim.sh",
+        "scripts/harness-ssh-add-loaded-shim.sh",
         "scripts/harness-tmux-shim.sh",
         "scripts/issue189-gh-shim.sh",
         "scripts/issue194-gh-shim.sh",

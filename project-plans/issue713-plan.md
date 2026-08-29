@@ -54,6 +54,7 @@ still not ready re-prompts instead of launching.
 | P6 | validation precedence | request that fails `validate_launch_request` | `PreflightIssue::UnsupportedRuntimeOption` is prompted and the host check is never consulted | prompt carries the runtime diagnostic string | unit test |
 | P7 | prompt confirmation | user confirms `SshAdd` remediation | the whole `launch_preflight_issue` decision re-runs against the signature as remediation left it; a still-unready host produces the next prompt, a cleared host resumes the launch | remediation error closes the modal and sets `error_message` (existing behavior) | unit tests on the shared decision plus the reachability contract on the re-check call |
 | P8 | host observation | `ssh-add -l` exits zero printing `The agent has no identities.` | treated as no identities, which is what produces `SshAgentNoIdentities` | non-zero exit is also treated as no identities | pure unit tests over the extracted listing decision |
+| P11 | user creating a sandbox-enabled LLxprt agent, host agent forwarded but empty | new-agent form with Sandbox on, `ssh-add -l` reports "The agent has no identities." | the launch is gated by the SSH-agent prompt before any runtime effect; Esc dismisses it and returns to the dashboard | the prompt names the condition and the remediation | `dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json`, proven to time out at `76e5d714` and pass with the fix |
 | P10 | gating | sandbox enabled but `sandbox_engine` is unknown or absent | no engine is guessed and no host check runs; plan building refuses the launch naming the engine | the engine diagnostic comes from plan validation, not from a prompt about the wrong runtime | unit tests for the unknown and absent cases |
 | P9 | regression class | the launch gate stops handing the host check to its decision, stops re-checking after remediation, or `sandbox_preflight` loses every production use | the build fails the reachability contract naming the lost call | contract failure message names the gate and the consequence | `tests/core/sandbox_preflight_reachability_contracts.rs`, proven to fail at `76e5d714` and pass after the fix |
 
@@ -68,11 +69,9 @@ persisted `PreflightPrompt` modals continue to load.
   image inspectable) and remains the ordered pre-effect gate.
 - No new `PreflightIssue` variants, remediation actions, or prompt copy.
 - No new public trait, inspector, or module; no process/cancellation subsystem.
-- No TUI harness scenario. The prompt is reachable only when the real host
-  container daemon or SSH agent is in a specific state, which the scenario
-  harness cannot deterministically produce. Rendering and focus behavior of
-  `ModalState::PreflightPrompt` already have coverage in
-  `src/selection/overlay_content.rs` and `src/app_input/modal_handlers_tests.rs`.
+- No change to how the prompt renders or how its focus behaves. That surface
+  already has coverage in `src/selection/overlay_content.rs` and
+  `src/app_input/modal_handlers_tests.rs`.
 - `runtime::sandbox_ssh_agent_warning` stays as-is. It is a separate non-blocking
   advisory that this issue does not ask to wire up or remove.
 
@@ -108,6 +107,12 @@ new issue/action variant, a dependency change, or behavior outside the matrix.
 - `src/runtime/preflight.rs`: extracted listing decision and its tests (P8).
 - `tests/core/sandbox_preflight_reachability_contracts.rs`: reachability contract (P9).
 - `tests/core/mod.rs`: module declaration only.
+- `dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json`: new scenario (P11).
+- `scripts/harness-podman-ready-shim.sh`, `scripts/harness-ssh-add-empty-shim.sh`,
+  `scripts/harness-ssh-add-loaded-shim.sh`: hermetic host fixtures for those scenarios.
+- `dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json`: ready-host fixture only; steps and assertions unchanged.
+- `dev-docs/testing/scenario-execution-manifest.json`, `dev-docs/testing/scenario-owner-evidence.json`: scenario registration and evidence.
+- `dev-docs/testing/issue704-owner-evidence.json`: the two hashes it records for those files.
 - `project-plans/issue713-plan.md`: this plan.
 
 No dependency, manifest, `.github`, `.llxprt`, persistence-schema, or
@@ -118,6 +123,7 @@ quality-gate change is planned.
 | Entry | Status |
 |---|---|
 | S3, source reachability contract (P9) in `tests/core/`, beyond the two slices originally planned. Added because the unit tests prove the gate decides correctly but cannot prove the launch paths still consult it, and losing that one call is the entire defect. Follows the existing precedent in `tests/core/attach_ownership_contracts.rs`, which asserts an equivalent one-line invariant in source for the same reason. | Accepted; no production behavior added |
+| S4, TUI scenario coverage (P11) plus the harness fixtures it needs, and a fixture change to `dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json`. The original plan recorded "no TUI scenario" on the belief that the gate depends on uncontrollable host state. That was wrong: `src/harness/v1/env.rs` gives every scenario a hermetic environment with `PATH` rooted in the workspace and no `SSH_AUTH_SOCK`, so both the container runtime and the SSH agent are exactly what a scenario installs. The #652 scenario, whose subject is sandbox-value persistence rather than the sandbox host, is restored to its original steps and assertions by installing a ready host. | Accepted; required by the project rule that UI-visible behavior carries scenario coverage, and by the #652 scenario legitimately observing the restored gate |
 
 ## Review counters
 
@@ -147,9 +153,22 @@ Local, on the candidate head, logs under `tmp/verify713/`:
   come from a newer local clippy than the pinned CI stable. No finding touches
   a file in this change. CI runs the pinned toolchain.
 
-Regression proof for P9: with `src/app_input/preflight.rs` restored to
-`76e5d714`, all three reachability contracts fail; with the fix applied, all
-three pass.
+Scenarios, `scripts/run-scenario-manifest.py --platform macos`:
+
+- `dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json`: passes.
+- `dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json`: passes.
+- `dev-docs/tmux-scenarios/paste-enter-escape.json`: passes locally; its CI
+  failure on the first PR run was a timeout in the terminal-passthrough
+  assertion of a scenario that enables no sandbox, which this change cannot
+  reach.
+
+Regression proofs:
+
+- P9: with `src/app_input/preflight.rs` restored to `76e5d714`, all three
+  reachability contracts fail; with the fix applied, all three pass.
+- P11: with the same file restored to `76e5d714`, the new scenario times out at
+  step 20 with "literal 'SSH agent has no identities' not observed"; with the
+  fix applied it passes.
 
 ## Deferred findings
 

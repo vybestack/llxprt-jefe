@@ -20,7 +20,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "1a24d8fb37a3ffeb4578d1e6e264fe0da9bc2901966672594bce9bff8146fe2d",
+      "sha256": "ab7786252f8a111eec083869b88d8141bfb89bd647a401eb43e179cf707dc30c",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "acafbc971d64692b9a56572597120b8de96b22801bda32c558439ca07a2caec0",
+      "sha256": "f8180dfc9761a6ae99a503a340885920f53a1695a0c4cc498adc1a9425af0ff0",
       "mode": "100644",
       "criteria": [
         "CWR1-10"

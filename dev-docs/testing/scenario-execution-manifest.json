@@ -2758,6 +2758,14 @@
             "source": "cargo-bin:jefe"
           },
           {
+            "name": "podman",
+            "source": "repo:scripts/harness-podman-ready-shim.sh"
+          },
+          {
+            "name": "ssh-add",
+            "source": "repo:scripts/harness-ssh-add-loaded-shim.sh"
+          },
+          {
             "name": "tmux",
             "source": "repo:scripts/harness-tmux-shim.sh"
           },
@@ -3240,6 +3248,72 @@
           "op": "finish",
           "error_prefix": "HAR-E005: application exited with code 2"
         }
+      }
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
+      "scenario_schema": 1,
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platforms": {
+        "linux": {
+          "disposition": "unsupported",
+          "reason": "scenario declares platform macos"
+        },
+        "macos": {
+          "disposition": "required"
+        },
+        "windows": {
+          "disposition": "unsupported",
+          "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
+        }
+      },
+      "ci_job": "tui_scenarios_macos",
+      "command": {
+        "binary": "tmux_scenario",
+        "installs": [
+          {
+            "name": "jefe",
+            "source": "cargo-bin:jefe"
+          },
+          {
+            "name": "podman",
+            "source": "repo:scripts/harness-podman-ready-shim.sh"
+          },
+          {
+            "name": "ssh-add",
+            "source": "repo:scripts/harness-ssh-add-empty-shim.sh"
+          },
+          {
+            "name": "tmux",
+            "source": "repo:scripts/harness-tmux-shim.sh"
+          },
+          {
+            "name": "tmux-real",
+            "source": "host-path:tmux"
+          }
+        ]
+      },
+      "timeout_ms": 140000,
+      "expect": {
+        "exit_code": 0,
+        "report_status": "passed",
+        "steps_total": 24,
+        "operations": [
+          "assert-frame",
+          "key",
+          "launch",
+          "text",
+          "wait"
+        ],
+        "assertions": {
+          "assert-frame": 2
+        },
+        "captures": 0,
+        "capture_names": [],
+        "failed_step": null
       }
     },
     {
