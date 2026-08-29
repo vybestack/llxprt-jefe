@@ -55,7 +55,7 @@ still not ready re-prompts instead of launching.
 | P7 | prompt confirmation | user confirms `SshAdd` remediation | the whole `launch_preflight_issue` decision re-runs against the signature as remediation left it; a still-unready host produces the next prompt, a cleared host resumes the launch | remediation error closes the modal and sets `error_message` (existing behavior) | unit tests on the shared decision plus the reachability contract on the re-check call |
 | P8 | host observation | `ssh-add -l` exits zero printing `The agent has no identities.` | treated as no identities, which is what produces `SshAgentNoIdentities` | non-zero exit is also treated as no identities | pure unit tests over the extracted listing decision |
 | P11 | user creating a sandbox-enabled LLxprt agent, host agent forwarded but empty | new-agent form with Sandbox on, `ssh-add -l` reports "The agent has no identities." | the launch is gated by the SSH-agent prompt before any runtime effect; Esc dismisses it and returns to the dashboard | the prompt names the condition and the remediation | `dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json`, proven to time out at `76e5d714` and pass with the fix |
-| P10 | gating | sandbox enabled but `sandbox_engine` is unknown or absent | no engine is guessed and no host check runs; plan building refuses the launch naming the engine | the engine diagnostic comes from plan validation, not from a prompt about the wrong runtime | unit tests for the unknown and absent cases |
+| P10 | gating | sandbox enabled but `sandbox_engine` is unknown or absent | the launch is refused with `UnsupportedRuntimeOption` quoting what the request named; no engine is guessed and no host check runs | the prompt names the field, and no sandboxed agent starts against a host nothing checked | unit tests for the unknown and absent cases |
 | P9 | regression class | the launch gate stops handing the host check to its decision, stops re-checking after remediation, or `sandbox_preflight` loses every production use | the build fails the reachability contract naming the lost call | contract failure message names the gate and the consequence | `tests/core/sandbox_preflight_reachability_contracts.rs`, proven to fail at `76e5d714` and pass after the fix |
 
 Persistence and compatibility: no durable schema, no `ModalState` variant, no
@@ -128,7 +128,8 @@ quality-gate change is planned.
 ## Review counters
 
 - Local OCR runs before PR: 1 / 2
-- OCR runs after PR opened: 0 / 2
+- OCR runs after PR opened: 2 / 2 (both run automatically by the repository's
+  OCR workflow; its budget comment records 2 of 2 used)
 
 ### OCR run 1 triage (local, `76e5d714..4b83a1e5`)
 
@@ -136,6 +137,20 @@ quality-gate change is planned.
 |---|---|---|
 | `sandbox_preflight_engine` normalized an unrecognized or absent `sandbox_engine` to the `Podman` default, so the gate could inspect one runtime for a request naming another. Confirmed reachable: `validate_launch_request` fingerprints typed values without checking enum membership, so an unknown engine is only refused later, at plan building. | In-scope, fix | Parse strictly and return `None` when the engine does not resolve. New rows P10 and two unit tests. |
 | `handle_preflight_prompt_enter` re-ran only the host-check half of the gate while its doc comment claimed it ran the same gate, and `apply_preflight_action` takes the signature mutably between the two. | In-scope, fix | Re-check through `launch_preflight_issue`, so the claim is structural. Reachability contract updated to assert the shared call. |
+
+### Automated OCR triage (PR head `27e6945c`, 9 inline threads)
+
+| Finding | Disposition | Reasoning |
+|---|---|---|
+| A sandbox-enabled request whose engine does not resolve bypasses preflight entirely, because `validate_launch_request` does not pair `sandbox_enabled` with a valid `sandbox_engine`. | Blocker, fix | Correct, and it is this issue's own defect class. An absent engine in particular is not refused by plan building, so a sandboxed agent could start against a host nothing checked. Replaced `Option<SandboxEngine>` with a three-state `SandboxGate`; an unresolvable engine now produces `UnsupportedRuntimeOption` quoting what the request named. Row P10 rewritten; two tests updated. |
+| The podman fixture answers "ready" to any `podman info`, so a change to the arguments preflight sends would leave it silently agreeing. | In-scope, fix | The fixture is new in this change and the failure mode is a scenario that keeps passing while the check it stands for has moved. Now matches the exact argv. |
+| `shipped_agent_type(3)` identifies the sandbox-capable definition by registry position. | In-scope, fix | The test's premise is that the definition declares `sandbox_enabled`, so it now finds it by that field, mirroring its sibling test. |
+| `uses_check_symbol` skips `use` items, so an aliased import would not be detected as a caller. | Reject | It fails closed. An alias makes the contract report no production caller, which breaks the build and is investigated, rather than passing while the call is gone. |
+| The first two contract assertions use substring rather than whole-word matching. | Reject | They match complete call expressions including the argument list, not bare identifiers; the argument list already carries the precision. |
+| The empty-agent fixture prints `The agent has no identities.` while the Rust check looks for lowercase text without a period. | Reject | `listing_reports_identities` lowercases before matching and `contains` ignores the trailing period. Covered by a casing unit test and proven end to end by the scenario. |
+| `printf ' %s' "$@"` prints a leading space when the argument list is empty. | Reject | Cosmetic, in a diagnostic, and copied from the existing shim convention in `scripts/harness-agent-availability-shim.sh`. |
+| `AgentDefinition::shipped()` is scanned on every launch. | Reject | Four elements on a user-initiated launch that is about to spawn a process. |
+| The non-sandbox-definition test panics if the premise ever fails. | Reject | A panic with that message is the test failing, which is the intended outcome when its premise dies. |
 
 ## Verification evidence
 

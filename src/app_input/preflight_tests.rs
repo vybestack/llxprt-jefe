@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use jefe::domain::{AgentLaunchRequest, RemoteRepositorySettings, SandboxEngine, TypedMap};
 use jefe::runtime::PreflightIssue;
 
-use super::preflight::{launch_preflight_issue, sandbox_preflight_engine};
+use super::preflight::{SandboxGate, launch_preflight_issue, sandbox_gate};
 
 /// Records every engine the host sandbox check was asked about, so a test can
 /// prove consultation happened (or did not) rather than counting mock calls on
@@ -67,10 +67,29 @@ fn sandbox_values(engine: &str) -> TypedMap {
     values
 }
 
-/// A local LLxprt request: the shipped definition that declares sandbox fields.
+/// Whether a shipped definition declares the sandbox switch this gate reads.
+fn declares_sandbox(definition: &jefe::domain::agent_definition::AgentDefinition) -> bool {
+    definition
+        .agent_fields
+        .iter()
+        .chain(definition.repository_fields.iter())
+        .any(|field| field.id == "sandbox_enabled")
+}
+
+/// The shipped definition this gate applies to, found by the field it declares
+/// rather than by its position in the registry.
+fn sandbox_capable_type() -> jefe::domain::agent_definition::AgentTypeId {
+    jefe::domain::agent_definition::AgentDefinition::shipped()
+        .into_iter()
+        .find(declares_sandbox)
+        .map(|definition| definition.id)
+        .unwrap_or_else(|| panic!("a shipped definition declaring a sandbox must exist"))
+}
+
+/// A local sandbox-capable request.
 fn llxprt_request(values: TypedMap) -> AgentLaunchRequest {
     AgentLaunchRequest {
-        type_id: jefe::domain::shipped_agent_type(3),
+        type_id: sandbox_capable_type(),
         values,
         work_dir: std::env::temp_dir(),
         remote: RemoteRepositorySettings::default(),
@@ -129,7 +148,7 @@ fn sandbox_disabled_launch_never_consults_the_host() {
         host.consulted_engines().is_empty(),
         "a launch without a sandbox must not be gated on host sandbox state"
     );
-    assert_eq!(sandbox_preflight_engine(&request), None);
+    assert_eq!(sandbox_gate(&request), SandboxGate::Ungated);
 }
 
 #[test]
@@ -137,13 +156,7 @@ fn stale_sandbox_values_on_a_non_sandbox_definition_never_consult_the_host() {
     let host = RecordingHostCheck::reporting(PreflightIssue::SshAgentNoIdentities);
     let non_sandbox_type = jefe::domain::agent_definition::AgentDefinition::shipped()
         .into_iter()
-        .find(|definition| {
-            !definition
-                .agent_fields
-                .iter()
-                .chain(definition.repository_fields.iter())
-                .any(|field| field.id == "sandbox_enabled")
-        })
+        .find(|definition| !declares_sandbox(definition))
         .map(|definition| definition.id)
         .unwrap_or_else(|| panic!("a shipped definition without sandbox fields must exist"));
 
@@ -152,11 +165,7 @@ fn stale_sandbox_values_on_a_non_sandbox_definition_never_consult_the_host() {
         ..llxprt_request(sandbox_values("podman"))
     };
 
-    assert!(
-        host.consulted_engines().is_empty(),
-        "no consultation should have happened yet"
-    );
-    assert_eq!(sandbox_preflight_engine(&request), None);
+    assert_eq!(sandbox_gate(&request), SandboxGate::Ungated);
     let _ = launch_preflight_issue(&request, host.check());
     assert!(
         host.consulted_engines().is_empty(),
@@ -165,17 +174,23 @@ fn stale_sandbox_values_on_a_non_sandbox_definition_never_consult_the_host() {
 }
 
 #[test]
-fn an_engine_the_gate_cannot_resolve_is_never_normalized_to_a_default() {
+fn an_engine_the_gate_cannot_resolve_is_refused_rather_than_guessed_or_skipped() {
     let host = RecordingHostCheck::clearing();
     let request = llxprt_request(sandbox_values("kubernetes"));
 
     assert_eq!(
-        sandbox_preflight_engine(&request),
-        None,
-        "inspecting one runtime on behalf of a request naming another is the \
-         silent mismatch this gate exists to prevent"
+        sandbox_gate(&request),
+        SandboxGate::UnresolvedEngine {
+            named: "`kubernetes`".to_owned()
+        },
     );
-    let _ = launch_preflight_issue(&request, host.check());
+    match launch_preflight_issue(&request, host.check()) {
+        Some(PreflightIssue::UnsupportedRuntimeOption { diagnostic }) => assert!(
+            diagnostic.contains("kubernetes"),
+            "the prompt must quote back the engine the request named, got: {diagnostic}"
+        ),
+        other => panic!("an unresolvable engine must be refused, got {other:?}"),
+    }
     assert!(
         host.consulted_engines().is_empty(),
         "no engine may be guessed for a request whose engine does not resolve"
@@ -183,7 +198,7 @@ fn an_engine_the_gate_cannot_resolve_is_never_normalized_to_a_default() {
 }
 
 #[test]
-fn a_missing_engine_is_not_guessed_either() {
+fn a_sandbox_with_no_configured_engine_is_refused_rather_than_launched_unchecked() {
     let host = RecordingHostCheck::clearing();
     let mut values = TypedMap::new();
     values.insert(
@@ -192,8 +207,19 @@ fn a_missing_engine_is_not_guessed_either() {
     );
     let request = llxprt_request(values);
 
-    assert_eq!(sandbox_preflight_engine(&request), None);
-    let _ = launch_preflight_issue(&request, host.check());
+    assert_eq!(
+        sandbox_gate(&request),
+        SandboxGate::UnresolvedEngine {
+            named: "no configured engine".to_owned()
+        },
+    );
+    assert!(
+        matches!(
+            launch_preflight_issue(&request, host.check()),
+            Some(PreflightIssue::UnsupportedRuntimeOption { .. })
+        ),
+        "a sandboxed launch must never proceed against a host nothing checked"
+    );
     assert!(host.consulted_engines().is_empty());
 }
 
@@ -209,7 +235,7 @@ fn remote_launch_is_not_gated_on_local_host_sandbox_state() {
         ..llxprt_request(sandbox_values("podman"))
     };
 
-    assert_eq!(sandbox_preflight_engine(&request), None);
+    assert_eq!(sandbox_gate(&request), SandboxGate::Ungated);
     let _ = launch_preflight_issue(&request, host.check());
     assert!(
         host.consulted_engines().is_empty(),

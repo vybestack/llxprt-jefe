@@ -39,12 +39,26 @@ pub fn preflight_or_prompt(
     false
 }
 
+/// What host sandbox state, if any, a launch must clear before it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SandboxGate {
+    /// Nothing about the host sandbox gates this launch.
+    Ungated,
+    /// The launch must clear this engine's host state.
+    Engine(SandboxEngine),
+    /// The sandbox is on but the request names no engine that can be inspected.
+    UnresolvedEngine {
+        /// What the request said, quoted back to the user.
+        named: String,
+    },
+}
+
 /// Decide which issue, if any, must be prompted before this launch runs.
 ///
 /// Runtime-option validation comes first: an unlaunchable request is rejected
 /// before jefe inspects the host at all. A launch that is gated by host sandbox
-/// state (see [`sandbox_preflight_engine`]) then consults `host_check`, which
-/// production supplies as [`jefe::runtime::sandbox_preflight`].
+/// state (see [`sandbox_gate`]) then consults `host_check`, which production
+/// supplies as [`jefe::runtime::sandbox_preflight`].
 pub(super) fn launch_preflight_issue(
     signature: &AgentLaunchRequest,
     host_check: impl Fn(SandboxEngine) -> Option<PreflightIssue>,
@@ -55,50 +69,71 @@ pub(super) fn launch_preflight_issue(
         });
     }
 
-    sandbox_preflight_engine(signature).and_then(host_check)
+    match sandbox_gate(signature) {
+        SandboxGate::Ungated => None,
+        SandboxGate::Engine(engine) => host_check(engine),
+        SandboxGate::UnresolvedEngine { named } => Some(PreflightIssue::UnsupportedRuntimeOption {
+            diagnostic: format!(
+                "The sandbox is enabled but {named} names no engine jefe can \
+                 inspect, so the host cannot be checked before launch."
+            ),
+        }),
+    }
 }
 
-/// The sandbox engine whose host state gates this launch, if any.
+/// The host sandbox state, if any, that gates this launch.
 ///
-/// Returns `None`, meaning the launch is not gated on host sandbox state,
-/// when any of the following holds:
+/// The launch is [`SandboxGate::Ungated`] when any of the following holds:
 ///
 /// - the target is remote, because the local container daemon and the local
 ///   SSH agent describe the wrong machine;
 /// - the active definition declares no `sandbox_enabled` field, so a stale
 ///   value persisted from a sandbox-capable agent cannot gate it;
-/// - the request has the sandbox switched off;
-/// - the request names an engine this gate cannot resolve. Nothing normalizes
-///   an unrecognized engine to a default here: inspecting one runtime on
-///   behalf of a request that names another is the silent mismatch this gate
-///   exists to prevent. Plan building rejects that request by name.
-pub(super) fn sandbox_preflight_engine(signature: &AgentLaunchRequest) -> Option<SandboxEngine> {
+/// - the request has the sandbox switched off.
+///
+/// A sandbox-enabled request that names no resolvable engine is
+/// [`SandboxGate::UnresolvedEngine`] rather than either of the alternatives.
+/// Normalizing it to the default engine would inspect one runtime on behalf of
+/// a request naming another, and treating it as ungated would start a sandboxed
+/// agent against a host nothing checked, which is the defect this gate exists
+/// to prevent.
+pub(super) fn sandbox_gate(signature: &AgentLaunchRequest) -> SandboxGate {
     if signature.remote.enabled {
-        return None;
+        return SandboxGate::Ungated;
     }
 
-    let definition = AgentDefinition::shipped()
+    let Some(definition) = AgentDefinition::shipped()
         .into_iter()
-        .find(|definition| definition.id == signature.type_id)?;
+        .find(|definition| definition.id == signature.type_id)
+    else {
+        return SandboxGate::Ungated;
+    };
     let declares_sandbox = definition
         .agent_fields
         .iter()
         .chain(definition.repository_fields.iter())
         .any(|field| field.id == "sandbox_enabled");
     if !declares_sandbox {
-        return None;
+        return SandboxGate::Ungated;
     }
 
     if !matches!(
         typed_field(&signature.values, "sandbox_enabled"),
         Some(TypedValue::Bool(true))
     ) {
-        return None;
+        return SandboxGate::Ungated;
     }
 
     match typed_field(&signature.values, "sandbox_engine") {
-        Some(TypedValue::String(value)) => SandboxEngine::from_form_value(value),
-        _ => None,
+        Some(TypedValue::String(value)) => SandboxEngine::from_form_value(value).map_or_else(
+            || SandboxGate::UnresolvedEngine {
+                named: format!("`{value}`"),
+            },
+            SandboxGate::Engine,
+        ),
+        _ => SandboxGate::UnresolvedEngine {
+            named: "no configured engine".to_owned(),
+        },
     }
 }
 

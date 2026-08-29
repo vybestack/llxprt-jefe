@@ -5,8 +5,11 @@
 # engine is present and every sandbox-enabled launch is gated by a prompt.
 set -eu
 
-case "${1:-}" in
-    info)
+# Matched exactly, so that a change to the arguments preflight sends fails the
+# scenario loudly instead of leaving this fixture answering "ready" to a query
+# production no longer makes.
+case "$*" in
+    "info --format {{.Host.RemoteSocket.Exists}}")
         printf 'true\n'
         ;;
     *)
