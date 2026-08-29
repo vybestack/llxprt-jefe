@@ -97,31 +97,46 @@ fn hidden_panels(state: &AppState) -> PanelState {
     panel_state
 }
 
+fn hidden_host_panel_ids(state: &AppState) -> Option<Vec<PanelId>> {
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    let host_controls = descriptor
+        .panels
+        .iter()
+        .filter_map(|panel| {
+            panel
+                .host_capability
+                .map(|capability| (panel, capability.control_kind()))
+        })
+        .collect::<Vec<_>>();
+    if host_controls.is_empty() {
+        return None;
+    }
+    let mut hidden = Vec::new();
+    for (panel, kind) in host_controls {
+        let form_is_inactive = kind == crate::host_controls::ControlKind::Form
+            && !state.dashboard_filter_active()
+            && state.active_overlay_kind() != Some(crate::workbench::OverlayKind::Search);
+        if form_is_inactive || state.shell_overlay_active() && !panel.required {
+            hidden.push(panel.id);
+        }
+    }
+    Some(hidden)
+}
+
 /// Panel identities the application is hiding on the active screen.
 ///
 /// The identities are literals, so nothing but a test can notice a descriptor
 /// renaming a panel out from under them; `screen_layout_tests` asserts every
 /// identity produced here is declared by the screen it names.
 pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
-    let mut hidden = Vec::new();
+    let mut hidden = hidden_host_panel_ids(state).unwrap_or_default();
     let Some(screen) = state.compiled_screen() else {
-        // A lowered package or custom screen declares its own panels; the
-        // built-in hidden-panel rules serve compiled screens only, so nothing
-        // is hidden here for an open screen.
         return hidden;
     };
     match screen {
-        ScreenId::Dashboard => {
-            if !state.dashboard_search_active() && !state.dashboard_search.input_focused {
-                hidden.push(PanelId::from_static("search"));
-            }
-            if state.shell_overlay_active() {
-                // The embedded shell takes the whole workspace, so the agent
-                // list and preview are not on screen at all.
-                hidden.push(PanelId::from_static("agents"));
-                hidden.push(PanelId::from_static("preview"));
-            }
-        }
         // The split view, the errors screen, and the Terminal Manager render
         // no conditional band, so nothing is ever hidden on them.
         ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals => {}

@@ -13,7 +13,8 @@ use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
 use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{
     Affordance, BodyKind, DetailBody, EmptyBody, ErrorBody, FormBody, ListBody, ListItem,
-    PanelBody, PanelEvent, PanelSnapshot, ProgressBody,
+    PanelBody, PanelEvent, PanelSnapshot, ProgressBody, StructuredDiffBody, StructuredDiffFile,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 use crate::test_support::{Must, MustErr};
 use crate::workbench::PanelId;
@@ -45,6 +46,10 @@ fn declare_and_activate(state: &mut ProviderPanelState) -> PanelInstanceId {
             arguments: Vec::new(),
         },
         EventDeclaration {
+            kind: EventKind::ExpansionChanged,
+            arguments: Vec::new(),
+        },
+        EventDeclaration {
             kind: EventKind::Retry,
             arguments: Vec::new(),
         },
@@ -67,7 +72,9 @@ fn declare_and_activate(state: &mut ProviderPanelState) -> PanelInstanceId {
             activation: &TypedMap::new(),
             allowed_model_kinds: &[
                 BodyKind::List,
+                BodyKind::Tree,
                 BodyKind::Detail,
+                BodyKind::StructuredDiff,
                 BodyKind::Form,
                 BodyKind::Status,
                 BodyKind::Progress,
@@ -150,6 +157,69 @@ fn list_panel(
     (panel, 1)
 }
 
+fn tree_panel(state: &mut ProviderPanelState) -> (PanelInstanceId, u64) {
+    let panel = declare_and_activate(state);
+    let snapshot = PanelSnapshot {
+        model_schema: MODEL_SCHEMA,
+        panel_instance_id: panel.as_u64(),
+        generation: 1,
+        revision: 1,
+        kind: BodyKind::Tree,
+        title: "tree".to_owned(),
+        description: None,
+        loading: false,
+        action_affordances: vec![],
+        body: PanelBody::Tree(TreeBody {
+            schema_version: 1,
+            nodes: vec![TreeNode {
+                id: id("vendor.node"),
+                parent_id: None,
+                label: "Node".to_owned(),
+                semantic_key: id("node"),
+                depth: 0,
+                expandable: true,
+                expanded: false,
+            }],
+            selected_id: None,
+        }),
+    };
+    accept(state, panel, &snapshot);
+    (panel, 1)
+}
+
+fn structured_diff_panel(state: &mut ProviderPanelState) -> (PanelInstanceId, u64) {
+    let panel = declare_and_activate(state);
+    let snapshot = PanelSnapshot {
+        model_schema: MODEL_SCHEMA,
+        panel_instance_id: panel.as_u64(),
+        generation: 1,
+        revision: 1,
+        kind: BodyKind::StructuredDiff,
+        title: "diff".to_owned(),
+        description: None,
+        loading: false,
+        action_affordances: vec![],
+        body: PanelBody::StructuredDiff(StructuredDiffBody {
+            schema_version: 1,
+            files: vec![StructuredDiffFile {
+                id: id("vendor.file"),
+            path: StructuredDiffPath::Renamed {
+                old: "a/file".to_owned(),
+                new: "b/file".to_owned(),
+            },
+
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: vec![],
+            }],
+            selected_file_id: None,
+        }),
+    };
+    accept(state, panel, &snapshot);
+    (panel, 1)
+}
+
 fn assert_emitted(outcome: Result<EventOutcome, PanelError>) -> PanelEvent {
     match outcome.must("event processed") {
         EventOutcome::Event(effect) => effect.event,
@@ -223,6 +293,103 @@ fn activated_existing_item_emits_event() {
             arguments: vec![],
         }],
     ));
+}
+
+#[test]
+fn tree_nodes_and_diff_files_are_valid_selection_targets() {
+    let allowed = [
+        EventDeclaration {
+            kind: EventKind::Selected,
+            arguments: vec![],
+        },
+        EventDeclaration {
+            kind: EventKind::Activated,
+            arguments: vec![],
+        },
+    ];
+
+    let mut tree_state = ProviderPanelState::new();
+    let (tree_panel, tree_generation) = tree_panel(&mut tree_state);
+    let tree_revision = tree_state
+        .accepted_revision(tree_panel)
+        .must("tree revision");
+    assert_emitted(submit(
+        &mut tree_state,
+        tree_panel,
+        tree_generation,
+        tree_revision,
+        PanelEvent::Selected {
+            id: id("vendor.node"),
+        },
+        &allowed,
+    ));
+
+    let mut diff_state = ProviderPanelState::new();
+    let (diff_panel, diff_generation) = structured_diff_panel(&mut diff_state);
+    let diff_revision = diff_state
+        .accepted_revision(diff_panel)
+        .must("diff revision");
+    assert_emitted(submit(
+        &mut diff_state,
+        diff_panel,
+        diff_generation,
+        diff_revision,
+        PanelEvent::Activated {
+            id: id("vendor.file"),
+        },
+        &allowed,
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// ExpansionChanged
+// ---------------------------------------------------------------------------
+
+#[test]
+fn expansion_changed_requires_an_expandable_tree_node_and_a_state_change() {
+    let allowed = [EventDeclaration {
+        kind: EventKind::ExpansionChanged,
+        arguments: vec![],
+    }];
+
+    let mut state = ProviderPanelState::new();
+    let (panel, generation) = tree_panel(&mut state);
+    let revision = state.accepted_revision(panel).must("expected value");
+    let event = assert_emitted(submit(
+        &mut state,
+        panel,
+        generation,
+        revision,
+        PanelEvent::ExpansionChanged {
+            id: id("vendor.node"),
+            expanded: true,
+        },
+        &allowed,
+    ));
+    assert!(matches!(
+        event,
+        PanelEvent::ExpansionChanged { expanded: true, .. }
+    ));
+
+    for event in [
+        PanelEvent::ExpansionChanged {
+            id: id("vendor.node"),
+            expanded: false,
+        },
+        PanelEvent::ExpansionChanged {
+            id: id("vendor.unknown"),
+            expanded: true,
+        },
+    ] {
+        assert_zero_effect(submit(
+            &mut state,
+            panel,
+            generation,
+            revision,
+            event,
+            &allowed,
+        ));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -817,23 +984,5 @@ fn event_to_unknown_panel_is_an_error() {
     assert!(matches!(error, PanelError::UnknownPanel));
 }
 
-#[test]
-fn live_event_uses_the_schema_retained_at_declaration() {
-    let mut state = ProviderPanelState::default();
-    let (panel, _) = list_panel(&mut state, &["known"], None);
 
-    assert!(matches!(
-        state.submit_live_event(panel, PanelEvent::Selected { id: id("known") },),
-        Ok(EventOutcome::Event(_))
-    ));
-    assert!(matches!(
-        state.submit_live_event(
-            panel,
-            PanelEvent::Action {
-                id: id("undeclared"),
-                arguments: TypedMap::new(),
-            },
-        ),
-        Ok(EventOutcome::None)
-    ));
-}
+include!("provider_panels_live_event_tests.rs");

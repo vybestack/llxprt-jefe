@@ -28,8 +28,12 @@ use crate::domain::Id;
 pub enum ModelKind {
     /// A list of rows.
     List,
+    /// A hierarchical tree.
+    Tree,
     /// A detail view of one resource.
     Detail,
+    /// A structured file diff.
+    StructuredDiff,
     /// An editable form.
     Form,
     /// A status summary.
@@ -44,9 +48,11 @@ pub enum ModelKind {
 
 impl ModelKind {
     /// Every model kind, in declaration order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::List,
+        Self::Tree,
         Self::Detail,
+        Self::StructuredDiff,
         Self::Form,
         Self::Status,
         Self::Progress,
@@ -59,7 +65,9 @@ impl ModelKind {
     pub const fn as_wire(self) -> &'static str {
         match self {
             Self::List => "list",
+            Self::Tree => "tree",
             Self::Detail => "detail",
+            Self::StructuredDiff => "structured-diff",
             Self::Form => "form",
             Self::Status => "status",
             Self::Progress => "progress",
@@ -96,11 +104,13 @@ pub enum EventKind {
     Cancel,
     /// A link was followed.
     LinkSelected,
+    /// A tree node's expansion state changed.
+    ExpansionChanged,
 }
 
 impl EventKind {
     /// Every event kind, in declaration order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Selected,
         Self::Activated,
         Self::Action,
@@ -110,6 +120,7 @@ impl EventKind {
         Self::Retry,
         Self::Cancel,
         Self::LinkSelected,
+        Self::ExpansionChanged,
     ];
 
     /// The lower-kebab-case name used on the wire.
@@ -125,6 +136,7 @@ impl EventKind {
             Self::Retry => "retry",
             Self::Cancel => "cancel",
             Self::LinkSelected => "link-selected",
+            Self::ExpansionChanged => "expansion-changed",
         }
     }
 

@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use super::limits::FIELD_CHOICE_LIMIT;
-use crate::domain::{CanonicalDecimal, Id, TypedValue};
+use crate::domain::{CanonicalDecimal, Id, InternalId, TypedValue};
 
 /// Maximum UTF-8 byte length of a plugin path value.
 pub const PATH_VALUE_BYTE_LIMIT: usize = 4_096;
@@ -227,7 +227,8 @@ impl RestartScope {
 
 /// An unvalidated field declaration, as read from a manifest.
 ///
-/// [`Field::parse`] is the only way to turn one into a [`Field`].
+/// Provider declarations become [`Field`] values only through [`Field::parse`];
+/// closed host-internal fields use [`Field::internal`] instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldDraft {
     /// Field identifier, unique within its owner.
@@ -256,6 +257,14 @@ pub struct FieldDraft {
     pub restart: RestartScope,
 }
 
+/// Closed host-internal fields whose complete declarations are fixed at compile time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InternalField {
+    SearchQuery,
+    ConfirmationDecision,
+    DeleteWorkDir,
+}
+
 /// A validated field declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
@@ -263,6 +272,43 @@ pub struct Field {
 }
 
 impl Field {
+    /// Construct one closed host-internal field declaration.
+    pub(crate) fn internal(field: InternalField) -> Self {
+        let (id, label, kind, required) = match field {
+            InternalField::SearchQuery => {
+                (InternalId::OverlayQuery, "Filter", FieldKind::String, true)
+            }
+            InternalField::ConfirmationDecision => (
+                InternalId::OverlayDecision,
+                "Decision",
+                FieldKind::String,
+                true,
+            ),
+            InternalField::DeleteWorkDir => (
+                InternalId::OverlayDeleteWorkDir,
+                "Delete work directory",
+                FieldKind::Boolean,
+                false,
+            ),
+        };
+        Self {
+            draft: FieldDraft {
+                id: Id::internal(id),
+                label: label.to_owned(),
+                description: None,
+                kind,
+                required,
+                default: None,
+                min: None,
+                max: None,
+                choices: Vec::new(),
+                unique: false,
+                visible_when: None,
+                restart: RestartScope::None,
+            },
+        }
+    }
+
     /// Validate a field declaration.
     ///
     /// # Errors

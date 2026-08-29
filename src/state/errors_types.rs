@@ -30,8 +30,6 @@ pub struct ErrorsState {
     /// Last rendered detail viewport height in rows.
     pub detail_viewport_rows: usize,
     pub focus: ErrorsFocus,
-    /// Saved agent-mode focus for restoration on exit (mirrors issues/prs/actions).
-    pub prior_agent_focus: Option<super::PriorAgentFocus>,
     // ── Error-capture dedup tracking (runtime-only) ────────────────────────
     //
     // `finalize_message` runs after every reducer step and inspects the various
@@ -96,7 +94,6 @@ impl Default for ErrorsState {
             detail_scroll_offset: 0,
             detail_viewport_rows: 0,
             focus: ErrorsFocus::ErrorList,
-            prior_agent_focus: None,
             last_captured_global: None,
             last_captured_issues: None,
             last_captured_prs: None,

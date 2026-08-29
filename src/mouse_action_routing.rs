@@ -3,7 +3,7 @@
 use jefe::domain::action_registry::{ActionId, Resolution};
 use jefe::domain::input_context::ContextStack;
 use jefe::domain::keymap::Chord;
-use jefe::pane_content_projection::projected_pane_content;
+use jefe::provider_panel_view::PanelHitTarget;
 use jefe::selection::{SelectablePane, point_to_content_coords};
 use jefe::state::AppState;
 use jefe::state::keys_editor_project::ChordText;
@@ -53,26 +53,22 @@ fn confirm_action_at(
     if pane != SelectablePane::ConfirmModal {
         return None;
     }
-    let (line, content_col) = point_to_content_coords(col, row, 0, &geometry);
-    let content = projected_pane_content(pane, state, None, &[], cols, rows);
-    let buttons = content.lines.get(line)?;
-    let action = if button_contains(buttons, "Cancel", content_col) {
-        "confirm.cancel"
-    } else if button_contains(buttons, "Confirm", content_col) {
-        "confirm.accept"
-    } else {
-        return None;
+    let (line, _) = point_to_content_coords(col, row, 0, &geometry);
+    let (render_cols, render_rows) = jefe::layout::effective_render_size(cols, rows);
+    let action = match jefe::ui::orchestration::confirmation_hit_target_at_content_line(
+        state,
+        line,
+        render_cols,
+        render_rows,
+    )? {
+        // The typed internal decision field is the closed Confirm/Cancel row.
+        PanelHitTarget::Field(id) if id == jefe::domain::overlay_decision_id() => {
+            "confirm.cycle-focus"
+        }
+        PanelHitTarget::Submit => "confirm.accept",
+        _ => return None,
     };
     ActionId::parse(action).ok()
-}
-
-fn button_contains(line: &str, label: &str, column: usize) -> bool {
-    let Some(label_start) = line.find(label) else {
-        return false;
-    };
-    let start = label_start.saturating_sub(2);
-    let end = label_start.saturating_add(label.len()).saturating_add(2);
-    (start..end).contains(&column)
 }
 
 fn resolve_action(

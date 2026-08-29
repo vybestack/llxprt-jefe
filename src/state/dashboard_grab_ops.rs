@@ -4,15 +4,16 @@
 //! repository or agent, arrows move it within its visible set, and Space/Enter
 //! drops it. Grab state is transient (not persisted).
 
-use super::{AppState, DashboardGrabPane, PaneFocus, ScreenId};
+use super::{AppState, DashboardGrabPane, PaneFocus};
 
 impl AppState {
     /// Validate that an active dashboard grab still points to a valid visible
-    /// item. Clears the grab if the screen is no longer the Dashboard, the
-    /// grabbed repository was deleted, or the visible-index/local-index is out
-    /// of bounds after a visibility or data change.
+    /// item. Clears the grab if the screen no longer owns the sealed Dashboard
+    /// action context, the grabbed repository was deleted, or the
+    /// visible-index/local-index is out of bounds after a visibility or data
+    /// change.
     pub(super) fn validate_dashboard_grab(&mut self) {
-        if self.screen() != ScreenId::Dashboard {
+        if !self.has_dashboard_action_context() {
             self.dashboard_grab = None;
             return;
         }
@@ -75,15 +76,15 @@ impl AppState {
 
     /// Move the grabbed dashboard item up within its visible set.
     pub(super) fn move_dashboard_grab_up(&mut self) {
-        match &self.dashboard_grab {
+        match self.dashboard_grab.clone() {
             Some(DashboardGrabPane::Repository { visible_index }) => {
-                if *visible_index == 0 {
+                if visible_index == 0 {
                     return;
                 }
                 let visible_repo_indices = self.visible_repository_indices();
                 let Some((current_global_idx, target_global_idx)) = visible_repo_indices
-                    .get(*visible_index)
-                    .zip(visible_repo_indices.get(*visible_index - 1))
+                    .get(visible_index)
+                    .zip(visible_repo_indices.get(visible_index - 1))
                     .map(|(a, b)| (*a, *b))
                 else {
                     return;
@@ -91,7 +92,7 @@ impl AppState {
                 self.repositories
                     .swap(current_global_idx, target_global_idx);
                 self.dashboard_grab = Some(DashboardGrabPane::Repository {
-                    visible_index: *visible_index - 1,
+                    visible_index: visible_index - 1,
                 });
                 self.selected_repository_index = Some(target_global_idx);
             }
@@ -99,21 +100,21 @@ impl AppState {
                 repository_id,
                 local_index,
             }) => {
-                if *local_index == 0 {
+                if local_index == 0 {
                     return;
                 }
-                let agent_indices = self.agent_indices_for_repository(repository_id);
+                let agent_indices = self.agent_indices_for_repository(&repository_id);
                 let Some((current_global_idx, target_global_idx)) = agent_indices
-                    .get(*local_index)
-                    .zip(agent_indices.get(*local_index - 1))
+                    .get(local_index)
+                    .zip(agent_indices.get(local_index - 1))
                     .map(|(a, b)| (*a, *b))
                 else {
                     return;
                 };
                 self.agents.swap(current_global_idx, target_global_idx);
                 self.dashboard_grab = Some(DashboardGrabPane::Agent {
-                    repository_id: repository_id.clone(),
-                    local_index: *local_index - 1,
+                    repository_id,
+                    local_index: local_index - 1,
                 });
                 self.selected_agent_index = Some(target_global_idx);
             }
@@ -123,12 +124,12 @@ impl AppState {
 
     /// Move the grabbed dashboard item down within its visible set.
     pub(super) fn move_dashboard_grab_down(&mut self) {
-        match &self.dashboard_grab {
+        match self.dashboard_grab.clone() {
             Some(DashboardGrabPane::Repository { visible_index }) => {
                 let visible_repo_indices = self.visible_repository_indices();
                 let Some((current_global_idx, target_global_idx)) = visible_repo_indices
-                    .get(*visible_index)
-                    .zip(visible_repo_indices.get(*visible_index + 1))
+                    .get(visible_index)
+                    .zip(visible_repo_indices.get(visible_index + 1))
                     .map(|(a, b)| (*a, *b))
                 else {
                     return;
@@ -136,7 +137,7 @@ impl AppState {
                 self.repositories
                     .swap(current_global_idx, target_global_idx);
                 self.dashboard_grab = Some(DashboardGrabPane::Repository {
-                    visible_index: *visible_index + 1,
+                    visible_index: visible_index + 1,
                 });
                 self.selected_repository_index = Some(target_global_idx);
             }
@@ -144,18 +145,18 @@ impl AppState {
                 repository_id,
                 local_index,
             }) => {
-                let agent_indices = self.agent_indices_for_repository(repository_id);
+                let agent_indices = self.agent_indices_for_repository(&repository_id);
                 let Some((current_global_idx, target_global_idx)) = agent_indices
-                    .get(*local_index)
-                    .zip(agent_indices.get(*local_index + 1))
+                    .get(local_index)
+                    .zip(agent_indices.get(local_index + 1))
                     .map(|(a, b)| (*a, *b))
                 else {
                     return;
                 };
                 self.agents.swap(current_global_idx, target_global_idx);
                 self.dashboard_grab = Some(DashboardGrabPane::Agent {
-                    repository_id: repository_id.clone(),
-                    local_index: *local_index + 1,
+                    repository_id,
+                    local_index: local_index + 1,
                 });
                 self.selected_agent_index = Some(target_global_idx);
             }

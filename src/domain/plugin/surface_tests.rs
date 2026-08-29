@@ -45,18 +45,32 @@ fn panel_draft() -> PanelDraft {
 }
 
 #[test]
-fn model_and_event_kinds_use_lower_kebab_case_wire_names() {
-    assert_eq!(ModelKind::List.as_wire(), "list");
-    assert_eq!(ModelKind::Error.as_wire(), "error");
-    assert_eq!(ModelKind::ALL.len(), 7);
+fn model_and_event_kinds_use_the_exact_closed_wire_vocabulary() {
+    assert_eq!(
+        ModelKind::ALL.map(ModelKind::as_wire),
+        [
+            "list",
+            "tree",
+            "detail",
+            "structured-diff",
+            "form",
+            "status",
+            "progress",
+            "empty",
+            "error",
+        ]
+    );
     for kind in ModelKind::ALL {
         assert_eq!(ModelKind::from_wire(kind.as_wire()), Some(kind));
     }
+    assert_eq!(ModelKind::from_wire("terminal"), None);
+    assert_eq!(ModelKind::from_wire("Tree"), None);
 
     assert_eq!(EventKind::FieldChanged.as_wire(), "field-changed");
     assert_eq!(EventKind::PageRequested.as_wire(), "page-requested");
     assert_eq!(EventKind::LinkSelected.as_wire(), "link-selected");
-    assert_eq!(EventKind::ALL.len(), 9);
+    assert_eq!(EventKind::ExpansionChanged.as_wire(), "expansion-changed");
+    assert_eq!(EventKind::ALL.len(), 10);
     for kind in EventKind::ALL {
         assert_eq!(EventKind::from_wire(kind.as_wire()), Some(kind));
     }

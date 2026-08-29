@@ -5,173 +5,196 @@
 //! `AppEvent` carries the whole family wrapped in
 //! [`AppEvent::PrLifecycle`]; `PullRequestsMessage` keeps one flat variant per
 //! action, so this module is where the two shapes meet. It is also the tail of
-//! the PR converter chain: anything that is neither a thread nor a
-//! property-editor message lands here.
+//! the PR converter chain: the thread and property routes are claimed first,
+//! and any event the PR domain does not claim is returned to the caller via
+//! [`ControlFlow::Continue`] instead of panicking.
 
+use std::ops::ControlFlow;
+
+use crate::domain::ErrorSource;
 use crate::state::{AppEvent, PrLifecycleEvent};
 
-use super::{NavDir, PullRequestsMessage};
+use super::PullRequestsMessage;
+use super::prs::MergeNavDirection;
 
 impl PullRequestsMessage {
     /// Lifecycle-mutation variants, plus the thread/property tail routes.
-    pub(super) fn from_app_event_lifecycle(event: AppEvent) -> Self {
+    ///
+    /// Returns [`ControlFlow::Continue`] with the event when it belongs to no
+    /// PR converter layer, so the dispatcher can hand it to another domain.
+    pub(super) fn from_app_event_lifecycle(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         if let Some(message) = Self::from_app_event_thread(&event) {
-            return message;
+            return ControlFlow::Break(message);
         }
         match event {
-            AppEvent::PrLifecycle(lifecycle) => Self::from_pr_lifecycle(*lifecycle),
+            AppEvent::PrLifecycle(lifecycle) => match Self::from_pr_lifecycle(*lifecycle) {
+                ControlFlow::Break(message) => ControlFlow::Break(message),
+                ControlFlow::Continue(residual) => {
+                    ControlFlow::Continue(AppEvent::PrLifecycle(Box::new(residual)))
+                }
+            },
             property if Self::is_pr_property_app_event(&property) => {
-                Self::from_app_event_property(property)
+                ControlFlow::Break(Self::from_app_event_property(property))
             }
-            _ => unreachable!("non-PR AppEvent routed to PR converter"),
+            other => ControlFlow::Continue(other),
         }
     }
 
     /// Merge events become their flat message variants.
-    fn from_pr_lifecycle(event: PrLifecycleEvent) -> Self {
+    fn from_pr_lifecycle(event: PrLifecycleEvent) -> ControlFlow<Self, PrLifecycleEvent> {
         match event {
-            PrLifecycleEvent::OpenMergeChooser => Self::OpenMergeChooser,
-            PrLifecycleEvent::MergeNavigateUp => Self::MergeNavigate(NavDir::Up),
-            PrLifecycleEvent::MergeNavigateDown => Self::MergeNavigate(NavDir::Down),
-            PrLifecycleEvent::MergeConfirm => Self::MergeConfirm,
-            PrLifecycleEvent::MergeCancel => Self::MergeCancel,
+            PrLifecycleEvent::OpenMergeChooser => ControlFlow::Break(Self::OpenMergeChooser),
+            PrLifecycleEvent::MergeNavigateUp => {
+                ControlFlow::Break(Self::MergeNavigate(MergeNavDirection::Up))
+            }
+            PrLifecycleEvent::MergeNavigateDown => {
+                ControlFlow::Break(Self::MergeNavigate(MergeNavDirection::Down))
+            }
+            PrLifecycleEvent::MergeConfirm => ControlFlow::Break(Self::MergeConfirm),
+            PrLifecycleEvent::MergeCancel => ControlFlow::Break(Self::MergeCancel),
             PrLifecycleEvent::Merged {
                 scope_repo_id,
                 pr_number,
                 method,
-            } => Self::Merged {
+            } => ControlFlow::Break(Self::Merged {
                 scope_repo_id,
                 pr_number,
                 method,
-            },
+            }),
             PrLifecycleEvent::MergeFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            } => Self::MergeFailed {
+            } => ControlFlow::Break(Self::MergeFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            },
+            }),
             PrLifecycleEvent::MergeMethodsLoaded {
                 scope_repo_id,
                 pr_number,
                 allowed_methods,
-            } => Self::MergeMethodsLoaded {
+            } => ControlFlow::Break(Self::MergeMethodsLoaded {
                 scope_repo_id,
                 pr_number,
                 allowed_methods,
-            },
+            }),
             PrLifecycleEvent::MergeMethodsLoadFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            } => Self::MergeMethodsLoadFailed {
+            } => ControlFlow::Break(Self::MergeMethodsLoadFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            },
+            }),
             delete_or_composer => Self::from_pr_delete(delete_or_composer),
         }
     }
 
     /// Delete events become their flat message variants.
-    fn from_pr_delete(event: PrLifecycleEvent) -> Self {
+    fn from_pr_delete(event: PrLifecycleEvent) -> ControlFlow<Self, PrLifecycleEvent> {
         match event {
-            PrLifecycleEvent::OpenDeleteConfirm => Self::OpenDeleteConfirm,
-            PrLifecycleEvent::DeleteConfirm => Self::DeleteConfirm,
-            PrLifecycleEvent::DeleteCancel => Self::DeleteCancel,
+            PrLifecycleEvent::OpenDeleteConfirm => ControlFlow::Break(Self::OpenDeleteConfirm),
+            PrLifecycleEvent::DeleteConfirm => ControlFlow::Break(Self::DeleteConfirm),
+            PrLifecycleEvent::DeleteCancel => ControlFlow::Break(Self::DeleteCancel),
             PrLifecycleEvent::Deleted {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 branch,
                 closed,
-            } => Self::Deleted {
+            } => ControlFlow::Break(Self::Deleted {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 branch,
                 closed,
-            },
+            }),
             PrLifecycleEvent::DeleteFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 closed,
                 error,
-            } => Self::DeleteFailed {
+            } => ControlFlow::Break(Self::DeleteFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 closed,
                 error,
-            },
+            }),
             composer => Self::from_pr_composer(composer),
         }
     }
 
     /// New PR composer events (issue #183).
-    fn from_pr_composer(event: PrLifecycleEvent) -> Self {
+    ///
+    /// Terminal of the `PrLifecycleEvent` chain: composer variants are claimed
+    /// here and any residual returns to the dispatcher, which reports it as a
+    /// captured converter-drift error instead of panicking.
+    fn from_pr_composer(event: PrLifecycleEvent) -> ControlFlow<Self, PrLifecycleEvent> {
         match event {
-            PrLifecycleEvent::OpenNewForm => Self::OpenNewForm,
-            PrLifecycleEvent::NewFormCancel => Self::NewFormCancel,
-            PrLifecycleEvent::NewFormFocusNext => Self::NewFormFocusNext,
-            PrLifecycleEvent::NewFormFocusPrevious => Self::NewFormFocusPrevious,
-            PrLifecycleEvent::NewFormBranchUp => Self::NewFormBranchUp,
-            PrLifecycleEvent::NewFormBranchDown => Self::NewFormBranchDown,
-            PrLifecycleEvent::NewFormChar(character) => Self::NewFormChar(character),
-            PrLifecycleEvent::NewFormNewline => Self::NewFormNewline,
-            PrLifecycleEvent::NewFormBackspace => Self::NewFormBackspace,
-            PrLifecycleEvent::NewFormDelete => Self::NewFormDelete,
-            PrLifecycleEvent::NewFormCursorLeft => Self::NewFormCursorLeft,
-            PrLifecycleEvent::NewFormCursorRight => Self::NewFormCursorRight,
-            PrLifecycleEvent::NewFormCursorHome => Self::NewFormCursorHome,
-            PrLifecycleEvent::NewFormCursorEnd => Self::NewFormCursorEnd,
-            PrLifecycleEvent::NewFormSubmit => Self::NewFormSubmit,
+            PrLifecycleEvent::OpenNewForm => ControlFlow::Break(Self::OpenNewForm),
+            PrLifecycleEvent::NewFormCancel => ControlFlow::Break(Self::NewFormCancel),
+            PrLifecycleEvent::NewFormFocusNext => ControlFlow::Break(Self::NewFormFocusNext),
+            PrLifecycleEvent::NewFormFocusPrevious => {
+                ControlFlow::Break(Self::NewFormFocusPrevious)
+            }
+            PrLifecycleEvent::NewFormBranchUp => ControlFlow::Break(Self::NewFormBranchUp),
+            PrLifecycleEvent::NewFormBranchDown => ControlFlow::Break(Self::NewFormBranchDown),
+            PrLifecycleEvent::NewFormChar(character) => {
+                ControlFlow::Break(Self::NewFormChar(character))
+            }
+            PrLifecycleEvent::NewFormNewline => ControlFlow::Break(Self::NewFormNewline),
+            PrLifecycleEvent::NewFormBackspace => ControlFlow::Break(Self::NewFormBackspace),
+            PrLifecycleEvent::NewFormDelete => ControlFlow::Break(Self::NewFormDelete),
+            PrLifecycleEvent::NewFormCursorLeft => ControlFlow::Break(Self::NewFormCursorLeft),
+            PrLifecycleEvent::NewFormCursorRight => ControlFlow::Break(Self::NewFormCursorRight),
+            PrLifecycleEvent::NewFormCursorHome => ControlFlow::Break(Self::NewFormCursorHome),
+            PrLifecycleEvent::NewFormCursorEnd => ControlFlow::Break(Self::NewFormCursorEnd),
+            PrLifecycleEvent::NewFormSubmit => ControlFlow::Break(Self::NewFormSubmit),
             PrLifecycleEvent::BranchesLoaded {
                 scope_repo_id,
                 request_id,
                 branches,
                 default_branch,
-            } => Self::BranchesLoaded {
+            } => ControlFlow::Break(Self::BranchesLoaded {
                 scope_repo_id,
                 request_id,
                 branches,
                 default_branch,
-            },
+            }),
             PrLifecycleEvent::BranchesFailed {
                 scope_repo_id,
                 request_id,
                 error,
-            } => Self::BranchesFailed {
+            } => ControlFlow::Break(Self::BranchesFailed {
                 scope_repo_id,
                 request_id,
                 error,
-            },
+            }),
             PrLifecycleEvent::Created {
                 scope_repo_id,
                 mutation_id,
                 pr_number,
-            } => Self::Created {
+            } => ControlFlow::Break(Self::Created {
                 scope_repo_id,
                 mutation_id,
                 pr_number,
-            },
+            }),
             PrLifecycleEvent::CreateFailed {
                 scope_repo_id,
                 mutation_id,
                 error,
-            } => Self::CreateFailed {
+            } => ControlFlow::Break(Self::CreateFailed {
                 scope_repo_id,
                 mutation_id,
                 error,
-            },
-            // `from_pr_lifecycle` matches every merge and delete variant before
-            // delegating here, so nothing else can arrive.
-            other => unreachable!("{other:?} is not a New PR composer event"),
+            }),
+            other => ControlFlow::Continue(other),
         }
     }
 
@@ -183,159 +206,238 @@ impl PullRequestsMessage {
         if Self::is_pr_property_message(&self) {
             return self.into_app_event_property();
         }
-        AppEvent::from(self.into_pr_lifecycle())
+        self.into_pr_lifecycle()
     }
 
     /// One flat message variant becomes its lifecycle event.
-    fn into_pr_lifecycle(self) -> PrLifecycleEvent {
+    fn into_pr_lifecycle(self) -> AppEvent {
         match self {
-            Self::OpenMergeChooser => PrLifecycleEvent::OpenMergeChooser,
-            Self::MergeNavigate(NavDir::Up | NavDir::Prev) => PrLifecycleEvent::MergeNavigateUp,
-            Self::MergeNavigate(NavDir::Down | NavDir::Next) => PrLifecycleEvent::MergeNavigateDown,
-            // The merge chooser is a short fixed list with no paging, so any
-            // other direction is a programming error. Naming it here keeps the
-            // diagnostic accurate instead of surfacing it two hops later as a
-            // composer message.
-            Self::MergeNavigate(direction) => {
-                unreachable!("the merge chooser does not navigate by {direction:?}")
+            Self::OpenMergeChooser => AppEvent::from(PrLifecycleEvent::OpenMergeChooser),
+            Self::MergeNavigate(MergeNavDirection::Up) => {
+                AppEvent::from(PrLifecycleEvent::MergeNavigateUp)
             }
-            Self::MergeConfirm => PrLifecycleEvent::MergeConfirm,
-            Self::MergeCancel => PrLifecycleEvent::MergeCancel,
+            Self::MergeNavigate(MergeNavDirection::Down) => {
+                AppEvent::from(PrLifecycleEvent::MergeNavigateDown)
+            }
+            Self::MergeConfirm => AppEvent::from(PrLifecycleEvent::MergeConfirm),
+            Self::MergeCancel => AppEvent::from(PrLifecycleEvent::MergeCancel),
             Self::Merged {
                 scope_repo_id,
                 pr_number,
                 method,
-            } => PrLifecycleEvent::Merged {
+            } => AppEvent::from(PrLifecycleEvent::Merged {
                 scope_repo_id,
                 pr_number,
                 method,
-            },
+            }),
             Self::MergeFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            } => PrLifecycleEvent::MergeFailed {
+            } => AppEvent::from(PrLifecycleEvent::MergeFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 error,
-            },
+            }),
             Self::MergeMethodsLoaded {
                 scope_repo_id,
                 pr_number,
                 allowed_methods,
-            } => PrLifecycleEvent::MergeMethodsLoaded {
+            } => AppEvent::from(PrLifecycleEvent::MergeMethodsLoaded {
                 scope_repo_id,
                 pr_number,
                 allowed_methods,
-            },
+            }),
             Self::MergeMethodsLoadFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            } => PrLifecycleEvent::MergeMethodsLoadFailed {
+            } => AppEvent::from(PrLifecycleEvent::MergeMethodsLoadFailed {
                 scope_repo_id,
                 pr_number,
                 error,
-            },
+            }),
             delete_or_composer => delete_or_composer.into_pr_delete(),
         }
     }
 
     /// Delete messages become their lifecycle events.
-    fn into_pr_delete(self) -> PrLifecycleEvent {
+    fn into_pr_delete(self) -> AppEvent {
         match self {
-            Self::OpenDeleteConfirm => PrLifecycleEvent::OpenDeleteConfirm,
-            Self::DeleteConfirm => PrLifecycleEvent::DeleteConfirm,
-            Self::DeleteCancel => PrLifecycleEvent::DeleteCancel,
+            Self::OpenDeleteConfirm => AppEvent::from(PrLifecycleEvent::OpenDeleteConfirm),
+            Self::DeleteConfirm => AppEvent::from(PrLifecycleEvent::DeleteConfirm),
+            Self::DeleteCancel => AppEvent::from(PrLifecycleEvent::DeleteCancel),
             Self::Deleted {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 branch,
                 closed,
-            } => PrLifecycleEvent::Deleted {
+            } => AppEvent::from(PrLifecycleEvent::Deleted {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 branch,
                 closed,
-            },
+            }),
             Self::DeleteFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 closed,
                 error,
-            } => PrLifecycleEvent::DeleteFailed {
+            } => AppEvent::from(PrLifecycleEvent::DeleteFailed {
                 scope_repo_id,
                 pr_number,
                 mutation_id,
                 closed,
                 error,
-            },
+            }),
             composer => composer.into_pr_composer(),
         }
     }
 
     /// New PR composer messages (issue #183).
-    fn into_pr_composer(self) -> PrLifecycleEvent {
+    ///
+    /// Terminal of the `PullRequestsMessage` lifecycle chain: composer
+    /// messages are claimed here and any residual is reported as a captured
+    /// converter-drift error instead of panicking.
+    fn into_pr_composer(self) -> AppEvent {
         match self {
-            Self::OpenNewForm => PrLifecycleEvent::OpenNewForm,
-            Self::NewFormCancel => PrLifecycleEvent::NewFormCancel,
-            Self::NewFormFocusNext => PrLifecycleEvent::NewFormFocusNext,
-            Self::NewFormFocusPrevious => PrLifecycleEvent::NewFormFocusPrevious,
-            Self::NewFormBranchUp => PrLifecycleEvent::NewFormBranchUp,
-            Self::NewFormBranchDown => PrLifecycleEvent::NewFormBranchDown,
-            Self::NewFormChar(character) => PrLifecycleEvent::NewFormChar(character),
-            Self::NewFormNewline => PrLifecycleEvent::NewFormNewline,
-            Self::NewFormBackspace => PrLifecycleEvent::NewFormBackspace,
-            Self::NewFormDelete => PrLifecycleEvent::NewFormDelete,
-            Self::NewFormCursorLeft => PrLifecycleEvent::NewFormCursorLeft,
-            Self::NewFormCursorRight => PrLifecycleEvent::NewFormCursorRight,
-            Self::NewFormCursorHome => PrLifecycleEvent::NewFormCursorHome,
-            Self::NewFormCursorEnd => PrLifecycleEvent::NewFormCursorEnd,
-            Self::NewFormSubmit => PrLifecycleEvent::NewFormSubmit,
+            Self::OpenNewForm => AppEvent::from(PrLifecycleEvent::OpenNewForm),
+            Self::NewFormCancel => AppEvent::from(PrLifecycleEvent::NewFormCancel),
+            Self::NewFormFocusNext => AppEvent::from(PrLifecycleEvent::NewFormFocusNext),
+            Self::NewFormFocusPrevious => AppEvent::from(PrLifecycleEvent::NewFormFocusPrevious),
+            Self::NewFormBranchUp => AppEvent::from(PrLifecycleEvent::NewFormBranchUp),
+            Self::NewFormBranchDown => AppEvent::from(PrLifecycleEvent::NewFormBranchDown),
+            Self::NewFormChar(character) => {
+                AppEvent::from(PrLifecycleEvent::NewFormChar(character))
+            }
+            Self::NewFormNewline => AppEvent::from(PrLifecycleEvent::NewFormNewline),
+            Self::NewFormBackspace => AppEvent::from(PrLifecycleEvent::NewFormBackspace),
+            Self::NewFormDelete => AppEvent::from(PrLifecycleEvent::NewFormDelete),
+            Self::NewFormCursorLeft => AppEvent::from(PrLifecycleEvent::NewFormCursorLeft),
+            Self::NewFormCursorRight => AppEvent::from(PrLifecycleEvent::NewFormCursorRight),
+            Self::NewFormCursorHome => AppEvent::from(PrLifecycleEvent::NewFormCursorHome),
+            Self::NewFormCursorEnd => AppEvent::from(PrLifecycleEvent::NewFormCursorEnd),
+            Self::NewFormSubmit => AppEvent::from(PrLifecycleEvent::NewFormSubmit),
+            other => other.into_pr_composer_result(),
+        }
+    }
+
+    fn into_pr_composer_result(self) -> AppEvent {
+        match self {
             Self::BranchesLoaded {
                 scope_repo_id,
                 request_id,
                 branches,
                 default_branch,
-            } => PrLifecycleEvent::BranchesLoaded {
+            } => AppEvent::from(PrLifecycleEvent::BranchesLoaded {
                 scope_repo_id,
                 request_id,
                 branches,
                 default_branch,
-            },
+            }),
             Self::BranchesFailed {
                 scope_repo_id,
                 request_id,
                 error,
-            } => PrLifecycleEvent::BranchesFailed {
+            } => AppEvent::from(PrLifecycleEvent::BranchesFailed {
                 scope_repo_id,
                 request_id,
                 error,
-            },
+            }),
             Self::Created {
                 scope_repo_id,
                 mutation_id,
                 pr_number,
-            } => PrLifecycleEvent::Created {
+            } => AppEvent::from(PrLifecycleEvent::Created {
                 scope_repo_id,
                 mutation_id,
                 pr_number,
-            },
+            }),
             Self::CreateFailed {
                 scope_repo_id,
                 mutation_id,
                 error,
-            } => PrLifecycleEvent::CreateFailed {
+            } => AppEvent::from(PrLifecycleEvent::CreateFailed {
                 scope_repo_id,
                 mutation_id,
                 error,
-            },
-            other => unreachable!("{other:?} is not a PR lifecycle message"),
+            }),
+            other => AppEvent::CaptureSilentError(
+                "Unconvertible PR lifecycle message".to_owned(),
+                format!("{other:?} matched no PR lifecycle converter"),
+                ErrorSource::Panic,
+                unix_timestamp(),
+            ),
         }
+    }
+}
+
+/// Unix epoch seconds used to stamp a captured converter-drift error, matching
+/// the panic-capture timestamp convention.
+fn unix_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or_else(
+            |_| "0".to_owned(),
+            |duration| duration.as_secs().to_string(),
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_navigate_admits_only_closed_up_down() {
+        assert!(matches!(
+            AppEvent::from(PullRequestsMessage::MergeNavigate(MergeNavDirection::Up)),
+            AppEvent::PrLifecycle(event)
+                if matches!(*event, PrLifecycleEvent::MergeNavigateUp)
+        ));
+        assert!(matches!(
+            AppEvent::from(PullRequestsMessage::MergeNavigate(MergeNavDirection::Down)),
+            AppEvent::PrLifecycle(event)
+                if matches!(*event, PrLifecycleEvent::MergeNavigateDown)
+        ));
+        assert!(matches!(
+            PullRequestsMessage::from_app_event_lifecycle(AppEvent::PrLifecycle(Box::new(
+                PrLifecycleEvent::MergeNavigateUp
+            ))),
+            ControlFlow::Break(PullRequestsMessage::MergeNavigate(MergeNavDirection::Up))
+        ));
+        assert!(matches!(
+            PullRequestsMessage::from_app_event_lifecycle(AppEvent::PrLifecycle(Box::new(
+                PrLifecycleEvent::MergeNavigateDown
+            ))),
+            ControlFlow::Break(PullRequestsMessage::MergeNavigate(MergeNavDirection::Down))
+        ));
+    }
+
+    #[test]
+    fn lifecycle_residual_events_continue_instead_of_panicking() {
+        assert!(matches!(
+            PullRequestsMessage::from_app_event_lifecycle(AppEvent::Quit),
+            ControlFlow::Continue(AppEvent::Quit)
+        ));
+    }
+
+    #[test]
+    fn composer_events_round_trip_through_message_variants() {
+        let event = AppEvent::PrLifecycle(Box::new(PrLifecycleEvent::NewFormChar('x')));
+        let ControlFlow::Break(message) = PullRequestsMessage::from_app_event_lifecycle(event)
+        else {
+            panic!("composer event should be claimed by the PR lifecycle chain");
+        };
+        assert!(matches!(message, PullRequestsMessage::NewFormChar('x')));
+        assert!(matches!(
+            AppEvent::from(message),
+            AppEvent::PrLifecycle(event)
+                if matches!(*event, PrLifecycleEvent::NewFormChar('x'))
+        ));
     }
 }

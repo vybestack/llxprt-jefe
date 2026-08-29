@@ -8,63 +8,28 @@ use crate::app_input::{
     try_suppress_synthetic_enter, update_paste_enter_suppression,
 };
 use crate::app_shell_key_routing::route_registry_key;
+use crate::app_shell_provider_projection::provider_projection;
 use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::jsp_host::JspHostRuntime;
-use jefe::layout::{compute_pty_layout, effective_render_size};
+use jefe::layout::effective_render_size;
 use jefe::messages::AppMessage;
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::provider_view::{
-    ProviderViewInput, ProviderViewProjection, project_provider_view,
-};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
 use jefe::theme::{ThemeColors, ThemeManager};
-use jefe::ui::modals::ProviderModal;
 use jefe::ui::orchestration::{
-    ModalViewport, TerminalRenderData, build_modal_element, build_screen_element,
-    derive_confirm_modal_data,
+    ModalViewport, TerminalRenderData, build_modal_element, build_provider_overlay_element,
+    build_screen_element, derive_confirm_modal_data,
 };
-
-fn provider_projection(snapshot: &AppState, viewport_rows: u16) -> Option<ProviderViewProjection> {
-    let registry = snapshot.action_registry();
-    if let Some(surface_action) = snapshot.provider_surface_action.as_ref() {
-        let action = registry
-            .provider_actions()
-            .find(|action| action.id == *surface_action)?;
-        return Some(project_provider_view(&ProviderViewInput {
-            requests: &snapshot.provider_requests,
-            availability: snapshot.action_availability(&action.id),
-            focused: false,
-            confirm: None,
-            viewport_rows: usize::from(viewport_rows),
-            focused_index: None,
-            action_label: Some(&action.label),
-        }));
-    }
-    let requests = snapshot.provider_requests.requests();
-    let request = requests.last()?;
-    let action = registry
-        .provider_actions()
-        .find(|action| action.id.as_str() == request.key().action_id.as_str())?;
-    let availability = snapshot.action_availability(&action.id);
-    Some(project_provider_view(&ProviderViewInput {
-        requests: &snapshot.provider_requests,
-        availability,
-        focused: !request.is_terminal(),
-        confirm: Some(snapshot.provider_requests.confirmation_focus()),
-        viewport_rows: usize::from(viewport_rows),
-        focused_index: Some(requests.len().saturating_sub(1)),
-        action_label: Some(&action.label),
-    }))
-}
 
 use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
 use std::time::Instant;
+
 fn drain_jsp_messages(
     app_state: &mut crate::app_input::AppStateHandle,
     ctx: &crate::app_input::SharedContext,
@@ -249,8 +214,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
             crate::app_shell_workers::run_capture_worker(ctx).await;
         }
     });
-    // Issue #390 CW-10 Slice D: background provider effect worker. The loop
-    // body lives in [`crate::app_shell_provider_worker::run_provider_worker`].
+    // Issue #390 CW-10 Slice D: background provider effect worker.
     hooks.use_future({
         let ctx = ctx.clone();
         async move {
@@ -496,7 +460,18 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // disagreeing about where a panel is. A resize produces a new snapshot on
     // the next frame because the size read above is the only input.
     let mut snapshot = snapshot;
-    snapshot.resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
+    let resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
+    let rendered_instance = snapshot.nav.current().id;
+    let should_publish_layout = {
+        let state = app_state.read();
+        state.nav.current().id == rendered_instance && state.resolved_layout != resolved_layout
+    };
+    if should_publish_layout {
+        app_state
+            .write()
+            .publish_resolved_layout(rendered_instance, resolved_layout.clone());
+    }
+    snapshot.resolved_layout = resolved_layout;
     let snapshot = snapshot;
 
     if terminal_size.is_some()
@@ -519,16 +494,20 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         startup_sessions_restored.set(true);
     }
 
-    // Capture scrollback history lines for the terminal pane (issue #198).
-    // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
-    // cache capture to that mode — other modes waste the clone every frame.
-    //
-    // Issue #301 Phase 2: the render path no longer calls `capture_history`
-    // (which shells out to `tmux capture-pane`) synchronously. Instead it
-    // requests a background capture via the `CaptureHandle` and reads the
-    // runtime's `HistoryCache` directly (non-blocking `get`). The background
-    // worker drains the request and stores the result in the cache.
-    let history_lines: Vec<String> = if snapshot.screen() == ScreenId::Dashboard
+    // Capture scrollback only when the current descriptor declares the private
+    // host PTY capability, or when the terminal-manager shell overlay owns it.
+    // The render path reads the background worker's cache and never shells out.
+    let has_embedded_terminal = snapshot
+        .published_workbench()
+        .screen_registry()
+        .get_identity(snapshot.screen())
+        .is_some_and(|descriptor| {
+            descriptor
+                .panels
+                .iter()
+                .any(|panel| panel.panel_type.as_str() == jefe::workbench::PTY_PANEL_TYPE)
+        });
+    let history_lines: Vec<String> = if has_embedded_terminal
         || (snapshot.screen() == ScreenId::Terminals && snapshot.shell_overlay_active())
     {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
@@ -547,34 +526,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // reads the frame's snapshot: the terminal pane is sized by the resolver,
     // which guarantees a nonzero content rectangle or hides the pane, so there
     // is no `.max(1)` to apply here.
-    let terminal_rect = snapshot.resolved_layout.as_ref().and_then(|layout| {
-        let descriptor = snapshot
-            .published_workbench()
-            .screen_registry()
-            .get_identity(snapshot.screen())?;
-        jefe::workbench::pty_content_rect(
-            descriptor,
-            layout,
-            &jefe::workbench::PanelId::from_static("terminal"),
-        )
-    });
-    let pty_layout = if snapshot.shell_overlay_active() && snapshot.screen() == ScreenId::Terminals
-    {
-        jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
-    } else if snapshot.shell_overlay_active() {
-        jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
-    } else {
-        compute_pty_layout(term_cols, term_rows)
-    };
-    let (terminal_pane_rows, terminal_pane_cols) = terminal_rect.map_or_else(
-        || {
-            (
-                usize::from(pty_layout.pty_rows).max(1),
-                usize::from(pty_layout.pty_cols).max(1),
-            )
-        },
-        |rect| (usize::from(rect.height), usize::from(rect.width)),
-    );
+    let (terminal_pane_rows, terminal_pane_cols) =
+        crate::app_shell_terminal_geometry::terminal_pane_dimensions(
+            &snapshot, term_cols, term_rows,
+        );
     let screen_el = build_screen_element(
         &snapshot,
         &colors,
@@ -586,37 +541,45 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
             pane_cols: terminal_pane_cols,
         },
     );
-    let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
+    let confirm_data = derive_confirm_modal_data(&snapshot);
     let modal_el = build_modal_element(
         &snapshot,
         &modal,
         &colors,
         confirm_data,
-        snapshot.help_scroll_offset,
         ModalViewport {
             cols: render_cols,
             rows: render_rows,
         },
     );
-    let provider_el: Option<AnyElement<'static>> = if matches!(modal, ModalState::None) {
+    let active_overlay = snapshot.active_overlay_kind();
+    let provider_el: Option<AnyElement<'static>> = if matches!(modal, ModalState::None)
+        && matches!(
+            active_overlay,
+            None | Some(jefe::workbench::OverlayKind::Confirmation)
+        ) {
         provider_projection(&snapshot, render_rows).map(|projection| {
-            element! {
-                ProviderModal(projection: projection, colors: colors.clone())
-            }
-            .into_any()
+            build_provider_overlay_element(
+                &projection,
+                &colors,
+                ModalViewport {
+                    cols: render_cols,
+                    rows: render_rows,
+                },
+            )
         })
     } else {
         None
     };
 
-    // Root element with proper dimensions.
     // Search is an in-band mode used by SplitScreen's filter bar, not a blocking
     // overlay modal. Keep rendering the underlying screen in search mode.
-    let content_el: AnyElement<'static> = if matches!(modal, ModalState::Search { .. }) {
-        screen_el
-    } else {
-        provider_el.or(modal_el).unwrap_or(screen_el)
-    };
+    let content_el: AnyElement<'static> =
+        if active_overlay == Some(jefe::workbench::OverlayKind::Search) {
+            screen_el
+        } else {
+            provider_el.or(modal_el).unwrap_or(screen_el)
+        };
 
     element! {
         Box(
@@ -840,14 +803,25 @@ fn should_ignore_key_event(key_event: &KeyEvent) -> bool {
         || (key_event.kind == KeyEventKind::Repeat && key_event.code == KeyCode::Enter)
 }
 
-pub fn should_dismiss_warning(state: &AppState, key_event: &KeyEvent) -> bool {
+fn is_warning_escape(state: &AppState, key_event: &KeyEvent) -> bool {
     key_event.code == KeyCode::Esc
         && key_event.modifiers.is_empty()
-        && state.provider_requests.is_idle()
-        && state.provider_surface_action.is_none()
         && (state.warning_message.is_some()
             || state.issues_state.draft_notice.is_some()
             || state.prs_state.draft_notice.is_some())
+}
+
+pub fn should_dismiss_warning(state: &AppState, key_event: &KeyEvent) -> bool {
+    is_warning_escape(state, key_event)
+        && state.latest_current_provider_request().is_none()
+        && state.provider_surface_action().is_none()
+        && state.active_overlay_kind().is_none()
+        && state.nav.depth() == 0
+}
+
+pub fn should_clear_warning_during_back(state: &AppState, key_event: &KeyEvent) -> bool {
+    is_warning_escape(state, key_event)
+        && (state.active_overlay_kind().is_some() || state.nav.depth() > 0)
 }
 
 fn handle_key_event(
@@ -860,9 +834,15 @@ fn handle_key_event(
     if should_ignore_key_event(&key_event) {
         return;
     }
-    if should_dismiss_warning(&app_state.read(), &key_event) {
+    let state = app_state.read();
+    let dismiss_warning = should_dismiss_warning(&state, &key_event);
+    let clear_warning_during_back = should_clear_warning_during_back(&state, &key_event);
+    drop(state);
+    if dismiss_warning || clear_warning_during_back {
         dispatch_app_event(app_state, &ctx.cloned(), AppEvent::ClearWarning);
-        return;
+        if dismiss_warning {
+            return;
+        }
     }
     normalize_terminal_focus(app_state, ctx);
 

@@ -1,13 +1,18 @@
 use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
+use crate::mouse_overlay_routing::consume_blocking_overlay_mouse;
+use crate::mouse_terminal_geometry::{
+    active_pty_layout, refresh_terminal_scroll_geometry_from_ctx, terminal_size,
+};
 #[path = "mouse_action_execution.rs"]
 mod mouse_action_execution;
 #[path = "mouse_action_routing.rs"]
 mod mouse_action_routing;
 #[path = "mouse_routing_detail.rs"]
 mod mouse_routing_detail;
+pub use crate::mouse_selection_reset::clear_selection;
 use crate::pty_encoding::mouse_event_to_bytes;
 use jefe::clipboard;
-use jefe::layout::{compute_pty_layout, compute_shell_overlay_pty_layout};
+use jefe::layout::compute_shell_overlay_pty_layout;
 use jefe::pane_content_projection::projected_pane_content;
 use jefe::runtime::RuntimeManager;
 use jefe::selection::{
@@ -19,53 +24,6 @@ use jefe::state::{AppState, PaneFocus, ScreenId};
 pub use mouse_action_execution::MouseClickState;
 use mouse_routing_detail::refresh_detail_viewport_rows;
 pub type ClipboardWriter = fn(&str) -> Result<(), std::io::Error>;
-/// Terminal size fallback for the default 120x40 geometry.
-fn terminal_size() -> (u16, u16) {
-    crossterm::terminal::size().unwrap_or((120, 40))
-}
-fn active_pty_layout(cols: u16, rows: u16, overlay_active: bool) -> jefe::layout::PtyLayout {
-    if overlay_active {
-        compute_shell_overlay_pty_layout(cols, rows)
-    } else {
-        compute_pty_layout(cols, rows)
-    }
-}
-fn refresh_terminal_scroll_geometry_from_ctx(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    overlay_active: bool,
-) {
-    let (cols, rows) = terminal_size();
-    let pty_layout = active_pty_layout(cols, rows, overlay_active);
-    // Cache-only history read: no multiplexer subprocess while holding the
-    // context guard (issue #374 S3). On cold miss/contention, preserve prior
-    // geometry instead of zeroing it (which would clear the scroll offset
-    // and jump to follow-tail during attach).
-    let (history_count, live_rows) = match ctx {
-        Some(ctx_arc) => {
-            let Some(geometry) =
-                crate::app_shell_workers::try_capture_history_geometry_from_cache(Some(ctx_arc))
-            else {
-                return;
-            };
-            geometry
-        }
-        None => return,
-    };
-    let mut state = app_state.write();
-    let old_total = state.terminal_total_lines;
-    let viewport_rows = usize::from(pty_layout.pty_rows);
-    let (new_offset, new_total) = jefe::state::scrollback_ops::compute_terminal_scroll_geometry(
-        state.terminal_history_offset,
-        old_total,
-        history_count,
-        live_rows,
-        viewport_rows,
-    );
-    state.terminal_history_offset = new_offset;
-    state.terminal_viewport_rows = viewport_rows;
-    state.terminal_total_lines = new_total;
-}
 fn gesture_event_kind(kind: crossterm::event::MouseEventKind) -> Option<GestureEventKind> {
     use crossterm::event::{MouseButton, MouseEventKind};
     match kind {
@@ -82,21 +40,39 @@ fn gesture_event_kind(kind: crossterm::event::MouseEventKind) -> Option<GestureE
         _ => None,
     }
 }
-/// Clear any active mouse selection.
-///
-/// Called on every non-mouse terminal event (key, paste, resize) so a
-/// selection doesn't linger after the user moves on to keyboard interaction.
-/// Also resets the terminal gesture state: a Pending gesture (which has no
-/// `selection` yet) must not survive a keyboard/paste/resize event, otherwise
-/// a buffered reporting down could leak into a later gesture against a
-/// different agent or screen (issue #197 review: gesture/snapshot invalidation).
-pub fn clear_selection(app_state: &mut HookState<AppState>) {
-    let mut state = app_state.write();
-    state.selection = None;
-    state.selection_snapshot = None;
-    state.selection_dashboard_git_info = None;
-    state.terminal_gesture_state = GestureState::default();
+fn route_blocking_overlay_mouse(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    should_quit: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<crate::pty_encoding::PasteEnterSuppression>,
+    mouse_click: &mut HookState<MouseClickState>,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) -> bool {
+    if !app_state.read().blocking_overlay_owns_mouse() {
+        return false;
+    }
+    if mouse_action_execution::try_up_click(
+        ctx,
+        app_state,
+        should_quit,
+        suppress_next_enter,
+        mouse_click,
+        mouse_event,
+    ) {
+        return true;
+    }
+    let (terminal_cols, terminal_rows) = terminal_size();
+    let (render_cols, render_rows) =
+        jefe::layout::effective_render_size(terminal_cols, terminal_rows);
+    consume_blocking_overlay_mouse(
+        &mut app_state.write(),
+        mouse_event.kind,
+        render_cols,
+        render_rows,
+    );
+    true
 }
+
 pub fn handle_fullscreen_mouse(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -107,6 +83,16 @@ pub fn handle_fullscreen_mouse(
 ) {
     let shift_held = mouse_event.modifiers.contains(iocraft::KeyModifiers::SHIFT);
     mouse_click.write().observe(&mouse_event);
+    if route_blocking_overlay_mouse(
+        ctx,
+        app_state,
+        should_quit,
+        suppress_next_enter,
+        mouse_click,
+        &mouse_event,
+    ) {
+        return;
+    }
     if route_provider_panel_mouse(ctx, app_state, &mouse_event) {
         mouse_click.write().clear();
         return;
@@ -140,23 +126,32 @@ pub fn handle_fullscreen_mouse(
     ) {
         return;
     }
+    route_app_mouse_fallback(ctx, app_state, &mouse_event);
+}
+
+fn route_app_mouse_fallback(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) {
+    use crossterm::event::{MouseButton, MouseEventKind};
     match mouse_event.kind {
-        crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left) => {
             begin_app_selection(app_state, mouse_event.column, mouse_event.row);
         }
-        crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
+        MouseEventKind::Drag(MouseButton::Left) => {
             update_app_selection(app_state, mouse_event.column, mouse_event.row);
         }
-        crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
+        MouseEventKind::Up(MouseButton::Left) => {
             finalize_and_copy_selection(ctx, app_state, clipboard::write_osc52);
         }
-        crossterm::event::MouseEventKind::ScrollUp
-        | crossterm::event::MouseEventKind::ScrollDown => {
-            dispatch_detail_scroll(app_state, &mouse_event);
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            dispatch_detail_scroll(app_state, mouse_event);
         }
         _ => {}
     }
 }
+
 /// Route supported provider-panel mouse input through the frame projection.
 ///
 /// Unsupported buttons, releases, drags, and coordinates outside a provider
@@ -268,20 +263,35 @@ fn route_terminal_gesture(
 ///
 /// Returns `(false, false)` when the terminal is not the active input target.
 fn terminal_target_info(ctx: Option<&CtxArc>, app_state: &HookState<AppState>) -> (bool, bool) {
-    let (terminal_focused, pane_focus, screen, modal_blocking) = {
+    let (terminal_focused, pane_focus, terminal_capable, modal_blocking) = {
         let state = app_state.read();
+        let terminal_capable = state
+            .resolved_layout
+            .as_ref()
+            .filter(|layout| layout.screen_instance == state.nav.current().id)
+            .and_then(|layout| {
+                let descriptor = state
+                    .published_workbench()
+                    .screen_registry()
+                    .get_identity(state.screen())?;
+                jefe::workbench::pty_content_rect(
+                    descriptor,
+                    layout,
+                    &jefe::workbench::PanelId::from_static("terminal"),
+                )
+            })
+            .is_some();
         (
             state.terminal_focused,
             state.pane_focus,
-            state.screen(),
+            terminal_capable,
             is_blocking_modal_open(&state),
         )
     };
-    // Finding F: terminal routing only in Dashboard mode.
-    // Finding G: blocking modal intercepts mouse input.
+    // A blocking modal intercepts mouse input before the declared PTY target.
     let terminal_active = terminal_focused
         && pane_focus == PaneFocus::Terminal
-        && screen == ScreenId::Dashboard
+        && terminal_capable
         && !modal_blocking;
     if !terminal_active {
         return (false, false);
@@ -751,35 +761,34 @@ fn resolve_app_selection_point(
     );
     Some(SelectionPoint::new(pane, line, c))
 }
-fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> Option<ScreenLayout> {
-    let screen = state.compiled_screen()?;
-    let (mode_error, filter_open) = match screen {
-        ScreenId::Issues => (
+fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
+    let screen = state.screen();
+    let compiled = screen.compiled();
+    let (mode_error, filter_open) = match compiled {
+        Some(ScreenId::Issues) => (
             jefe::layout::issues_banner_visible(
                 state.issues_state.error.as_deref(),
                 state.issues_state.draft_notice.as_deref(),
             ),
             state.issues_state.filter_ui.controls_open,
         ),
-        ScreenId::PullRequests => (
+        Some(ScreenId::PullRequests) => (
             state.prs_state.error.is_some(),
             state.prs_state.filter_ui.controls_open,
         ),
-        ScreenId::Actions => (
+        Some(ScreenId::Actions) => (
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        ScreenId::Errors
-        | ScreenId::Dashboard
-        | ScreenId::Repositories
-        | ScreenId::Terminals
-        | ScreenId::Settings => (false, false),
+        Some(
+            ScreenId::Errors | ScreenId::Repositories | ScreenId::Terminals | ScreenId::Settings,
+        )
+        | None => (false, false),
     };
-    let error_visible = (state.error_message.is_some() && screen != ScreenId::Errors) || mode_error;
-    Some(
-        ScreenLayout::new(cols, rows, screen, error_visible, filter_open)
-            .with_overlay(active_overlay_for(state)),
-    )
+    let error_visible =
+        (state.error_message.is_some() && compiled != Some(ScreenId::Errors)) || mode_error;
+    ScreenLayout::new(cols, rows, screen, error_visible, filter_open)
+        .with_overlay(active_overlay_for(state))
 }
 /// Whether a blocking modal is open (Finding G).
 ///
@@ -789,20 +798,18 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> Option<ScreenLay
 /// behind it doesn't receive PTY events.
 fn is_blocking_modal_open(state: &AppState) -> bool {
     use jefe::state::ModalState;
+    if matches!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help | jefe::workbench::OverlayKind::Confirmation)
+    ) {
+        return true;
+    }
     matches!(
         state.modal,
-        ModalState::Help
-            | ModalState::NewAgent { .. }
+        ModalState::NewAgent { .. }
             | ModalState::EditAgent { .. }
             | ModalState::NewRepository { .. }
             | ModalState::EditRepository { .. }
-            | ModalState::ConfirmDeleteRepository { .. }
-            | ModalState::ConfirmDeleteAgent { .. }
-            | ModalState::ConfirmKillAgent { .. }
-            | ModalState::ConfirmServerLostRecovery { .. }
-            | ModalState::PreflightPrompt { .. }
-            | ModalState::ConfirmIssueDirtyCopy { .. }
-            | ModalState::ConfirmIssueOriginMismatch { .. }
             | ModalState::WorkflowDispatch { .. }
             | ModalState::Auth { .. }
     )
@@ -810,8 +817,14 @@ fn is_blocking_modal_open(state: &AppState) -> bool {
 /// Determine which overlay (modal/form/chooser) is currently active, if any.
 fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     use jefe::selection::OverlayPane;
+    match state.active_overlay_kind() {
+        Some(jefe::workbench::OverlayKind::Help) => return OverlayPane::HelpModal,
+        Some(jefe::workbench::OverlayKind::Confirmation) => {
+            return OverlayPane::ConfirmModal;
+        }
+        Some(jefe::workbench::OverlayKind::Search) | None => {}
+    }
     match &state.modal {
-        jefe::state::ModalState::Help => return OverlayPane::HelpModal,
         jefe::state::ModalState::NewAgent { .. }
         | jefe::state::ModalState::EditAgent { .. }
         | jefe::state::ModalState::GeneratedAgent { .. } => {
@@ -819,19 +832,8 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         }
         jefe::state::ModalState::NewRepository { .. }
         | jefe::state::ModalState::EditRepository { .. } => return OverlayPane::RepositoryForm,
-        jefe::state::ModalState::ConfirmDeleteRepository { .. }
-        | jefe::state::ModalState::ConfirmDeleteAgent { .. }
-        | jefe::state::ModalState::ConfirmKillAgent { .. }
-        | jefe::state::ModalState::ConfirmServerLostRecovery { .. }
-        | jefe::state::ModalState::PreflightPrompt { .. }
-        | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. }
-        | jefe::state::ModalState::ConfirmIssueOriginMismatch { .. }
-        | jefe::state::ModalState::Auth { .. } => {
-            return OverlayPane::ConfirmModal;
-        }
-        jefe::state::ModalState::None
-        | jefe::state::ModalState::Search { .. }
-        | jefe::state::ModalState::WorkflowDispatch { .. } => {}
+        jefe::state::ModalState::Auth { .. } => return OverlayPane::ConfirmModal,
+        jefe::state::ModalState::None | jefe::state::ModalState::WorkflowDispatch { .. } => {}
     }
     if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
         return OverlayPane::AgentChooser;
@@ -865,7 +867,7 @@ fn resolve_pane(
     rows: u16,
     terminal_input_enabled: bool,
 ) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
-    let layout = screen_layout_for(state, cols, rows)?;
+    let layout = screen_layout_for(state, cols, rows);
     pane_at(
         col,
         row,
@@ -875,7 +877,7 @@ fn resolve_pane(
     )
 }
 /// HelpModal title rows (title text + blank): not affected by scroll offset.
-const HELP_TITLE_ROWS: usize = 2;
+const HELP_TITLE_ROWS: usize = 1;
 fn effective_scroll_for_detail(
     pane: SelectablePane,
     row: u16,
@@ -908,7 +910,7 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
         SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset,
         SelectablePane::PrDetail => state.prs_state.detail_scroll_offset,
         SelectablePane::ActionsDetail => state.actions_state.detail_scroll_offset,
-        SelectablePane::HelpModal => state.help_scroll_offset,
+        SelectablePane::HelpModal => state.help_scroll_offset(),
         // Issue #198: terminal history offset is bottom-relative, but the
         // selection layer expects a top-relative "lines hidden above viewport".
         // Convert via the shared single source of truth so the selection

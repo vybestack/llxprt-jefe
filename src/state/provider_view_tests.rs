@@ -135,6 +135,8 @@ fn normal_mode_when_idle_and_available() {
     let state = ProviderRequestState::new();
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -152,6 +154,8 @@ fn focused_mode_when_surface_has_keyboard_focus() {
     let state = ProviderRequestState::new();
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: true,
         confirm: None,
@@ -172,6 +176,8 @@ fn unavailable_mode_shares_registry_reason_byte_identical() {
     };
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&availability),
         focused: false,
         confirm: None,
@@ -207,6 +213,8 @@ fn error_mode_when_request_has_terminal_error() {
 
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -236,6 +244,8 @@ fn recovery_mode_when_generation_unavailable() {
 
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -267,6 +277,8 @@ fn confirmation_mode_carries_exact_declared_fields() {
 
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: Some(ConfirmFocus::Confirm),
@@ -282,12 +294,16 @@ fn confirmation_mode_carries_exact_declared_fields() {
             body,
             confirm_label,
             continuation_schema,
+            continuation_values,
+            focused_field,
         } => {
             assert_eq!(confirm_focus, ConfirmFocus::Confirm);
             assert_eq!(title, "Destroy Branch");
             assert_eq!(body, "This cannot be undone.");
             assert_eq!(confirm_label, "Delete");
             assert_eq!(continuation_schema, schema);
+            assert!(continuation_values.is_empty());
+            assert_eq!(focused_field, None);
         }
         other => panic!("expected Confirmation, got {other:?}"),
     }
@@ -308,6 +324,8 @@ fn confirmation_mode_defaults_focus_to_cancel() {
     // No explicit focus override supplied.
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -323,6 +341,8 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             body,
             confirm_label,
             continuation_schema,
+            continuation_values,
+            focused_field,
         } => {
             assert_eq!(
                 confirm_focus,
@@ -333,6 +353,8 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             assert_eq!(body, "Are you sure?");
             assert_eq!(confirm_label, "Yes, proceed");
             assert!(continuation_schema.is_empty());
+            assert!(continuation_values.is_empty());
+            assert_eq!(focused_field, None);
         }
         other => panic!("expected Confirmation, got {other:?}"),
     }
@@ -345,6 +367,8 @@ fn confirmation_mode_not_shown_without_pending_token() {
     let state = ProviderRequestState::new();
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: Some(ConfirmFocus::Confirm),
@@ -365,6 +389,8 @@ fn small_mode_when_viewport_below_threshold() {
     let state = ProviderRequestState::new();
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: true,
         confirm: None,
@@ -399,6 +425,8 @@ fn progress_row_shows_completed_and_total() {
 
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -443,6 +471,8 @@ fn completed_row_shows_completed_status() {
 
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -476,6 +506,8 @@ fn mode_precedence_small_beats_recovery() {
 
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&Availability::Available),
         focused: false,
         confirm: None,
@@ -497,6 +529,8 @@ fn mode_precedence_confirmation_beats_unavailable() {
     };
     let input = ProviderViewInput {
         requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
         availability: Some(&availability),
         focused: false,
         confirm: Some(ConfirmFocus::Cancel),

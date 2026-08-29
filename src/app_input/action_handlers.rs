@@ -46,7 +46,6 @@ pub enum BoundaryAction {
     HelpPageDown,
     HelpHome,
     HelpEnd,
-    WorkbenchBack,
     ProviderPanelPrevious,
     ProviderPanelNext,
     ProviderPanelActivate,
@@ -64,6 +63,19 @@ const fn settings_boundary(action: SettingsAction) -> HandlerExecution {
     HandlerExecution::Boundary(BoundaryAction::Settings(action))
 }
 
+fn has_declared_pty(state: &AppState) -> bool {
+    state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .is_some_and(|descriptor| {
+            descriptor
+                .panels
+                .iter()
+                .any(|panel| panel.panel_type.as_str() == jefe::workbench::PTY_PANEL_TYPE)
+        })
+}
+
 pub fn pre_mode_owned(
     handler: HandlerKey,
     state: &AppState,
@@ -71,19 +83,21 @@ pub fn pre_mode_owned(
 ) -> bool {
     match handler {
         HandlerKey::JumpAgent(_) => true,
-        HandlerKey::ToggleTerminalFocus | HandlerKey::LeaveTerminal => matches!(
-            state.compiled_screen(),
-            Some(ScreenId::Dashboard | ScreenId::Repositories | ScreenId::Actions)
-        ),
+        HandlerKey::ToggleTerminalFocus | HandlerKey::LeaveTerminal => {
+            has_declared_pty(state)
+                || matches!(
+                    state.compiled_screen(),
+                    Some(ScreenId::Repositories | ScreenId::Actions)
+                )
+        }
         HandlerKey::OpenEmbeddedShell | HandlerKey::OpenExternalTerminal => {
             input_mode == jefe::input::InputMode::Normal
-                && state.screen() == ScreenId::Dashboard
+                && has_declared_pty(state)
                 && !state.terminal_focused
         }
         HandlerKey::EmergencyExit => matches!(
             input_mode,
             jefe::input::InputMode::Normal
-                | jefe::input::InputMode::DashboardSearch
                 | jefe::input::InputMode::IssuesNormal
                 | jefe::input::InputMode::PrsNormal
                 | jefe::input::InputMode::ActionsNormal
@@ -165,14 +179,19 @@ fn apply_boundary(
         BoundaryAction::ForwardToPty => {
             super::forward_key_to_pty(ctx.as_ref(), suppress_next_enter, key_event);
         }
-        BoundaryAction::HideShellOverlay
-        | BoundaryAction::CloseShellOverlay
-        | BoundaryAction::OpenEmbeddedShell
-        | BoundaryAction::OpenExternalTerminal => {
-            apply_shell_overlay_boundary(boundary, app_state, ctx);
+        BoundaryAction::HideShellOverlay => {
+            super::shell_overlay::hide_shell_overlay(app_state, ctx);
+        }
+        BoundaryAction::CloseShellOverlay => {
+            super::shell_overlay::close_shell_overlay(app_state, ctx);
+        }
+        BoundaryAction::OpenEmbeddedShell => {
+            super::shell_overlay::open_embedded_shell(app_state, ctx);
+        }
+        BoundaryAction::OpenExternalTerminal => {
+            super::shell_overlay::open_external_terminal(app_state, ctx);
         }
         BoundaryAction::NewAgentOrRepository => new_agent_or_repository(app_state, ctx),
-        BoundaryAction::WorkbenchBack => leave_workbench(app_state, ctx),
         BoundaryAction::ProviderPanelPrevious
         | BoundaryAction::ProviderPanelNext
         | BoundaryAction::ProviderPanelActivate
@@ -210,37 +229,6 @@ fn apply_boundary(
     }
 }
 
-fn apply_shell_overlay_boundary(
-    boundary: BoundaryAction,
-    app_state: &mut super::AppStateHandle,
-    ctx: &super::SharedContext,
-) {
-    match boundary {
-        BoundaryAction::HideShellOverlay => {
-            super::shell_overlay::hide_shell_overlay(app_state, ctx);
-        }
-        BoundaryAction::CloseShellOverlay => {
-            super::shell_overlay::close_shell_overlay(app_state, ctx);
-        }
-        BoundaryAction::OpenEmbeddedShell => {
-            super::shell_overlay::open_embedded_shell(app_state, ctx);
-        }
-        BoundaryAction::OpenExternalTerminal => {
-            super::shell_overlay::open_external_terminal(app_state, ctx);
-        }
-        _ => unreachable!("shell-overlay boundary helper received another action"),
-    }
-}
-
-fn leave_workbench(app_state: &mut super::AppStateHandle, ctx: &super::SharedContext) {
-    let staged = {
-        let mut state = app_state.write();
-        let _ = state.leave_screen();
-        state.take_staged_effects()
-    };
-    super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
-}
-
 fn apply_terminal_manager_boundary(
     boundary: BoundaryAction,
     app_state: &mut super::AppStateHandle,
@@ -261,23 +249,51 @@ fn apply_terminal_manager_boundary(
 }
 
 fn apply_help_scroll(boundary: BoundaryAction, app_state: &mut super::AppStateHandle) {
-    let (_, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (terminal_cols, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (render_cols, render_rows) =
+        jefe::layout::effective_render_size(terminal_cols, terminal_rows);
     let mut state = app_state.write();
-    let content = jefe::ui::modals::effective_help_content_lines(
-        state.action_registry(),
-        state.action_availability_generation(),
-    );
-    let max_scroll = jefe::ui::modals::help_max_scroll(&content, terminal_rows);
-    state.help_scroll_offset = match boundary {
-        BoundaryAction::HelpScrollUp => state.help_scroll_offset.saturating_sub(1),
-        BoundaryAction::HelpScrollDown => state.help_scroll_offset.saturating_add(1),
-        BoundaryAction::HelpPageUp => state.help_scroll_offset.saturating_sub(8),
-        BoundaryAction::HelpPageDown => state.help_scroll_offset.saturating_add(8),
-        BoundaryAction::HelpHome => 0,
-        BoundaryAction::HelpEnd => max_scroll,
-        _ => state.help_scroll_offset,
-    }
-    .min(max_scroll);
+    let action = match boundary {
+        BoundaryAction::HelpScrollUp | BoundaryAction::HelpPageUp | BoundaryAction::HelpHome => {
+            jefe::host_controls::ControlAction::Previous
+        }
+        BoundaryAction::HelpScrollDown | BoundaryAction::HelpPageDown | BoundaryAction::HelpEnd => {
+            jefe::host_controls::ControlAction::Next
+        }
+        _ => return,
+    };
+    let Some((delta, max_scroll)) = state.help_control_scroll(action, render_cols, render_rows)
+    else {
+        return;
+    };
+    let current = state.help_scroll_offset();
+    let Some(viewport) = help_scroll_target(boundary, current, delta, max_scroll) else {
+        return;
+    };
+    state.set_help_scroll_offset(viewport);
+}
+
+fn help_scroll_target(
+    boundary: BoundaryAction,
+    current: usize,
+    delta: i8,
+    max_scroll: usize,
+) -> Option<usize> {
+    let distance = match boundary {
+        BoundaryAction::HelpPageUp | BoundaryAction::HelpPageDown => 8,
+        BoundaryAction::HelpScrollUp | BoundaryAction::HelpScrollDown => {
+            usize::from(delta.unsigned_abs())
+        }
+        BoundaryAction::HelpHome => return Some(0),
+        BoundaryAction::HelpEnd => return Some(max_scroll),
+        _ => return None,
+    };
+    let viewport = if delta.is_negative() {
+        current.saturating_sub(distance)
+    } else {
+        current.saturating_add(distance)
+    };
+    Some(viewport.min(max_scroll))
 }
 
 fn new_agent_or_repository(app_state: &mut super::AppStateHandle, ctx: &super::SharedContext) {
@@ -304,7 +320,7 @@ macro_rules! handler_execution {
             H::EmergencyExit => E::Boundary(B::Quit),
             H::OpenKeys => settings_boundary(SettingsAction::OpenKeys),
             H::OpenSettings => settings_boundary(SettingsAction::Open),
-            H::SettingsBack => settings_boundary(SettingsAction::Back),
+            H::SettingsBack => E::Event(AppEvent::Back),
             H::SettingsUp => settings_boundary(SettingsAction::Up),
             H::SettingsDown => settings_boundary(SettingsAction::Down),
             H::SettingsCyclePane => settings_boundary(SettingsAction::CyclePane),
@@ -347,7 +363,7 @@ macro_rules! handler_execution {
             H::NavigateEnd => E::Event(AppEvent::NavigateEnd),
             H::NavigateLeft => E::Event(AppEvent::NavigateLeft),
             H::NavigateRight => E::Event(AppEvent::NavigateRight),
-            H::WorkbenchBack => E::Boundary(B::WorkbenchBack),
+            H::WorkbenchBack => E::Event(AppEvent::Back),
             H::ProviderPanelPrevious => E::Boundary(B::ProviderPanelPrevious),
             H::ProviderPanelNext => E::Boundary(B::ProviderPanelNext),
             H::ProviderPanelActivate => E::Boundary(B::ProviderPanelActivate),
@@ -374,9 +390,6 @@ macro_rules! handler_execution {
             H::EnterErrors => E::Event(AppEvent::EnterErrorsMode),
             H::EnterSplit => E::Event(AppEvent::EnterSplitMode),
             H::EnterTerminalManager => E::Event(AppEvent::EnterTerminalManagerMode),
-            H::FocusDashboardSearch if state.screen() == ScreenId::Dashboard => {
-                E::Event(AppEvent::FocusDashboardSearch)
-            }
             H::FocusDashboardSearch => E::Event(AppEvent::OpenSearch),
             H::ToggleHiddenRepositories => E::Event(AppEvent::ToggleHideIdleRepositories),
             H::FocusRepositories => E::Boundary(B::FocusRepositories),
@@ -387,7 +400,6 @@ macro_rules! handler_execution {
             H::DashboardGrabDrop => E::Event(AppEvent::ExitDashboardGrab),
             H::DashboardGrabUp => E::Event(AppEvent::DashboardGrabMoveUp),
             H::DashboardGrabDown => E::Event(AppEvent::DashboardGrabMoveDown),
-            H::ExitSplit => E::Event(AppEvent::ExitSplitMode),
             H::EnterSplitGrab => E::Event(AppEvent::EnterGrabMode),
             H::WorkbenchToggleFilter => E::Event(AppEvent::ToggleWorkbenchStatusBucket(
                 state.workbench_filter_cursor_bucket(),
@@ -399,7 +411,6 @@ macro_rules! handler_execution {
             H::WorkbenchSelectPrev => E::Event(AppEvent::WorkbenchSelectPrev),
             H::WorkbenchSelectNext => E::Event(AppEvent::WorkbenchSelectNext),
             H::WorkbenchAttach => E::Event(AppEvent::WorkbenchAttach),
-            H::ErrorsBack => errors_back(state),
             H::ErrorsUp => errors_vertical(state, chord, true),
             H::ErrorsDown => errors_vertical(state, chord, false),
             H::ErrorsPageUp => E::Event(AppEvent::ErrorsScrollDetailPageUp),
@@ -407,42 +418,51 @@ macro_rules! handler_execution {
             H::ErrorsActivate => errors_activate(state),
             H::ErrorsCyclePane => errors_cycle(chord),
             H::ErrorsClear => E::Event(AppEvent::ErrorsClearAll),
-            H::TerminalManagerBack => E::Event(AppEvent::ExitTerminalManagerMode),
             H::TerminalManagerUp => E::Event(AppEvent::TerminalManagerNavigateUp),
             H::TerminalManagerDown => E::Event(AppEvent::TerminalManagerNavigateDown),
             H::TerminalManagerHome => E::Event(AppEvent::TerminalManagerNavigateHome),
             H::TerminalManagerEnd => E::Event(AppEvent::TerminalManagerNavigateEnd),
             H::TerminalManagerCloseShell => E::Boundary(B::TerminalManagerCloseShell),
             H::TerminalManagerFocusShell => E::Boundary(B::TerminalManagerFocusShell),
-            H::HelpClose
+            H::HelpClose => E::Event(AppEvent::Back),
+            H::ExitSplit
+            | H::ErrorsBack
+            | H::TerminalManagerBack
+            | H::ConfirmCancel
+            | H::AuthCancel
+            | H::FormCancel
+            | H::SearchCancel
+            | H::FilterCancel
+            | H::IssuesExit
+            | H::IssuesCancelInline
+            | H::IssuesChooserCancel
+            | H::PullRequestsExit
+            | H::PullRequestsCancelInline
+            | H::PullRequestsChooserCancel
+            | H::ActionsExit
+            | H::ActionsBack
             | H::HelpScrollUp
             | H::HelpScrollDown
             | H::HelpPageUp
             | H::HelpPageDown
             | H::HelpHome
             | H::HelpEnd
-            | H::ConfirmCancel
             | H::ConfirmCycleFocus
             | H::ConfirmAccept
             | H::ConfirmToggleDeleteWorkDir
-            | H::AuthCancel
             | H::AuthRetry
-            | H::FormCancel
             | H::FormSubmit
             | H::FormNextField
             | H::FormPreviousField
             | H::SearchApply
-            | H::SearchCancel
             | H::SearchBackspace
             | H::FilterApply
-            | H::FilterCancel
             | H::FilterNextField
             | H::FilterPreviousField
             | H::FilterClearCurrent
             | H::FilterClearAll
             | H::FilterPreviousChoice
             | H::FilterNextChoice
-            | H::IssuesExit
             | H::IssuesBack
             | H::IssuesOpen
             | H::IssuesNew
@@ -454,12 +474,9 @@ macro_rules! handler_execution {
             | H::IssuesSendToAgent
             | H::IssuesCyclePane
             | H::IssuesSubmitInline
-            | H::IssuesCancelInline
             | H::IssuesChooserPrevious
             | H::IssuesChooserNext
             | H::IssuesChooserConfirm
-            | H::IssuesChooserCancel
-            | H::PullRequestsExit
             | H::PullRequestsBack
             | H::PullRequestsOpen
             | H::PullRequestsOpenFilter
@@ -472,12 +489,9 @@ macro_rules! handler_execution {
             | H::PullRequestsOpenMerge
             | H::PullRequestsCyclePane
             | H::PullRequestsSubmitInline
-            | H::PullRequestsCancelInline
             | H::PullRequestsChooserPrevious
             | H::PullRequestsChooserNext
             | H::PullRequestsChooserConfirm
-            | H::PullRequestsChooserCancel
-            | H::ActionsExit
             | H::ActionsReload
             | H::ActionsOpenFilter
             | H::ActionsFocusSearch
@@ -486,7 +500,6 @@ macro_rules! handler_execution {
             | H::ActionsPageUp
             | H::ActionsPageDown
             | H::ActionsActivate
-            | H::ActionsBack
             | H::ProviderAction => E::LaterSlice,
         }
     }};
@@ -499,10 +512,57 @@ pub fn execution_for(
     state: &AppState,
     page_items: PageItemCount,
 ) -> HandlerExecution {
+    if semantic_back_handler(handler, chord) {
+        return HandlerExecution::Event(AppEvent::Back);
+    }
+    if handler == HandlerKey::TerminalManagerBack && chord.key == Key::Function(12) {
+        return HandlerExecution::Event(AppEvent::ExitTerminalManagerMode);
+    }
+    if handler == HandlerKey::SearchApply
+        && state.active_overlay_kind() == Some(jefe::workbench::OverlayKind::Search)
+    {
+        return if state.search_control_accepts_submit() {
+            // Commit the typed query by closing the editor. The query lives on the
+            // instance overlay and the Dashboard filter reads it, so the committed
+            // filter stays active once the editor closes; only an explicit clear
+            // reveals the full view again.
+            HandlerExecution::Event(AppEvent::CloseModal)
+        } else {
+            HandlerExecution::Noop
+        };
+    }
     if let Some(execution) = s4::execution_for(handler, chord, state, page_items) {
         return execution;
     }
     handler_execution!(handler, chord, state, page_items)
+}
+
+fn semantic_back_handler(handler: HandlerKey, chord: Chord) -> bool {
+    matches!(
+        handler,
+        HandlerKey::SettingsBack | HandlerKey::WorkbenchBack | HandlerKey::HelpClose
+    ) || chord.key == Key::Esc
+        && matches!(
+            handler,
+            HandlerKey::ExitSplit
+                | HandlerKey::ErrorsBack
+                | HandlerKey::TerminalManagerBack
+                | HandlerKey::ConfirmCancel
+                | HandlerKey::AuthCancel
+                | HandlerKey::FormCancel
+                | HandlerKey::SearchCancel
+                | HandlerKey::FilterCancel
+                | HandlerKey::IssuesExit
+                | HandlerKey::IssuesBack
+                | HandlerKey::IssuesCancelInline
+                | HandlerKey::IssuesChooserCancel
+                | HandlerKey::PullRequestsExit
+                | HandlerKey::PullRequestsBack
+                | HandlerKey::PullRequestsCancelInline
+                | HandlerKey::PullRequestsChooserCancel
+                | HandlerKey::ActionsExit
+                | HandlerKey::ActionsBack
+        )
 }
 
 #[cfg(test)]
@@ -539,14 +599,6 @@ fn terminal_execution(handler: HandlerKey, state: &AppState) -> HandlerExecution
             Event(AppEvent::TerminalScrollDown)
         }
         _ => Boundary(BoundaryAction::ForwardToPty),
-    }
-}
-
-fn errors_back(state: &AppState) -> HandlerExecution {
-    if state.errors_state.focus == ErrorsFocus::ErrorDetail {
-        HandlerExecution::Event(AppEvent::RefocusErrorList)
-    } else {
-        HandlerExecution::Event(AppEvent::ExitErrorsMode)
     }
 }
 
@@ -641,4 +693,34 @@ fn activate_execution(state: &AppState) -> HandlerExecution {
 
 fn optional_event(event: Option<AppEvent>) -> HandlerExecution {
     event.map_or(HandlerExecution::Noop, HandlerExecution::Event)
+}
+
+#[cfg(test)]
+mod help_scroll_tests {
+    use super::{BoundaryAction, help_scroll_target};
+
+    #[test]
+    fn help_home_end_and_pages_share_exact_typed_projection_bounds() {
+        assert_eq!(
+            help_scroll_target(BoundaryAction::HelpHome, 9, -1, 20),
+            Some(0)
+        );
+        assert_eq!(
+            help_scroll_target(BoundaryAction::HelpEnd, 3, 1, 20),
+            Some(20)
+        );
+        assert_eq!(
+            help_scroll_target(BoundaryAction::HelpPageUp, 5, -1, 20),
+            Some(0)
+        );
+        assert_eq!(
+            help_scroll_target(BoundaryAction::HelpPageDown, 17, 1, 20),
+            Some(20)
+        );
+        assert_eq!(
+            help_scroll_target(BoundaryAction::HelpEnd, 0, 1, 0),
+            Some(0),
+            "a very short Help viewport has no phantom scroll range"
+        );
+    }
 }

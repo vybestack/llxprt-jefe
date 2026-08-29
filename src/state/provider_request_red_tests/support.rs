@@ -1,6 +1,7 @@
 //! Shared helpers for the RED-first provider request remediation tests.
 
 use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
+use crate::domain::plugin::field::Field;
 use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{Outcome, ProgressPayload};
 
@@ -105,12 +106,20 @@ pub(super) fn notice_outcome() -> Outcome {
 }
 
 pub(super) fn confirmation_outcome(conf_id: &str, destructive: bool) -> Outcome {
+    confirmation_outcome_with_schema(conf_id, destructive, Vec::new())
+}
+
+pub(super) fn confirmation_outcome_with_schema(
+    conf_id: &str,
+    destructive: bool,
+    continuation_schema: Vec<Field>,
+) -> Outcome {
     Outcome::RequestHostConfirmation {
         confirmation_id: Id::parse(conf_id).unwrap_or_else(|_e| panic!("valid conf id")),
         title: "Confirm Action".to_owned(),
         body: "Are you sure?".to_owned(),
         confirm_label: "Yes, proceed".to_owned(),
         destructive,
-        continuation_schema: vec![],
+        continuation_schema,
     }
 }

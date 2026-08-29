@@ -35,12 +35,12 @@ fn dashboard_s_emits_enter_split_mode_via_registry() {
 }
 
 #[test]
-fn split_esc_emits_exit_split_mode_via_registry() {
+fn split_esc_enters_the_shared_back_reducer() {
     let mut state = crate::test_app_state();
     state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
     assert!(matches!(
         resolved_execution(&state, &key(KeyCode::Esc)),
-        HandlerExecution::Event(AppEvent::ExitSplitMode)
+        HandlerExecution::Event(AppEvent::Back)
     ));
 }
 

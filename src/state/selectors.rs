@@ -33,7 +33,7 @@ impl AppState {
                         .empty_repositories
                         .contains(&repository.id))
                 .then_some(repository)
-                .filter(|repository| self.dashboard_search_matches(&repository.name))
+                .filter(|repository| self.dashboard_filter_matches(&repository.name))
                 .map(|_| idx)
             })
             .collect()

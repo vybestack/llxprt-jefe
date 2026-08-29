@@ -56,8 +56,12 @@ impl DeactivateReason {
 pub enum BodyKind {
     /// A selectable list.
     List,
+    /// A hierarchical tree.
+    Tree,
     /// A document with metadata and actions.
     Detail,
+    /// A structured file diff.
+    StructuredDiff,
     /// An editable form.
     Form,
     /// A table of label/value rows.
@@ -72,9 +76,11 @@ pub enum BodyKind {
 
 impl BodyKind {
     /// Every kind, in declaration order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 9] = [
         Self::List,
+        Self::Tree,
         Self::Detail,
+        Self::StructuredDiff,
         Self::Form,
         Self::Status,
         Self::Progress,
@@ -87,7 +93,9 @@ impl BodyKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::List => "list",
+            Self::Tree => "tree",
             Self::Detail => "detail",
+            Self::StructuredDiff => "structured-diff",
             Self::Form => "form",
             Self::Status => "status",
             Self::Progress => "progress",
@@ -210,6 +218,143 @@ pub struct ListBody {
     pub next_page_token: Option<String>,
 }
 
+/// One node in a versioned tree body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeNode {
+    /// Stable node identity within the tree.
+    pub id: Id,
+    /// Parent node identity; roots have no parent.
+    pub parent_id: Option<Id>,
+    /// Operator-facing label.
+    pub label: String,
+    /// Stable semantic identity for relationship propagation.
+    pub semantic_key: Id,
+    /// Zero-based depth in deterministic preorder.
+    pub depth: u64,
+    /// Whether the node may be expanded.
+    pub expandable: bool,
+    /// Whether the node is currently expanded.
+    pub expanded: bool,
+}
+
+/// A versioned hierarchical tree body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeBody {
+    /// Tree DTO schema version.
+    pub schema_version: u64,
+    /// Nodes in deterministic parent-before-child preorder.
+    pub nodes: Vec<TreeNode>,
+    /// The selected node, when present.
+    pub selected_id: Option<Id>,
+}
+
+/// Origin of one structured-diff line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineOrigin {
+    /// Unchanged context present on both sides.
+    Context,
+    /// A line present only on the new side.
+    Added,
+    /// A line present only on the old side.
+    Removed,
+}
+
+impl DiffLineOrigin {
+    /// Every line origin, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Context, Self::Added, Self::Removed];
+
+    /// The lower-kebab-case wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Context => "context",
+            Self::Added => "added",
+            Self::Removed => "removed",
+        }
+    }
+
+    /// Resolve an exact, case-sensitive wire name.
+    #[must_use]
+    pub fn from_wire(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|origin| origin.as_str() == value)
+    }
+}
+
+/// One line in a structured diff hunk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredDiffLine {
+    /// Whether the line is context, added, or removed.
+    pub origin: DiffLineOrigin,
+    /// Old-side line number, when the origin has an old side.
+    pub old_line: Option<u64>,
+    /// New-side line number, when the origin has a new side.
+    pub new_line: Option<u64>,
+    /// Line content without the diff prefix.
+    pub content: String,
+    /// Whether the source reports no terminating newline.
+    pub no_newline: bool,
+}
+
+/// One structured diff hunk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredDiffHunk {
+    /// Provider-authored hunk header.
+    pub header: String,
+    /// First old-side line number.
+    pub old_start: u64,
+    /// Number of old-side lines represented by this hunk.
+    pub old_lines: u64,
+    /// First new-side line number.
+    pub new_start: u64,
+    /// Number of new-side lines represented by this hunk.
+    pub new_lines: u64,
+    /// Ordered hunk lines.
+    pub lines: Vec<StructuredDiffLine>,
+}
+
+/// Validated path shape for one structured-diff file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StructuredDiffPath {
+    /// A newly added file has only its new path.
+    Added(String),
+    /// A removed file has only its old path.
+    Removed(String),
+    /// An unchanged path carries modifications on both sides.
+    Modified(String),
+    /// A renamed file carries distinct old and new paths.
+    Renamed { old: String, new: String },
+}
+
+/// One file in a structured diff body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredDiffFile {
+    /// Stable file identity within the body.
+    pub id: Id,
+    /// Validated added, removed, modified, or renamed path shape.
+    pub path: StructuredDiffPath,
+    /// Old-side mode, only valid when an old path exists.
+    pub old_mode: Option<String>,
+    /// New-side mode, only valid when a new path exists.
+    pub new_mode: Option<String>,
+    /// Whether this is a binary diff.
+    pub binary: bool,
+    /// Text hunks; binary files carry none.
+    pub hunks: Vec<StructuredDiffHunk>,
+}
+
+/// A versioned structured diff body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructuredDiffBody {
+    /// Structured-diff DTO schema version.
+    pub schema_version: u64,
+    /// Files in deterministic provider order.
+    pub files: Vec<StructuredDiffFile>,
+    /// The selected file, when present.
+    pub selected_file_id: Option<Id>,
+}
+
 /// A detail body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetailBody {
@@ -276,13 +421,17 @@ pub struct ErrorBody {
     pub retry_action: Option<Id>,
 }
 
-/// The closed seven-kind panel body, tagged by `kind`.
+/// The closed nine-kind panel body, tagged by `kind`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelBody {
     /// A selectable list.
     List(ListBody),
+    /// A hierarchical tree.
+    Tree(TreeBody),
     /// A document with metadata and actions.
     Detail(DetailBody),
+    /// A structured file diff.
+    StructuredDiff(StructuredDiffBody),
     /// An editable form.
     Form(FormBody),
     /// A table of label/value rows.
@@ -301,7 +450,9 @@ impl PanelBody {
     pub const fn kind(&self) -> BodyKind {
         match self {
             Self::List(_) => BodyKind::List,
+            Self::Tree(_) => BodyKind::Tree,
             Self::Detail(_) => BodyKind::Detail,
+            Self::StructuredDiff(_) => BodyKind::StructuredDiff,
             Self::Form(_) => BodyKind::Form,
             Self::Status(_) => BodyKind::Status,
             Self::Progress(_) => BodyKind::Progress,
@@ -410,6 +561,13 @@ pub enum PanelEvent {
     LinkSelected {
         /// The selected link id.
         link_id: Id,
+    },
+    /// A tree node's expansion state changed.
+    ExpansionChanged {
+        /// The affected tree node id.
+        id: Id,
+        /// The new expansion state.
+        expanded: bool,
     },
 }
 

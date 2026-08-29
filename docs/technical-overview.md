@@ -6,6 +6,30 @@ Jefe is a single-binary Rust TUI application that orchestrates AI coding agent p
 
 The application runs on a single async executor (`smol`), with blocking PTY I/O delegated to dedicated OS threads. There is no background task scheduler, no database, and no network server. All persistence uses flat JSON files. All process management uses tmux as the session backend.
 
+### Published workbench and screen instances
+
+Startup composes shipped, local, and package definitions into one immutable
+`PublishedWorkbench`. Every route resolves an open `ScreenIdentity` through that
+registry. `ScreenId` is not the routing vocabulary: it contains only the seven
+residual adapters for Repositories, Issues, Pull Requests, Actions, Errors,
+Terminals, and Settings. Dashboard is the shipped open identity
+`core.dashboard` and uses the same descriptor, layout, control projection,
+input, overlay, and navigation runtime as local and package screens.
+
+`NavState` owns the current and suspended `ScreenInstance` values. Each instance
+owns its focus, presentation, typed relationships, overlays, and provider-panel
+state. Process-unique screen and panel instance IDs prevent stale completion or
+provider delivery from mutating another visit to the same definition. Push
+suspends the exact owner, Back restores it, and Replace or Back disposes the
+removed owner only after typed deactivation effects are staged atomically.
+
+Public panel behavior is selected solely by the closed nine-value `ControlKind`
+and sealed host factories. The Dashboard's PTY panel is a private host-only
+capability rendered through `TerminalView`; local and package definitions cannot
+name it. Help, Search, generic confirmation, and provider confirmation are
+instance-owned declared overlays, and their typed projections are shared by
+rendering, input, scrolling, copying, and selection geometry.
+
 ### Agent definitions and launch plans
 
 Jefe models every coding agent as an `AgentTypeId` plus typed values validated by
@@ -87,25 +111,33 @@ inconsistent.
 - The enum is exhaustive: every keyboard shortcut documented in the functional spec maps to exactly one variant.
 - No async, no channels, no callbacks.
 
-### `app.rs` — Application State Machine
+### `state/` — Application State Machine
 
-**Responsibility**: Own and mutate the canonical application state. Translate events into state transitions. This is the single source of truth for: which screen is active, which pane is focused, which repository/agent is selected, form field contents, modal visibility, and split-mode state.
+**Responsibility**: Reduce typed messages into deterministic application state
+transitions. `AppState` is the cloneable aggregate, while screen-scoped state is
+owned by the exact current or suspended `ScreenInstance` rather than by a flat
+Dashboard/modal authority.
 
 **Contents**:
 
-- `AppState` struct — all application state in one flat, cloneable struct.
-- `handle_event(&mut self, event: AppEvent)` — the sole entry point for all state mutations. Dispatches to private methods.
-- Screen enum (`Dashboard`, `Split`, `NewAgent`, `NewRepository`, `EditAgent`, `EditRepository`, `CommandPalette`).
-- Pane focus enum (`Sidebar`, `AgentList`, `Preview`).
-- Modal state enum (`None`, `ConfirmDeleteRepo`, `ConfirmDeleteAgent`, `Help`).
-- Split-mode state (focus, grabbed, selected row, repo filter, repo cursor).
-- Form field state (new agent fields, new repository fields, focus index, continue checkbox, workdir-manual flag).
+- `AppState` — aggregate domain state, immutable published workbench reference,
+  and staged effects.
+- `NavState` / `ScreenInstance` — sole route stack and exact-instance focus,
+  presentation, relationships, overlays, activation, generation, and panel state.
+- `ScreenOverlayState` — declared Help, Search, generic confirmation, and provider
+  confirmation presentation for one instance.
+- Pure reducers for residual adapter state and typed provider request/context
+  transitions.
 
 **Invariants**:
 
-- `AppState` is `Clone`. The render path clones a snapshot and drops the borrow before entering the component tree.
-- State mutation happens only through `handle_event`. No component writes to `AppState` directly.
-- `AppState` does NOT own `PtyManager` or `ThemeManager`. Those are separate concerns held in the root component's hooks. `AppState` references PTY slots by index only.
+- `AppState` is `Clone`; render reads a snapshot and does not mutate it.
+- Screen changes go through the navigation reducer. Failed declaration,
+  activation, lifecycle, or effect staging restores the prior complete state.
+- Two instances of one definition never share selection, viewport, draft, focus,
+  overlay, provider panel, or generation state.
+- `AppState` does not own process, PTY, or theme-manager handles; side effects run
+  only after a transition commits.
 
 ### `pty/` — PTY Session Management
 
@@ -251,36 +283,38 @@ Themes are JSON files with this structure:
 ```
 ui/
 ├── mod.rs
-├── screens/
-│   ├── dashboard.rs    — three-column main view
-│   ├── split.rs        — split-mode agent overview
-│   ├── new_agent.rs    — agent creation/edit form
-│   └── new_repository.rs — repository creation/edit form
+├── orchestration.rs       — residual-seven adapters or shared ProviderScreen
+├── screens/               — explicit residual adapters only
 ├── components/
-│   ├── sidebar.rs      — repository list
-│   ├── agent_list.rs   — agent table
-│   ├── terminal_view.rs — PTY cell-grid renderer
-│   ├── preview.rs      — agent detail pane
-│   ├── status_bar.rs   — top bar (app name, counts, theme)
-│   └── keybind_bar.rs  — bottom bar (context shortcuts)
-└── modals/
-    ├── help.rs         — scrollable keyboard reference
-    └── confirm.rs      — destructive action confirmation
+│   ├── provider_screen.rs — shared published-definition renderer
+│   ├── host_control_overlay.rs — shared declared overlay rendering
+│   ├── terminal_view.rs   — private host PTY cell-grid renderer
+│   ├── status_bar.rs      — shared top-bar statistics
+│   └── keybind_bar.rs     — projected context shortcuts
 ```
+
+Dashboard has no whole-screen renderer. Its five declared panels are projected
+through `ProviderScreen`; unbound host models and exact provider-backed records
+converge at the same closed host-control projection boundary.
 
 **Rendering Model**:
 
-- The root `App` component (in `main.rs`) uses iocraft hooks: `use_state` for `AppState`/`ThemeManager`/render-tick, `use_future` for the ~30fps PTY poll timer, `use_terminal_events` for keyboard/mouse/resize dispatch.
-- On each render, `App` clones the `AppState` snapshot, extracts PTY `TerminalSnapshot` for the active agent, and passes both to the active screen component as props.
-- Screen components compose sub-components. Sub-components receive owned/cloned data, never references into `AppState`.
-- The render cycle is driven by iocraft's event loop. The 33ms PTY poll timer bumps a counter state, which triggers re-render, which re-reads the PTY snapshot (which may have new bytes from the reader thread).
+- The root snapshots `AppState`; components never mutate it.
+- `ui::orchestration` selects one of the seven explicit residual adapters or the
+  shared `ProviderScreen` for every open definition, including Dashboard.
+- Provider and host models become the same closed control projection before
+  drawing. The private terminal model is the only host-only exception and still
+  uses the descriptor's resolved panel rectangle.
+- Declared overlays project above screen content through shared typed controls.
 
-**Layout Constants**:
+**Layout Authority**:
 
-- Left column (sidebar): 22 columns fixed.
-- Right column (preview): 36 columns fixed.
-- Middle column: fills remaining width.
-- Agent list: 25% of content height. Terminal view: 75%.
+- `workbench::resolve_layout` computes one `ResolvedLayout` from the published
+  descriptor and exact `ScreenInstanceId`.
+- Rendering, mouse routing, keyboard page capacity, selection, wrapping, overlay
+  geometry, and PTY resize consume that same snapshot.
+- Missing or stale visible-panel geometry is a typed refusal; consumers do not
+  reconstruct Dashboard arithmetic or use a fallback rectangle.
 - Outer chrome: 2 rows (status bar + keybind bar).
 - Terminal widget chrome: 3 rows (top border + header + bottom border), 2 cols (left/right border).
 - Effective render size respects fullscreen mode. Non-fullscreen mode subtracts 2 rows and 2 cols to avoid host-terminal scroll/wrap artifacts.

@@ -1,0 +1,95 @@
+2026-08-09T21:53:26.523688Z  INFO ThreadId(01) jefe: src/main.rs:325: jefe starting version="0.0.32"
+2026-08-09T21:53:26.523808Z DEBUG ThreadId(01) jefe: src/main.rs:326: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("target/tmux-harness/issue391-config")
+2026-08-09T21:53:26.590186Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=4448 version="0.0.32" started_unix=1786312406
+2026-08-09T21:53:26.599451Z  INFO ThreadId(01) jefe: src/main.rs:379: composed package providers installed=0 published=0 runnable=0
+2026-08-09T21:53:26.604339Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-09T21:53:26.606720Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-09T21:53:26.649300Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-09T21:54:38.348875Z  INFO ThreadId(01) jefe: src/main.rs:325: jefe starting version="0.0.32"
+2026-08-09T21:54:38.349159Z DEBUG ThreadId(01) jefe: src/main.rs:326: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("target/tmux-harness/issue391-config")
+2026-08-09T21:54:38.381260Z  WARN ThreadId(01) jefe::run: src/run_diagnostics.rs:243: prior jefe run ended without a recorded reason event="prior-run-unclean" pid=4448 version="0.0.32" last_seen_unix=1786312421 breadcrumb="none"
+2026-08-09T21:54:38.433342Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=6534 version="0.0.32" started_unix=1786312478
+2026-08-09T21:54:38.443846Z  INFO ThreadId(01) jefe: src/main.rs:379: composed package providers installed=0 published=0 runnable=0
+2026-08-09T21:54:38.447472Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-09T21:54:38.449768Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-09T21:54:38.485370Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-09T21:54:38.620286Z DEBUG ThreadId(01) jefe::app_input: src/app_input/mod.rs:689: dispatching app message message_domain=Modal OpenHelp
+2026-08-09T21:59:41.224613Z  INFO ThreadId(01) jefe: src/main.rs:325: jefe starting version="0.0.32"
+2026-08-09T21:59:41.224819Z DEBUG ThreadId(01) jefe: src/main.rs:326: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("target/tmux-harness/issue391-config")
+2026-08-09T21:59:41.258571Z  WARN ThreadId(01) jefe::run: src/run_diagnostics.rs:243: prior jefe run ended without a recorded reason event="prior-run-unclean" pid=6534 version="0.0.32" last_seen_unix=1786312493 breadcrumb="none"
+2026-08-09T21:59:41.317757Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=14031 version="0.0.32" started_unix=1786312781
+2026-08-09T21:59:41.327963Z  INFO ThreadId(01) jefe: src/main.rs:379: composed package providers installed=0 published=0 runnable=0
+2026-08-09T21:59:41.329228Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-09T21:59:41.331452Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-09T21:59:41.365040Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-10T20:08:51.559246Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-10T20:08:51.559707Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/tmp/jefe-issue391-config")
+2026-08-10T20:08:51.621259Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=23588 version="0.0.32" started_unix=1786392531
+2026-08-10T20:08:51.637844Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=0 published=0 runnable=0
+2026-08-10T20:08:51.641630Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-10T20:08:51.644445Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-10T20:08:51.688532Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-10T20:09:48.174627Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-10T20:09:48.174685Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/tmp/jefe-issue391-config-2")
+2026-08-10T20:09:48.243938Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=25122 version="0.0.32" started_unix=1786392588
+2026-08-10T20:09:48.265408Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=0 published=0 runnable=0
+2026-08-10T20:09:48.267431Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-10T20:09:48.269876Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-10T20:09:48.306030Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-10T20:10:16.085447Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-10T20:10:16.085493Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/tmp/jefe-issue391-config-3")
+2026-08-10T20:10:16.142342Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=26344 version="0.0.32" started_unix=1786392616
+2026-08-10T20:10:16.155522Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=0 published=0 runnable=0
+2026-08-10T20:10:16.156840Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-10T20:10:16.159092Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-10T20:10:16.201709Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-10T20:16:03.953493Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-10T20:16:03.953527Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/config")
+2026-08-10T20:16:04.014034Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=32365 version="0.0.32" started_unix=1786392963
+2026-08-10T20:16:04.370961Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=2 published=1 runnable=1
+2026-08-10T20:16:04.371821Z  WARN ThreadId(01) jefe::app_init: src/app_init.rs:492: could not load settings, using defaults error=parse error: parse settings: TOML parse error at line 1, column 1
+  |
+1 | settings_schema = 2
+  | ^^^^^^^^^^^^^^^^^^^
+missing field `schema_version`
+
+2026-08-10T20:16:04.372901Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-10T20:16:04.375124Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-10T20:16:04.407251Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-10T20:16:04.672110Z DEBUG ThreadId(01) jefe::state::navigation_ops: src/state/navigation_ops.rs:191: dropped pending work belonging to a screen the session left dropped=5 screen_generation=2 activation_generation=2
+2026-08-10T20:16:04.672168Z DEBUG ThreadId(01) jefe::app_input::provider_dispatch: src/app_input/provider_dispatch.rs:231: scheduling provider panel command
+2026-08-10T20:16:04.831596Z DEBUG ThreadId(09) jefe::runtime::provider::persistent_session: src/runtime/provider/persistent_session_owner.rs:281: sent provider panel command plugin_id=vendor.panel
+2026-08-10T20:16:05.036444Z DEBUG ThreadId(09) jefe::runtime::provider::persistent_session: src/runtime/provider/persistent_session_owner.rs:303: received persistent provider idle stdout frame plugin_id=vendor.panel
+2026-08-10T20:16:05.236914Z DEBUG ThreadId(01) jefe::app_input::provider_dispatch: src/app_input/provider_dispatch.rs:231: scheduling provider panel command
+2026-08-10T20:16:05.372348Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:224: jefe run ended event="run-end" pid=32365 reason="user-quit" breadcrumb="none"
+2026-08-11T07:47:57.767470Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-11T07:47:57.767923Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/tmp/jefe-issue391-remediation/package-config")
+2026-08-11T07:47:57.832770Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=80006 version="0.0.32" started_unix=1786434477
+2026-08-11T07:47:57.848860Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=0 published=0 runnable=0
+2026-08-11T07:47:57.854677Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-11T07:47:57.857114Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-11T07:47:57.899180Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-11T07:49:48.413578Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-11T07:49:48.413620Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/tmp/jefe-issue391-remediation-rerun/package-config")
+2026-08-11T07:49:48.478315Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=81355 version="0.0.32" started_unix=1786434588
+2026-08-11T07:49:48.492610Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=0 published=0 runnable=0
+2026-08-11T07:49:48.493686Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-11T07:49:48.495983Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-11T07:49:48.536163Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+
+2026-08-11T07:50:13.034313Z  INFO ThreadId(01) jefe: src/main.rs:335: jefe starting version="0.0.32"
+2026-08-11T07:50:13.034346Z DEBUG ThreadId(01) jefe: src/main.rs:336: logging initialized log_file=Some("/Volumes/XS1000/acoliver/projects/jefe/branch-1/jefe.log") config_dir=Some("/tmp/jefe-issue391-debug/package-config")
+2026-08-11T07:50:13.105096Z  INFO ThreadId(01) jefe::run: src/run_diagnostics.rs:105: jefe run started event="run-start" pid=82203 version="0.0.32" started_unix=1786434613
+2026-08-11T07:50:13.116267Z  INFO ThreadId(01) jefe: src/main.rs:389: composed package providers installed=0 published=0 runnable=0
+2026-08-11T07:50:13.117353Z  INFO ThreadId(01) jefe::app_init: src/app_init.rs:512: Platform: macOS | Supported sandbox engines: Podman, Docker, Seatbelt
+2026-08-11T07:50:13.119581Z  WARN ThreadId(01) jefe::runtime::socket: src/runtime/socket.rs:140: deliberate Unix socket override is in effect variable="JEFE_SOCKET_PATH" socket_path=/Volumes/XS1000/acoliver/projects/jefe/branch-1/s
+2026-08-11T07:50:13.161294Z  WARN ThreadId(01) jefe::app_init::shell_reconcile: src/app_init_shell_reconcile.rs:121: startup shell reconcile: observation failed error=capability probe failed: tmux list-sessions failed: error connecting to /Volumes/XS1000/acoliver/projects/jefe/branch-1/s (No such file or directory)
+

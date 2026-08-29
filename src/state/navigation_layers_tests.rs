@@ -1,17 +1,17 @@
 //! What Back does from a real screen (issue #386, CW06-04).
 
-use super::navigation::NavState;
 use super::navigation_dirty::{DirtyChoice, DraftToken, SaveIntent};
 use super::navigation_unwind::{BackLayer, BackResolution, LocalIntent};
+use super::screen_overlays::ConfirmationRequest;
 use super::types::{
-    AgentChooserState, AppState, ComposerTarget, ConfirmFocus, InlineState, IssueFocus, ModalState,
+    AgentChooserState, AppState, ComposerTarget, InlineState, IssueFocus, ModalState,
 };
 use crate::domain::RepositoryId;
-use crate::workbench::ScreenId;
+use crate::workbench::{ScreenId, ScreenIdentity};
 
-fn on(screen: ScreenId) -> AppState {
+fn on(screen: impl Into<ScreenIdentity>) -> AppState {
     let mut state = AppState::test_fixture();
-    state.nav = NavState::rooted(screen);
+    state.restore_navigation_root(screen);
     state
 }
 
@@ -37,7 +37,7 @@ fn a_screen_with_nothing_open_reports_no_layers() {
 #[test]
 fn back_from_the_home_screen_with_nothing_open_does_nothing() {
     assert_eq!(
-        on(ScreenId::Dashboard).back_resolution(),
+        on(crate::workbench::DASHBOARD_IDENTITY).back_resolution(),
         BackResolution::Nothing
     );
 }
@@ -97,7 +97,7 @@ fn open_filter_controls_are_unwound_before_the_screen_is_left() {
     state.issues_state.filter_ui.controls_open = true;
     assert_eq!(
         state.back_resolution(),
-        BackResolution::Local(LocalIntent::ClearFilter)
+        BackResolution::Local(LocalIntent::CloseFilterControls)
     );
 }
 
@@ -129,10 +129,11 @@ fn a_host_confirmation_outranks_the_dirty_guard() {
         SaveIntent::Unavailable { reason: "nowhere" },
     );
     let _ = state.leave_screen();
-    state.modal = ModalState::ConfirmDeleteRepository {
-        id: RepositoryId("repo".to_owned()),
-        confirm_focus: ConfirmFocus::Cancel,
-    };
+    assert!(
+        state.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: RepositoryId("repo".to_owned()),
+        })
+    );
 
     assert_eq!(
         state.back_resolution(),
@@ -143,17 +144,18 @@ fn a_host_confirmation_outranks_the_dirty_guard() {
 #[test]
 fn a_host_confirmation_is_not_also_counted_as_a_plain_overlay() {
     let mut state = issues();
-    state.modal = ModalState::ConfirmDeleteRepository {
-        id: RepositoryId("repo".to_owned()),
-        confirm_focus: ConfirmFocus::Cancel,
-    };
+    assert!(
+        state.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: RepositoryId("repo".to_owned()),
+        })
+    );
     assert_eq!(state.open_back_layers(), vec![BackLayer::HostConfirmation]);
 }
 
 #[test]
 fn a_plain_overlay_is_unwound_before_the_screen_is_left() {
     let mut state = issues();
-    state.modal = ModalState::Help;
+    state.nav.current_mut().overlays_mut().open_help();
     assert_eq!(
         state.back_resolution(),
         BackResolution::Local(LocalIntent::CloseOverlay)
@@ -170,6 +172,110 @@ fn a_dirty_screen_with_no_guard_up_still_leaves_normally() {
         SaveIntent::Unavailable { reason: "nowhere" },
     );
     assert_eq!(state.back_resolution(), BackResolution::Leave);
+}
+
+#[test]
+fn typed_back_applies_exactly_one_resolved_layer_per_transition() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    let screen = state.screen();
+    let _ = state.mark_screen_dirty(
+        DraftToken::next(),
+        SaveIntent::Unavailable { reason: "nowhere" },
+    );
+    let _ = state.leave_screen();
+    assert!(
+        state.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: RepositoryId("repo".to_owned()),
+        })
+    );
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(matches!(state.modal, ModalState::None));
+    assert!(
+        state.nav.guard().is_some(),
+        "Back must not also dismiss the guard"
+    );
+    assert_eq!(state.screen(), screen);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.nav.guard().is_none());
+    assert_eq!(
+        state.screen(),
+        screen,
+        "dirty Cancel must preserve navigation"
+    );
+}
+
+#[test]
+fn shared_back_applies_each_issues_owner_without_falling_through() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+    state.issues_state.filter_ui.controls_open = true;
+    state.issues_state.committed_filter.author = "octocat".to_owned();
+    state.issues_state.search_input_focused = true;
+    state.issues_state.search_query = "typed query".to_owned();
+    composing(&mut state);
+    state.issues_state.agent_chooser = Some(AgentChooserState::default());
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.issues_state.agent_chooser.is_none());
+    assert_ne!(state.issues_state.inline_state, InlineState::None);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert!(state.issues_state.search_input_focused);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.issues_state.search_query.is_empty());
+    assert!(state.issues_state.search_input_focused);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(!state.issues_state.search_input_focused);
+    assert!(state.issues_state.filter_ui.controls_open);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(!state.issues_state.filter_ui.controls_open);
+    assert_eq!(state.issues_state.committed_filter.author, "octocat");
+    assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueDetail);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
+    assert_eq!(state.screen(), ScreenId::Issues);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
+}
+
+#[test]
+fn dirty_interception_does_not_finalize_a_compiled_screen() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    let _ = state.mark_screen_dirty(
+        DraftToken::next(),
+        SaveIntent::Unavailable { reason: "nowhere" },
+    );
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.nav.guard().is_some());
+    assert_eq!(state.screen(), ScreenId::Issues);
+    assert!(state.issues_state.active);
+}
+
+#[test]
+fn repositories_back_preserves_one_transition_exit_while_grabbing() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = on(ScreenId::Repositories);
+    state.split_grab_index = Some(0);
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(state.split_grab_index.is_none());
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
 }
 
 #[test]
@@ -236,10 +342,11 @@ fn every_layer_is_reachable_from_some_real_screen_state() {
     let mut produced: Vec<BackLayer> = Vec::new();
 
     let mut confirmation = issues();
-    confirmation.modal = ModalState::ConfirmDeleteRepository {
-        id: RepositoryId("repo".to_owned()),
-        confirm_focus: ConfirmFocus::Cancel,
-    };
+    assert!(
+        confirmation.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: RepositoryId("repo".to_owned()),
+        })
+    );
     produced.extend(confirmation.open_back_layers());
 
     let mut guarded = issues();
@@ -267,7 +374,7 @@ fn every_layer_is_reachable_from_some_real_screen_state() {
     produced.extend(filter.open_back_layers());
 
     let mut overlay = issues();
-    overlay.modal = ModalState::Help;
+    overlay.nav.current_mut().overlays_mut().open_help();
     produced.extend(overlay.open_back_layers());
 
     let mut transient = issues();

@@ -13,7 +13,7 @@
 
 use super::{
     AgentChooserState, AppEvent, AppState, InlineState, IssueFocus, PaneFocus, PrFocus,
-    PriorAgentFocus, ReadOnlyHintKind, ScreenId,
+    ReadOnlyHintKind, ScreenId,
 };
 use crate::domain::{PrFilter, PrFilterState};
 use crate::messages::PullRequestsMessage;
@@ -21,13 +21,12 @@ use crate::messages::PullRequestsMessage;
 use crate::state::PR_FILTER_FIELD_COUNT;
 
 impl AppState {
-    /// Enter PR mode: save prior focus, set active, clear data, set default filter.
+    /// Enter PR mode in a fresh exact screen instance.
     ///
     /// When entering from Issues mode (cross-mode `p` key, issue #164), the
-    /// Issues mode is deactivated in-place: its per-repo preferences are
-    /// snapshot and its overlays cleared, but `prior_agent_focus` is NOT
-    /// restored to Dashboard (that would bounce the user out of list-mode
-    /// UX). The exclusivity invariant holds: at most one of
+    /// Issues instance is replaced after its per-repo preferences are recorded
+    /// and its transient state is cleared. Back therefore still restores the
+    /// exact instance that opened the first list mode. At most one of
     /// `issues_state.active` / `prs_state.active` is true after this call.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
@@ -38,6 +37,8 @@ impl AppState {
         // never simultaneously active (which would corrupt per-repo
         // preferences on a repo change).
         let from_sibling_list_mode = self.issues_state.active;
+        let source_repository_index = self.selected_repository_index;
+        let source_agent_index = self.selected_agent_index;
         if self.issues_state.active {
             self.remember_issue_preferences();
             self.issues_state.active = false;
@@ -49,21 +50,6 @@ impl AppState {
             self.issues_state.filter_ui.controls_open = false;
             self.issues_state.search_input_focused = false;
         }
-        // Finding 1: only save prior_agent_focus if none exists yet, so a
-        // Dashboard → PRs → Issues → PRs round-trip does not clobber the
-        // original saved focus.
-        if self.prs_state.prior_agent_focus.is_none() {
-            self.prs_state.prior_agent_focus = Some(PriorAgentFocus {
-                pane_focus: self.pane_focus,
-                selected_repository_index: self.selected_repository_index,
-                selected_agent_index: self.selected_agent_index,
-            });
-        }
-        // Finding 2: normalize terminal-focus state so a cross-mode switch
-        // from a terminal-focused Issues view does not leave terminal capture
-        // active in a list-mode render.
-        self.terminal_focused = false;
-        self.pane_focus = PaneFocus::Agents;
         // The cross-mode jump takes the place of the screen it came from, so
         // Back still returns to whatever opened the first list mode.
         let _ = if from_sibling_list_mode {
@@ -71,12 +57,15 @@ impl AppState {
         } else {
             self.show_screen(ScreenId::PullRequests)
         };
+        // Seed route context from the exact source snapshot, then keep every
+        // subsequent mutation on this new screen instance.
+        self.selected_repository_index = source_repository_index;
+        self.selected_agent_index = source_agent_index;
+        self.terminal_focused = false;
+        self.pane_focus = PaneFocus::Agents;
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
         self.prs_state.list.clear();
-        if let Some(detail) = &mut self.prs_state.pr_detail {
-            detail.comments.cancel_pending();
-        }
         self.prs_state.pr_detail = None;
         self.prs_state.error = None;
         self.prs_state.loading.detail = false;
@@ -88,6 +77,11 @@ impl AppState {
         self.prs_state.merge_mutation_pending = None;
         self.prs_state.filter_ui.controls_open = false;
         self.prs_state.search_input_focused = false;
+        if let Some(detail) = &mut self.prs_state.pr_detail {
+            // Unreachable: cleared above; retained as defensive cleanup for the
+            // seeded detail instance so a stale cancellation never leaks.
+            detail.comments.cancel_pending();
+        }
         self.restore_pr_preferences();
         self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;
         self.prs_state.draft_notice = None;
@@ -115,13 +109,12 @@ impl AppState {
             .min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
     }
 
-    /// Exit PR mode: restore prior focus with bounds fallback.
+    /// Exit PR mode after clearing transient state on the disposed instance.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-005
     /// @pseudocode component-001 lines 77-87
     fn exit_prs_mode(&mut self) {
-        let _ = self.leave_screen();
         self.prs_state.active = false;
         self.prs_state.detail_pending = None;
         self.prs_state.loading.detail = false;
@@ -132,28 +125,7 @@ impl AppState {
         // M7: clear property editor on mode exit.
         self.prs_state.property_editor = None;
         self.prs_state.property_mutation_pending = None;
-        if let Some(prior) = self.prs_state.prior_agent_focus.take() {
-            self.pane_focus = prior.pane_focus;
-            if let Some(idx) = prior.selected_agent_index {
-                if idx < self.agents.len() {
-                    self.selected_agent_index = Some(idx);
-                } else {
-                    self.pane_focus = PaneFocus::Agents;
-                    self.selected_agent_index = if self.agents.is_empty() {
-                        None
-                    } else {
-                        Some(0)
-                    };
-                }
-            }
-            if let Some(idx) = prior.selected_repository_index
-                && idx < self.repositories.len()
-            {
-                self.selected_repository_index = Some(idx);
-            }
-        } else {
-            self.pane_focus = PaneFocus::Agents;
-        }
+        let _ = self.leave_screen();
     }
 
     /// Clear loaded PR data after a repo change (staleness invalidation).
@@ -170,6 +142,7 @@ impl AppState {
         self.prs_state.property_editor = None;
         self.prs_state.property_mutation_pending = None;
         self.prs_state.list.clear();
+        self.sync_pr_selected_resource();
         if let Some(detail) = &mut self.prs_state.pr_detail {
             detail.comments.cancel_pending();
         }
@@ -455,6 +428,7 @@ impl AppState {
     /// @pseudocode component-001 lines 275-281
     fn reload_pr_list_for_filter_change(&mut self) {
         self.prs_state.list.clear();
+        self.sync_pr_selected_resource();
         self.cancel_pr_list_send();
         // Begin a fresh reload so `list_pending()` is observable before the
         // dispatch layer spawns the actual fetch (mirrors Actions).
@@ -575,6 +549,7 @@ impl AppState {
     /// Stale or injected metadata is silently dropped.
     fn open_pr_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         let context_available = self.modal == super::ModalState::None
+            && self.active_overlay_kind().is_none()
             && matches!(self.prs_state.pr_focus, PrFocus::PrList | PrFocus::PrDetail)
             && self.prs_state.inline_state == InlineState::None
             && self.prs_state.merge_chooser.is_none()

@@ -299,6 +299,14 @@ fn panel_event_to_json(out: &mut String, event: &super::panel_model::PanelEvent)
             json_string(out, "link-selected");
             append_string_field(out, "link_id", link_id.as_str());
         }
+        super::panel_model::PanelEvent::ExpansionChanged { id, expanded } => {
+            json_string(out, "expansion-changed");
+            append_string_field(out, "id", id.as_str());
+            out.push(',');
+            q(out, "expanded");
+            out.push(':');
+            out.push_str(if *expanded { "true" } else { "false" });
+        }
     }
     out.push('}');
 }
@@ -532,6 +540,66 @@ mod tests {
             panic!("expected invoke-action");
         };
         assert_eq!(invoked.action_id, action);
+    }
+
+    #[test]
+    fn invoke_action_resource_context_has_one_exact_canonical_wire_shape() {
+        let typed_id = |value: &str| {
+            Id::parse(value).unwrap_or_else(|error| panic!("context id {value}: {error:?}"))
+        };
+        let value = TypedValue::Map(
+            [(
+                typed_id("semantic-key"),
+                TypedValue::String("vybestack/llxprt-jefe#42".to_owned()),
+            )]
+            .into(),
+        );
+        let resource = TypedValue::Map(
+            [
+                (
+                    typed_id("owner-id"),
+                    TypedValue::String("github.issues".to_owned()),
+                ),
+                (
+                    typed_id("type-id"),
+                    TypedValue::String("github.issue".to_owned()),
+                ),
+                (typed_id("schema-version"), TypedValue::Integer(1)),
+                (
+                    typed_id("semantic-key"),
+                    TypedValue::String("vybestack/llxprt-jefe#42".to_owned()),
+                ),
+                (typed_id("value"), value),
+            ]
+            .into(),
+        );
+        let payload = InvokeActionPayload {
+            invocation_id: typed_id("vendor.pkg.inv"),
+            action_id: ActionId::parse("vendor.pkg.run")
+                .unwrap_or_else(|error| panic!("action id: {error:?}")),
+            arguments: TypedMap::new(),
+            context: InvokeContext {
+                screen_id: typed_id("core.issues"),
+                screen_instance: typed_id("instance-42"),
+                resource_refs: [(typed_id("issue-detail.subject"), resource)].into(),
+            },
+            continuation: None,
+        };
+
+        let encoded = String::from_utf8(encode_invoke_action(&host_id(), 7, &payload))
+            .unwrap_or_else(|error| panic!("encoded frame must be utf8: {error}"));
+
+        assert_eq!(
+            encoded,
+            concat!(
+                r#"{"protocol":1,"type":"invoke-action","request_id":"h-000001","generation":7,"payload":{"invocation_id":"vendor.pkg.inv","action_id":"vendor.pkg.run","arguments":{},"context":{"screen_id":"core.issues","screen_instance":"instance-42","resource_refs":{"issue-detail.subject":{"type":"map","value":{"owner-id":{"type":"string","value":"github.issues"},"schema-version":{"type":"integer","value":1},"semantic-key":{"type":"string","value":"vybestack/llxprt-jefe#42"},"type-id":{"type":"string","value":"github.issue"},"value":{"type":"map","value":{"semantic-key":{"type":"string","value":"vybestack/llxprt-jefe#42"}}}}}}}}}"#,
+                "\n"
+            )
+        );
+        // The canonical golden proves byte-encoding; this decodes the same
+        // payload and asserts full equality so a future encoder/decoder drift
+        // that keeps the bytes identical never goes unnoticed.
+        round_trip_host(encoded.as_bytes());
     }
 
     #[test]

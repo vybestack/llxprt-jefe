@@ -22,7 +22,7 @@ impl AppState {
             } => self.submit_new_agent(&repository_id, &fields),
             ModalState::EditAgent { id, fields, .. } => self.submit_edit_agent(&id, &fields),
             ModalState::WorkflowDispatch { focus, .. } => self.submit_workflow_dispatch(focus),
-            _ => self.modal = ModalState::None,
+            _ => {}
         }
     }
 

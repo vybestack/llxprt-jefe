@@ -5,16 +5,20 @@
 
 use iocraft::prelude::*;
 
+use crate::host_controls::PanelHitTarget;
+use crate::overlay_controls::{
+    ConfirmationContent, OverlayControlProjection, project_confirmation, project_help,
+};
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenId};
 use crate::theme::ThemeColors;
-use crate::ui::components::ProviderScreen;
+use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
     TerminalManagerScreen,
 };
 use crate::ui::{
-    AuthModal, ConfirmModal, Dashboard, GeneratedAgentForm, HelpModal, NewAgentForm,
-    NewRepositoryForm, SplitScreen, WorkflowDispatchForm,
+    AuthModal, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
+    WorkflowDispatchForm,
 };
 
 /// Data needed to render a confirmation modal.
@@ -33,12 +37,12 @@ pub struct ModalViewport {
     pub rows: u16,
 }
 
-/// Terminal render data threaded from the app shell into the dashboard.
+/// Terminal render data threaded from the app shell into shared screen controls.
 ///
 /// Bundles the live snapshot, retained scrollback history, and the actual PTY
 /// pane dimensions so `build_screen_element` stays under the argument-count
-/// limit and the projection always knows the real pane size even when the live
-/// snapshot is absent/empty (issue #198 follow-up).
+/// limit and a private host terminal control always receives the real pane size,
+/// even when the live snapshot is absent or empty (issue #198 follow-up).
 #[must_use]
 pub struct TerminalRenderData {
     /// Live PTY snapshot (styled grid), if available.
@@ -51,92 +55,114 @@ pub struct TerminalRenderData {
     pub pane_cols: usize,
 }
 
-/// Derive confirmation modal data from current state, if applicable.
+/// Derive generic confirmation data from the current screen instance.
 ///
-/// The match covers all six confirm variants and extracts `confirm_focus`
-/// alongside the title/message/checkbox in a single arm per variant, so the
-/// six variants cannot drift out of sync with each other. NOTE: the
-/// `_ => return None` catch-all means a NEWLY-added `ModalState` confirm
-/// variant would silently return `None` (modal won't render) rather than
-/// fail at compile time — so new confirm variants must be explicitly added
-/// here. The `confirm_modal_renders_all_variants` test in
-/// `src/selection/overlay_content.rs` guards against this by asserting every
-/// confirm variant renders.
+/// The exhaustive request match keeps all seven host confirmations in one
+/// exact-instance authority. Provider confirmations never enter this path.
 #[must_use]
-pub fn derive_confirm_modal_data(
-    snapshot: &AppState,
-    modal: &ModalState,
-) -> Option<ConfirmModalData> {
-    let (title, message, show_delete_work_dir, delete_work_dir, confirm_focus) = match modal {
-        ModalState::ConfirmDeleteAgent {
+pub fn derive_confirm_modal_data(snapshot: &AppState) -> Option<ConfirmModalData> {
+    use crate::state::screen_overlays::ConfirmationRequest;
+
+    let request = snapshot.nav.current().overlays().generic_confirmation()?;
+    let (title, message, show_delete_work_dir, delete_work_dir) = match request {
+        ConfirmationRequest::DeleteAgent {
             id,
             delete_work_dir,
-            confirm_focus,
         } => {
             let (title, message, show) = confirm_text(snapshot, ConfirmKind::DeleteAgent(id));
-            (title, message, show, *delete_work_dir, *confirm_focus)
+            (title, message, show, *delete_work_dir)
         }
-        ModalState::ConfirmKillAgent { id, confirm_focus } => {
+        ConfirmationRequest::KillAgent { id } => {
             let (title, message, show) = confirm_text(snapshot, ConfirmKind::KillAgent(id));
-            (title, message, show, false, *confirm_focus)
+            (title, message, show, false)
         }
-        ModalState::ConfirmServerLostRecovery {
-            agent_ids,
-            confirm_focus,
-        } => server_lost_confirmation(agent_ids.len(), *confirm_focus),
-        ModalState::ConfirmDeleteRepository { id, confirm_focus } => {
+        ConfirmationRequest::ServerLostRecovery { agent_ids } => {
+            server_lost_confirmation(agent_ids.len())
+        }
+        ConfirmationRequest::DeleteRepository { id } => {
             let (title, message, show) = confirm_text(snapshot, ConfirmKind::DeleteRepository(id));
-            (title, message, show, false, *confirm_focus)
+            (title, message, show, false)
         }
-        ModalState::PreflightPrompt {
-            issue,
-            confirm_focus,
-            ..
-        } => (
-            issue.prompt_title(),
-            issue.prompt_message(),
-            false,
-            false,
-            *confirm_focus,
-        ),
-        ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. } => {
+        ConfirmationRequest::Preflight { issue, .. } => {
+            (issue.prompt_title(), issue.prompt_message(), false, false)
+        }
+        ConfirmationRequest::IssueDirtyCopy { .. } => {
             let (title, message, show) = confirm_text(snapshot, ConfirmKind::IssueDirtyCopy);
-            (title, message, show, false, *confirm_focus)
+            (title, message, show, false)
         }
-        ModalState::ConfirmIssueOriginMismatch {
-            actual,
-            expected,
-            confirm_focus,
-            ..
+        ConfirmationRequest::IssueOriginMismatch {
+            actual, expected, ..
         } => {
             let (title, message, show) = confirm_text(
                 snapshot,
                 ConfirmKind::IssueOriginMismatch { actual, expected },
             );
-            (title, message, show, false, *confirm_focus)
+            (title, message, show, false)
         }
-        _ => return None,
     };
     Some(ConfirmModalData {
         title,
         message,
         show_delete_work_dir,
         delete_work_dir,
-        confirm_focus,
+        confirm_focus: snapshot
+            .current_confirm_focus()
+            .unwrap_or(ConfirmFocus::Cancel),
     })
 }
 
-fn server_lost_confirmation(
-    count: usize,
-    focus: ConfirmFocus,
-) -> (String, String, bool, bool, ConfirmFocus) {
+/// Resolve one displayed confirmation content line to its typed control target.
+#[must_use]
+pub fn confirmation_hit_target_at_content_line(
+    snapshot: &AppState,
+    content_line: usize,
+    cols: u16,
+    rows: u16,
+) -> Option<PanelHitTarget> {
+    let data = derive_confirm_modal_data(snapshot)?;
+    let (cols, rows) = crate::layout::effective_render_size(cols, rows);
+    let layout = crate::overlay_controls::HostOverlayLayout::confirmation(cols, rows);
+    let projection = project_confirmation(
+        ConfirmationContent {
+            title: &data.title,
+            message: &data.message,
+            show_delete_work_dir: data.show_delete_work_dir,
+            delete_work_dir: data.delete_work_dir,
+            focus: data.confirm_focus,
+        },
+        layout.content_width,
+    );
+    // Only the visible projected window is a control surface. Title/footer
+    // clicks and rows scrolled out of view must never resolve to a hidden
+    // Decision/Submit target.
+    if !(1..=layout.viewport_rows).contains(&content_line) {
+        return None;
+    }
+    let row = projection.rows.get(
+        projection
+            .viewport
+            .checked_add(content_line.checked_sub(1)?)?,
+    )?;
+    row.target.clone()
+}
+
+/// Consume one mouse event owned by the current blocking overlay.
+pub fn consume_blocking_overlay_mouse(
+    state: &mut AppState,
+    kind: crossterm::event::MouseEventKind,
+    cols: u16,
+    rows: u16,
+) -> bool {
+    crate::overlay_controls::consume_blocking_overlay_mouse(state, kind, cols, rows)
+}
+
+fn server_lost_confirmation(count: usize) -> (String, String, bool, bool) {
     let noun = if count == 1 { "agent" } else { "agents" };
     (
         String::from("Recover psmux Agents"),
         format!("Relaunch {count} {noun} whose psmux server was lost?"),
         false,
         false,
-        focus,
     )
 }
 
@@ -273,21 +299,6 @@ pub fn build_screen_element(
     terminal: TerminalRenderData,
 ) -> AnyElement<'static> {
     match snapshot.compiled_screen() {
-        Some(ScreenId::Dashboard) => element! {
-            Dashboard(
-                state: Some(snapshot.clone()),
-                colors: Some(colors.clone()),
-                theme_name: theme_name.to_owned(),
-                terminal_snapshot: terminal.snapshot,
-                history_lines: terminal.history_lines,
-                terminal_pane_rows: terminal.pane_rows,
-                terminal_pane_cols: terminal.pane_cols,
-                git_info: snapshot.selection_dashboard_git_info.clone().or_else(|| {
-                    crate::dashboard_git_info::resolve_dashboard_git_info(snapshot)
-                }),
-            )
-        }
-        .into_any(),
         Some(ScreenId::Issues) => screen_element!(IssuesScreen, snapshot, colors, theme_name),
         Some(ScreenId::Repositories) => screen_element!(SplitScreen, snapshot, colors, theme_name),
         // @plan PLAN-20260624-PR-MODE.P12
@@ -305,6 +316,11 @@ pub fn build_screen_element(
             ProviderScreen(
                 state: Some(snapshot.clone()),
                 colors: colors.clone(),
+                theme_name: theme_name.to_owned(),
+                terminal_snapshot: terminal.snapshot,
+                terminal_history_lines: terminal.history_lines,
+                terminal_pane_rows: terminal.pane_rows,
+                terminal_pane_cols: terminal.pane_cols,
             )
         }
         .into_any(),
@@ -344,25 +360,44 @@ fn generated_agent_modal(
 }
 
 /// Build the modal element for the current modal state, if any.
-///
-/// `help_scroll_offset` and `available_rows` are forwarded to the `HelpModal`
-/// so its `ScrollableText` viewport never overflows the screen.
 #[must_use]
 pub fn build_modal_element(
     snapshot: &AppState,
     modal: &ModalState,
     colors: &ThemeColors,
     confirm_data: Option<ConfirmModalData>,
-    help_scroll_offset: usize,
     viewport: ModalViewport,
 ) -> Option<AnyElement<'static>> {
-    match modal {
-        ModalState::Help => Some(help_modal(
-            snapshot,
+    if snapshot.active_overlay_kind() == Some(crate::workbench::OverlayKind::Help) {
+        let layout = crate::overlay_controls::HostOverlayLayout::help(viewport.cols, viewport.rows);
+        return Some(host_overlay_element(
+            project_help(snapshot, layout.content_width),
+            layout,
             colors,
-            help_scroll_offset,
-            viewport.rows,
-        )),
+            crate::overlay_controls::HELP_FOOTER,
+        ));
+    }
+    if let Some(data) = confirm_data {
+        let layout =
+            crate::overlay_controls::HostOverlayLayout::confirmation(viewport.cols, viewport.rows);
+        let projection = project_confirmation(
+            ConfirmationContent {
+                title: &data.title,
+                message: &data.message,
+                show_delete_work_dir: data.show_delete_work_dir,
+                delete_work_dir: data.delete_work_dir,
+                focus: data.confirm_focus,
+            },
+            layout.content_width,
+        );
+        return Some(host_overlay_element(
+            projection,
+            layout,
+            colors,
+            crate::overlay_controls::CONFIRMATION_FOOTER,
+        ));
+    }
+    match modal {
         ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
             Some(form_modal!(NewRepositoryForm, snapshot, colors))
         }
@@ -375,46 +410,47 @@ pub fn build_modal_element(
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
         }
-        ModalState::ConfirmDeleteRepository { .. }
-        | ModalState::ConfirmDeleteAgent { .. }
-        | ModalState::ConfirmKillAgent { .. }
-        | ModalState::ConfirmServerLostRecovery { .. }
-        | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. }
-        | ModalState::ConfirmIssueOriginMismatch { .. } => confirm_data.map(|data| {
-            element! {
-                ConfirmModal(
-                    title: data.title,
-                    message: data.message,
-                    show_delete_work_dir: data.show_delete_work_dir,
-                    delete_work_dir: data.delete_work_dir,
-                    confirm_focus: data.confirm_focus,
-                    colors: colors.clone(),
-                    selection: snapshot.selection,
-                )
-            }
-            .into_any()
-        }),
         // In-app device-code auth remediation dialog (issue #244). Render-only:
         // receives the dialog state as plain data.
         ModalState::Auth { state } => Some(auth_modal_element(state, colors, snapshot)),
-        _ => None,
+        ModalState::None => None,
     }
 }
 
-fn help_modal(
-    snapshot: &AppState,
+/// Render a provider action surface through the same closed host-control overlay shell.
+#[must_use]
+pub fn build_provider_overlay_element(
+    projection: &crate::state::provider_view::ProviderViewProjection,
     colors: &ThemeColors,
-    scroll_offset: usize,
-    available_rows: u16,
+    viewport: ModalViewport,
 ) -> AnyElement<'static> {
+    let footer = crate::overlay_controls::provider_surface_footer(projection);
+    let layout = crate::overlay_controls::HostOverlayLayout::provider(viewport.cols, viewport.rows);
+    host_overlay_element(
+        crate::overlay_controls::project_provider_surface(projection, layout.content_width),
+        layout,
+        colors,
+        footer,
+    )
+}
+
+fn host_overlay_element(
+    projection: OverlayControlProjection,
+    layout: crate::overlay_controls::HostOverlayLayout,
+    colors: &ThemeColors,
+    footer: &str,
+) -> AnyElement<'static> {
+    let rows: Vec<String> = projection.rows.into_iter().map(|row| row.text).collect();
     element! {
-        HelpModal(
-            content: snapshot.help_content_lines(),
+        HostControlOverlay(
+            title: projection.title,
+            rows: rows,
+            viewport: projection.viewport,
+            viewport_rows: layout.viewport_rows,
+            width: u32::from(layout.width),
+            height: u32::from(layout.height),
             colors: colors.clone(),
-            scroll_offset: scroll_offset,
-            available_rows: available_rows,
-            selection: snapshot.selection,
+            footer: footer.to_owned(),
         )
     }
     .into_any()

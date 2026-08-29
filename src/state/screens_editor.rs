@@ -28,12 +28,13 @@ use crate::workbench::validate::validate_descriptor;
 #[path = "screens_editor_tests.rs"]
 mod screens_editor_tests;
 
-/// Why a compiled screen's membership cannot be edited.
+/// Why a mandatory shipped screen's membership cannot be edited.
 ///
-/// Composition includes every compiled screen unconditionally, so a toggle that
-/// appeared to turn one off would write a preference nothing reads.
-pub const COMPILED_MEMBERSHIP_REASON: &str =
-    "compiled screens are always composed and cannot be turned off";
+/// Composition includes the open Dashboard definition and every residual
+/// compiled adapter unconditionally, so a toggle that appeared to turn one off
+/// would write a preference nothing reads.
+pub const MANDATORY_SCREEN_REASON: &str =
+    "shipped screens are always composed and cannot be turned off";
 
 /// Whether one screen's candidate descriptor still satisfies its invariants.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,9 +193,10 @@ fn project_row(
     screen: &ScreenDescriptor,
     published: &PublishedSettings,
 ) -> ScreenEditorRow {
-    // Composition includes every compiled screen whatever settings say, so a
-    // compiled row reports the truth and says why it cannot be changed.
-    let compiled = screen.id.compiled().is_some();
+    // Composition includes every shipped screen whatever settings say, so a
+    // mandatory row reports the truth and says why it cannot be changed.
+    let mandatory =
+        screen.id.compiled().is_some() || screen.id == crate::workbench::DASHBOARD_IDENTITY;
     let owner = Id::parse(screen.id.as_str()).ok();
     let composition = owner.as_ref().map_or_else(
         || CompositionStatus::Invalid {
@@ -210,8 +212,8 @@ fn project_row(
         screen_id: screen.id,
         owner,
         title: screen.title.clone(),
-        enabled: compiled || names_screen(&published.workbench.enabled_screens, screen),
-        enablement_locked: compiled.then_some(COMPILED_MEMBERSHIP_REASON),
+        enabled: mandatory || names_screen(&published.workbench.enabled_screens, screen),
+        enablement_locked: mandatory.then_some(MANDATORY_SCREEN_REASON),
         order_index: u16::try_from(index).unwrap_or(u16::MAX),
         composition,
         provenance: provenance(screen, published),

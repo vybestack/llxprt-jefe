@@ -135,7 +135,7 @@ pub fn pane_content_lines_with_context(
         SelectablePane::TerminalView => {
             terminal_lines(context.terminal_snapshot, state, context.history_lines)
         }
-        SelectablePane::HelpModal => help_lines(state),
+        SelectablePane::HelpModal => help_lines(state, render_cols, render_rows),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
         SelectablePane::AgentForm => agent_form_lines(state),
@@ -145,7 +145,9 @@ pub fn pane_content_lines_with_context(
         SelectablePane::PropertyEditor => overlay_content::property_editor_lines(state),
         SelectablePane::CloseReasonChooser => overlay_content::close_reason_chooser_lines(state),
         SelectablePane::IssueDeleteConfirm => overlay_content::issue_delete_confirm_lines(state),
-        SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
+        SelectablePane::ConfirmModal => {
+            overlay_content::confirm_modal_lines_for_viewport(state, render_cols, render_rows)
+        }
     }
 }
 
@@ -367,14 +369,11 @@ fn terminal_lines(
     PaneContent::new(SelectablePane::TerminalView, all_lines)
 }
 
-fn help_lines(state: &AppState) -> PaneContent {
-    // Issue #178: project the actual help content instead of an empty Vec so
-    // select-to-copy works inside the help modal. Reuses the single source of
-    // truth (`help_content_lines`) that the renderer windows. The title row
-    // and its trailing blank are included as content lines 0-1 so the (2,2)
-    // content origin maps to the title text.
-    let mut lines: Vec<String> = vec![crate::ui::modals::HELP_TITLE.to_string(), String::new()];
-    lines.extend(state.help_content_lines());
+fn help_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneContent {
+    let layout = crate::overlay_controls::HostOverlayLayout::help(render_cols, render_rows);
+    let projection = crate::overlay_controls::project_help(state, layout.content_width);
+    let mut lines = vec![projection.title.clone()];
+    lines.extend(projection.text_rows().map(str::to_owned));
     PaneContent::new(SelectablePane::HelpModal, lines)
 }
 
@@ -405,20 +404,23 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 /// captures it (issue #223).
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
     let actions_focus = (state.screen() == ScreenId::Actions).then_some(state.actions_state.focus);
-    // The keybind bar projects built-in hints for a compiled screen. A lowered
-    // package or custom screen has no built-in footer projection yet, so it
-    // renders no hints here rather than borrowing another screen's bar.
-    let hints = match state.compiled_screen() {
-        Some(screen) => state.footer_hints(crate::action_projection::FooterProjectionInput {
-            screen,
-            terminal_focused: false,
-            shell_overlay_active: false,
-            shell_resume_available: false,
-            actions_focus,
-            mode_override: None,
-        }),
-        None => String::new(),
-    };
+    let shell_overlay_active = state.shell_overlay_active();
+    // Footer projection recognizes the open Dashboard identity and the seven
+    // residual adapters. Other lowered definitions project no built-in hints.
+    // The live terminal/shell/resume states are the same values ProviderScreen
+    // feeds the projection, so the copyable footer matches what is drawn (issue
+    // #705 footer drift).
+    let hints = state.footer_hints(crate::action_projection::FooterProjectionInput {
+        screen: state.screen(),
+        terminal_focused: state.terminal_focused,
+        shell_overlay_active,
+        shell_resume_available: !shell_overlay_active
+            && state.selected_repository().is_some_and(|repository| {
+                crate::state::resolve_repository_shell(state, &repository.id).is_some()
+            }),
+        actions_focus,
+        mode_override: None,
+    });
     let identity = crate::process_identity_label(std::process::id(), crate::GIT_COMMIT);
     // The rendered bar uses SpaceBetween so the identity sits on the far
     // right. For the flat selection text, append it with a separator so the

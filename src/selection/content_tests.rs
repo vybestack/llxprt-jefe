@@ -297,7 +297,7 @@ fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
 #[test]
 fn keybind_bar_lines_match_rendered_hints() {
     let mut state = AppState::test_fixture();
-    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Dashboard);
+    state.nav = crate::state::navigation::NavState::default();
     let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, &[], 120, 40);
     assert_eq!(content.lines.len(), 1);
     assert!(content.lines[0].contains("navigate"));
@@ -605,7 +605,7 @@ fn merge_chooser_lines_include_header_and_methods() {
 #[test]
 fn confirm_modal_lines_include_title_and_message() {
     use crate::domain::{Agent, AgentId, Repository, RepositoryId};
-    use crate::state::ModalState;
+    use crate::state::screen_overlays::ConfirmationRequest;
     let mut state = AppState::test_fixture();
     let repo_id = RepositoryId("r1".to_string());
     state.repositories.push(Repository::new(
@@ -625,11 +625,10 @@ fn confirm_modal_lines_include_title_and_message() {
         "my-agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
-    state.modal = ModalState::ConfirmDeleteAgent {
+    state.open_confirmation_payload(ConfirmationRequest::DeleteAgent {
         id: agent_id,
         delete_work_dir: false,
-        confirm_focus: crate::state::ConfirmFocus::Cancel,
-    };
+    });
     let content = pane_content_lines(SelectablePane::ConfirmModal, &state, None, &[], 120, 40);
     assert!(
         content.lines.iter().any(|l| l.contains("Delete Agent")),

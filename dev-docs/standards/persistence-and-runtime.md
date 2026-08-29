@@ -529,9 +529,12 @@ well-formed snapshots consume their token but never partially mutate the model.
 
 Panel state is ephemeral. Lifecycle, models, revisions, generations, rate state,
 and host-local focus/scroll/selection/form drafts are never written to Settings
-or any other durable file. Provider health and action-request progress remain in
-`state::provider_requests`; panel model ownership remains exclusively in
-`state::provider_panels`.
+or any other durable file. Each exact `ScreenInstance` owns its
+`ProviderPanelState`; current and suspended owners are resolved by process-unique
+panel instance ID, while disposed ownership is removed after its typed
+deactivation is staged. Provider action progress remains in
+`state::provider_requests` and every projection, confirmation, cancellation, and
+terminal drain is filtered by the exact owning screen and screen-instance IDs.
 
 ## Plugin Configuration and Pre-Configure Migration
 

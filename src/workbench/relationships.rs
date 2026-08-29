@@ -20,10 +20,8 @@
 //!   Acyclicity is measured over panels, because a panel that consumes a value
 //!   is what re-derives what it publishes.
 //! - **One incoming controlling edge per target.** Two edges driving one input
-//!   would make the input's value depend on evaluation order.
-//! - **One outgoing edge per source port and kind, and no same-kind fan-out
-//!   from a panel.** A panel that drives two details of the same kind has no
-//!   single answer to "which detail follows this selection".
+//!   would make the input's value depend on evaluation order. One source may
+//!   drive bounded N distinct targets; declaration order is deterministic.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -134,24 +132,17 @@ pub enum RelationshipError {
         /// A panel on the cycle.
         panel: PanelId,
     },
-    /// Two edges drive one input port.
+    /// The same source-to-target edge was declared more than once.
+    DuplicateEdge {
+        /// The repeated source.
+        source: PortRef,
+        /// The repeated target.
+        target: PortRef,
+    },
+    /// Two distinct edges drive one input port.
     DuplicateIncoming {
         /// The over-driven target.
         target: PortRef,
-    },
-    /// Two edges of one kind leave one output port.
-    DuplicateOutgoing {
-        /// The over-used source.
-        source: PortRef,
-        /// The repeated kind.
-        kind: &'static str,
-    },
-    /// One panel drives two targets with the same kind.
-    SameKindFanOut {
-        /// The offending source panel.
-        panel: PanelId,
-        /// The repeated kind.
-        kind: &'static str,
     },
 }
 
@@ -183,20 +174,18 @@ impl std::fmt::Display for RelationshipError {
                     "relationships form a cycle through panel {panel}"
                 )
             }
+            Self::DuplicateEdge { source, target } => {
+                write!(
+                    formatter,
+                    "relationship {source} -> {target} is declared twice"
+                )
+            }
             Self::DuplicateIncoming { target } => {
                 write!(
                     formatter,
                     "{target} is driven by more than one relationship"
                 )
             }
-            Self::DuplicateOutgoing { source, kind } => write!(
-                formatter,
-                "{source} declares more than one {kind} relationship"
-            ),
-            Self::SameKindFanOut { panel, kind } => write!(
-                formatter,
-                "panel {panel} drives more than one {kind} target"
-            ),
         }
     }
 }
@@ -258,28 +247,20 @@ fn check_endpoints(
     Ok(())
 }
 
-/// Check the incoming, outgoing, and fan-out uniqueness rules.
+/// Check that edges are unique and every target has exactly one writer.
 fn check_uniqueness(descriptor: &ScreenDescriptor) -> Result<(), RelationshipError> {
+    let mut edges: BTreeSet<(PortRef, PortRef)> = BTreeSet::new();
     let mut incoming: BTreeSet<PortRef> = BTreeSet::new();
-    let mut outgoing: BTreeSet<(PortRef, &'static str)> = BTreeSet::new();
-    let mut fan_out: BTreeSet<(PanelId, &'static str)> = BTreeSet::new();
     for relationship in &descriptor.relationships {
-        let kind = relationship.kind.as_str();
-        if !incoming.insert(relationship.target) {
-            return Err(RelationshipError::DuplicateIncoming {
+        if !edges.insert((relationship.source, relationship.target)) {
+            return Err(RelationshipError::DuplicateEdge {
+                source: relationship.source,
                 target: relationship.target,
             });
         }
-        if !outgoing.insert((relationship.source, kind)) {
-            return Err(RelationshipError::DuplicateOutgoing {
-                source: relationship.source,
-                kind,
-            });
-        }
-        if !fan_out.insert((relationship.source.panel, kind)) {
-            return Err(RelationshipError::SameKindFanOut {
-                panel: relationship.source.panel,
-                kind,
+        if !incoming.insert(relationship.target) {
+            return Err(RelationshipError::DuplicateIncoming {
+                target: relationship.target,
             });
         }
     }

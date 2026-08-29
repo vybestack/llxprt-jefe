@@ -5,8 +5,8 @@
 //! used by rendering, producing the typed capacity carried through reducers.
 
 use jefe::layout::{
-    OUTER_BARS_HEIGHT, actions_pane_rows, dashboard_middle_row_heights_inner,
-    effective_render_size, issues_pane_rows, prs_pane_rows, split_layout_for_render_size,
+    OUTER_BARS_HEIGHT, actions_pane_rows, effective_render_size, issues_pane_rows, prs_pane_rows,
+    split_layout_for_render_size,
 };
 use jefe::list_viewport::{ListGeometry, PageItemCount, PaneRows, RowsPerItem};
 use jefe::state::{AppState, PaneFocus, ScreenId};
@@ -67,6 +67,9 @@ pub fn dashboard_page_item_count(
     terminal_cols: u16,
     terminal_rows: u16,
 ) -> PageItemCount {
+    if let Some(count) = host_list_page_item_count(state) {
+        return count;
+    }
     match screen {
         Some(ScreenId::Issues) => issues_page_item_count(state, terminal_cols, terminal_rows),
         Some(ScreenId::PullRequests) => prs_page_item_count(state, terminal_cols, terminal_rows),
@@ -78,6 +81,27 @@ pub fn dashboard_page_item_count(
     }
 }
 
+fn host_list_page_item_count(state: &AppState) -> Option<PageItemCount> {
+    if !state.focused_host_reorder_panel() {
+        return None;
+    }
+    let current = state.nav.current();
+    let Some(layout) = state
+        .resolved_layout
+        .as_ref()
+        .filter(|layout| layout.screen_instance == current.id)
+    else {
+        return Some(PageItemCount::default());
+    };
+    Some(
+        layout
+            .panel(&current.panel_focus)
+            .map_or_else(PageItemCount::default, |resolved| {
+                PageItemCount::new(usize::from(resolved.content.height))
+            }),
+    )
+}
+
 fn dashboard_or_split_page_item_count(
     state: &AppState,
     screen: ScreenId,
@@ -86,9 +110,6 @@ fn dashboard_or_split_page_item_count(
 ) -> PageItemCount {
     let (render_cols, render_rows) = effective_render_size(terminal_cols, terminal_rows);
     let pane_rows = match (screen, state.pane_focus) {
-        (ScreenId::Dashboard, PaneFocus::Agents) => {
-            dashboard_middle_row_heights_inner(render_rows).0
-        }
         (ScreenId::Repositories, _) => {
             split_layout_for_render_size(render_cols, render_rows).sidebar_rows
         }
@@ -121,15 +142,42 @@ mod tests {
     }
 
     #[test]
+    fn open_dashboard_page_capacity_uses_exact_current_resolved_panel() {
+        let mut state = crate::test_app_state();
+        let screen_instance = state.nav.current().id;
+        let resolved = jefe::screen_layout::resolve_screen(&state, 100, 25);
+        assert!(state.publish_resolved_layout(screen_instance, resolved));
+        let layout = state
+            .resolved_layout
+            .as_ref()
+            .unwrap_or_else(|| panic!("dashboard layout must resolve"));
+        let panel = layout
+            .panel(&state.nav.current().panel_focus)
+            .unwrap_or_else(|| panic!("focused dashboard panel must resolve"));
+        let expected = PageItemCount::new(usize::from(panel.content.height));
+
+        assert_ne!(expected, PageItemCount::default());
+        assert_eq!(
+            dashboard_page_item_count(&state, state.compiled_screen(), 100, 25),
+            expected
+        );
+    }
+
+    #[test]
     fn split_page_capacity_uses_the_actual_sidebar_pane() {
         let mut state = crate::test_app_state();
         state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
-        let layout = jefe::layout::split_layout_for_render_size(100, 25);
-        let expected = ListGeometry::bordered_padded(RowsPerItem::new(1))
-            .page_item_count(PaneRows::new(usize::from(layout.sidebar_rows)));
+        let screen_instance = state.nav.current().id;
+        let resolved = jefe::screen_layout::resolve_screen(&state, 100, 25);
+        let expected = resolved
+            .as_ref()
+            .and_then(|layout| layout.panel(&state.nav.current().panel_focus))
+            .map_or_else(PageItemCount::default, |panel| {
+                PageItemCount::new(usize::from(panel.content.height))
+            });
+        assert!(state.publish_resolved_layout(screen_instance, resolved));
 
-        assert_eq!(layout.sidebar_rows, 18);
-        assert_eq!(expected, PageItemCount::new(13));
+        assert_eq!(expected, PageItemCount::new(16));
         assert_eq!(
             dashboard_page_item_count(&state, Some(ScreenId::Repositories), 100, 25),
             expected
@@ -138,7 +186,11 @@ mod tests {
 
     #[test]
     fn split_page_capacity_saturates_with_tiny_terminal() {
-        let state = crate::test_app_state();
+        let mut state = crate::test_app_state();
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+        let screen_instance = state.nav.current().id;
+        let resolved = jefe::screen_layout::resolve_screen(&state, 2, 6);
+        assert!(state.publish_resolved_layout(screen_instance, resolved));
         let layout = jefe::layout::split_layout_for_render_size(2, 6);
         let expected = ListGeometry::bordered_padded(RowsPerItem::new(1))
             .page_item_count(PaneRows::new(usize::from(layout.sidebar_rows)));
@@ -173,11 +225,20 @@ mod tests {
                 actions_pane_rows(usize::from(effective.1), false, false).0
             )
         );
+        let mut state = state;
+        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+        let screen_instance = state.nav.current().id;
+        let resolved = jefe::screen_layout::resolve_screen(&state, raw.0, raw.1);
+        let expected = resolved
+            .as_ref()
+            .and_then(|layout| layout.panel(&state.nav.current().panel_focus))
+            .map_or_else(PageItemCount::default, |panel| {
+                PageItemCount::new(usize::from(panel.content.height))
+            });
+        assert!(state.publish_resolved_layout(screen_instance, resolved));
         assert_eq!(
             dashboard_page_item_count(&state, Some(ScreenId::Repositories), raw.0, raw.1),
-            ListGeometry::bordered_padded(RowsPerItem::new(1)).page_item_count(PaneRows::new(
-                usize::from(split_layout_for_render_size(effective.0, effective.1).sidebar_rows),
-            ))
+            expected
         );
     }
 }

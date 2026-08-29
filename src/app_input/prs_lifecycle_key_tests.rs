@@ -145,8 +145,8 @@ fn enter_on_the_armed_overlay_confirms_it() {
 fn escape_on_the_overlay_cancels_it() {
     let event = resolve_prs_key_event(&with_delete_overlay(true), &key(KeyCode::Esc));
     assert!(
-        matches!(lifecycle_of(event), Some(PrLifecycleEvent::DeleteCancel)),
-        "Esc must cancel rather than fall through to leaving the detail view"
+        matches!(event, Some(AppEvent::Back)),
+        "Esc must enter shared Back before leaving the detail view"
     );
 }
 
@@ -247,7 +247,7 @@ fn a_bare_enter_breaks_the_line_and_a_chorded_one_submits() {
 fn escape_cancels_the_composer() {
     let state = with_composer();
     assert!(matches!(
-        lifecycle_of(resolve_prs_key_event(&state, &key(KeyCode::Esc))),
-        Some(PrLifecycleEvent::NewFormCancel)
+        resolve_prs_key_event(&state, &key(KeyCode::Esc)),
+        Some(AppEvent::Back)
     ));
 }

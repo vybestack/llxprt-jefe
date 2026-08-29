@@ -19,8 +19,8 @@ pub mod agent_types_editor;
 mod auth_ops;
 #[cfg(test)]
 mod comment_pagination_tests;
+mod dashboard_filter_ops;
 mod dashboard_grab_ops;
-mod dashboard_search_ops;
 mod dead_preview_ops;
 pub(crate) mod errors_ops;
 mod errors_types;
@@ -44,6 +44,7 @@ pub mod generated_form;
 mod generated_form_ops;
 mod generated_form_projection;
 mod generated_form_submit;
+mod host_panel_input_ops;
 mod issues_close_delete_ops;
 mod issues_close_reason_ops;
 mod issues_inline_ops;
@@ -65,12 +66,15 @@ mod pr_lifecycle_events;
 mod preferences_ops;
 mod property_edit;
 /// Pure deterministic provider-panel lifecycle reducer (issue #391).
+pub(crate) mod provider_action_context;
+/// Handle-free provider request reducer state (issue #390 CW-10, Slice B).
+#[cfg(test)]
+mod provider_confirmation_admission_tests;
 pub mod provider_panels;
 /// Provider request reducer data model (issue #390 CW-10, Slice B).
 mod provider_request_model;
 /// Provider request reducer handlers (issue #390 CW-10, Slice B).
 mod provider_request_ops;
-/// Handle-free provider request reducer state (issue #390 CW-10, Slice B).
 pub mod provider_requests;
 /// Pure, iocraft-free provider view projection (issue #390 CW-10, Slice B).
 pub mod provider_view;
@@ -93,7 +97,6 @@ mod runtime_observation_tests;
 /// Runtime-domain reducer handlers + effect-completion application
 /// (issue #381).
 mod runtime_ops;
-pub mod screen_relationships;
 pub mod scrollback_ops;
 mod selectors;
 mod shell_focus_resolution;
@@ -114,6 +117,8 @@ pub mod durable_projection;
 mod durable_projection_tests;
 /// Restoration of runtime state from the durable schema-2 document.
 pub mod durable_restore;
+#[cfg(test)]
+mod instance_presentation_tests;
 mod interaction_types;
 /// Pure projection of the Keys editor into rows (issue #388).
 pub mod keys_editor_project;
@@ -137,15 +142,21 @@ mod navigation_ops;
 #[path = "navigation_package_tests.rs"]
 mod navigation_package_tests;
 #[cfg(test)]
+#[path = "navigation_provider_relationship_tests.rs"]
+mod navigation_provider_relationship_tests;
+#[cfg(test)]
 #[path = "navigation_tests.rs"]
 mod navigation_tests;
-/// The single Back-precedence resolution (issue #386).
 pub mod navigation_unwind;
 #[cfg(test)]
 #[path = "navigation_unwind_tests.rs"]
 mod navigation_unwind_tests;
-/// Bounded reducer transitions and pending effect correlations (issue #381).
 mod navigation_vertical;
+/// Declared generic-confirmation overlay tests.
+#[cfg(test)]
+#[path = "overlay_confirmation_tests.rs"]
+mod overlay_confirmation_tests;
+mod overlay_projection_ops;
 #[cfg(test)]
 #[path = "persistence_effect_tests.rs"]
 mod persistence_effect_tests;
@@ -157,15 +168,43 @@ pub mod persistence_ops;
 pub mod plugin_config_view;
 /// Pure projection of the Screens/Layout editor into rows (issue #388).
 pub mod plugins_editor;
+/// Per-open-instance relationship propagation inside one committed transition.
+mod relationship_runtime;
+/// Instance-owned presentation state for declared host overlays.
+pub mod screen_overlays;
+#[cfg(test)]
+#[path = "screen_overlays_tests.rs"]
+mod screen_overlays_tests;
+pub use relationship_runtime::{RelationshipCommand, RelationshipCommandError};
+#[cfg(test)]
+#[path = "relationship_confirmation_token_tests.rs"]
+mod relationship_confirmation_token_tests;
+#[cfg(test)]
+#[path = "relationship_context_rejection_tests.rs"]
+mod relationship_context_rejection_tests;
+/// Production relationship-runtime integration tests.
+#[cfg(test)]
+#[path = "relationship_runtime_tests.rs"]
+mod relationship_runtime_tests;
 pub mod screens_editor;
 /// The Settings shell's draft, save, reload, and export authority (issue #387).
 pub mod settings;
 /// The registry editors' half of the Settings reducer (issue #388).
 mod settings_registry_ops;
 #[cfg(test)]
+#[path = "settings_registry_provider_health_tests.rs"]
+mod settings_registry_provider_health_tests;
+#[cfg(test)]
+#[path = "settings_registry_provider_tests.rs"]
+mod settings_registry_provider_tests;
+#[cfg(test)]
 #[path = "settings_registry_tests.rs"]
 mod settings_registry_tests;
+mod settings_registry_validation;
 mod settings_tail;
+#[cfg(test)]
+#[path = "settings_test_support.rs"]
+mod settings_test_support;
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod settings_tests;
@@ -209,6 +248,11 @@ pub use workbench_filter::{WorkbenchStatusFilter, WorkbenchUiState};
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
+use crate::messages::UiNavigationMessage::{
+    ToggleWorkbenchStatusBucket, WorkbenchAttach, WorkbenchFilterCursorNext,
+    WorkbenchFilterCursorPrev, WorkbenchNextPage, WorkbenchPrevPage, WorkbenchSelectNext,
+    WorkbenchSelectPrev,
+};
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
 };
@@ -219,6 +263,7 @@ pub use form_projection::{
     type_id_from_form_value,
 };
 use tracing::{debug, trace};
+use workbench_reducers::WorkbenchNavigation as W;
 impl AppState {
     fn reset_terminal_scrollback(&mut self) {
         self.terminal_history_offset = None;
@@ -294,7 +339,8 @@ impl AppState {
         self.selected_agent_index = visible_indices.first().copied();
     }
 
-    fn has_visible_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
+    #[must_use]
+    pub fn has_visible_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
         self.agents.iter().any(|agent| {
             &agent.repository_id == repository_id
                 && (agent.is_running() || self.sticky_visibility.dead_agents.contains(&agent.id))
@@ -305,14 +351,13 @@ impl AppState {
         (!self.hide_idle_repositories
             || agent.is_running()
             || self.sticky_visibility.dead_agents.contains(&agent.id))
-            && self.dashboard_search_matches(&agent.name)
+            && self.dashboard_filter_matches(&agent.name)
     }
 
     pub fn rebuild_repository_agent_ids(&mut self) {
         for repository in &mut self.repositories {
             repository.agent_ids.clear();
         }
-
         for agent in &self.agents {
             if let Some(repository) = self
                 .repositories
@@ -451,6 +496,13 @@ impl AppState {
         let issue_list_send_context = self.issue_list_send_context();
         let pr_list_send_context = self.pr_list_send_context();
 
+        self.reduce_message_body(message);
+
+        self.invalidate_changed_list_send_contexts(&issue_list_send_context, &pr_list_send_context);
+        self.finalize_message(route);
+    }
+
+    pub(super) fn reduce_message_body(&mut self, message: AppMessage) {
         match message {
             AppMessage::UiNavigation(message) => self.apply_ui_navigation(message),
             AppMessage::Modal(message) => self.apply_modal_message(message),
@@ -488,9 +540,6 @@ impl AppState {
                 self.apply_effect_completion_message(*completion);
             }
         }
-
-        self.invalidate_changed_list_send_contexts(&issue_list_send_context, &pr_list_send_context);
-        self.finalize_message(route);
     }
 
     fn terminal_blocks(message: &AppMessage) -> bool {
@@ -532,6 +581,7 @@ impl AppState {
         self.normalize_selection_indices();
         self.validate_dashboard_grab();
         errors_ops::capture_runtime_errors(self);
+        self.open_current_provider_confirmation();
         self.last_selected_agent_by_repo
             .retain(|(repo_id, agent_id)| {
                 self.repositories.iter().any(|repo| repo.id == *repo_id)
@@ -576,6 +626,7 @@ impl AppState {
     fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
         self.prepare_ui_navigation(&message);
         match message {
+            UiNavigationMessage::Back => self.apply_back(),
             UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
             UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
             UiNavigationMessage::NavigatePageUp(page) => {
@@ -596,21 +647,9 @@ impl AppState {
             UiNavigationMessage::CyclePaneFocus => self.cycle_pane_focus(),
             UiNavigationMessage::ToggleTerminalFocus => self.toggle_terminal_focus(),
             UiNavigationMessage::ToggleHideIdleRepositories => self.toggle_hide_idle_repositories(),
-            UiNavigationMessage::FocusDashboardSearch
-            | UiNavigationMessage::BlurDashboardSearch
-            | UiNavigationMessage::SetDashboardSearchQuery { .. }
-            | UiNavigationMessage::ClearDashboardSearch => {
-                dashboard_search_ops::apply_dashboard_search_message(self, message);
-            }
-            UiNavigationMessage::EnterSplitMode => {
-                let _ = self.enter_screen(ScreenId::Repositories);
-                self.pane_focus = PaneFocus::Repositories;
-                self.dashboard_grab = None;
-            }
+            UiNavigationMessage::EnterSplitMode => self.enter_split_screen(),
             UiNavigationMessage::ExitSplitMode => self.exit_split_mode(),
-            UiNavigationMessage::EnterGrabMode => {
-                self.split_grab_index = self.selected_repository_visible_index();
-            }
+            UiNavigationMessage::EnterGrabMode => self.enter_grab_mode(),
             UiNavigationMessage::ExitGrabMode => self.split_grab_index = None,
             UiNavigationMessage::GrabMoveUp => self.move_split_grab_up(),
             UiNavigationMessage::GrabMoveDown => self.move_split_grab_down(),
@@ -619,7 +658,16 @@ impl AppState {
             UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
             UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
             UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
-            message if message.is_workbench() => self.apply_workbench_navigation(message),
+            ToggleWorkbenchStatusBucket(bucket) => {
+                self.apply_workbench(W::ToggleStatusBucket(bucket));
+            }
+            WorkbenchNextPage => self.apply_workbench(W::NextPage),
+            WorkbenchPrevPage => self.apply_workbench(W::PreviousPage),
+            WorkbenchFilterCursorPrev => self.apply_workbench(W::PreviousFilter),
+            WorkbenchFilterCursorNext => self.apply_workbench(W::NextFilter),
+            WorkbenchSelectPrev => self.apply_workbench(W::PreviousSelection),
+            WorkbenchSelectNext => self.apply_workbench(W::NextSelection),
+            WorkbenchAttach => self.apply_workbench(W::Attach),
             UiNavigationMessage::TerminalScrollUp
             | UiNavigationMessage::TerminalScrollDown
             | UiNavigationMessage::TerminalScrollPageUp
@@ -630,12 +678,23 @@ impl AppState {
         }
     }
 
+    fn enter_split_screen(&mut self) {
+        let _ = self.enter_screen(ScreenId::Repositories);
+        self.pane_focus = PaneFocus::Repositories;
+        self.dashboard_grab = None;
+    }
+
+    fn enter_grab_mode(&mut self) {
+        self.split_grab_index = self.selected_repository_visible_index();
+    }
+
     /// Apply a terminal scrollback message (issue #198).
     fn apply_terminal_scroll(&mut self, message: UiNavigationMessage) {
+        let presentation = self.nav.current_mut().presentation_mut();
         scrollback_ops::apply_terminal_scroll_message(
-            &mut self.terminal_history_offset,
-            self.terminal_total_lines,
-            self.terminal_viewport_rows,
+            &mut presentation.terminal_history_offset,
+            presentation.terminal_total_lines,
+            presentation.terminal_viewport_rows,
             message,
         );
     }

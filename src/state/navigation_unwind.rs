@@ -15,13 +15,10 @@
 //! so adding a layer is an addition to one ordered list instead of another
 //! boolean whose position in a chain of `if`s is the real specification.
 //!
-//! **What is not yet true.** The per-mode key chains in `app_input` still
-//! decide Esc and `q` for themselves; they have not been converted to ask this
-//! resolver. So this states the order and answers correctly for anything that
-//! consults it, but it is not yet the only thing deciding. Converting those
-//! chains is the remaining half of the cutover, and until it lands the shipped
-//! precedence is whatever those chains do — which the existing mode tests pin,
-//! and which agrees with the order above.
+//! Semantic Back handlers now enter this resolver through one typed event.
+//! Higher-priority raw-input owners—provider requests, terminal capture, and
+//! Settings-owned transient editors—intercept their keys before action dispatch
+//! and therefore remain outside this screen-unwind order by design.
 
 use super::navigation_dirty::DirtyChoice;
 
@@ -70,7 +67,7 @@ impl BackLayer {
             Self::Chooser => LocalIntent::CloseChooser,
             Self::Editor => LocalIntent::CloseEditor,
             Self::Search => LocalIntent::CloseSearch,
-            Self::Filter => LocalIntent::ClearFilter,
+            Self::Filter => LocalIntent::CloseFilterControls,
             Self::Overlay => LocalIntent::CloseOverlay,
             Self::PanelTransient => LocalIntent::ClearPanelTransient,
         }
@@ -90,8 +87,8 @@ pub enum LocalIntent {
     CloseEditor,
     /// Leave the search input.
     CloseSearch,
-    /// Clear the applied filter.
-    ClearFilter,
+    /// Close filter controls without changing the applied filter.
+    CloseFilterControls,
     /// Close the open overlay.
     CloseOverlay,
     /// Clear the focused panel's own transient state.

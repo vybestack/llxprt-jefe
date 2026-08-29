@@ -1,0 +1,216 @@
+{
+  "schema": 1,
+  "name": "issue705-semantic-continuation-linux",
+  "platform": "linux",
+  "terminal": {
+    "cols": 120,
+    "rows": 36
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic/1.0.0",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic/1.0.0/bin",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic/1.0.0/screens",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.semantic\"]\nenabled = true\nversion = \"1.0.0\"\n\n[keymap.\"dashboard\"]\n\"vendor.semantic.open\" = [\"F2\"]\n\"vendor.semantic.deploy\" = [\"F3\"]\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic/1.0.0/plugin.json",
+        "content": {
+          "utf8": "{\n  \"manifest_schema\": 1,\n  \"id\": \"vendor.semantic\",\n  \"version\": \"1.0.0\",\n  \"display_name\": \"Semantic continuation fixture\",\n  \"host_api\": {\n    \"minimum\": \"0.0.1\",\n    \"maximum\": \"99.0.0\"\n  },\n  \"protocol\": 1,\n  \"provider\": {\n    \"mode\": \"persistent\",\n    \"binaries\": {\n      \"aarch64-apple-darwin\": \"bin/provider\",\n      \"x86_64-unknown-linux-gnu\": \"bin/provider\"\n    }\n  },\n  \"actions\": [\n    {\n      \"id\": \"vendor.semantic.open\",\n      \"label\": \"Open semantic review\",\n      \"description\": \"Open the typed semantic relationship review\",\n      \"category\": \"vendor.semantic\",\n      \"contexts\": [\n        \"dashboard\"\n      ],\n      \"arguments\": [],\n      \"timeout_seconds\": 60,\n      \"destructive\": false,\n      \"confirmation\": \"none\",\n      \"handler\": \"open\",\n      \"allowed_outcomes\": [\n        \"navigate-declared-route\"\n      ]\n    },\n    {\n      \"id\": \"vendor.semantic.deploy\",\n      \"label\": \"Deploy selected resource\",\n      \"description\": \"Exercise typed context and stale destructive continuation\",\n      \"category\": \"vendor.semantic\",\n      \"contexts\": [\n        \"dashboard\"\n      ],\n      \"arguments\": [],\n      \"timeout_seconds\": 60,\n      \"destructive\": true,\n      \"confirmation\": \"provider-continuation\",\n      \"handler\": \"deploy\",\n      \"allowed_outcomes\": [\n        \"request-host-confirmation\",\n        \"notice\"\n      ]\n    }\n  ],\n  \"panels\": [\n    {\n      \"id\": \"vendor.semantic.list\",\n      \"model_kinds\": [\n        \"list\"\n      ],\n      \"event_schema\": [\n        {\n          \"kind\": \"selected\",\n          \"arguments\": []\n        }\n      ],\n      \"handler\": \"semantic-list\",\n      \"ports\": []\n    },\n    {\n      \"id\": \"vendor.semantic.detail\",\n      \"model_kinds\": [\n        \"list\"\n      ],\n      \"event_schema\": [],\n      \"handler\": \"semantic-detail\",\n      \"ports\": []\n    }\n  ],\n  \"routes\": [\n    {\n      \"id\": \"vendor.semantic.open\",\n      \"activation_fields\": [],\n      \"target_screen\": \"vendor.semantic.review\"\n    }\n  ],\n  \"screens\": [\n    {\n      \"path\": \"screens/main.screen.toml\",\n      \"screen_ids\": [\n        \"vendor.semantic.review\"\n      ]\n    }\n  ]\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic/1.0.0/screens/main.screen.toml",
+        "content": {
+          "utf8": "screen_schema = 2\nid = \"vendor.semantic.review\"\ntitle = \"Semantic Continuation Review\"\nroute = \"vendor.semantic.open\"\ninitial_focus = \"list\"\nfocus_order = [\"list\"]\n\n[[resources]]\ntype_id = \"vendor.change\"\nschema_version = 1\nsemantic_key = \"semantic-key\"\n\n[[resources.fields]]\nid = \"semantic-key\"\nlabel = \"Semantic key\"\ntype = \"string\"\nrequired = true\n\n[[overlays]]\nkind = \"confirmation\"\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"vendor.semantic.deploy\"\n\n[[panels]]\nid = \"list\"\ntype = \"vendor.semantic.list\"\nfocusable = true\nrequired = true\n\n[[panels.ports]]\nid = \"selection\"\ndirection = \"output\"\nowner = \"vendor.semantic.review\"\ntype_id = \"vendor.change@1\"\nrequired = false\nretained = false\n\n[[panels]]\nid = \"detail\"\ntype = \"vendor.semantic.detail\"\nfocusable = false\nrequired = false\n\n[[panels.ports]]\nid = \"subject\"\ndirection = \"input\"\nowner = \"vendor.semantic.review\"\ntype_id = \"vendor.change@1\"\nrequired = false\nretained = false\n\n[[panels.ports]]\nid = \"subject-b\"\ndirection = \"input\"\nowner = \"vendor.semantic.review\"\ntype_id = \"vendor.change@1\"\nrequired = false\nretained = false\n\n[layout]\ntype = \"split\"\naxis = \"horizontal\"\n\n[[layout.children]]\nmin = 20\ncollapsible = false\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"list\" }\n\n[[layout.children]]\nmin = 20\ncollapsible = true\ncollapse_priority = 0\nsize = { weight = 1 }\nnode = { type = \"leaf\", panel = \"detail\" }\n\n[[relationships]]\nkind = \"scope\"\nsource = \"list.selection\"\ntarget = \"detail.subject\"\n\n[[relationships]]\nkind = \"scope\"\nsource = \"list.selection\"\ntarget = \"detail.subject-b\"\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.semantic/1.0.0/bin/provider",
+        "content": {
+          "utf8": "#!/bin/sh\nset -eu\nread -r hello\nprocess_generation=$(printf '%s\\n' \"$hello\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' '{\"protocol\":1,\"type\":\"hello-ack\",\"request_id\":\"p-100001\",\"generation\":'\"$process_generation\"',\"payload\":{\"provider_name\":\"semantic-continuation\",\"protocol\":1}}'\nread -r configure\nprintf '%s\\n' '{\"protocol\":1,\"type\":\"ready\",\"request_id\":\"p-100002\",\"generation\":'\"$process_generation\"',\"payload\":{\"capabilities\":[\"actions\",\"panels\"]}}'\nread -r open\ncase \"$open\" in *'\"action_id\":\"vendor.semantic.open\"'*) ;; *) exit 41 ;; esac\nprintf '%s\\n' '{\"protocol\":1,\"type\":\"outcome\",\"request_id\":\"p-100003\",\"generation\":'\"$process_generation\"',\"payload\":{\"kind\":\"navigate\",\"route_id\":\"vendor.semantic.open\",\"activation\":{}}}'\nread -r activate\npanel_instance_id=$(printf '%s\\n' \"$activate\" | sed -n 's/.*\"panel_instance_id\":\\([0-9][0-9]*\\).*/\\1/p')\npanel_generation=$(printf '%s\\n' \"$activate\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' '{\"protocol\":1,\"type\":\"panel-snapshot\",\"request_id\":\"p-100004\",\"generation\":'\"$process_generation\"',\"payload\":{\"model_schema\":1,\"panel_instance_id\":'\"$panel_instance_id\"',\"generation\":'\"$panel_generation\"',\"revision\":1,\"kind\":\"list\",\"title\":\"Typed semantic resources\",\"loading\":false,\"action_affordances\":[],\"body\":{\"kind\":\"list\",\"items\":[{\"id\":\"alpha\",\"label\":\"Alpha resource\",\"actions\":[]},{\"id\":\"beta\",\"label\":\"Beta resource\",\"actions\":[]}],\"selected_id\":\"alpha\"}}}'\nread -r activate_detail\ndetail_instance_id=$(printf '%s\\n' \"$activate_detail\" | sed -n 's/.*\"panel_instance_id\":\\([0-9][0-9]*\\).*/\\1/p')\ndetail_generation=$(printf '%s\\n' \"$activate_detail\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' '{\"protocol\":1,\"type\":\"panel-snapshot\",\"request_id\":\"p-100005\",\"generation\":'\"$process_generation\"',\"payload\":{\"model_schema\":1,\"panel_instance_id\":'\"$detail_instance_id\"',\"generation\":'\"$detail_generation\"',\"revision\":1,\"kind\":\"list\",\"title\":\"Typed relationship target\",\"loading\":false,\"action_affordances\":[],\"body\":{\"kind\":\"list\",\"items\":[{\"id\":\"alpha\",\"label\":\"Alpha target\",\"actions\":[]}],\"selected_id\":\"alpha\"}}}'\nread -r selected_beta_initial\ncase \"$selected_beta_initial\" in *'\"type\":\"panel-event\"'*'\"event\":{\"kind\":\"selected\",\"id\":\"beta\"}'*) ;; *) exit 47 ;; esac\nread -r selected_alpha_initial\ncase \"$selected_alpha_initial\" in *'\"type\":\"panel-event\"'*'\"event\":{\"kind\":\"selected\",\"id\":\"alpha\"}'*) ;; *) exit 48 ;; esac\nread -r invocation_a\ncase \"$invocation_a\" in *'\"action_id\":\"vendor.semantic.deploy\"'*'\"arguments\":{}'*'\"resource_refs\":{\"detail.subject\"'*'\"list.selection\"'*) ;; *) exit 42 ;; esac\ncase \"$invocation_a\" in *'\"detail.subject-b\"'*) ;; *) exit 49 ;; esac\nowner_count=$(printf '%s\\n' \"$invocation_a\" | grep -o '\"owner-id\"' | wc -l | tr -d ' ')\nalpha_count=$(printf '%s\\n' \"$invocation_a\" | grep -o '\"semantic-key\":{\"type\":\"string\",\"value\":\"alpha\"}' | wc -l | tr -d ' ')\n[ \"$owner_count\" = 3 ] && [ \"$alpha_count\" = 6 ] || exit 43\ncase \"$invocation_a\" in *'\"continuation\"'*) exit 44 ;; esac\nprintf '%s\\n' 'invocation A exact typed context: list.selection,detail.subject,detail.subject-b=alpha' > invocation-a.txt\nread -r selected_beta\ncase \"$selected_beta\" in *'\"type\":\"panel-event\"'*'\"revision\":1'*'\"event\":{\"kind\":\"selected\",\"id\":\"beta\"}'*) ;; *) exit 45 ;; esac\nprintf '%s\\n' 'semantic head changed: alpha->beta' > semantic-head.txt\nprintf '%s\\n' '{\"protocol\":1,\"type\":\"outcome\",\"request_id\":\"p-100006\",\"generation\":'\"$process_generation\"',\"payload\":{\"kind\":\"request-host-confirmation\",\"confirmation_id\":\"semantic.deploy.alpha\",\"title\":\"Confirm alpha deployment?\",\"body\":\"The selected semantic resource may have changed.\",\"confirm_label\":\"Deploy alpha\",\"destructive\":true,\"continuation_schema\":[]}}'\nif read -r invocation_b; then\n  case \"$invocation_b\" in\n    *'\"type\":\"shutdown\"'*)\n      printf '%s\\n' '{\"protocol\":1,\"type\":\"shutdown-ack\",\"request_id\":\"p-100007\",\"generation\":'\"$process_generation\"',\"payload\":{}}'\n      exit 0\n      ;;\n    *)\n      printf '%s\\n' \"$invocation_b\" > invocation-b.txt\n      exit 46\n      ;;\n  esac\nfi\n"
+        },
+        "mode": 493
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agents",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "f2",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Typed semantic resources",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Semantic Continuation Review",
+        "Alpha resource",
+        "Beta resource",
+        ">> Alpha resource"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "up",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "f3",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Confirm alpha deployment?",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Confirm alpha deployment?",
+        "Decision: Cancel"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Decision: Deploy alpha",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/providers/work/invocation-a.txt",
+        "content": {
+          "utf8": "invocation A exact typed context: list.selection,detail.subject,detail.subject-b=alpha\n"
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/providers/work/semantic-head.txt",
+        "content": {
+          "utf8": "semantic head changed: alpha->beta\n"
+        }
+      }
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "config/providers/work/invocation-b.txt",
+        "exists": false
+      }
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

@@ -129,6 +129,16 @@ impl ContextStack {
         self.contexts.iter()
     }
 
+    /// Whether this is the ordinary screen fallback scope where an active
+    /// descriptor may contribute its exact declared action pairs.
+    #[must_use]
+    pub(crate) fn allows_screen_declarations(&self) -> bool {
+        !self.terminal_capture
+            && self.contexts.len() == 2
+            && self.contexts[0].as_str() == "workbench"
+            && self.contexts[1].as_str() == "global"
+    }
+
     /// Whether terminal capture owns ordinary input for this stack.
     #[must_use]
     pub const fn is_terminal_capture(&self) -> bool {

@@ -149,9 +149,26 @@ fn typed_modal_and_repository_messages_route_to_isolated_handlers() {
     let state = crate::common_app_state::app_state()
         .apply_message(AppMessage::Modal(ModalMessage::OpenHelp))
         .committed_pure();
-    assert!(matches!(state.modal, ModalState::Help));
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help)
+    );
 
     let state = state
+        .apply_message(AppMessage::RepositoryAgent(
+            RepositoryAgentMessage::OpenNewRepository,
+        ))
+        .committed_pure();
+    assert!(matches!(state.modal, ModalState::None));
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help),
+        "an ordinary form must not split the exact-instance Help overlay"
+    );
+
+    let state = state
+        .apply_message(AppMessage::Modal(ModalMessage::CloseModal))
+        .committed_pure()
         .apply_message(AppMessage::RepositoryAgent(
             RepositoryAgentMessage::OpenNewRepository,
         ))

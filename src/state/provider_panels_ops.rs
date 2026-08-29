@@ -2,10 +2,7 @@ impl ProviderPanelState {
     /// Construct empty state.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            panels: Vec::new(),
-            next_panel_instance_id: 1,
-        }
+        Self { panels: Vec::new() }
     }
 
     /// Number of tracked panels.
@@ -85,6 +82,24 @@ impl ProviderPanelState {
             .map(|panel| panel.id)
             .collect()
     }
+    /// Authenticate one live provider instance against its declared screen slot and owner.
+    #[must_use]
+    pub(crate) fn matches_active_binding(
+        &self,
+        panel: PanelInstanceId,
+        screen_instance_id: u64,
+        panel_id: &PanelId,
+        owner: &Id,
+    ) -> bool {
+        self.index(panel).is_some_and(|index| {
+            let record = &self.panels[index];
+            record.lifecycle == PanelLifecycle::Active
+                && record.screen_instance_id == screen_instance_id
+                && &record.panel_id == panel_id
+                && &record.owner == owner
+        })
+    }
+
 
     /// The retained host-local state, if any.
     #[must_use]
@@ -116,7 +131,8 @@ impl ProviderPanelState {
         Ok(())
     }
 
-    /// Mark every subscribed panel for one provider owner failed.
+    /// Mark every live panel for one provider owner failed, including panels
+    /// retained by suspended screen instances.
     pub fn fail_runtime_owner(&mut self, owner: &Id) -> usize {
         let mut failed = 0;
         for panel in &mut self.panels {
@@ -126,6 +142,7 @@ impl ProviderPanelState {
                     PanelLifecycle::Declared
                         | PanelLifecycle::Activating
                         | PanelLifecycle::Active
+                        | PanelLifecycle::Suspended
                         | PanelLifecycle::Failed
                 )
             {
@@ -140,9 +157,22 @@ impl ProviderPanelState {
     ///
     /// # Errors
     ///
-    /// Returns [`PanelError::InstanceExhausted`] when the u64 counter exhausts.
+    /// Returns [`PanelError`] when the declaration is invalid or the allocated
+    /// identity is already active.
     pub fn declare(&mut self, command: DeclareInput) -> Result<DeclareOutcome, PanelError> {
-        let instance = self.allocate_instance()?;
+        let instance =
+            PanelInstanceId::try_next().map_err(|_| PanelError::InstanceIdentityExhausted)?;
+        self.declare_instance(instance, command)
+    }
+
+    pub(crate) fn declare_instance(
+        &mut self,
+        instance: PanelInstanceId,
+        command: DeclareInput,
+    ) -> Result<DeclareOutcome, PanelError> {
+        if instance.as_u64() == 0 || self.index(instance).is_some() {
+            return Err(PanelError::InvalidLifecycle);
+        }
         self.panels.push(PanelRecord::new(instance, command));
         Ok(DeclareOutcome { instance })
     }
@@ -179,13 +209,19 @@ impl ProviderPanelState {
     }
 
     /// Resume a suspended panel with a fresh generation and prior host-local.
+    /// A persistent owner failure may have marked the retained panel failed
+    /// while its screen was suspended; restoring that screen retries the same
+    /// exact panel rather than trapping navigation on a lifecycle mismatch.
     ///
     /// # Errors
     ///
     /// Returns [`PanelError::UnknownPanel`] or [`PanelError::InvalidLifecycle`].
     pub fn resume(&mut self, panel: PanelInstanceId) -> Result<ActivateOutcome, PanelError> {
         let index = self.require(panel)?;
-        if self.panels[index].lifecycle != PanelLifecycle::Suspended {
+        if !matches!(
+            self.panels[index].lifecycle,
+            PanelLifecycle::Suspended | PanelLifecycle::Failed
+        ) {
             return Err(PanelError::InvalidLifecycle);
         }
         let prior = self.panels[index].host_local.clone();
@@ -206,7 +242,7 @@ impl ProviderPanelState {
         command: AcceptSnapshot,
     ) -> Result<AcceptOutcome, PanelError> {
         let index = self
-            .index(PanelInstanceId(command.snapshot.panel_instance_id))
+            .index(PanelInstanceId::from_u64(command.snapshot.panel_instance_id))
             .ok_or(PanelError::UnknownPanel)?;
         if !self.panels[index].lifecycle.receives_snapshot() {
             return Err(self.disposed_or_invalid(index));
@@ -366,15 +402,6 @@ impl ProviderPanelState {
         self.index(panel).ok_or(PanelError::UnknownPanel)
     }
 
-    fn allocate_instance(&mut self) -> Result<PanelInstanceId, PanelError> {
-        let instance = PanelInstanceId(self.next_panel_instance_id);
-        self.next_panel_instance_id = self
-            .next_panel_instance_id
-            .checked_add(1)
-            .ok_or(PanelError::InstanceExhausted)?;
-        Ok(instance)
-    }
-
     fn disposed_or_invalid(&self, index: usize) -> PanelError {
         if self.panels[index].lifecycle == PanelLifecycle::Disposed {
             PanelError::Disposed
@@ -491,29 +518,71 @@ impl ProviderPanelState {
         Ok(())
     }
 
+    fn reconcile_authoritative_selection(
+        &self,
+        index: usize,
+        selection: SnapshotSelection,
+    ) -> Result<Option<HostLocal>, PanelError> {
+        let (SnapshotSelection::Replace(selected_id), Some(host_local)) =
+            (selection, self.panels[index].host_local.as_ref())
+        else {
+            return Ok(None);
+        };
+        let mut candidate = host_local.clone();
+        candidate.selected_id = selected_id;
+        if host_local_canonical_bytes(&candidate) > HOST_LOCAL_MAX_BYTES {
+            return Err(PanelError::HostLocalTooLarge);
+        }
+        Ok(Some(candidate))
+    }
+
+    fn reject_snapshot(&mut self, index: usize, error: PanelError) -> PanelError {
+        Self::mark_failed(&mut self.panels[index]);
+        error
+    }
+
     fn apply_snapshot(&mut self, index: usize, command: AcceptSnapshot) -> Result<u64, PanelError> {
         if command.payload_byte_count > SNAPSHOT_MAX_BYTES
+            || command.snapshot.body.kind() != command.snapshot.kind
             || !self.panels[index]
                 .allowed_model_kinds
                 .contains(&command.snapshot.kind)
             || !affordances_valid(&self.panels[index].action_authority, command.snapshot)
         {
-            self.panels[index].lifecycle = PanelLifecycle::Failed;
-            if let Some(model) = &mut self.panels[index].accepted {
-                model.stale = true;
-            }
-            return Err(PanelError::SnapshotInvalid);
+            return Err(self.reject_snapshot(index, PanelError::SnapshotInvalid));
         }
         let revision = command.snapshot.revision;
         let Some(expected_revision) = revision.checked_add(1) else {
-            let record = &mut self.panels[index];
-            record.lifecycle = PanelLifecycle::Failed;
-            if let Some(model) = &mut record.accepted {
-                model.stale = true;
-            }
-            return Err(PanelError::SnapshotInvalid);
+            return Err(self.reject_snapshot(index, PanelError::SnapshotInvalid));
         };
+        let authoritative_selection = match &command.snapshot.body {
+            crate::runtime::provider::protocol::PanelBody::List(list) => {
+                SnapshotSelection::Replace(list.selected_id.clone())
+            }
+            crate::runtime::provider::protocol::PanelBody::Tree(tree) => {
+                SnapshotSelection::Replace(tree.selected_id.clone())
+            }
+            crate::runtime::provider::protocol::PanelBody::StructuredDiff(diff) => {
+                SnapshotSelection::Replace(diff.selected_file_id.clone())
+            }
+            crate::runtime::provider::protocol::PanelBody::Detail(_)
+            | crate::runtime::provider::protocol::PanelBody::Form(_)
+            | crate::runtime::provider::protocol::PanelBody::Status(_)
+            | crate::runtime::provider::protocol::PanelBody::Progress(_)
+            | crate::runtime::provider::protocol::PanelBody::Empty(_)
+            | crate::runtime::provider::protocol::PanelBody::Error(_) => {
+                SnapshotSelection::Preserve
+            }
+        };
+        let reconciled_host_local =
+            match self.reconcile_authoritative_selection(index, authoritative_selection) {
+                Ok(host_local) => host_local,
+                Err(error) => return Err(self.reject_snapshot(index, error)),
+            };
         let record = &mut self.panels[index];
+        if let Some(host_local) = reconciled_host_local {
+            record.host_local = Some(host_local);
+        }
         record.accepted = Some(AcceptedModel {
             snapshot: command.snapshot.clone(),
             revision,

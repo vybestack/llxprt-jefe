@@ -9,6 +9,7 @@ use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use jefe::domain::ThemeId;
 use jefe::messages::AppMessage;
 use jefe::messages::NavDir;
+use jefe::messages::UiNavigationMessage;
 use jefe::messages::settings::{
     LayoutMessage, PluginConfigMessage, RecoveryChoice, SettingsEnvironment, SettingsMessage,
     SettingsSection, SettingsSource, ThemeChoice,
@@ -33,8 +34,6 @@ pub enum SettingsAction {
     Open,
     /// Open the screen on a freshly read document, showing the Keys section.
     OpenKeys,
-    /// Leave the screen, raising the host dirty guard when work is unsaved.
-    Back,
     /// Move the selection up.
     Up,
     /// Move the selection down.
@@ -74,7 +73,6 @@ pub fn apply(action: SettingsAction, app_state: &mut AppStateHandle, ctx: &Share
         SettingsAction::OpenKeys => {
             dispatch_open(app_state, ctx, Some(SettingsSection::Keys));
         }
-        SettingsAction::Back => back(app_state),
         SettingsAction::Save => save(app_state, ctx, false),
         SettingsAction::SaveAndExit => save(app_state, ctx, true),
         SettingsAction::Up => dispatch(app_state, SettingsMessage::Navigate(NavDir::Up)),
@@ -181,7 +179,11 @@ pub fn handle_dirty_guard_key(
             let choice = app_state.read().settings_state.dirty_choice.choice();
             resolve_dirty(choice, app_state, ctx);
         }
-        KeyCode::Esc => resolve_dirty(DirtyChoice::Cancel, app_state, ctx),
+        KeyCode::Esc => super::dispatch_app_message(
+            app_state,
+            ctx,
+            AppMessage::UiNavigation(UiNavigationMessage::Back),
+        ),
         _ => {}
     }
     true
@@ -340,16 +342,6 @@ fn dispatch_open(
             SettingsMessage::OpenFailed(Box::new(settings_failure(&detail))),
         ),
     }
-}
-
-/// Leave the screen, or withdraw a reload that is waiting to be confirmed.
-fn back(app_state: &mut AppStateHandle) {
-    let message = if awaiting_reload_confirmation(app_state) {
-        SettingsMessage::ReloadCancelled
-    } else {
-        SettingsMessage::Back
-    };
-    dispatch(app_state, message);
 }
 
 /// Apply the focused row, confirm a reload, or take the offered recovery.

@@ -2,7 +2,8 @@
 
 use jefe::domain::AgentId;
 use jefe::input::InputMode;
-use jefe::state::{AppState, ConfirmFocus, DashboardGrabPane, ModalState, PaneFocus, ScreenId};
+use jefe::state::screen_overlays::ConfirmationRequest;
+use jefe::state::{AppState, DashboardGrabPane, PaneFocus, ScreenId, transition::TransitionExt};
 
 use super::{DispatchScope, derive_action_context};
 
@@ -117,14 +118,15 @@ fn issues_special_state_precedes_focused_panel_and_screen() {
 }
 #[test]
 fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
-    let mut search = crate::test_app_state();
-    search.dashboard_search.input_focused = true;
+    let search = crate::test_app_state()
+        .apply(jefe::state::AppEvent::OpenSearch)
+        .committed_pure();
     assert_eq!(
         context_names(&search),
         (
             DispatchScope::FullS4,
             vec![
-                "dashboard.search".to_owned(),
+                "search".to_owned(),
                 "dashboard.pre-mode".to_owned(),
                 "global".to_owned(),
             ]
@@ -132,10 +134,11 @@ fn dashboard_overlays_inherit_only_terminal_toggle_pre_mode_context() {
     );
 
     let mut modal = crate::test_app_state();
-    modal.modal = ModalState::ConfirmDeleteRepository {
-        id: jefe::domain::RepositoryId("repo".to_owned()),
-        confirm_focus: ConfirmFocus::Confirm,
-    };
+    assert!(
+        modal.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: jefe::domain::RepositoryId("repo".to_owned()),
+        })
+    );
     assert_eq!(
         context_names(&modal),
         (
@@ -189,17 +192,19 @@ fn pr_changes_and_actions_focus_are_full_s4_contexts() {
 #[test]
 fn a_modal_context_keeps_the_protected_exit_reachable() {
     for screen in [
-        ScreenId::Dashboard,
-        ScreenId::Repositories,
-        ScreenId::Actions,
-        ScreenId::Issues,
-        ScreenId::PullRequests,
-        ScreenId::Errors,
-        ScreenId::Terminals,
+        jefe::workbench::DASHBOARD_IDENTITY,
+        ScreenId::Repositories.into(),
+        ScreenId::Actions.into(),
+        ScreenId::Issues.into(),
+        ScreenId::PullRequests.into(),
+        ScreenId::Errors.into(),
+        ScreenId::Terminals.into(),
     ] {
         let mut state = crate::test_app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(screen);
-        state.modal = ModalState::Help;
+        state.restore_navigation_root(screen);
+        state = state
+            .apply(jefe::state::AppEvent::OpenHelp)
+            .committed_pure();
 
         let result = derive_action_context(&state, jefe::input::input_mode_for_state(&state));
         let Ok(context) = result else {
@@ -213,6 +218,56 @@ fn a_modal_context_keeps_the_protected_exit_reachable() {
         assert!(
             names.iter().any(|name| name == "global"),
             "a modal on {screen:?} must keep global reachable, got {names:?}"
+        );
+    }
+}
+
+/// The Dashboard's sealed action-context authority decides whether `dashboard` and
+/// `dashboard.reorder` exist. A host-list sidebar on any other screen (workspace,
+/// package, custom) must NOT acquire those contexts: the descriptor capability, not the
+/// panel shape, owns them.
+#[test]
+fn graph_with_host_list_screen_does_not_acquire_dashboard_action_authority() {
+    use jefe::workbench::DASHBOARD_IDENTITY;
+
+    let mut state = crate::test_app_state();
+    state.restore_navigation_root(DASHBOARD_IDENTITY);
+    state.nav.current_mut().panel_focus = jefe::workbench::PanelId::parse("repositories")
+        .unwrap_or_else(|error| panic!("repository list panel: {error}"));
+    assert_eq!(
+        context_names(&state),
+        (
+            DispatchScope::FullS3,
+            vec![
+                "dashboard.reorder".to_owned(),
+                "dashboard".to_owned(),
+                "global".to_owned(),
+            ]
+        )
+    );
+
+    // A non-Dashboard compiled screen still owns its private context and never sees
+    // Dashboard authority, despite sharing a host List sidebar. Exact
+    // `BuiltinScreenId` values are the descriptor identities the runtime realizes.
+    for screen in [
+        ScreenId::Repositories,
+        ScreenId::Actions,
+        ScreenId::Issues,
+        ScreenId::PullRequests,
+        ScreenId::Errors,
+        ScreenId::Terminals,
+    ] {
+        let mut state = crate::test_app_state();
+        state.restore_navigation_root(jefe::state::ScreenIdentity::Compiled(screen));
+        state.nav.current_mut().panel_focus = jefe::workbench::PanelId::parse("repositories")
+            .unwrap_or_else(|error| panic!("repository list panel: {error}"));
+        let names = context_names(&state);
+        assert!(
+            !names
+                .1
+                .iter()
+                .any(|value| value == "dashboard" || value == "dashboard.reorder"),
+            "{screen:?} must not acquire Dashboard action authority, got {names:?}"
         );
     }
 }

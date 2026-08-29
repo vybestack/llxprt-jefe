@@ -17,22 +17,15 @@ pub(super) fn execution_for(
     state: &AppState,
     page: PageItemCount,
 ) -> Option<HandlerExecution> {
-    if state.modal != jefe::state::ModalState::None {
+    if state.modal != jefe::state::ModalState::None || state.active_overlay_kind().is_some() {
         return modal_execution(handler, chord);
     }
     match state.compiled_screen() {
         Some(ScreenId::Issues) => issues_execution(handler, chord, state, page),
         Some(ScreenId::PullRequests) => prs_execution(handler, chord, state, page),
         Some(ScreenId::Actions) => actions_execution(handler, chord, state, page),
-        Some(ScreenId::Dashboard) if state.dashboard_search.input_focused => {
-            dashboard_search_execution(handler, state)
-        }
         Some(
-            ScreenId::Dashboard
-            | ScreenId::Repositories
-            | ScreenId::Errors
-            | ScreenId::Terminals
-            | ScreenId::Settings,
+            ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings,
         )
         | None => None,
     }
@@ -121,9 +114,10 @@ fn issue_page(state: &AppState, up: bool, page: PageItemCount) -> AppEvent {
 
 fn issue_back(state: &AppState, chord: Chord) -> Option<AppEvent> {
     match chord.key {
+        Key::Esc => Some(AppEvent::Back),
         Key::Char('p') => Some(AppEvent::EnterPrsMode),
         Key::Function(12) if state.terminal_focused => Some(AppEvent::ToggleTerminalFocus),
-        Key::Function(12) | Key::Esc | Key::Char('i')
+        Key::Function(12) | Key::Char('i')
             if state.issues_state.issue_focus == IssueFocus::IssueDetail =>
         {
             Some(AppEvent::RefocusIssueList)
@@ -406,17 +400,16 @@ fn pr_page(state: &AppState, up: bool, page: PageItemCount) -> AppEvent {
 
 fn pr_back(state: &AppState, chord: Chord) -> Option<AppEvent> {
     match chord.key {
+        Key::Esc => Some(AppEvent::Back),
         Key::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         Key::Function(12) if state.terminal_focused => Some(AppEvent::ToggleTerminalFocus),
         Key::Function(12) if state.prs_state.pr_focus == PrFocus::PrDetail => {
             Some(AppEvent::RefocusPrList)
         }
-        Key::Esc if state.prs_state.pr_focus == PrFocus::PrChanges => Some(AppEvent::PrChangesBack),
         Key::BackTab if state.prs_state.pr_focus == PrFocus::PrChanges => {
             (state.prs_state.changes.focus == PrChangesFocus::Content)
                 .then_some(AppEvent::PrChangesFocusFiles)
         }
-        Key::Esc if state.prs_state.pr_focus == PrFocus::PrDetail => Some(AppEvent::RefocusPrList),
         Key::BackTab | Key::Char('k') if state.prs_state.pr_focus == PrFocus::PrDetail => {
             Some(AppEvent::PrDetailSubfocusPrev)
         }
@@ -706,20 +699,6 @@ fn actions_clear(field: ActionsFilterField) -> AppEvent {
     AppEvent::ActionsUpdateDraftFilter {
         field,
         value: String::new(),
-    }
-}
-
-fn dashboard_search_execution(handler: HandlerKey, state: &AppState) -> Option<HandlerExecution> {
-    match handler {
-        HandlerKey::SearchApply => Some(HandlerExecution::Event(AppEvent::BlurDashboardSearch)),
-        HandlerKey::SearchCancel => Some(HandlerExecution::Event(
-            if state.dashboard_search.query.is_empty() {
-                AppEvent::BlurDashboardSearch
-            } else {
-                AppEvent::ClearDashboardSearch
-            },
-        )),
-        _ => None,
     }
 }
 

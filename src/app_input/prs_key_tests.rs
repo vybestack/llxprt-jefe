@@ -442,7 +442,7 @@ fn test_filter_controls_tab_space_text_enter_clear_esc() {
     assert!(matches!(tab, Some(AppEvent::PrFilterNavigateNext)));
     // Esc => close controls.
     let esc = resolve_prs_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(esc, Some(AppEvent::PrCloseFilterControls)));
+    assert!(matches!(esc, Some(AppEvent::Back)));
     // Enter => apply.
     let enter = resolve_prs_key_event(&state, &key(KeyCode::Enter));
     assert!(matches!(enter, Some(AppEvent::PrApplyFilter)));
@@ -659,51 +659,48 @@ fn test_esc_precedence_inline_then_chooser_then_search_then_filter_then_exit() {
         cursor: 0,
     });
     let e = resolve_prs_key_event(&inline, &key(KeyCode::Esc));
-    assert!(matches!(e, Some(AppEvent::PrInlineCancelOrEsc)));
+    assert!(matches!(e, Some(AppEvent::Back)));
     // Chooser open (no inline) => Esc cancels chooser.
     let chooser = prs_state_with_chooser();
     let e = resolve_prs_key_event(&chooser, &key(KeyCode::Esc));
-    assert!(matches!(e, Some(AppEvent::PrAgentChooserCancel)));
+    assert!(matches!(e, Some(AppEvent::Back)));
     // Search focused with a nonempty query => Esc clears the query (keep focus).
     let mut search_nonempty = prs_state_with_search_focused();
     search_nonempty.prs_state.search_query = String::from("abc");
     let e = resolve_prs_key_event(&search_nonempty, &key(KeyCode::Esc));
-    assert!(matches!(e, Some(AppEvent::PrClearSearch)));
+    assert!(matches!(e, Some(AppEvent::Back)));
     // Search focused with an empty query => Esc blurs the search input.
     let search_empty = prs_state_with_search_focused();
     let e = resolve_prs_key_event(&search_empty, &key(KeyCode::Esc));
-    assert!(matches!(e, Some(AppEvent::PrBlurSearchInput)));
+    assert!(matches!(e, Some(AppEvent::Back)));
     // Filter controls open => Esc closes controls.
     let filter = prs_state_with_filter_open(0);
     let e = resolve_prs_key_event(&filter, &key(KeyCode::Esc));
-    assert!(matches!(e, Some(AppEvent::PrCloseFilterControls)));
+    assert!(matches!(e, Some(AppEvent::Back)));
     // Nothing active => Esc exits mode.
     let base = prs_base_state();
     let e = resolve_prs_key_event(&base, &key(KeyCode::Esc));
-    assert!(matches!(e, Some(AppEvent::ExitPrsMode)));
+    assert!(matches!(e, Some(AppEvent::Back)));
 }
 
-/// Esc while focused on PrDetail (no overlays) must refocus the PR list, NOT
-/// exit the whole mode — mirroring issues-mode behavior where Esc on
-/// IssueDetail emits RefocusIssueList. Esc from PrList still exits the mode.
+/// Esc from either PR focus enters shared Back; the reducer refocuses the PR
+/// list from detail and exits only when the list already owns focus.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-004
 #[test]
-fn esc_in_pr_detail_refocuses_list_not_exit() {
-    // PrDetail focus, no overlays active => Esc yields RefocusPrList.
+fn esc_in_pr_detail_enters_shared_back() {
     let detail = prs_state_with_focus(PrFocus::PrDetail);
     let e = resolve_prs_key_event(&detail, &key(KeyCode::Esc));
     assert!(
-        matches!(e, Some(AppEvent::RefocusPrList)),
-        "Esc in PrDetail (no overlays) must yield RefocusPrList, got {e:?}"
+        matches!(e, Some(AppEvent::Back)),
+        "Esc in PrDetail must enter shared Back, got {e:?}"
     );
-    // PrList focus, no overlays => Esc still exits the mode.
     let list = prs_base_state();
     let e = resolve_prs_key_event(&list, &key(KeyCode::Esc));
     assert!(
-        matches!(e, Some(AppEvent::ExitPrsMode)),
-        "Esc in PrList must still yield ExitPrsMode, got {e:?}"
+        matches!(e, Some(AppEvent::Back)),
+        "Esc in PrList must enter shared Back, got {e:?}"
     );
 }
 // ═══════════════════════════════════════════════════════════════════════

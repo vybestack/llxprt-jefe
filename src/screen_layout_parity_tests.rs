@@ -10,11 +10,11 @@
 use crate::layout::{compute_pty_layout_for_windowed, dashboard_middle_row_heights_inner};
 use crate::screen_layout::resolve_screen;
 use crate::state::AppState;
-use crate::workbench::{PanelId, ScreenId};
+use crate::workbench::PanelId;
 
 fn dashboard() -> AppState {
     let mut state = AppState::test_fixture();
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Dashboard);
+    state.nav = crate::state::navigation::NavState::default();
     state
 }
 

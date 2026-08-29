@@ -193,7 +193,7 @@ fn service_idle_control(
 }
 
 fn send_health(candidate: &mut OwnedCandidate, reply: mpsc::SyncSender<CandidateHealthSnapshot>) {
-    let health = candidate_health(candidate);
+    let health = session_candidate_health(candidate);
     let _ = reply.send(CandidateHealthSnapshot {
         plugin_id: candidate.plugin_id.clone(),
         health,
@@ -301,6 +301,10 @@ impl std::error::Error for PersistentInvokeError {}
 // Persistent invocation driver
 // ---------------------------------------------------------------------------
 
+fn panel_traffic_allowed(capabilities: &[Capability]) -> bool {
+    capabilities.contains(&Capability::Panels)
+}
+
 fn service_panel_commands(
     candidate: &mut OwnedCandidate,
     commands: &mpsc::Receiver<PanelCommand>,
@@ -310,6 +314,11 @@ fn service_panel_commands(
             Ok(command) => command,
             Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => return true,
         };
+        if !panel_traffic_allowed(&candidate.capabilities) {
+            tracing::warn!(plugin_id = %candidate.plugin_id, "persistent provider received panel traffic without a negotiated panels capability");
+            candidate.healthy = false;
+            return false;
+        }
         let frame = match &command.payload {
             PanelCommandPayload::Activate(payload) => {
                 encode::encode_activate_panel(&command.request_id, candidate.generation, payload)
@@ -343,6 +352,11 @@ fn service_idle_stdout(
                 return false;
             }
         };
+        if !panel_traffic_allowed(&candidate.capabilities) {
+            tracing::warn!(plugin_id = %candidate.plugin_id, "persistent provider emitted panel traffic without a negotiated panels capability");
+            candidate.healthy = false;
+            return false;
+        }
         let StdoutEvent::Frame(frame) = event else {
             candidate.healthy = false;
             return false;
@@ -538,6 +552,12 @@ fn deliver_active_panel_snapshot(
     payload_byte_count: usize,
     snapshot: super::panel_model::PanelSnapshot,
 ) -> Option<OneShotOutcome> {
+    if !panel_traffic_allowed(&candidate.capabilities) {
+        return Some(fail_active_generation(
+            candidate,
+            SupervisorFailure::Protocol(super::driver::unexpected_after_invoke()),
+        ));
+    }
     if process_generation != candidate.generation {
         candidate.healthy = false;
         return Some(OneShotOutcome::Failed(SupervisorFailure::Protocol(

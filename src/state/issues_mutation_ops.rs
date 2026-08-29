@@ -83,6 +83,7 @@ impl AppState {
         if created_issue_visible_in_committed_filter(&self.issues_state.committed_filter) {
             prepend_or_replace_created_issue(&mut self.issues_state.list, issue);
             self.issues_state.list.set_selected_index(Some(0));
+            self.sync_issue_selected_resource();
         }
         self.issues_state.issue_focus = super::IssueFocus::IssueList;
         self.issues_state.draft_notice = Some(format!("Created issue #{issue_number}"));

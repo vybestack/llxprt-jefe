@@ -6,7 +6,6 @@
 
 use super::AppState;
 use super::workbench_filter::WorkbenchStatusFilter;
-use crate::messages::UiNavigationMessage;
 use crate::workbench_view::StatusBucket;
 
 /// The filter rail lists the buckets in this order, top to bottom.
@@ -17,21 +16,15 @@ const FILTER_ORDER: [StatusBucket; 4] = [
     StatusBucket::Stale,
 ];
 
-impl UiNavigationMessage {
-    /// Whether this message belongs to the multi-agent workbench.
-    pub(super) const fn is_workbench(&self) -> bool {
-        matches!(
-            self,
-            Self::ToggleWorkbenchStatusBucket(_)
-                | Self::WorkbenchNextPage
-                | Self::WorkbenchPrevPage
-                | Self::WorkbenchFilterCursorPrev
-                | Self::WorkbenchFilterCursorNext
-                | Self::WorkbenchSelectPrev
-                | Self::WorkbenchSelectNext
-                | Self::WorkbenchAttach
-        )
-    }
+pub(super) enum WorkbenchNavigation {
+    ToggleStatusBucket(StatusBucket),
+    NextPage,
+    PreviousPage,
+    PreviousFilter,
+    NextFilter,
+    PreviousSelection,
+    NextSelection,
+    Attach,
 }
 
 impl AppState {
@@ -121,28 +114,27 @@ impl AppState {
     /// on terminal size, which is a render-time fact and is not part of
     /// `AppState`, so the projection clamps the requested page against the real
     /// page count when it builds the view.
-    pub(super) fn apply_workbench_navigation(&mut self, message: UiNavigationMessage) {
-        match message {
-            UiNavigationMessage::ToggleWorkbenchStatusBucket(bucket) => {
+    pub(super) fn apply_workbench(&mut self, navigation: WorkbenchNavigation) {
+        match navigation {
+            WorkbenchNavigation::ToggleStatusBucket(bucket) => {
                 self.apply_workbench_status_toggle(bucket);
             }
-            UiNavigationMessage::WorkbenchNextPage => {
+            WorkbenchNavigation::NextPage => {
                 self.workbench.page = self.workbench.page.saturating_add(1);
             }
-            UiNavigationMessage::WorkbenchPrevPage => {
+            WorkbenchNavigation::PreviousPage => {
                 self.workbench.page = self.workbench.page.saturating_sub(1);
             }
-            UiNavigationMessage::WorkbenchFilterCursorPrev => {
+            WorkbenchNavigation::PreviousFilter => {
                 self.workbench.filter_cursor = self.workbench.filter_cursor.saturating_sub(1);
             }
-            UiNavigationMessage::WorkbenchFilterCursorNext => {
+            WorkbenchNavigation::NextFilter => {
                 self.workbench.filter_cursor =
                     (self.workbench.filter_cursor + 1).min(FILTER_ORDER.len() - 1);
             }
-            UiNavigationMessage::WorkbenchSelectPrev => self.move_workbench_selection(false),
-            UiNavigationMessage::WorkbenchSelectNext => self.move_workbench_selection(true),
-            UiNavigationMessage::WorkbenchAttach => self.attach_workbench_selection(),
-            _ => unreachable!("non-workbench message routed to apply_workbench_navigation"),
+            WorkbenchNavigation::PreviousSelection => self.move_workbench_selection(false),
+            WorkbenchNavigation::NextSelection => self.move_workbench_selection(true),
+            WorkbenchNavigation::Attach => self.attach_workbench_selection(),
         }
     }
 

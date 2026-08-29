@@ -454,9 +454,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 hints: state
                     .unwrap_or_else(|| panic!("screen render requires AppState"))
                     .footer_hints(crate::action_projection::FooterProjectionInput {
-                        screen: state.map_or(ScreenId::Issues, |s| {
-                            s.compiled_screen().unwrap_or(ScreenId::Issues)
-                        }),
+                        screen: ScreenId::Issues.into(),
                         terminal_focused: false,
                         shell_overlay_active: false,
                         shell_resume_available: false,

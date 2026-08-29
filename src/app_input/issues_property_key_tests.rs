@@ -193,7 +193,7 @@ fn test_property_editor_enter_confirms() {
 fn test_property_editor_esc_cancels() {
     let state = issues_state_with_property_editor();
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(event, Some(AppEvent::IssuePropertyEditorCancel)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
 #[test]

@@ -1,16 +1,14 @@
 //! Pane geometry: maps screen coordinates to a selectable pane using the
 //! same [`crate::layout`] constants the screens render with.
 //!
-//! The single entry point is [`pane_at`], which mirrors the on-screen layout
-//! of each [`crate::state::ScreenId`] (dashboard, issues, PRs) and returns
-//! the pane under a `(col, row)` along with its screen-space rectangle.
+//! The single entry point is [`pane_at`], which uses descriptor-resolved
+//! geometry when available and retains arithmetic only for residual compiled
+//! adapters that have not yet published one.
 
 use crate::layout::{
-    AGENT_LIST_CHROME_COLS, AGENT_LIST_CHROME_ROWS, DETAIL_PANE_CHROME_COLS,
-    DETAIL_PANE_CHROME_ROWS, KEYBIND_BAR_CHROME_COLS, LEFT_COL_WIDTH, LIST_PANE_CHROME_COLS,
-    LIST_PANE_CHROME_ROWS, RIGHT_COL_WIDTH, SIDEBAR_CHROME_COLS, SIDEBAR_CHROME_ROWS,
-    STATUS_BAR_CHROME_COLS, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS,
-    effective_render_size, issues_pane_rows,
+    DETAIL_PANE_CHROME_COLS, DETAIL_PANE_CHROME_ROWS, KEYBIND_BAR_CHROME_COLS, LEFT_COL_WIDTH,
+    LIST_PANE_CHROME_COLS, LIST_PANE_CHROME_ROWS, SIDEBAR_CHROME_COLS, SIDEBAR_CHROME_ROWS,
+    STATUS_BAR_CHROME_COLS, effective_render_size, issues_pane_rows,
 };
 use crate::selection::ScreenLayout;
 use crate::selection::text::SelectablePane;
@@ -129,9 +127,10 @@ pub fn pane_at(
         return None;
     }
 
-    // Full-screen overlays (modals/forms) intercept coordinates within
-    // their actual rendered bounds (not necessarily the entire screen —
-    // ConfirmModal is 50×10, HelpModal is 60 wide with variable height).
+    // Full-screen overlays (modals/forms) intercept coordinates within their
+    // actual rendered bounds — dimensions come from HostOverlayLayout (help:
+    // 60 cols x full render height; confirmation: 50x10 clamped to the
+    // terminal), the same source the renderer and selection content use.
     if layout.overlay.is_full_screen()
         && let Some((pane, geo)) =
             full_screen_overlay_pane(layout.overlay, render_cols, render_rows)
@@ -166,20 +165,19 @@ pub fn pane_at(
         return crate::selection::pane_at_resolved(col, row, resolved, terminal_input_enabled);
     }
 
-    match layout.screen {
-        crate::state::ScreenId::Dashboard => {
-            dashboard_pane_at(col, row, render_cols, render_rows, terminal_input_enabled)
+    match layout.screen.compiled() {
+        Some(crate::state::ScreenId::Repositories) => {
+            split_pane_at(col, row, render_cols, render_rows)
         }
-        crate::state::ScreenId::Repositories => split_pane_at(col, row, render_cols, render_rows),
-        crate::state::ScreenId::Issues
-        | crate::state::ScreenId::PullRequests
-        | crate::state::ScreenId::Actions
-        | crate::state::ScreenId::Errors => {
-            issues_pane_at(col, row, render_cols, render_rows, *layout)
-        }
-        // The Terminal Manager and Settings resolve every pane through their
-        // descriptor, so there is no legacy fallback geometry for either.
-        crate::state::ScreenId::Terminals | crate::state::ScreenId::Settings => None,
+        Some(
+            crate::state::ScreenId::Issues
+            | crate::state::ScreenId::PullRequests
+            | crate::state::ScreenId::Actions
+            | crate::state::ScreenId::Errors,
+        ) => issues_pane_at(col, row, render_cols, render_rows, *layout),
+        // Open definitions, Terminal Manager, and Settings resolve every pane
+        // through their descriptor and have no legacy fallback geometry.
+        Some(crate::state::ScreenId::Terminals | crate::state::ScreenId::Settings) | None => None,
     }
 }
 
@@ -233,60 +231,6 @@ fn split_pane_at(
     geometry
         .contains(col, row)
         .then_some((SelectablePane::Sidebar, geometry))
-}
-
-/// Dashboard layout hit-test.
-fn dashboard_pane_at(
-    col: u16,
-    row: u16,
-    render_cols: u16,
-    render_rows: u16,
-    terminal_input_enabled: bool,
-) -> Option<(SelectablePane, PaneGeometry)> {
-    let content_top = 1u16;
-    let content_bottom = render_rows.saturating_sub(1);
-
-    // Sidebar: left column, full content height.
-    if col < LEFT_COL_WIDTH {
-        return Some(sidebar(content_top, content_bottom));
-    }
-
-    // Preview: right column, full content height.
-    let preview_col0 = render_cols.saturating_sub(RIGHT_COL_WIDTH);
-    if col >= preview_col0 {
-        return Some(preview(preview_col0, content_top, content_bottom));
-    }
-
-    // Middle column: agent list (top) + terminal widget (bottom).
-    let (agent_rows, terminal_slot_rows) = dashboard_middle_row_heights_for_render(render_rows);
-    let agent_bottom_exclusive = content_top.saturating_add(agent_rows);
-    if row < agent_bottom_exclusive {
-        return Some(agent_list(
-            LEFT_COL_WIDTH,
-            content_top,
-            preview_col0,
-            agent_rows,
-        ));
-    }
-
-    let terminal_top = agent_bottom_exclusive;
-    let terminal_bottom_exclusive = terminal_top.saturating_add(terminal_slot_rows);
-    if row < terminal_bottom_exclusive {
-        // Forward to PTY when terminal input is enabled; otherwise selectable
-        // terminal snapshot.
-        if terminal_input_enabled {
-            return None;
-        }
-        return Some(terminal_view(
-            LEFT_COL_WIDTH,
-            terminal_top,
-            preview_col0,
-            terminal_slot_rows,
-        ));
-    }
-
-    // Below the middle column (shouldn't happen — content_bottom covers it).
-    None
 }
 
 /// Issues/PR-mode layout hit-test (identical geometry, different pane names).
@@ -453,74 +397,7 @@ fn sidebar(content_top: u16, content_bottom: u16) -> (SelectablePane, PaneGeomet
     )
 }
 
-fn preview(col0: u16, content_top: u16, content_bottom: u16) -> (SelectablePane, PaneGeometry) {
-    let height = content_bottom.saturating_sub(content_top);
-    (
-        SelectablePane::Preview,
-        // Preview is a bordered box like the sidebar; reuse sidebar chrome.
-        PaneGeometry::with_chrome(
-            col0,
-            content_top,
-            RIGHT_COL_WIDTH,
-            height,
-            SIDEBAR_CHROME_COLS,
-            SIDEBAR_CHROME_ROWS,
-        ),
-    )
-}
-
-fn agent_list(col0: u16, row0: u16, col_end: u16, height: u16) -> (SelectablePane, PaneGeometry) {
-    let width = col_end.saturating_sub(col0);
-    (
-        SelectablePane::AgentList,
-        PaneGeometry::with_chrome(
-            col0,
-            row0,
-            width,
-            height,
-            AGENT_LIST_CHROME_COLS,
-            AGENT_LIST_CHROME_ROWS,
-        ),
-    )
-}
-
-fn terminal_view(
-    col0: u16,
-    row0: u16,
-    col_end: u16,
-    height: u16,
-) -> (SelectablePane, PaneGeometry) {
-    let width = col_end.saturating_sub(col0);
-    (
-        SelectablePane::TerminalView,
-        PaneGeometry::with_chrome(
-            col0,
-            row0,
-            width,
-            height,
-            TERMINAL_VIEW_CHROME_COLS,
-            TERMINAL_VIEW_CHROME_ROWS,
-        ),
-    )
-}
-
-/// Compute the help modal height for a given terminal row count.
-///
-/// Delegates to the renderer's `help_viewport_rows` (single source of truth)
-/// and adds the chrome rows, so the geometry matches exactly.
-fn help_modal_height(render_rows: u16) -> u16 {
-    let viewport = crate::ui::modals::help_viewport_rows(render_rows);
-    let total = viewport.saturating_add(usize::from(crate::ui::modals::HELP_CHROME_ROWS));
-    u16::try_from(total.min(usize::from(render_rows)).max(1)).unwrap_or(1)
-}
-
 /// Full-screen overlay geometry for each overlay type.
-///
-/// AgentForm and RepositoryForm render at `width: 100pct, height: 100pct` so
-/// they fill the entire render area. HelpModal renders at `width: 60` with a
-/// variable height, and ConfirmModal renders at `width: 50, height: 10`. All
-/// use a bordered Box with `padding: 1`, so the content origin is always
-/// `(2, 2)` (1 border + 1 padding on each axis).
 fn full_screen_overlay_pane(
     overlay: crate::selection::OverlayPane,
     render_cols: u16,
@@ -529,30 +406,22 @@ fn full_screen_overlay_pane(
     let pane = overlay.to_pane()?;
     let geo = match overlay {
         crate::selection::OverlayPane::HelpModal => {
-            let height = help_modal_height(render_rows);
-            PaneGeometry::new(0, 0, crate::ui::modals::HELP_MODAL_WIDTH, height, 2, 2)
+            let layout = crate::overlay_controls::HostOverlayLayout::help(render_cols, render_rows);
+            PaneGeometry::new(0, 0, layout.width, layout.height, 2, 2)
         }
-        crate::selection::OverlayPane::ConfirmModal => PaneGeometry::new(0, 0, 50, 10, 2, 2),
-        // AgentForm and RepositoryForm — truly full-screen.
+        crate::selection::OverlayPane::ConfirmModal => {
+            let layout =
+                crate::overlay_controls::HostOverlayLayout::confirmation(render_cols, render_rows);
+            PaneGeometry::new(0, 0, layout.width, layout.height, 2, 2)
+        }
         _ => PaneGeometry::new(0, 0, render_cols, render_rows, 2, 2),
     };
     Some((pane, geo))
 }
 
-/// Chooser overlay position constants (issue #178).
-///
-/// The agent/merge choosers are rendered with `position: Absolute, top: 2,
-/// left: 4` inside the workspace column (which starts after the sidebar).
 const CHOOSER_OFFSET_COL: u16 = 4;
 const CHOOSER_OFFSET_ROW: u16 = 2;
-/// Chooser widget width: 41-char separator + 2 border + 2 padding columns.
-/// Must stay in sync with the AgentChooser/MergeChooser separator length
-/// (src/ui/components/agent_chooser.rs). Changes there require updating
-/// Full outer width of the chooser widget: 41-char separator + 2 border + 2
-/// padding. Duplicates the width implied by the separator string in
-/// `agent_chooser.rs` / `merge_chooser.rs` — keep in sync.
 const CHOOSER_WIDTH: u16 = 45;
-/// Maximum chooser height (prevents the overlay from exceeding the workspace).
 const CHOOSER_MAX_HEIGHT: u16 = 30;
 
 /// Resolve a chooser overlay pane if `(col, row)` falls inside the chooser's
@@ -599,13 +468,4 @@ fn chooser_pane_if_inside(
     } else {
         None
     }
-}
-
-/// Dashboard middle-row split for a given *render* row count.
-///
-/// Wraps [`crate::layout::dashboard_middle_row_heights_inner`] so the selection
-/// geometry uses the exact same clamping the renderer applies (single source of
-/// truth). `render_rows` is the post-`effective_render_size` height.
-fn dashboard_middle_row_heights_for_render(render_rows: u16) -> (u16, u16) {
-    crate::layout::dashboard_middle_row_heights_inner(render_rows)
 }

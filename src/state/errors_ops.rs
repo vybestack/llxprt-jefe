@@ -1,22 +1,20 @@
 //! Errors-mode reducer operations (issue #292).
 //!
 //! The error log is purely local — no remote data, no async loads. This module
-//! handles mode enter/exit (with prior-focus save/restore, mirroring
-//! issues/prs/actions), list navigation, detail scrolling, focus cycling, and
+//! handles mode enter/exit, list navigation, detail scrolling, focus cycling, and
 //! clearing the log.
 
-use super::{AppState, ErrorsFocus, PaneFocus, PriorAgentFocus, ScreenId};
+use super::{AppState, ErrorsFocus, ScreenId};
 use crate::messages::{ErrorsMessage, NavDir, ScrollDir};
 
 impl AppState {
-    /// Enter errors mode, saving prior focus state.
+    /// Enter errors mode with an instance-local copy of the captured error log.
     fn enter_errors_mode(&mut self) -> bool {
-        self.errors_state.prior_agent_focus = Some(PriorAgentFocus {
-            pane_focus: self.pane_focus,
-            selected_repository_index: self.selected_repository_index,
-            selected_agent_index: self.selected_agent_index,
-        });
+        let captured_errors = self.errors_state.clone();
+        let source_repository_index = self.selected_repository_index;
         let _ = self.show_screen(ScreenId::Errors);
+        self.errors_state = captured_errors;
+        self.selected_repository_index = source_repository_index;
         self.errors_state.active = true;
         self.errors_state.focus = ErrorsFocus::ErrorList;
         // Ensure selection is valid (newest error after any recent push).
@@ -29,25 +27,10 @@ impl AppState {
         true
     }
 
-    /// Exit errors mode, restoring prior focus state.
+    /// Exit errors mode after clearing transient state on the disposed instance.
     fn exit_errors_mode(&mut self) {
-        let _ = self.leave_screen();
         self.errors_state.active = false;
-        if let Some(prior) = self.errors_state.prior_agent_focus.take() {
-            self.pane_focus = prior.pane_focus;
-            if let Some(idx) = prior.selected_agent_index
-                && idx < self.agents.len()
-            {
-                self.selected_agent_index = Some(idx);
-            }
-            if let Some(idx) = prior.selected_repository_index
-                && idx < self.repositories.len()
-            {
-                self.selected_repository_index = Some(idx);
-            }
-        } else {
-            self.pane_focus = PaneFocus::Agents;
-        }
+        let _ = self.leave_screen();
     }
 
     fn refocus_error_list(&mut self) -> bool {

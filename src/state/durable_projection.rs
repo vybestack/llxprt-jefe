@@ -51,7 +51,7 @@ pub struct RestoredState {
     /// Whether idle repositories are hidden.
     pub hide_idle_repositories: bool,
     /// Screen the session was on, migrated from whatever the document carried.
-    pub screen: crate::workbench::ScreenId,
+    pub screen: crate::workbench::ScreenIdentity,
     /// Restored pane focus.
     pub pane_focus: PaneFocus,
     /// Whether the terminal pane held focus.

@@ -27,7 +27,7 @@ use crate::domain::Id;
 use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
 use crate::persistence::plugin_inventory::{InstalledPackage, selected_packages};
 use crate::persistence::screen_files::{
-    ScreenFileCandidate, ScreenFileRejection, read_package_screen,
+    PackageScreenSources, ScreenFileCandidate, ScreenFileRejection,
 };
 use crate::persistence::settings_document::PublishedSettings;
 
@@ -35,12 +35,16 @@ use super::config::{CHROME_TOP, insets_config};
 use super::descriptor::{LayoutNode, ScreenDescriptor};
 use super::diagnostics::ScreenDiagnostic;
 use super::geometry::Insets;
-use super::ids::CUSTOM_SCREEN_NAMESPACE;
+use super::ids::{CUSTOM_SCREEN_NAMESPACE, ScreenIdentity};
 use super::lowering_error::LoweringError;
+use super::panel_types::DEFINABLE_PANEL_TYPES;
+use super::resource_schemas::ResourceSchema;
 use super::screen_file::parse_screen_file;
 use super::screen_file_bounds::ScreenSyntaxError;
-use super::screen_lowering::{lower_package_screen, lower_screen};
-use super::screens::{PackagePanelBinding, RegistryError, ScreenRegistry};
+use super::screen_lowering::{
+    LoweredScreen, lower_package_screen, lower_screen_with_provider_panels,
+};
+use super::screens::{PTY_PANEL_TYPE, PackagePanelBinding, RegistryError, ScreenRegistry};
 use super::validate::validate_descriptor;
 
 /// A published screen registry and the warnings composing it produced.
@@ -48,6 +52,8 @@ use super::validate::validate_descriptor;
 pub struct ScreenComposition {
     /// Compiled screens followed by lowered ones, in canonical order.
     pub registry: ScreenRegistry,
+    /// Immutable schemas contributed by active local and package definitions.
+    pub resource_schemas: Vec<ResourceSchema>,
     /// Warnings about definitions that were preserved and omitted.
     pub warnings: Vec<Diagnostic>,
 }
@@ -75,9 +81,6 @@ impl std::error::Error for CompositionRefused {}
 
 /// Compose compiled screens with every enabled definition, as settings ask.
 ///
-/// Delegates to [`compose_screens_with_packages`] with no package sources, so
-/// the composition path that does not involve plugins is unchanged.
-///
 /// # Errors
 ///
 /// Returns [`CompositionRefused`] when any enabled definition cannot be parsed,
@@ -87,66 +90,186 @@ pub fn compose_screens(
     candidates: &[ScreenFileCandidate],
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, CompositionRefused> {
-    compose_screens_with_packages(compiled, candidates, &[], settings)
+    compose_screens_with_package_sources(
+        compiled,
+        candidates,
+        &[],
+        &PackageScreenSources::default(),
+        settings,
+    )
 }
 
-/// Compose compiled screens with enabled definitions **and** selected package
-/// screens, as settings ask.
-///
-/// Selected packages are resolved by [`selected_packages`], which consults the
-/// same `PublishedSettings` that decides user-definition activation.  Each
-/// selected package's manifest-declared screen files are loaded from the package
-/// directory using the existing bounded, symlink-safe reader, parsed through the
-/// sole screen-file parser, and lowered through the sole lowerer.  A package
-/// screen may resolve only panel types its own manifest declared, so no dynamic
-/// panel ids enter the global built-in registry.
-///
-/// Composition is transactional: if any selected package screen is malformed,
-/// missing, mismatched, or duplicates another screen identity, the whole
-/// candidate registry is refused and prior authority is retained.  Unselected
-/// package versions contribute nothing.
-///
-/// # Errors
-///
-/// Returns [`CompositionRefused`] when any enabled definition or selected
-/// package screen cannot be parsed, lowered, or composed.
-pub fn compose_screens_with_packages(
+/// Compose screens from bytes captured before deterministic candidate work.
+pub(crate) fn compose_screens_with_package_sources(
     compiled: &ScreenRegistry,
     candidates: &[ScreenFileCandidate],
     packages: &[InstalledPackage],
+    package_sources: &PackageScreenSources,
     settings: &PublishedSettings,
 ) -> Result<ScreenComposition, CompositionRefused> {
     let enabled: BTreeSet<Id> = settings.workbench.enabled_screens.iter().cloned().collect();
+    let selected = selected_packages(packages, settings);
+    let provider_panel_types = selected
+        .iter()
+        .flat_map(|package| package.manifest().panels())
+        .map(|panel| panel.id().as_str())
+        .collect::<Vec<_>>();
     let mut screens: Vec<ScreenDescriptor> = compiled.screens().to_vec();
+    let mut resource_schemas = Vec::new();
     let mut warnings = Vec::new();
+    let mut panel_bindings = Vec::new();
+    let compiled_path = DiagnosticPath::new("<compiled screens>");
+    for descriptor in &screens {
+        bind_selected_provider_panels(descriptor, &selected, &compiled_path, &mut panel_bindings)?;
+    }
     for candidate in candidates {
         let path = DiagnosticPath::new(candidate.path.to_string_lossy());
-        let Some(lowered) = compose_one(candidate, &enabled, &path, &mut warnings)? else {
+        let Some(lowered) = compose_one(
+            candidate,
+            &enabled,
+            &provider_panel_types,
+            &path,
+            &mut warnings,
+        )?
+        else {
             continue;
         };
-        screens.push(lowered);
+        bind_selected_provider_panels(&lowered.descriptor, &selected, &path, &mut panel_bindings)?;
+        resource_schemas.extend(lowered.resources);
+        screens.push(lowered.descriptor);
     }
-    let mut panel_bindings = Vec::new();
-    compose_package_screens(packages, settings, &mut screens, &mut panel_bindings)?;
+    compose_package_screens(
+        packages,
+        package_sources,
+        settings,
+        &mut screens,
+        &mut resource_schemas,
+        &mut panel_bindings,
+    )?;
     apply_layout_overrides(&mut screens, settings, &mut warnings);
     order_screens(&mut screens, &settings.workbench.screen_order);
     let root = composition_root(candidates, packages, settings);
+    validate_panel_ownership(&screens, &panel_bindings, &root)?;
     let registry = ScreenRegistry::with_panel_bindings(screens, panel_bindings)
         .map_err(|error| registry_refusal(&error, root))?;
-    Ok(ScreenComposition { registry, warnings })
+    Ok(ScreenComposition {
+        registry,
+        resource_schemas,
+        warnings,
+    })
+}
+
+/// Bind selected-provider panel declarations referenced by one screen.
+///
+/// The selected manifest owns model/event/action authority. The compiled,
+/// local, or package descriptor owns only placement and activation.
+fn bind_selected_provider_panels(
+    descriptor: &ScreenDescriptor,
+    selected: &[&InstalledPackage],
+    path: &DiagnosticPath,
+    panel_bindings: &mut Vec<PackagePanelBinding>,
+) -> Result<(), CompositionRefused> {
+    for panel in &descriptor.panels {
+        if panel.host_capability.is_some() {
+            continue;
+        }
+        let declaration = selected.iter().find_map(|package| {
+            package
+                .manifest()
+                .panels()
+                .iter()
+                .find(|candidate| candidate.id().as_str() == panel.panel_type.as_str())
+                .map(|declaration| (*package, declaration))
+        });
+        let Some((package, declaration)) = declaration else {
+            continue;
+        };
+        panel_bindings.push(PackagePanelBinding {
+            screen: descriptor.id,
+            panel: panel.id,
+            owner: package.manifest().id().owner_id().clone(),
+            panel_type: declaration.id().clone(),
+            model_kinds: declaration.model_kinds().to_vec(),
+            event_schema: declaration.event_schema().to_vec(),
+            action_authority: package_action_authority(
+                package.manifest(),
+                descriptor.id.as_str(),
+                path,
+            )?,
+        });
+    }
+    Ok(())
+}
+
+fn residual_compiled_screen(screen: ScreenIdentity) -> bool {
+    matches!(screen, ScreenIdentity::Compiled(_))
+}
+
+fn validate_panel_ownership(
+    screens: &[ScreenDescriptor],
+    bindings: &[PackagePanelBinding],
+    root: &DiagnosticPath,
+) -> Result<(), CompositionRefused> {
+    for screen in screens {
+        for panel in &screen.panels {
+            let panel_type = panel.panel_type.as_str();
+            let host_owned = panel.host_capability.is_some()
+                || panel_type == PTY_PANEL_TYPE
+                || DEFINABLE_PANEL_TYPES.contains(&panel_type)
+                || residual_compiled_screen(screen.id);
+            let provider_owned = bindings.iter().any(|binding| {
+                binding.screen == screen.id
+                    && binding.panel == panel.id
+                    && binding.panel_type.as_str() == panel_type
+            });
+            if !host_owned && !provider_owned {
+                return Err(unowned_panel_refusal(
+                    root,
+                    screen.id.as_str(),
+                    panel.id.as_str(),
+                    panel_type,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn unowned_panel_refusal(
+    root: &DiagnosticPath,
+    screen: &str,
+    panel: &str,
+    panel_type: &str,
+) -> CompositionRefused {
+    let detail = format!(
+        "screen {screen} panel {panel} type {panel_type} lacks host or selected-provider ownership"
+    );
+    let mut configuration = Diagnostic::new(
+        CfgCode::E005,
+        Severity::Error,
+        root.clone(),
+        None,
+        "select the panel provider or remove the unowned panel, then restart",
+    );
+    detail.clone_into(&mut configuration.redacted_detail);
+    CompositionRefused {
+        screen: Box::new(ScreenDiagnostic::refused(root.clone(), None, detail)),
+        configuration: Box::new(configuration),
+    }
 }
 
 /// Load, parse, and lower every screen each selected package contributes.
 ///
 /// Each selected package's manifest-declared screen files are read from the
-/// package directory, parsed, and lowered.  The lowered descriptors are appended
-/// to `screens`.  Any failure — an unreadable file, a syntax error, a lowering
-/// error, or an identity that does not match the manifest — refuses the whole
-/// composition.
+/// package directory, parsed, and lowered. The lowered descriptors are appended
+/// to `screens`. Any unreadable file, syntax error, lowering error, or identity
+/// mismatch refuses the whole composition.
 fn compose_package_screens(
     packages: &[InstalledPackage],
+    sources: &PackageScreenSources,
     settings: &PublishedSettings,
     screens: &mut Vec<ScreenDescriptor>,
+    resource_schemas: &mut Vec<ResourceSchema>,
     panel_bindings: &mut Vec<PackagePanelBinding>,
 ) -> Result<(), CompositionRefused> {
     for package in selected_packages(packages, settings) {
@@ -159,9 +282,10 @@ fn compose_package_screens(
         for contribution in manifest.screens() {
             let file_path = package.directory().join(contribution.path().as_str());
             let path = DiagnosticPath::new(file_path.to_string_lossy());
-            let text = read_package_screen(package.directory(), contribution.path())
+            let text = sources
+                .get(package, contribution)
                 .map_err(|rejection| CandidateFailure::Unreadable(rejection).refuse(&path))?;
-            let file = parse_screen_file(&text)
+            let file = parse_screen_file(text)
                 .map_err(|error| CandidateFailure::Syntax(error).refuse(&path))?;
             let declared = file.id.get_ref();
             let expected = contribution
@@ -189,7 +313,8 @@ fn compose_package_screens(
                     .iter()
                     .find(|candidate| candidate.id().as_str() == panel.panel_type.as_str());
                 if let Some(declaration) = declaration {
-                    let action_authority = package_action_authority(manifest, expected, &path)?;
+                    let action_authority =
+                        package_action_authority(manifest, expected.as_str(), &path)?;
                     panel_bindings.push(PackagePanelBinding {
                         screen: lowered.descriptor.id,
                         panel: panel.id,
@@ -201,6 +326,7 @@ fn compose_package_screens(
                     });
                 }
             }
+            resource_schemas.extend(lowered.resources);
             screens.push(lowered.descriptor);
         }
     }
@@ -226,13 +352,18 @@ fn apply_package_panel_chrome(
 
 fn package_action_authority(
     manifest: &crate::domain::plugin::Manifest,
-    screen: &Id,
+    screen: &str,
     path: &DiagnosticPath,
 ) -> Result<Vec<crate::domain::action_registry::ActionId>, CompositionRefused> {
     manifest
         .actions()
         .iter()
-        .filter(|action| action.contexts().contains(screen))
+        .filter(|action| {
+            action
+                .contexts()
+                .iter()
+                .any(|context| context.as_str() == screen)
+        })
         .map(|action| crate::domain::action_registry::ActionId::parse(action.id().as_str()))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| {
@@ -319,16 +450,17 @@ fn layout_warning(owner: &Id, detail: &str) -> Diagnostic {
 fn compose_one(
     candidate: &ScreenFileCandidate,
     enabled: &BTreeSet<Id>,
+    provider_panel_types: &[&str],
     path: &DiagnosticPath,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<Option<ScreenDescriptor>, CompositionRefused> {
+) -> Result<Option<LoweredScreen>, CompositionRefused> {
     if !is_enabled(&candidate.member, enabled) {
         if let Err(failure) = inspect_candidate(candidate) {
             warnings.push(failure.warning(path));
         }
         return Ok(None);
     }
-    lower_candidate(candidate)
+    lower_candidate(candidate, provider_panel_types)
         .map(Some)
         .map_err(|failure| failure.refuse(path))
 }
@@ -351,15 +483,22 @@ fn is_enabled(member: &str, enabled: &BTreeSet<Id>) -> bool {
 }
 
 /// Read, parse, and lower one candidate.
-fn lower_candidate(candidate: &ScreenFileCandidate) -> Result<ScreenDescriptor, CandidateFailure> {
+fn lower_candidate(
+    candidate: &ScreenFileCandidate,
+    provider_panel_types: &[&str],
+) -> Result<LoweredScreen, CandidateFailure> {
     let text = candidate
         .text
         .as_ref()
         .map_err(|rejection| CandidateFailure::Unreadable(rejection.clone()))?;
     let file = parse_screen_file(text).map_err(CandidateFailure::Syntax)?;
-    let lowered = lower_screen(&file, &candidate.member, &candidate.path)
-        .map_err(CandidateFailure::Lowering)?;
-    Ok(lowered.descriptor)
+    lower_screen_with_provider_panels(
+        &file,
+        &candidate.member,
+        &candidate.path,
+        provider_panel_types,
+    )
+    .map_err(CandidateFailure::Lowering)
 }
 
 /// Why one candidate produced no descriptor.

@@ -201,7 +201,7 @@ impl AppState {
                     &[],
                     expected,
                     &self.settings_state.installed_plugin_configs,
-                    workbench.screen_registry(),
+                    &workbench,
                 );
                 self.settings_state.blocked.clear();
                 self.settings_state.draft = Some(SettingsDraft::bound(
@@ -431,7 +431,7 @@ impl AppState {
         revalidate(
             draft,
             &self.settings_state.installed_plugin_configs,
-            workbench.screen_registry(),
+            &workbench,
         );
         if touches_theme {
             self.refresh_theme_preview();
@@ -647,7 +647,7 @@ impl AppState {
         revalidate(
             draft,
             &self.settings_state.installed_plugin_configs,
-            workbench.screen_registry(),
+            &workbench,
         );
         self.settings_state.approved_plugin_migrations.insert(
             preview.request.owner,
@@ -673,7 +673,7 @@ impl AppState {
         revalidate(
             draft,
             &self.settings_state.installed_plugin_configs,
-            workbench.screen_registry(),
+            &workbench,
         );
         if !draft.is_saveable() {
             self.settings_state.notice =
@@ -794,7 +794,7 @@ impl AppState {
         revalidate(
             draft,
             &self.settings_state.installed_plugin_configs,
-            workbench.screen_registry(),
+            &workbench,
         );
         let exits = draft.exits_after_save();
         if let Some(theme) = adopted {
@@ -955,7 +955,7 @@ impl AppState {
         revalidate(
             draft,
             &self.settings_state.installed_plugin_configs,
-            workbench.screen_registry(),
+            &workbench,
         );
         self.settings_state.reload_confirm = false;
         self.settings_state.notice = Some("Changes discarded".to_owned());

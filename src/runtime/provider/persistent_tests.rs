@@ -19,8 +19,8 @@ use super::error;
 use super::identifiers::RequestId;
 use super::persistent::{
     CandidateFailure, CandidateHealth, IllegalStdout, PersistentCandidate, PersistentPhase,
-    StartupFailure, StdoutProbe, classify_health, duplicate_plugin_id, first_undeclared_capability,
-    startup_order,
+    StartupFailure, StdoutProbe, classify_health, classify_session_health, duplicate_plugin_id,
+    first_undeclared_capability, startup_order,
 };
 use super::supervisor::SupervisorFailure;
 
@@ -194,6 +194,17 @@ fn classify_health_idle_and_running_is_ready() {
         health,
         CandidateHealth::Ready {
             capabilities: vec![dto::Capability::Actions],
+        }
+    );
+}
+
+#[test]
+fn session_health_leaves_legal_panel_stdout_for_the_owner_delivery_loop() {
+    let health = classify_session_health(Ok(None), &[dto::Capability::Panels]);
+    assert_eq!(
+        health,
+        CandidateHealth::Ready {
+            capabilities: vec![dto::Capability::Panels],
         }
     );
 }

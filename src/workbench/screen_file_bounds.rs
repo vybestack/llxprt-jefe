@@ -14,9 +14,9 @@ use crate::domain::ByteSpan;
 use crate::persistence::diagnostic::{ARRAY_LIMIT, MAP_LIMIT, NESTING_LIMIT, STRING_LIMIT};
 
 use super::ids::{
-    ID_BYTE_LIMIT, MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH,
-    MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SPLIT_CHILDREN,
-    MIN_SPLIT_CHILDREN,
+    ID_BYTE_LIMIT, MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE,
+    MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN,
+    MAX_RESOURCES_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
 };
 
 /// A violated syntax rule, with the measurement that violated it.
@@ -68,6 +68,16 @@ pub enum ScreenSyntaxReason {
     /// A panel declares more than [`MAX_PORTS_PER_PANEL`] ports.
     PortCount {
         /// Declared port count.
+        count: usize,
+    },
+    /// The screen declares more than [`MAX_RESOURCES_PER_SCREEN`] resources.
+    ResourceCount {
+        /// Declared resource count.
+        count: usize,
+    },
+    /// A resource declares more than [`MAX_FIELDS_PER_RESOURCE`] fields.
+    ResourceFieldCount {
+        /// Declared field count.
         count: usize,
     },
     /// The screen declares more than [`MAX_RELATIONSHIPS_PER_SCREEN`]
@@ -155,7 +165,8 @@ impl ScreenSyntaxReason {
             Self::Malformed { detail } => write!(formatter, "{detail}"),
             Self::UnsupportedSchema { found } => write!(
                 formatter,
-                "screen_schema {found} is not supported (expected {})",
+                "screen_schema {found} is not supported (expected {}..={})",
+                super::screen_file::LEGACY_SCREEN_SCHEMA,
                 super::screen_file::SCREEN_SCHEMA
             ),
             Self::DocumentTooDeep { depth } => {
@@ -191,6 +202,14 @@ impl ScreenSyntaxReason {
             Self::PortCount { count } => write!(
                 formatter,
                 "panel declares {count} ports (max {MAX_PORTS_PER_PANEL})"
+            ),
+            Self::ResourceCount { count } => write!(
+                formatter,
+                "screen declares {count} resources (max {MAX_RESOURCES_PER_SCREEN})"
+            ),
+            Self::ResourceFieldCount { count } => write!(
+                formatter,
+                "resource declares {count} fields (max {MAX_FIELDS_PER_RESOURCE})"
             ),
             Self::RelationshipCount { count } => write!(
                 formatter,
@@ -252,6 +271,8 @@ impl ScreenSyntaxReason {
             | Self::IdentifierTooLong { .. }
             | Self::PanelCount { .. }
             | Self::PortCount { .. }
+            | Self::ResourceCount { .. }
+            | Self::ResourceFieldCount { .. }
             | Self::RelationshipCount { .. }
             | Self::ActivationFieldCount { .. }
             | Self::BindingCount { .. }

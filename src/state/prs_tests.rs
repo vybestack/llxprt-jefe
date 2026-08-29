@@ -14,7 +14,7 @@ use crate::domain::{
 use crate::persistence::State as PersistedState;
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::{PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenId};
+use crate::state::types::{PaneFocus, PrFocus, PullRequestsState, ScreenId};
 
 use super::prs_test_fixtures::begin_pr_list_reload;
 use crate::state::transition::TransitionExt;
@@ -61,26 +61,17 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
 /// @requirement REQ-PR-001
 /// @pseudocode component-001 lines 66-71
 #[test]
-fn test_enter_prs_mode_sets_active_and_saves_prior_focus() {
+fn test_enter_prs_mode_sets_active_and_seeds_route_context() {
     let mut state = dashboard_state();
-    state.pane_focus = PaneFocus::Agents;
-    state.selected_agent_index = Some(2);
+    state.pane_focus = PaneFocus::Repositories;
     state.selected_repository_index = Some(1);
     let new_state = state.apply(AppEvent::EnterPrsMode).committed_pure();
 
     assert_eq!(new_state.screen(), ScreenId::PullRequests);
     assert!(new_state.prs_state.active);
     assert_eq!(new_state.prs_state.pr_focus, PrFocus::PrList);
-
-    // prior_agent_focus must be saved for restoration on exit.
-    let saved = new_state
-        .prs_state
-        .prior_agent_focus
-        .clone()
-        .unwrap_or_else(|| panic!("prior_agent_focus should be Some"));
-    assert_eq!(saved.pane_focus, PaneFocus::Agents);
-    assert_eq!(saved.selected_agent_index, Some(2));
-    assert_eq!(saved.selected_repository_index, Some(1));
+    assert_eq!(new_state.pane_focus, PaneFocus::Agents);
+    assert_eq!(new_state.selected_repository_index, Some(1));
 }
 
 /// After EnterPrsMode, committed_filter.state must be Some(Open) and all other
@@ -141,24 +132,22 @@ fn test_clear_committed_filter_resets_state_to_open() {
 /// @requirement REQ-PR-005
 /// @pseudocode component-001 lines 77-87
 #[test]
-fn test_exit_prs_mode_restores_prior_focus_with_bounds_fallback() {
+fn test_exit_prs_mode_restores_the_exact_source_instance() {
     let mut state = dashboard_state();
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::PullRequests);
-    state.prs_state.active = true;
-    // Prior focus points to an agent index that no longer exists (out of bounds).
-    state.prs_state.prior_agent_focus = Some(PriorAgentFocus {
-        pane_focus: PaneFocus::Agents,
-        selected_repository_index: Some(0),
-        selected_agent_index: Some(99),
-    });
+    state.pane_focus = PaneFocus::Repositories;
+    state.selected_repository_index = Some(1);
+    let source_id = state.nav.current().id;
 
+    let mut state = state.apply(AppEvent::EnterPrsMode).committed_pure();
+    state.pane_focus = PaneFocus::Agents;
+    state.selected_repository_index = None;
+    state.selected_agent_index = None;
     let new_state = state.apply(AppEvent::ExitPrsMode).committed_pure();
 
-    assert_eq!(new_state.screen(), ScreenId::Dashboard);
-    assert!(!new_state.prs_state.active);
-    // Fallback: must be Agents pane, index clamped to a valid value or None.
-    assert_eq!(new_state.pane_focus, PaneFocus::Agents);
-    assert!(new_state.selected_agent_index == Some(0) || new_state.selected_agent_index.is_none());
+    assert_eq!(new_state.nav.current().id, source_id);
+    assert_eq!(new_state.screen(), crate::workbench::DASHBOARD_IDENTITY);
+    assert_eq!(new_state.pane_focus, PaneFocus::Repositories);
+    assert_eq!(new_state.selected_repository_index, Some(1));
 }
 
 /// A legacy state.json without any PR fields must still deserialize successfully

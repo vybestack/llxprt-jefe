@@ -1,0 +1,309 @@
+{
+  "schema": 1,
+  "name": "issue705-tree-structured-diff-linux",
+  "platform": "linux",
+  "terminal": {
+    "cols": 100,
+    "rows": 30
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls/1.0.0",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls/1.0.0/bin",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls/1.0.0/screens",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.controls\"]\nenabled = true\nversion = \"1.0.0\"\n\n[keymap.\"dashboard\"]\n\"vendor.controls.open\" = [\"F2\"]\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls/1.0.0/plugin.json",
+        "content": {
+          "utf8": "{\n  \"manifest_schema\": 1,\n  \"id\": \"vendor.controls\",\n  \"version\": \"1.0.0\",\n  \"display_name\": \"Native controls\",\n  \"host_api\": { \"minimum\": \"0.0.1\", \"maximum\": \"99.0.0\" },\n  \"protocol\": 1,\n  \"provider\": { \"mode\": \"persistent\", \"binaries\": { \"aarch64-apple-darwin\": \"bin/provider\", \"x86_64-unknown-linux-gnu\": \"bin/provider\" } },\n  \"actions\": [{\n    \"id\": \"vendor.controls.open\",\n    \"label\": \"Open native controls\",\n    \"description\": \"Open Tree and StructuredDiff controls\",\n    \"category\": \"vendor.controls\",\n    \"contexts\": [\"dashboard\"],\n    \"arguments\": [],\n    \"timeout_seconds\": 60,\n    \"destructive\": false,\n    \"confirmation\": \"none\",\n    \"handler\": \"open\",\n    \"allowed_outcomes\": [\"navigate-declared-route\"]\n  }],\n  \"panels\": [{\n    \"id\": \"vendor.controls.tree-diff\",\n    \"model_kinds\": [\"tree\", \"structured-diff\"],\n    \"event_schema\": [\n      { \"kind\": \"selected\", \"arguments\": [] },\n      { \"kind\": \"activated\", \"arguments\": [] },\n      { \"kind\": \"expansion-changed\", \"arguments\": [] }\n    ],\n    \"handler\": \"tree-diff\",\n    \"ports\": []\n  }],\n  \"routes\": [{ \"id\": \"vendor.controls.open\", \"activation_fields\": [], \"target_screen\": \"vendor.controls.review\" }],\n  \"screens\": [{ \"path\": \"screens/main.screen.toml\", \"screen_ids\": [\"vendor.controls.review\"] }]\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls/1.0.0/screens/main.screen.toml",
+        "content": {
+          "utf8": "screen_schema = 1\nid = \"vendor.controls.review\"\ntitle = \"Native Control Review\"\nroute = \"vendor.controls.open\"\ninitial_focus = \"review\"\nfocus_order = [\"review\"]\n\n[[overlays]]\nkind = \"help\"\n\n[[overlays]]\nkind = \"search\"\n\n[[overlays]]\nkind = \"confirmation\"\n\n[[bindings]]\ncontext = \"dashboard\"\naction = \"dashboard.open-help\"\n\n[[panels]]\nid = \"review\"\ntype = \"vendor.controls.tree-diff\"\nfocusable = true\nrequired = true\n\n[layout]\ntype = \"leaf\"\npanel = \"review\"\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.controls/1.0.0/bin/provider",
+        "content": {
+          "utf8": "#!/bin/sh\nset -eu\nexpect_event() {\n  expected_revision=$1\n  expected_event=$2\n  read -r message\n  prefix='{\"protocol\":1,\"type\":\"panel-event\",\"request_id\":\"'\n  remainder=${message#\"$prefix\"}\n  [ \"$remainder\" != \"$message\" ] || { printf '%s\\n' \"unexpected panel event envelope: $message\" >&2; exit 41; }\n  request_id=${remainder%%\\\"*}\n  digits=${request_id#h-}\n  [ \"$digits\" != \"$request_id\" ] || { printf '%s\\n' \"unexpected panel event request id: $message\" >&2; exit 41; }\n  case \"$digits\" in\n    ''|*[!0-9]*) printf '%s\\n' \"unexpected panel event request id: $message\" >&2; exit 41 ;;\n  esac\n  expected=\"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-event\\\",\\\"request_id\\\":\\\"$request_id\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":$expected_revision,\\\"event\\\":$expected_event}}\"\n  [ \"$message\" = \"$expected\" ] || { printf '%s\\n' \"unexpected panel event: $message\" >&2; exit 41; }\n}\nread -r hello\nprocess_generation=$(printf '%s\\n' \"$hello\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"hello-ack\\\",\\\"request_id\\\":\\\"p-100001\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"provider_name\\\":\\\"native-controls\\\",\\\"protocol\\\":1}}\"\nread -r configure\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"ready\\\",\\\"request_id\\\":\\\"p-100002\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"capabilities\\\":[\\\"actions\\\",\\\"panels\\\"]}}\"\nread -r invoke\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"outcome\\\",\\\"request_id\\\":\\\"p-100003\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"kind\\\":\\\"navigate\\\",\\\"route_id\\\":\\\"vendor.controls.open\\\",\\\"activation\\\":{}}}\"\nread -r activate\npanel_instance_id=$(printf '%s\\n' \"$activate\" | sed -n 's/.*\"panel_instance_id\":\\([0-9][0-9]*\\).*/\\1/p')\npanel_generation=$(printf '%s\\n' \"$activate\" | sed -n 's/.*\"payload\":{.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"p-100004\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":1,\\\"kind\\\":\\\"tree\\\",\\\"title\\\":\\\"Native Tree\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"tree\\\",\\\"schema_version\\\":1,\\\"nodes\\\":[{\\\"id\\\":\\\"root\\\",\\\"label\\\":\\\"Root node\\\",\\\"semantic_key\\\":\\\"root-key\\\",\\\"depth\\\":0,\\\"expandable\\\":true,\\\"expanded\\\":false},{\\\"id\\\":\\\"child\\\",\\\"parent_id\\\":\\\"root\\\",\\\"label\\\":\\\"Child node\\\",\\\"semantic_key\\\":\\\"child-key\\\",\\\"depth\\\":1,\\\"expandable\\\":false,\\\"expanded\\\":false},{\\\"id\\\":\\\"next\\\",\\\"label\\\":\\\"Next root\\\",\\\"semantic_key\\\":\\\"next-key\\\",\\\"depth\\\":0,\\\"expandable\\\":false,\\\"expanded\\\":false}],\\\"selected_id\\\":\\\"root\\\"}}}\"\nexpect_event 1 '{\"kind\":\"expansion-changed\",\"id\":\"root\",\"expanded\":true}'\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"p-100005\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":2,\\\"kind\\\":\\\"tree\\\",\\\"title\\\":\\\"Expanded Tree\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"tree\\\",\\\"schema_version\\\":1,\\\"nodes\\\":[{\\\"id\\\":\\\"root\\\",\\\"label\\\":\\\"Root node\\\",\\\"semantic_key\\\":\\\"root-key\\\",\\\"depth\\\":0,\\\"expandable\\\":true,\\\"expanded\\\":true},{\\\"id\\\":\\\"child\\\",\\\"parent_id\\\":\\\"root\\\",\\\"label\\\":\\\"Child node\\\",\\\"semantic_key\\\":\\\"child-key\\\",\\\"depth\\\":1,\\\"expandable\\\":false,\\\"expanded\\\":false},{\\\"id\\\":\\\"next\\\",\\\"label\\\":\\\"Next root\\\",\\\"semantic_key\\\":\\\"next-key\\\",\\\"depth\\\":0,\\\"expandable\\\":false,\\\"expanded\\\":false}],\\\"selected_id\\\":\\\"root\\\"}}}\"\nexpect_event 2 '{\"kind\":\"selected\",\"id\":\"child\"}'\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"p-100006\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":3,\\\"kind\\\":\\\"tree\\\",\\\"title\\\":\\\"Selected child\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"tree\\\",\\\"schema_version\\\":1,\\\"nodes\\\":[{\\\"id\\\":\\\"root\\\",\\\"label\\\":\\\"Root node\\\",\\\"semantic_key\\\":\\\"root-key\\\",\\\"depth\\\":0,\\\"expandable\\\":true,\\\"expanded\\\":true},{\\\"id\\\":\\\"child\\\",\\\"parent_id\\\":\\\"root\\\",\\\"label\\\":\\\"Child node\\\",\\\"semantic_key\\\":\\\"child-key\\\",\\\"depth\\\":1,\\\"expandable\\\":false,\\\"expanded\\\":false},{\\\"id\\\":\\\"next\\\",\\\"label\\\":\\\"Next root\\\",\\\"semantic_key\\\":\\\"next-key\\\",\\\"depth\\\":0,\\\"expandable\\\":false,\\\"expanded\\\":false}],\\\"selected_id\\\":\\\"child\\\"}}}\"\nexpect_event 3 '{\"kind\":\"activated\",\"id\":\"child\"}'\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"p-100007\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":4,\\\"kind\\\":\\\"structured-diff\\\",\\\"title\\\":\\\"Native Structured Diff\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"structured-diff\\\",\\\"schema_version\\\":1,\\\"files\\\":[{\\\"id\\\":\\\"first\\\",\\\"old_path\\\":\\\"src/old.rs\\\",\\\"new_path\\\":\\\"src/new.rs\\\",\\\"binary\\\":true,\\\"hunks\\\":[]},{\\\"id\\\":\\\"second\\\",\\\"new_path\\\":\\\"src/second.rs\\\",\\\"binary\\\":true,\\\"hunks\\\":[]}],\\\"selected_file_id\\\":\\\"first\\\"}}}\"\nexpect_event 4 '{\"kind\":\"selected\",\"id\":\"second\"}'\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"p-100008\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":5,\\\"kind\\\":\\\"structured-diff\\\",\\\"title\\\":\\\"Selected second file\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"structured-diff\\\",\\\"schema_version\\\":1,\\\"files\\\":[{\\\"id\\\":\\\"first\\\",\\\"old_path\\\":\\\"src/old.rs\\\",\\\"new_path\\\":\\\"src/new.rs\\\",\\\"binary\\\":true,\\\"hunks\\\":[]},{\\\"id\\\":\\\"second\\\",\\\"new_path\\\":\\\"src/second.rs\\\",\\\"binary\\\":true,\\\"hunks\\\":[]}],\\\"selected_file_id\\\":\\\"second\\\"}}}\"\nexpect_event 5 '{\"kind\":\"activated\",\"id\":\"second\"}'\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"panel-snapshot\\\",\\\"request_id\\\":\\\"p-100009\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{\\\"model_schema\\\":1,\\\"panel_instance_id\\\":$panel_instance_id,\\\"generation\\\":$panel_generation,\\\"revision\\\":6,\\\"kind\\\":\\\"structured-diff\\\",\\\"title\\\":\\\"Activated second file\\\",\\\"loading\\\":false,\\\"action_affordances\\\":[],\\\"body\\\":{\\\"kind\\\":\\\"structured-diff\\\",\\\"schema_version\\\":1,\\\"files\\\":[{\\\"id\\\":\\\"first\\\",\\\"old_path\\\":\\\"src/old.rs\\\",\\\"new_path\\\":\\\"src/new.rs\\\",\\\"binary\\\":true,\\\"hunks\\\":[]},{\\\"id\\\":\\\"second\\\",\\\"new_path\\\":\\\"src/second.rs\\\",\\\"binary\\\":true,\\\"hunks\\\":[]}],\\\"selected_file_id\\\":\\\"second\\\"}}}\"\nwhile read -r message; do\n  case \"$message\" in\n    *\"shutdown\"*) printf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"shutdown-ack\\\",\\\"request_id\\\":\\\"p-100010\\\",\\\"generation\\\":$process_generation,\\\"payload\\\":{}}\"; exit 0 ;;\n  esac\ndone\n"
+        },
+        "mode": 493
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agents",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "f2",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Native Control Review",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Native Tree",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Native Tree",
+        "Root node",
+        "Next root"
+      ],
+      "absent": [
+        "Child node",
+        "Native Structured Diff",
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Expanded Tree",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Expanded Tree",
+        "Root node",
+        "Child node",
+        "Next root"
+      ],
+      "absent": [
+        "Native Structured Diff",
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">     Child node",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Selected child",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Native Structured Diff",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Native Structured Diff",
+        "src/old.rs -> src/new.rs [binary]",
+        "src/second.rs [binary]"
+      ],
+      "absent": [
+        "Child node",
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">> src/second.rs",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Selected second file",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Activated second file",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Activated second file",
+        "src/second.rs [binary]"
+      ],
+      "absent": [
+        "Native Tree",
+        "provider unavailable",
+        "stale"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "h",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Help - Keyboard Shortcuts",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Help - Keyboard Shortcuts"
+      ],
+      "absent": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Activated second file",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agents",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Agents"
+      ],
+      "absent": [
+        "1 error",
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "assert-file",
+      "file": {
+        "path": "action-capture.jsonl",
+        "content": {
+          "utf8": "{\"kind\":\"key\",\"original\":{\"code\":\"F(2)\",\"modifiers\":0},\"canonical_chord\":\"F2\",\"resolution\":\"dispatch\",\"action\":\"vendor.controls.open\",\"handler\":\"ProviderAction\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Down\",\"modifiers\":0},\"canonical_chord\":\"Down\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-next\",\"handler\":\"ProviderPanelNext\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Down\",\"modifiers\":0},\"canonical_chord\":\"Down\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-next\",\"handler\":\"ProviderPanelNext\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Enter\",\"modifiers\":0},\"canonical_chord\":\"Enter\",\"resolution\":\"dispatch\",\"action\":\"workbench.panel-activate\",\"handler\":\"ProviderPanelActivate\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Char('h')\",\"modifiers\":0},\"canonical_chord\":\"h\",\"resolution\":\"dispatch\",\"action\":\"dashboard.open-help\",\"handler\":\"OpenHelp\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"dispatch\",\"action\":\"help.close\",\"handler\":\"HelpClose\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"dispatch\",\"action\":\"workbench.back\",\"handler\":\"WorkbenchBack\",\"pty_bytes\":[]}\n{\"kind\":\"key\",\"original\":{\"code\":\"Esc\",\"modifiers\":0},\"canonical_chord\":\"Esc\",\"resolution\":\"unbound\",\"pty_bytes\":[27]}\n"
+        }
+      }
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

@@ -1,0 +1,8 @@
+settings_schema = 2
+
+[plugins."vendor.panel"]
+enabled = true
+version = "2.0.0"
+
+[keymap."dashboard"]
+"vendor.panel.open-review" = ["F2"]

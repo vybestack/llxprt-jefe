@@ -30,7 +30,7 @@ use super::settings_types::{
 pub(super) fn revalidate(
     draft: &mut SettingsDraft,
     schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>,
-    registry: &crate::workbench::ScreenRegistry,
+    workbench: &crate::published_workbench::PublishedWorkbench,
 ) {
     let edits = draft
         .edited_paths()
@@ -41,7 +41,7 @@ pub(super) fn revalidate(
         &edits,
         draft.base_expected(),
         schemas,
-        registry,
+        workbench,
     );
     let unchanged = candidate
         .valid()
@@ -90,7 +90,7 @@ pub(super) fn build_candidate(
     edits: &[SettingsEdit],
     expected: ExpectedHash,
     schemas: &BTreeMap<Id, Vec<SelectedPluginConfig>>,
-    registry: &crate::workbench::ScreenRegistry,
+    workbench: &crate::published_workbench::PublishedWorkbench,
 ) -> DraftCandidate {
     // The package-aware catalog recognizes installed plugin owners, so their
     // config tables publish into `PublishedSettings.plugins` rather than being
@@ -103,7 +103,7 @@ pub(super) fn build_candidate(
     match SettingsCandidate::from_edits(base, &catalog, edits, expected) {
         Ok(candidate) => {
             let mut diagnostics =
-                super::settings_registry_ops::registry_refusals(&candidate, registry);
+                super::settings_registry_validation::registry_refusals(&candidate, workbench);
             // Validate active selected owners' plugin config against their
             // immutable selected-package ConfigSchema. Dormant and disabled
             // owners are absent from `published.plugins` (dormant) or have

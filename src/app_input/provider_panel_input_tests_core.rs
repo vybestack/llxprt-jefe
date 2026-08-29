@@ -1,6 +1,7 @@
     use jefe::domain::{Id, TypedMap, TypedValue};
     use jefe::runtime::provider::protocol::{
-        BodyKind, HostLocal, ListBody, ListItem, PanelSnapshot,
+        Affordance, BodyKind, HostLocal, ListBody, ListItem, PanelSnapshot, StructuredDiffBody,
+        StructuredDiffFile, StructuredDiffPath, TreeBody, TreeNode,
     };
     use jefe::state::AppState;
     use jefe::state::provider_panels::{AcceptSnapshot, DeclareInput, EventDeclaration, EventKind};
@@ -63,7 +64,7 @@
             },
         ];
         let declared = state
-            .provider_panels
+            .provider_panels_mut()
             .declare(DeclareInput {
                 owner: &owner,
                 panel_id: &panel_id,
@@ -77,14 +78,64 @@
             })
             .unwrap_or_else(|error| panic!("declare: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .activate(declared.instance)
             .unwrap_or_else(|error| panic!("activate: {error}"));
         let alpha = Id::parse("alpha").unwrap_or_else(|error| panic!("alpha: {error}"));
         let beta = Id::parse("beta").unwrap_or_else(|error| panic!("beta: {error}"));
         let snapshot = list_snapshot(declared.instance, alpha, beta);
         state
-            .provider_panels
+            .provider_panels_mut()
+            .accept_snapshot(AcceptSnapshot {
+                owner: &owner,
+                received_process_generation: 1,
+                payload_byte_count: 256,
+                elapsed_ms: 0,
+                snapshot: &snapshot,
+            })
+            .unwrap_or_else(|error| panic!("snapshot: {error}"));
+        (state, declared.instance)
+    }
+    fn active_selectable_panel(body: PanelBody, kind: BodyKind) -> (AppState, PanelInstanceId) {
+        let owner = id("vendor.panel");
+        let panel_type = id("vendor.panel.selectable");
+        let panel_id = PanelId::from_static("main");
+        let mut state = crate::test_app_state();
+        let allowed_events = [
+            EventDeclaration {
+                kind: EventKind::Selected,
+                arguments: Vec::new(),
+            },
+            EventDeclaration {
+                kind: EventKind::Activated,
+                arguments: Vec::new(),
+            },
+            EventDeclaration {
+                kind: EventKind::ExpansionChanged,
+                arguments: Vec::new(),
+            },
+        ];
+        let declared = state
+            .provider_panels_mut()
+            .declare(DeclareInput {
+                owner: &owner,
+                panel_id: &panel_id,
+                screen_instance_id: 7,
+                panel_type: &panel_type,
+                activation: &TypedMap::new(),
+                allowed_model_kinds: &[kind],
+                allowed_events: &allowed_events,
+                action_authority: &[],
+                process_generation: 1,
+            })
+            .unwrap_or_else(|error| panic!("declare: {error}"));
+        state
+            .provider_panels_mut()
+            .activate(declared.instance)
+            .unwrap_or_else(|error| panic!("activate: {error}"));
+        let snapshot = snapshot_with_body(declared.instance, body, kind, Vec::new());
+        state
+            .provider_panels_mut()
             .accept_snapshot(AcceptSnapshot {
                 owner: &owner,
                 received_process_generation: 1,
@@ -96,12 +147,43 @@
         (state, declared.instance)
     }
 
+    fn accept_next_snapshot(
+        state: &mut AppState,
+        panel: PanelInstanceId,
+        body: PanelBody,
+        kind: BodyKind,
+        affordances: Vec<Affordance>,
+    ) {
+        let owner = id("vendor.panel");
+        let mut snapshot = snapshot_with_body(panel, body, kind, affordances);
+        snapshot.revision = 2;
+        state
+            .provider_panels_mut()
+            .accept_snapshot(AcceptSnapshot {
+                owner: &owner,
+                received_process_generation: 1,
+                payload_byte_count: 256,
+                elapsed_ms: 0,
+                snapshot: &snapshot,
+            })
+            .unwrap_or_else(|error| panic!("next snapshot: {error}"));
+    }
+
+
     fn select_and_commit(
         state: &mut AppState,
         panel: PanelInstanceId,
         forward: bool,
     ) -> Option<PanelEvent> {
-        let event = select_list_item(state, panel, forward)?;
+        let event = control_event(
+            state,
+            panel,
+            if forward {
+                ControlAction::Next
+            } else {
+                ControlAction::Previous
+            },
+        )?;
         if !state.submit_provider_panel_event(panel, event.clone()) {
             return None;
         }
@@ -122,7 +204,7 @@
         assert!(matches!(wrapped, Some(PanelEvent::Selected { ref id }) if id.as_str() == "beta"));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.selected_id.as_ref())
                 .map(Id::as_str),
@@ -133,17 +215,17 @@
     #[test]
     fn rejected_selected_event_does_not_mutate_host_selection() {
         let (mut state, panel) = active_list();
-        let event = select_list_item(&state, panel, true)
+        let event = control_event(&state, panel, ControlAction::Next)
             .unwrap_or_else(|| panic!("list selection must produce an event"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .suspend(panel)
             .unwrap_or_else(|error| panic!("suspend: {error}"));
 
         assert!(!state.submit_provider_panel_event(panel, event));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.selected_id.as_ref()),
             None
@@ -151,7 +233,7 @@
     }
 
     #[test]
-    fn activate_uses_host_selection_instead_of_provider_default() {
+    fn activate_uses_optimistic_host_selection_while_provider_response_is_pending() {
         let (mut state, panel) = active_list();
         let _ = select_and_commit(&mut state, panel, true);
 
@@ -159,6 +241,97 @@
             selected_item(&state, panel),
             Some(id) if id.as_str() == "beta"
         ));
+    }
+
+    fn authoritative_list(first: &Id, second: &Id) -> PanelBody {
+        PanelBody::List(ListBody {
+            items: vec![
+                ListItem {
+                    id: first.clone(),
+                    label: "First".to_owned(),
+                    description: None,
+                    status: None,
+                    actions: Vec::new(),
+                },
+                ListItem {
+                    id: second.clone(),
+                    label: "Second".to_owned(),
+                    description: None,
+                    status: None,
+                    actions: Vec::new(),
+                },
+            ],
+            selected_id: Some(first.clone()),
+            next_page_token: None,
+        })
+    }
+
+    fn authoritative_tree(first: &Id, second: &Id) -> PanelBody {
+        PanelBody::Tree(TreeBody {
+            schema_version: 1,
+            nodes: vec![
+                TreeNode {
+                    id: first.clone(),
+                    parent_id: None,
+                    label: "First".to_owned(),
+                    semantic_key: id("first-key"),
+                    depth: 0,
+                    expandable: true,
+                    expanded: true,
+                },
+                TreeNode {
+                    id: second.clone(),
+                    parent_id: Some(first.clone()),
+                    label: "Second".to_owned(),
+                    semantic_key: id("second-key"),
+                    depth: 1,
+                    expandable: false,
+                    expanded: false,
+                },
+            ],
+            selected_id: Some(first.clone()),
+        })
+    }
+
+    fn authoritative_diff(first: &Id, second: &Id) -> PanelBody {
+        let file = |id: Id, path: &str| StructuredDiffFile {
+            id,
+                path: StructuredDiffPath::Added(path.to_owned()),
+
+            old_mode: None,
+            new_mode: None,
+            binary: true,
+            hunks: Vec::new(),
+        };
+        PanelBody::StructuredDiff(StructuredDiffBody {
+            schema_version: 1,
+            files: vec![file(first.clone(), "first"), file(second.clone(), "second")],
+            selected_file_id: Some(first.clone()),
+        })
+    }
+
+    #[test]
+    fn accepted_snapshots_restore_authoritative_list_tree_and_diff_selection() {
+        let first = id("first");
+        let second = id("second");
+        let fixtures = [
+            (authoritative_list(&first, &second), BodyKind::List),
+            (authoritative_tree(&first, &second), BodyKind::Tree),
+            (authoritative_diff(&first, &second), BodyKind::StructuredDiff),
+        ];
+        for (body, kind) in fixtures {
+            let (mut state, panel) = active_selectable_panel(body.clone(), kind);
+            assert!(matches!(
+                select_and_commit(&mut state, panel, true),
+                Some(PanelEvent::Selected { ref id }) if id == &second
+            ));
+            accept_next_snapshot(&mut state, panel, body, kind, Vec::new());
+            let targeted = match control_event(&state, panel, ControlAction::Activate) {
+                Some(PanelEvent::Activated { id } | PanelEvent::ExpansionChanged { id, .. }) => id,
+                event => panic!("provider-selected activation event: {event:?}"),
+            };
+            assert_eq!(targeted, first);
+        }
     }
 
     #[test]
@@ -212,7 +385,7 @@
         };
         assert!(
             state
-                .provider_panels
+                .provider_panels_mut()
                 .accept_snapshot(AcceptSnapshot {
                     owner: &owner,
                     received_process_generation: 1,
@@ -240,7 +413,7 @@
         let (mut state, panel) = active_list();
         let owner = Id::parse("vendor.panel").unwrap_or_else(|error| panic!("owner: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .retry(panel)
             .unwrap_or_else(|error| panic!("retry setup: {error}"));
         let mut invalid = list_snapshot(
@@ -251,7 +424,7 @@
         invalid.generation = 2;
         assert!(
             state
-                .provider_panels
+                .provider_panels_mut()
                 .accept_snapshot(AcceptSnapshot {
                     owner: &owner,
                     received_process_generation: 1,
@@ -261,7 +434,7 @@
                 })
                 .is_err()
         );
-        assert!(state.provider_panels.accepted_snapshot(panel).is_none());
+        assert!(state.provider_panels().accepted_snapshot(panel).is_none());
 
         assert!(state.submit_provider_panel_event(panel, PanelEvent::Retry));
         let staged = state.take_staged_effects();
@@ -286,14 +459,14 @@
                 selected_id: None,
                 form_draft: Some(form_draft),
             };
-            if state.provider_panels.update_host_local(panel, host).is_ok() {
+            if state.provider_panels_mut().update_host_local(panel, host).is_ok() {
                 accepted = true;
                 break;
             }
         }
         assert!(accepted, "a largest valid host-local fixture must be found");
         let prior = state
-            .provider_panels
+            .provider_panels()
             .host_local(panel)
             .cloned()
             .unwrap_or_else(|| panic!("host-local fixture must be retained"));
@@ -302,11 +475,9 @@
         };
 
         assert!(!state.submit_provider_panel_event(panel, selected));
-        assert_eq!(state.provider_panels.host_local(panel), Some(&prior));
+        assert_eq!(state.provider_panels().host_local(panel), Some(&prior));
         assert!(state.take_staged_effects().is_empty());
     }
-
-    // ── Helpers for the remaining five PanelEvent kinds ───────────────────
 
     fn id(value: &str) -> Id {
         Id::parse(value).unwrap_or_else(|error| panic!("id {value}: {error}"))
@@ -441,7 +612,7 @@
         assert_eq!(selected_effects.as_ref().map(Vec::len), Some(1));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.selected_id.as_ref()),
             Some(&beta)
@@ -474,7 +645,7 @@
         assert!(staged.is_none());
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .and_then(|local| local.focus_target.as_ref())
                 .map(Id::as_str),
@@ -487,7 +658,7 @@
     fn unavailable_mouse_target_preserves_focus_error_and_effects() {
         let (mut state, panel) = active_list();
         let prior_focus = state.nav.current().panel_focus;
-        let prior_local = state.provider_panels.host_local(panel).cloned();
+        let prior_local = state.provider_panels().host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
 
         let (consumed, staged) = apply_mouse_target(
@@ -501,7 +672,7 @@
         assert!(staged.is_none());
         assert_eq!(state.nav.current().panel_focus, prior_focus);
         assert_eq!(
-            state.provider_panels.host_local(panel),
+            state.provider_panels().host_local(panel),
             prior_local.as_ref()
         );
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
@@ -530,10 +701,10 @@
     fn stale_mouse_target_preserves_focus_error_local_state_and_effects() {
         let (mut state, panel) = active_list();
         let prior_focus = state.nav.current().panel_focus;
-        let prior_local = state.provider_panels.host_local(panel).cloned();
+        let prior_local = state.provider_panels().host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
         state
-            .provider_panels
+            .provider_panels_mut()
             .fail_runtime(panel)
             .unwrap_or_else(|error| panic!("fail panel: {error}"));
 
@@ -548,7 +719,7 @@
         assert!(staged.is_none());
         assert_eq!(state.nav.current().panel_focus, prior_focus);
         assert_eq!(
-            state.provider_panels.host_local(panel),
+            state.provider_panels().host_local(panel),
             prior_local.as_ref()
         );
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
@@ -556,34 +727,95 @@
     }
 
     #[test]
-    fn mouse_targets_map_to_the_closed_semantic_event_vocabulary() {
-        let (state, panel) = active_list();
-        let action = id("open");
-        let link = id("details");
+    fn tree_mouse_activation_emits_expansion_without_mutating_provider_truth() {
+        let root = id("root");
+        let body = PanelBody::Tree(TreeBody {
+            schema_version: 1,
+            nodes: vec![TreeNode {
+                id: root.clone(),
+                parent_id: None,
+                label: "Root".to_owned(),
+                semantic_key: id("root-key"),
+                depth: 0,
+                expandable: true,
+                expanded: false,
+            }],
+            selected_id: Some(root.clone()),
+        });
+        let (mut state, panel) = active_selectable_panel(body, BodyKind::Tree);
 
         assert_eq!(
-            mouse_event(&state, panel, PanelHitTarget::Action(action.clone())),
-            Some(PanelEvent::Action {
-                id: action,
-                arguments: TypedMap::new(),
+            mouse_event(&state, panel, PanelHitTarget::TreeNode(root.clone())),
+            Some(PanelEvent::ExpansionChanged {
+                id: root.clone(),
+                expanded: true,
             })
         );
+        let (consumed, staged) = apply_mouse_target(
+            &mut state,
+            Some(panel),
+            PanelId::from_static("main"),
+            Some(PanelHitTarget::TreeNode(root.clone())),
+        );
+
+        assert!(consumed);
+        assert_eq!(staged.as_ref().map(Vec::len), Some(1));
+        let snapshot = state
+            .provider_panels()
+            .accepted_snapshot(panel)
+            .unwrap_or_else(|| panic!("tree snapshot"));
+        let PanelBody::Tree(tree) = &snapshot.body else {
+            panic!("tree body")
+        };
+        assert!(!tree.nodes[0].expanded);
+    }
+
+    #[test]
+    fn structured_diff_mouse_selects_then_activates_files() {
+        let first = id("first");
+        let second = id("second");
+        let file = |id: Id, path: &str| StructuredDiffFile {
+            id,
+                path: StructuredDiffPath::Added(path.to_owned()),
+
+            old_mode: None,
+            new_mode: None,
+            binary: true,
+            hunks: Vec::new(),
+        };
+        let body = PanelBody::StructuredDiff(StructuredDiffBody {
+            schema_version: 1,
+            files: vec![file(first.clone(), "first"), file(second.clone(), "second")],
+            selected_file_id: Some(first.clone()),
+        });
+        let (state, panel) = active_selectable_panel(body, BodyKind::StructuredDiff);
+
         assert_eq!(
-            mouse_event(&state, panel, PanelHitTarget::Retry),
-            Some(PanelEvent::Retry)
+            mouse_event(&state, panel, PanelHitTarget::DiffFile(second.clone())),
+            Some(PanelEvent::Selected { id: second })
         );
         assert_eq!(
-            mouse_event(&state, panel, PanelHitTarget::Cancel),
-            Some(PanelEvent::Cancel)
+            mouse_event(&state, panel, PanelHitTarget::DiffFile(first.clone())),
+            Some(PanelEvent::Activated { id: first })
         );
-        assert_eq!(
-            mouse_event(&state, panel, PanelHitTarget::Link(link.clone())),
-            Some(PanelEvent::LinkSelected { link_id: link })
-        );
-        assert!(
-            mouse_event(&state, panel, PanelHitTarget::Unavailable).is_none(),
-            "disabled controls must not infer an event"
-        );
+    }
+
+    #[test]
+    fn mouse_targets_invalid_for_the_active_control_are_rejected() {
+        let (state, panel) = active_list();
+
+        for target in [
+            PanelHitTarget::Action(id("undeclared")),
+            PanelHitTarget::Retry,
+            PanelHitTarget::Cancel,
+            PanelHitTarget::Link(id("details")),
+            PanelHitTarget::Unavailable,
+        ] {
+            assert!(
+                mouse_event(&state, panel, target).is_none(),
+                "the active list factory must reject another control's target"
+            );
+        }
     }
 
     #[test]
@@ -598,7 +830,7 @@
         ));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .map(|local| local.scroll_offset),
             Some(1)
@@ -617,7 +849,7 @@
         ));
         assert_eq!(
             state
-                .provider_panels
+                .provider_panels()
                 .host_local(panel)
                 .map(|local| local.scroll_offset),
             Some(0)
@@ -686,7 +918,7 @@
     ) -> PanelInstanceId {
         let panel_id = PanelId::from_static("main");
         let declared = state
-            .provider_panels
+            .provider_panels_mut()
             .declare(DeclareInput {
                 owner: identity.0,
                 panel_id: &panel_id,
@@ -700,17 +932,19 @@
             })
             .unwrap_or_else(|error| panic!("declare: {error}"));
         state
-            .provider_panels
+            .provider_panels_mut()
             .activate(declared.instance)
             .unwrap_or_else(|error| panic!("activate: {error}"));
+        let mut snapshot = snapshot.clone();
+        snapshot.panel_instance_id = declared.instance.as_u64();
         state
-            .provider_panels
+            .provider_panels_mut()
             .accept_snapshot(AcceptSnapshot {
                 owner: identity.0,
                 received_process_generation: 1,
                 payload_byte_count: 256,
                 elapsed_ms: 0,
-                snapshot,
+                snapshot: &snapshot,
             })
             .unwrap_or_else(|error| panic!("snapshot: {error}"));
         declared.instance
@@ -748,6 +982,10 @@
             },
             EventDeclaration {
                 kind: EventKind::Cancel,
+                arguments: Vec::new(),
+            },
+            EventDeclaration {
+                kind: EventKind::ExpansionChanged,
                 arguments: Vec::new(),
             },
             EventDeclaration {

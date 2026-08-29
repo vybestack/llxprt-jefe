@@ -111,8 +111,8 @@ fn delete_confirm_esc_resolves_to_cancel() {
     });
     let result = resolve_issues_key_event(&state, &key(KeyCode::Esc));
     assert!(
-        matches!(result, Some(AppEvent::IssueDeleteCancel)),
-        "Esc with delete confirm open should resolve to IssueDeleteCancel, got {result:?}"
+        matches!(result, Some(AppEvent::Back)),
+        "Esc with delete confirmation open should enter shared Back, got {result:?}"
     );
 }
 

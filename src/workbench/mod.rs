@@ -32,6 +32,7 @@ pub mod panel_types;
 pub mod relationship_propagation;
 pub mod relationships;
 pub mod resolve;
+pub mod resource_schemas;
 pub mod route;
 pub mod screen_file;
 pub mod screen_file_bounds;
@@ -56,8 +57,18 @@ mod screen_file_tests;
 mod screen_file_bound_tests;
 
 #[cfg(test)]
+#[path = "screen_lowering_resource_tests.rs"]
+mod screen_lowering_resource_tests;
+
+#[cfg(test)]
 #[path = "compose_fixtures.rs"]
 mod compose_fixtures;
+
+#[cfg(test)]
+pub(crate) use compose_fixtures::{
+    control_origin_composition, control_origin_definition, try_control_origin_composition,
+    try_control_origin_composition_with_definitions,
+};
 
 #[cfg(test)]
 #[path = "compose_tests.rs"]
@@ -69,7 +80,7 @@ mod compose_package_tests;
 
 #[cfg(test)]
 #[path = "relationship_fixtures.rs"]
-mod relationship_fixtures;
+pub(crate) mod relationship_fixtures;
 
 #[cfg(test)]
 #[path = "relationships_tests.rs"]
@@ -78,6 +89,9 @@ mod relationships_tests;
 #[cfg(test)]
 #[path = "relationship_propagation_tests.rs"]
 mod relationship_propagation_tests;
+#[cfg(test)]
+#[path = "resource_schemas_tests.rs"]
+mod resource_schemas_tests;
 
 #[cfg(test)]
 #[path = "ids_tests.rs"]
@@ -121,21 +135,21 @@ mod route_tests;
 
 pub use activation::{ActivationField, ActivationKind, ScreenBinding};
 pub use allocate::LayoutError;
-pub use compose::{
-    CompositionRefused, ScreenComposition, compose_screens, compose_screens_with_packages,
-};
+pub use compose::{CompositionRefused, ScreenComposition, compose_screens};
 pub use config::panel_insets;
 pub use descriptor::{
-    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
-    ScreenDescriptor, Size,
+    Axis, HostPanelCapability, HostPanelModelSource, HostScreenCapability, LayoutChild, LayoutNode,
+    OverlayKind, PanelDescriptor, PortDescriptor, PortDirection, PortRef, ScreenDescriptor, Size,
 };
 pub use diagnostics::{ScrCode, ScreenDiagnostic};
 pub use geometry::{Extent, Insets, Rect};
 pub use ids::{
-    CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId, ID_BYTE_LIMIT, IdError,
-    MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
-    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SCREENS, MAX_SPLIT_CHILDREN, PanelId,
-    PanelTypeId, PluginScreenId, PortId, RouteId, ScreenId, ScreenIdentity, ScreenInstanceId,
+    BuiltinScreenId, CUSTOM_MEMBER_BYTE_LIMIT, CUSTOM_SCREEN_NAMESPACE, CustomScreenId,
+    DASHBOARD_IDENTITY, DASHBOARD_SCREEN_ID, ID_BYTE_LIMIT, IdError, MAX_ACTIVATION_FIELDS,
+    MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
+    MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_RESOURCES_PER_SCREEN, MAX_SCREENS,
+    MAX_SPLIT_CHILDREN, OpenScreenId, PanelId, PanelInstanceId, PanelTypeId, PluginScreenId,
+    PortId, RouteId, ScreenId, ScreenIdentity, ScreenInstanceId, ScreenInstanceIdExhausted,
     VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
@@ -143,8 +157,8 @@ pub use lowering_error::LoweringError;
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
 pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, find_panel_type, resolve_panel_type};
 pub use relationship_propagation::{
-    PortUpdate, PortValue, PropagationAbort, RelationshipState, RelationshipTransition,
-    SourceIntent, propagate,
+    PortInstanceKey, PortUpdate, PortValue, PropagationAbort, RelationshipInstance,
+    RelationshipInstanceError, RelationshipState, RelationshipTransition, SourceIntent, propagate,
 };
 pub use relationships::{
     ActivationMode, EmptyPolicy, Relationship, RelationshipError, RelationshipKind,
@@ -153,6 +167,10 @@ pub use relationships::{
 pub use resolve::{
     PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
     resolve_layout,
+};
+pub use resource_schemas::{
+    BuiltinResourceSchemaError, ResourceSchema, ResourceSchemaError, ResourceSchemaRegistry,
+    builtin_resource_schemas,
 };
 pub use route::{
     ActivationError, ActivationValue, ActivationValues, MAX_ACTIVATION_BYTES, NavCode,
@@ -167,7 +185,6 @@ pub use screens::{
     SELECTION_PORT, SETTINGS_AGENT_TYPES_PANEL, SETTINGS_APPEARANCE_PANEL,
     SETTINGS_DIAGNOSTICS_PANEL, SETTINGS_GENERAL_PANEL, SETTINGS_KEYS_PANEL,
     SETTINGS_PLUGINS_PANEL, SETTINGS_SCREENS_PANEL, SETTINGS_SECTIONS_PANEL, SUBJECT_PORT,
-    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, master_detail_edge,
-    route_of,
+    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, route_of,
 };
 pub use validate::{DescriptorError, validate_descriptor};

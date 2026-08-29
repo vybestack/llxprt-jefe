@@ -18,7 +18,9 @@ use crate::persistence::plugin_inventory::{MANIFEST_FILE_NAME, scan};
 use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
 use crate::runtime::provider::Containment;
 use crate::startup_candidate::{WorkbenchCandidateRequest, build_workbench_candidate};
+use crate::state::AppEvent;
 use crate::state::transition::TransitionExt;
+use crate::workbench::ScreenId;
 use std::sync::Arc;
 
 fn action_id(value: &str) -> ActionId {
@@ -247,9 +249,115 @@ fn refusing_a_provider_action_retains_identity_for_the_unavailable_surface() {
         "provider stopped after ready".to_owned(),
     );
 
-    assert_eq!(state.provider_surface_action, Some(provider_id));
+    assert_eq!(state.provider_surface_action(), Some(&provider_id));
+    assert!(state.blocking_overlay_owns_mouse());
+
+    let repository_selection = state.selected_repository_index;
+    let agent_selection = state.selected_agent_index;
+    let provider_panels = state.provider_panels().clone();
+    let pending_effect_count = state.pending_effects.len();
+    let events = [
+        crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+        crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+        crossterm::event::MouseEventKind::ScrollUp,
+        crossterm::event::MouseEventKind::ScrollDown,
+        crossterm::event::MouseEventKind::Moved,
+    ];
+    for event in events {
+        assert!(crate::overlay_controls::consume_blocking_overlay_mouse(
+            &mut state, event, 120, 40
+        ));
+        assert_eq!(state.selected_repository_index, repository_selection);
+        assert_eq!(state.selected_agent_index, agent_selection);
+        assert_eq!(state.provider_panels(), &provider_panels);
+        assert_eq!(state.pending_effects.len(), pending_effect_count);
+    }
 }
 
+#[test]
+fn unavailable_provider_surface_is_owned_by_the_exact_screen_instance() {
+    let mut state = provider_state(true);
+    let provider_id = action_id("vendor.deploy.ship");
+    state.record_unavailable_action(Some(provider_id), "provider stopped after ready".to_owned());
+    assert!(state.provider_surface_projection(24).is_some());
+
+    state.enter_screen(ScreenId::Issues);
+
+    assert!(
+        state.provider_surface_projection(24).is_none(),
+        "a provider surface owned by the suspended root must not leak into the current instance"
+    );
+}
+
+#[test]
+fn generic_confirmation_keeps_render_authority_over_a_provider_surface() {
+    let mut state = provider_state(true);
+    state.record_unavailable_action(
+        Some(action_id("vendor.deploy.ship")),
+        "provider stopped after ready".to_owned(),
+    );
+    assert!(state.provider_surface_projection(24).is_some());
+    assert!(state.open_confirmation_payload(
+        crate::state::screen_overlays::ConfirmationRequest::ServerLostRecovery {
+            agent_ids: Vec::new(),
+        },
+    ));
+
+    assert!(
+        state.provider_surface_projection(24).is_none(),
+        "the exact generic confirmation owner must not be visually replaced by provider state"
+    );
+}
+
+#[test]
+fn provider_request_surface_projects_only_for_its_exact_screen_instance() {
+    let mut state = provider_state(true);
+    let owner = Id::parse("vendor.deploy").unwrap_or_else(|error| panic!("owner: {error}"));
+    let action = Id::parse("vendor.deploy.ship").unwrap_or_else(|error| panic!("action: {error}"));
+    let screen = Id::parse(state.nav.current().screen.as_str())
+        .unwrap_or_else(|error| panic!("screen: {error}"));
+    let instance = Id::parse(&state.nav.current().id.to_string())
+        .unwrap_or_else(|error| panic!("instance: {error}"));
+    let context = crate::domain::TypedMap::new();
+    let arguments = crate::domain::TypedMap::new();
+    let policy = crate::state::provider_requests::ActionPolicy::new(
+        crate::domain::plugin::action::ActionConfirmation::None,
+        vec![crate::domain::plugin::action::ActionOutcome::Notice],
+        false,
+    );
+    state
+        .provider_requests
+        .invoke(crate::state::provider_requests::InvokeInput {
+            owner: &owner,
+            action_id: &action,
+            context_screen: &screen,
+            context_instance: &instance,
+            context_refs: &context,
+            arguments: &arguments,
+            policy: &policy,
+        })
+        .unwrap_or_else(|error| panic!("invoke: {error}"));
+    let owner_projection = state
+        .provider_surface_projection(24)
+        .unwrap_or_else(|| panic!("owner surface"));
+    assert_eq!(owner_projection.rows.len(), 2);
+
+    let owner_instance = state.nav.current().id;
+    state.enter_screen(ScreenId::Issues);
+    assert!(state.provider_surface_projection(24).is_none());
+
+    state = state.apply(AppEvent::Back).committed_pure();
+    assert_eq!(state.nav.current().id, owner_instance);
+    assert_eq!(
+        state
+            .provider_surface_projection(24)
+            .unwrap_or_else(|| panic!("restored owner surface"))
+            .rows
+            .len(),
+        2
+    );
+}
 /// Compiled actions must still be recomputed from host state, or the refresh
 /// would stop doing its job.
 #[test]

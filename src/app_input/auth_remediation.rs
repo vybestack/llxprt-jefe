@@ -37,19 +37,35 @@ pub(super) fn offer_auth_remediation(
     true
 }
 
-/// Pure decision: should we offer the auth dialog for this error, given the
-/// current modal state? Returns `true` when the error indicates gh is
-/// unauthenticated AND no modal is currently open.
-///
-/// Split out so the decision is unit-testable without spawning `gh` or
-/// constructing an iocraft `HookState`.
+/// Pure decision: is this a not-authenticated error with no opened modal or
+/// declared blocking overlay? The live boundary cannot be exercised in unit tests (it
+/// takes an iocraft `HookState`), so the reducer-fail-closed overlay/legacy-modal
+/// reads are covered through the state-backed seam below.
 pub(super) fn should_offer_auth_remediation(error: &str, app_state: &AppStateHandle) -> bool {
-    is_auth_remediation_candidate(error, &app_state.read().modal)
+    let state = app_state.read();
+    let offer = is_not_authenticated_error(error) && state.modal == jefe::state::ModalState::None;
+    let blocked = state.nav.current().overlays().active().is_some();
+    drop(state);
+    offer && !blocked
 }
 
-/// Pure predicate: the error indicates gh is unauthenticated and no modal is
-/// open, so the auth remediation dialog should be offered.
+/// Pure predicate backed only by the field reads the live boundary uses. The seam
+/// exists because `AppStateHandle` (an iocraft `HookState`) cannot be constructed
+/// inside unit tests. Keep the two call sites in lockstep.
+#[cfg(test)]
+fn should_offer_auth_remediation_for_state(error: &str, state: &jefe::state::AppState) -> bool {
+    // The reducer's exclusive-presentation guard is the authority: auth may offer
+    // only when the legacy modal is closed AND no declared overlay is active.
+    let offer = is_not_authenticated_error(error) && state.modal == jefe::state::ModalState::None;
+    let blocked = state.nav.current().overlays().active().is_some();
+    offer && !blocked
+}
+
+/// Pure predicate: the error indicates gh is unauthenticated and the legacy modal
+/// form is closed. (Test-only seam: the live boundary also consults the declared
+/// confirmation overlay, which this pure helper cannot see.)
 #[must_use]
+#[cfg(test)]
 pub(super) fn is_auth_remediation_candidate(error: &str, modal: &jefe::state::ModalState) -> bool {
     is_not_authenticated_error(error) && *modal == jefe::state::ModalState::None
 }
@@ -151,9 +167,16 @@ fn failure_message(stderr: &str) -> String {
 }
 
 #[cfg(test)]
+fn test_published_workbench()
+-> &'static std::sync::Arc<jefe::published_workbench::PublishedWorkbench> {
+    super::super::test_published_workbench()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use jefe::state::ModalState;
+    use jefe::state::transition::TransitionExt;
 
     #[test]
     fn failure_message_uses_stderr_when_present() {
@@ -202,7 +225,49 @@ mod tests {
         // Never clobber an existing modal (e.g. a form the user is editing).
         assert!(!is_auth_remediation_candidate(
             "gh is not authenticated. Run: gh auth login",
-            &ModalState::Help
+            &ModalState::NewRepository {
+                fields: jefe::state::RepositoryFormFields::default(),
+                focus: jefe::state::RepositoryFormFocus::default(),
+                cursor: jefe::state::RepositoryFormCursor::default(),
+            }
         ));
+    }
+
+    #[test]
+    fn auth_remediation_is_refused_while_a_confirmation_overlay_is_admitted() {
+        let workbench = std::sync::Arc::clone(test_published_workbench());
+        // Drive the declared Confirmation overlay through the event path and prove
+        // the boundary reports no remediation (the reducer fail-closes the dialog
+        // and no `gh auth login` is spawned).
+        let state = jefe::state::AppState::new(workbench.clone());
+        let state = state
+            .apply(jefe::state::AppEvent::OpenDeleteRepository(
+                jefe::domain::RepositoryId("repo".to_owned()),
+            ))
+            .committed_pure();
+        assert!(
+            state
+                .nav
+                .current()
+                .overlays()
+                .confirmation_focus()
+                .is_some()
+        );
+
+        // Reuse the same workbench for a plain (no overlay) state.
+        let plain = jefe::state::AppState::new(workbench);
+        assert!(
+            plain
+                .nav
+                .current()
+                .overlays()
+                .confirmation_focus()
+                .is_none()
+        );
+        assert_eq!(plain.modal, ModalState::None);
+
+        let error = "gh is not authenticated. Run: gh auth login";
+        assert!(should_offer_auth_remediation_for_state(error, &plain));
+        assert!(!should_offer_auth_remediation_for_state(error, &state));
     }
 }

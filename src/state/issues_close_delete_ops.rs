@@ -321,6 +321,7 @@ impl AppState {
             self.issues_state.issue_focus = super::IssueFocus::IssueList;
         }
         self.fix_issue_selection_after_delete(deleted_index, selected_index);
+        self.sync_issue_selected_resource();
         self.issues_state.draft_notice = Some(format!("Deleted issue #{issue_number}"));
         true
     }

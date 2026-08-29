@@ -6,29 +6,20 @@
 use super::types::PaneFocus;
 use crate::domain::{AgentLaunchRequest, RepositoryId};
 
+/// Visible temporary-shell controller state owned by one exact screen instance.
 ///
-/// Tracks whether the temporary shell window is open and which agent it
-/// belongs to. The overlay is runtime-only: it is not persisted, and closing
-/// it restores the normal dashboard.
-///
-/// Issue #361 PR A: `inventory` mirrors every agent that currently owns a
-/// live `jefe-shell` window (visible or hidden). The visible overlay is
-/// still tracked by `agent_id`; the inventory lets F10 resume a hidden
-/// shell and lets the background observer reconcile hidden exits.
+/// The process inventory is application-wide and intentionally lives outside
+/// this presentation value. Suspending a screen retains only which shell it is
+/// presenting, the focus to restore, and the generation that rejects stale
+/// observers for that exact instance.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ShellOverlayState {
-    /// The agent whose session hosts the currently *visible* temporary shell
-    /// window. `None` means no shell overlay is visible (the dashboard owns
-    /// the layout). A hidden shell still exists in `inventory`.
+    /// The agent whose shell is visible in this screen instance.
     pub agent_id: Option<crate::domain::AgentId>,
-    /// Monotonic identity for an open/resume operation, used to reject stale observers.
+    /// Monotonic open/resume identity used to reject stale observers.
     pub generation: u64,
-    /// Dashboard pane focus restored when the visible shell hides/closes.
+    /// Pane focus restored when this instance's visible shell hides or closes.
     pub previous_pane_focus: Option<PaneFocus>,
-    /// Runtime-only inventory of every agent owning a live `jefe-shell`
-    /// window, visible or hidden (issue #361). Updated only after runtime
-    /// success/disappearance.
-    pub inventory: super::ShellInventory,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -161,16 +152,6 @@ pub struct TransientAgentQueue {
     pub pending: Vec<QueuedTransientSend>,
 }
 
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-005
-/// Saved agent-mode focus for restoration on exit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PriorAgentFocus {
-    pub pane_focus: PaneFocus,
-    pub selected_repository_index: Option<usize>,
-    pub selected_agent_index: Option<usize>,
-}
-
 /// Focus areas within GitHub Actions mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ActionsFocus {
@@ -259,7 +240,6 @@ pub struct ActionsState {
     pub next_detail_request_id: u64,
     pub workflows_pending: Option<WorkflowsPending>,
     pub next_workflows_request_id: u64,
-    pub prior_agent_focus: Option<PriorAgentFocus>,
     pub dispatch_pending: Option<ActionsDispatchPending>,
     pub next_dispatch_request_id: u64,
     /// Decomposed loading/pending state (detail-only now).

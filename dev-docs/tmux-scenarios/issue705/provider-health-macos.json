@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "name": "issue705-provider-health-macos",
+  "platform": "macos",
+  "terminal": {
+    "cols": 160,
+    "rows": 50
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.deploy",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.deploy/1.0.0",
+        "mode": 448
+      },
+      {
+        "path": "config/plugins/installed/vendor.deploy/1.0.0/bin",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "settings_schema = 2\n\n[plugins.\"vendor.deploy\"]\nenabled = true\nversion = \"1.0.0\"\n\n[keymap.\"dashboard\"]\n\"vendor.deploy.ship\" = [\"F2\"]\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.deploy/1.0.0/plugin.json",
+        "content": {
+          "utf8": "{\n  \"manifest_schema\": 1,\n  \"id\": \"vendor.deploy\",\n  \"version\": \"1.0.0\",\n  \"display_name\": \"Vendor Deploy\",\n  \"host_api\": { \"minimum\": \"0.0.1\", \"maximum\": \"99.0.0\" },\n  \"protocol\": 1,\n  \"provider\": { \"mode\": \"persistent\", \"binaries\": { \"aarch64-apple-darwin\": \"bin/deploy\", \"x86_64-unknown-linux-gnu\": \"bin/deploy\" } },\n  \"actions\": [\n    {\n      \"id\": \"vendor.deploy.ship\",\n      \"label\": \"Ship release\",\n      \"description\": \"Ship the selected release through the vendor provider\",\n      \"category\": \"vendor.deploy\",\n      \"contexts\": [\"dashboard\"],\n      \"arguments\": [],\n      \"timeout_seconds\": 60,\n      \"destructive\": false,\n      \"confirmation\": \"none\",\n      \"handler\": \"ship\",\n      \"allowed_outcomes\": [\"notice\"]\n    }\n  ],\n  \"panels\": [],\n  \"routes\": [],\n  \"screens\": []\n}\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/plugins/installed/vendor.deploy/1.0.0/bin/deploy",
+        "content": {
+          "utf8": "#!/bin/sh\nset -eu\nread -r hello\ngeneration=$(printf '%s\\n' \"$hello\" | sed -n 's/.*\"generation\":\\([0-9][0-9]*\\).*/\\1/p')\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"hello-ack\\\",\\\"request_id\\\":\\\"p-100001\\\",\\\"generation\\\":$generation,\\\"payload\\\":{\\\"provider_name\\\":\\\"scenario-provider\\\",\\\"protocol\\\":1}}\"\nread -r configure\nprintf '%s\\n' \"{\\\"protocol\\\":1,\\\"type\\\":\\\"ready\\\",\\\"request_id\\\":\\\"p-100002\\\",\\\"generation\\\":$generation,\\\"payload\\\":{\\\"capabilities\\\":[\\\"actions\\\"]}}\"\nexit 23\n"
+        },
+        "mode": 493
+      }
+    ],
+    "env": []
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [
+        {
+          "name": "JEFE_SOCKET_PATH",
+          "value": "${workspace}/s"
+        },
+        {
+          "name": "JEFE_LOG_FILE",
+          "value": "${workspace}/jefe.log"
+        }
+      ],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Agents",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "f2",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "provider stopped after ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Provider Action",
+        "Ship release",
+        "provider stopped after ready",
+        "Esc Close"
+      ],
+      "absent": [
+        "Enter Retry",
+        "Esc Cancel"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "f2",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "provider stopped after ready",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Provider Action",
+        "Ship release",
+        "provider stopped after ready"
+      ],
+      "absent": [
+        "Enter Retry",
+        "Esc Cancel"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

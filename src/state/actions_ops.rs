@@ -5,10 +5,7 @@
 //! screen-specific side effects (error, detail reset) based on the returned
 //! `AcceptOutcome`.
 
-use super::{
-    ActionsFocus, AppState, ModalState, PaneFocus, PriorAgentFocus, ScreenId,
-    actions_load_ops::RunsLoadData,
-};
+use super::{ActionsFocus, AppState, ModalState, ScreenId, actions_load_ops::RunsLoadData};
 use crate::domain::{ActionsFilter, RepositoryId};
 use crate::messages::ActionsMessage;
 
@@ -20,12 +17,11 @@ const ACTIONS_FILTER_FIELD_COUNT: usize = 5;
 impl AppState {
     /// Enter actions mode, saving prior focus state.
     fn enter_actions_mode(&mut self) -> bool {
-        self.actions_state.prior_agent_focus = Some(PriorAgentFocus {
-            pane_focus: self.pane_focus,
-            selected_repository_index: self.selected_repository_index,
-            selected_agent_index: self.selected_agent_index,
-        });
+        let source_repository_index = self.selected_repository_index;
+        let source_agent_index = self.selected_agent_index;
         let _ = self.show_screen(ScreenId::Actions);
+        self.selected_repository_index = source_repository_index;
+        self.selected_agent_index = source_agent_index;
         self.actions_state.active = true;
         self.actions_state.focus = ActionsFocus::RunList;
         self.actions_state.list.clear();
@@ -57,32 +53,10 @@ impl AppState {
         true
     }
 
-    /// Exit actions mode, restoring prior focus state.
+    /// Exit actions mode after clearing transient state on the disposed instance.
     fn exit_actions_mode(&mut self) {
-        let _ = self.leave_screen();
         self.actions_state.active = false;
-        if let Some(prior) = self.actions_state.prior_agent_focus.take() {
-            self.pane_focus = prior.pane_focus;
-            if let Some(idx) = prior.selected_agent_index {
-                if idx < self.agents.len() {
-                    self.selected_agent_index = Some(idx);
-                } else {
-                    self.pane_focus = PaneFocus::Agents;
-                    self.selected_agent_index = if self.agents.is_empty() {
-                        None
-                    } else {
-                        Some(0)
-                    };
-                }
-            }
-            if let Some(idx) = prior.selected_repository_index
-                && idx < self.repositories.len()
-            {
-                self.selected_repository_index = Some(idx);
-            }
-        } else {
-            self.pane_focus = PaneFocus::Agents;
-        }
+        let _ = self.leave_screen();
     }
 
     fn refocus_list(&mut self) -> bool {
@@ -395,6 +369,9 @@ impl AppState {
     }
 
     fn open_workflow_dispatch(&mut self, workflow: crate::domain::Workflow) -> bool {
+        if self.active_overlay_kind().is_some() || !matches!(self.modal, ModalState::None) {
+            return false;
+        }
         let ref_name = if let Some(detail) = &self.actions_state.run_detail {
             detail.run.head_branch.clone()
         } else if let Some(idx) = self.actions_state.list.selected_index()

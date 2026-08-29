@@ -27,7 +27,7 @@ use jefe::domain::{
     Agent, AgentId, AgentLaunchRequest, PrCheckStatus, PrState, PullRequest,
     RemoteRepositorySettings, Repository, RepositoryId,
 };
-use jefe::state::{AppEvent, AppState, PrFocus, PrLifecycleEvent, ReadOnlyHintKind, ScreenId};
+use jefe::state::{AppEvent, AppState, PrFocus, PrLifecycleEvent, ReadOnlyHintKind};
 
 // Import only the submodule paths (NOT iocraft::prelude::* which shadows
 // std::boxed::Box). The private fn pr_send_info_from_state is visible to
@@ -137,7 +137,7 @@ impl ApplyInPlace for AppState {
 #[test]
 fn it_enter_prs_mode_from_dashboard_loads_list() {
     let dashboard = dashboard_prs_state();
-    assert_eq!(dashboard.screen(), ScreenId::Dashboard);
+    assert_eq!(dashboard.screen(), jefe::workbench::DASHBOARD_IDENTITY);
 
     let resolved = crate::app_shell_key_routing::resolve_compiled_registry_key(
         &dashboard,
@@ -968,7 +968,7 @@ fn test_background_refresh_skips_when_detail_load_in_flight() {
     // Not on the PR view → must NOT refresh.
     assert!(
         !should_background_refresh(BackgroundRefreshGuard {
-            screen: ScreenId::Dashboard,
+            screen: ScreenId::Repositories,
             list_reload_pending: false,
             detail_pending: false,
             is_idle: false,

@@ -3,7 +3,16 @@
 //! @plan PLAN-20260624-PR-MODE.P03
 //! @requirement REQ-PR-002
 //! @pseudocode component-004 lines 46-50
+//!
+//! Every domain converter returns [`ControlFlow`]; events no domain claims
+//! flow to [`AppMessage::from_unrouted_event`], which reports the drift as a
+//! captured error on the errors screen instead of panicking. This keeps the
+//! `AppEvent` -> `AppMessage` conversion total without `unreachable!` tails
+//! and without duplicating variant lists in routing classifiers.
 
+use std::ops::ControlFlow;
+
+use crate::domain::ErrorSource;
 use crate::state::AppEvent;
 use crate::state::observation_events::ObservationEvent;
 
@@ -17,7 +26,8 @@ impl From<AppEvent> for AppMessage {
     fn from(event: AppEvent) -> Self {
         match event {
             AppEvent::EffectCompletion(completion) => Self::EffectCompletion(completion),
-            AppEvent::NavigateUp
+            AppEvent::Back
+            | AppEvent::NavigateUp
             | AppEvent::NavigateDown
             | AppEvent::NavigatePageUp(_)
             | AppEvent::NavigatePageDown(_)
@@ -30,11 +40,7 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::JumpToAgentByShortcut(_)
             | AppEvent::CyclePaneFocus
             | AppEvent::ToggleTerminalFocus
-            | AppEvent::ToggleHideIdleRepositories => Self::from_nav_event(event),
-            AppEvent::FocusDashboardSearch
-            | AppEvent::BlurDashboardSearch
-            | AppEvent::SetDashboardSearchQuery { .. }
-            | AppEvent::ClearDashboardSearch => Self::from_dashboard_search_event(event),
+            | AppEvent::ToggleHideIdleRepositories => Self::claim_nav_event(event),
             AppEvent::EnterSplitMode
             | AppEvent::ExitSplitMode
             | AppEvent::EnterGrabMode
@@ -55,7 +61,7 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::OpenShellOverlay
             | AppEvent::CloseShellOverlay
             | AppEvent::HideShellOverlay
-            | AppEvent::ResumeShellOverlay(_) => Self::from_split_grab_or_scroll_event(event),
+            | AppEvent::ResumeShellOverlay(_) => Self::claim_split_grab_or_scroll_event(event),
             AppEvent::OpenHelp
             | AppEvent::OpenSearch
             | AppEvent::CloseModal
@@ -70,135 +76,201 @@ impl From<AppEvent> for AppMessage {
             | AppEvent::FormMoveCursorEnd
             | AppEvent::FormNextField
             | AppEvent::FormPrevField
-            | AppEvent::FormToggleCheckbox => Self::from_modal_event(event),
+            | AppEvent::FormToggleCheckbox => Self::claim_modal_event(event),
             other => Self::from_non_ui_nav_event(other),
         }
     }
 }
 
 impl AppMessage {
-    /// Convert navigation [`AppEvent`] variants into UI-navigation messages.
-    /// Split out so the top-level converter stays within the clippy line budget.
-    fn from_nav_event(event: AppEvent) -> Self {
-        use UiNavigationMessage as U;
-        match event {
-            AppEvent::NavigateUp => Self::UiNavigation(U::NavigateUp),
-            AppEvent::NavigateDown => Self::UiNavigation(U::NavigateDown),
-            AppEvent::NavigatePageUp(page) => Self::UiNavigation(U::NavigatePageUp(page)),
-            AppEvent::NavigatePageDown(page) => Self::UiNavigation(U::NavigatePageDown(page)),
-            AppEvent::NavigateHome => Self::UiNavigation(U::NavigateHome),
-            AppEvent::NavigateEnd => Self::UiNavigation(U::NavigateEnd),
-            AppEvent::NavigateLeft => Self::UiNavigation(U::NavigateLeft),
-            AppEvent::NavigateRight => Self::UiNavigation(U::NavigateRight),
-            AppEvent::SelectRepository(index) => Self::UiNavigation(U::SelectRepository(index)),
-            AppEvent::SelectAgent(index) => Self::UiNavigation(U::SelectAgent(index)),
-            AppEvent::JumpToAgentByShortcut(slot) => {
-                Self::UiNavigation(U::JumpToAgentByShortcut(slot))
-            }
-            AppEvent::CyclePaneFocus => Self::UiNavigation(U::CyclePaneFocus),
-            AppEvent::ToggleTerminalFocus => Self::UiNavigation(U::ToggleTerminalFocus),
-            AppEvent::ToggleHideIdleRepositories => {
-                Self::UiNavigation(U::ToggleHideIdleRepositories)
-            }
-            _ => unreachable!("non-navigation AppEvent routed to from_nav_event"),
+    /// Claim a navigation-grouped event or report it as unroutable drift.
+    fn claim_nav_event(event: AppEvent) -> Self {
+        match Self::from_nav_event(event) {
+            ControlFlow::Break(message) => message,
+            ControlFlow::Continue(unclaimed) => Self::from_unrouted_event(unclaimed),
         }
     }
 
-    /// Convert dashboard "search lite" [`AppEvent`] variants into UI-navigation
-    /// messages (issue #405). Split out so the top-level converter stays within
-    /// the clippy line budget.
-    fn from_dashboard_search_event(event: AppEvent) -> Self {
+    /// Claim a split/grab/scroll-grouped event or report it as unroutable drift.
+    fn claim_split_grab_or_scroll_event(event: AppEvent) -> Self {
+        match Self::from_split_grab_or_scroll_event(event) {
+            ControlFlow::Break(message) => message,
+            ControlFlow::Continue(unclaimed) => Self::from_unrouted_event(unclaimed),
+        }
+    }
+    /// Claim a modal-grouped event or report it as unroutable drift.
+    fn claim_modal_event(event: AppEvent) -> Self {
+        match Self::from_modal_event(event) {
+            ControlFlow::Break(message) => message,
+            ControlFlow::Continue(unclaimed) => Self::from_unrouted_event(unclaimed),
+        }
+    }
+
+    /// Convert navigation [`AppEvent`] variants into UI-navigation messages.
+    /// Split out so the top-level converter stays within the clippy line budget.
+    fn from_nav_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         use UiNavigationMessage as U;
         match event {
-            AppEvent::FocusDashboardSearch => Self::UiNavigation(U::FocusDashboardSearch),
-            AppEvent::BlurDashboardSearch => Self::UiNavigation(U::BlurDashboardSearch),
-            AppEvent::SetDashboardSearchQuery { query } => {
-                Self::UiNavigation(U::SetDashboardSearchQuery { query })
+            AppEvent::Back => ControlFlow::Break(Self::UiNavigation(U::Back)),
+            AppEvent::NavigateUp => ControlFlow::Break(Self::UiNavigation(U::NavigateUp)),
+            AppEvent::NavigateDown => ControlFlow::Break(Self::UiNavigation(U::NavigateDown)),
+            AppEvent::NavigatePageUp(page) => {
+                ControlFlow::Break(Self::UiNavigation(U::NavigatePageUp(page)))
             }
-            AppEvent::ClearDashboardSearch => Self::UiNavigation(U::ClearDashboardSearch),
-            _ => {
-                unreachable!("non-dashboard-search AppEvent routed to from_dashboard_search_event")
+            AppEvent::NavigatePageDown(page) => {
+                ControlFlow::Break(Self::UiNavigation(U::NavigatePageDown(page)))
             }
+            AppEvent::NavigateHome => ControlFlow::Break(Self::UiNavigation(U::NavigateHome)),
+            AppEvent::NavigateEnd => ControlFlow::Break(Self::UiNavigation(U::NavigateEnd)),
+            AppEvent::NavigateLeft => ControlFlow::Break(Self::UiNavigation(U::NavigateLeft)),
+            AppEvent::NavigateRight => ControlFlow::Break(Self::UiNavigation(U::NavigateRight)),
+            AppEvent::SelectRepository(index) => {
+                ControlFlow::Break(Self::UiNavigation(U::SelectRepository(index)))
+            }
+            AppEvent::SelectAgent(index) => {
+                ControlFlow::Break(Self::UiNavigation(U::SelectAgent(index)))
+            }
+            AppEvent::JumpToAgentByShortcut(slot) => {
+                ControlFlow::Break(Self::UiNavigation(U::JumpToAgentByShortcut(slot)))
+            }
+            AppEvent::CyclePaneFocus => ControlFlow::Break(Self::UiNavigation(U::CyclePaneFocus)),
+            AppEvent::ToggleTerminalFocus => {
+                ControlFlow::Break(Self::UiNavigation(U::ToggleTerminalFocus))
+            }
+            AppEvent::ToggleHideIdleRepositories => {
+                ControlFlow::Break(Self::UiNavigation(U::ToggleHideIdleRepositories))
+            }
+            other => ControlFlow::Continue(other),
         }
     }
 
     /// Convert multi-agent workbench [`AppEvent`] variants into UI-navigation
     /// messages (issue #626). Split out so the top-level converter stays within
     /// the clippy line budget.
-    fn from_workbench_event(event: AppEvent) -> Self {
+    fn from_workbench_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         use UiNavigationMessage as U;
         match event {
             AppEvent::ToggleWorkbenchStatusBucket(bucket) => {
-                Self::UiNavigation(U::ToggleWorkbenchStatusBucket(bucket))
+                ControlFlow::Break(Self::UiNavigation(U::ToggleWorkbenchStatusBucket(bucket)))
             }
-            AppEvent::WorkbenchNextPage => Self::UiNavigation(U::WorkbenchNextPage),
-            AppEvent::WorkbenchPrevPage => Self::UiNavigation(U::WorkbenchPrevPage),
-            AppEvent::WorkbenchFilterCursorPrev => Self::UiNavigation(U::WorkbenchFilterCursorPrev),
-            AppEvent::WorkbenchFilterCursorNext => Self::UiNavigation(U::WorkbenchFilterCursorNext),
-            AppEvent::WorkbenchSelectPrev => Self::UiNavigation(U::WorkbenchSelectPrev),
-            AppEvent::WorkbenchSelectNext => Self::UiNavigation(U::WorkbenchSelectNext),
-            AppEvent::WorkbenchAttach => Self::UiNavigation(U::WorkbenchAttach),
-            _ => unreachable!("non-workbench AppEvent routed to from_workbench_event"),
+            AppEvent::WorkbenchNextPage => {
+                ControlFlow::Break(Self::UiNavigation(U::WorkbenchNextPage))
+            }
+            AppEvent::WorkbenchPrevPage => {
+                ControlFlow::Break(Self::UiNavigation(U::WorkbenchPrevPage))
+            }
+            AppEvent::WorkbenchFilterCursorPrev => {
+                ControlFlow::Break(Self::UiNavigation(U::WorkbenchFilterCursorPrev))
+            }
+            AppEvent::WorkbenchFilterCursorNext => {
+                ControlFlow::Break(Self::UiNavigation(U::WorkbenchFilterCursorNext))
+            }
+            AppEvent::WorkbenchSelectPrev => {
+                ControlFlow::Break(Self::UiNavigation(U::WorkbenchSelectPrev))
+            }
+            AppEvent::WorkbenchSelectNext => {
+                ControlFlow::Break(Self::UiNavigation(U::WorkbenchSelectNext))
+            }
+            AppEvent::WorkbenchAttach => ControlFlow::Break(Self::UiNavigation(U::WorkbenchAttach)),
+            other => ControlFlow::Continue(other),
         }
     }
 
     /// Convert modal/form [`AppEvent`] variants into modal messages. Split out
     /// so the top-level converter stays within the clippy line budget.
-    fn from_modal_event(event: AppEvent) -> Self {
+    fn from_modal_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
-            AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
-            AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
-            AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
-            AppEvent::SubmitForm => Self::Modal(ModalMessage::SubmitForm),
-            AppEvent::ConfirmCycleFocus => Self::Modal(ModalMessage::ConfirmCycleFocus),
-            AppEvent::FormChar(c) => Self::Modal(ModalMessage::FormChar(c)),
-            AppEvent::FormBackspace => Self::Modal(ModalMessage::FormBackspace),
-            AppEvent::FormDelete => Self::Modal(ModalMessage::FormDelete),
-            AppEvent::FormMoveCursorLeft => Self::Modal(ModalMessage::FormMoveCursorLeft),
-            AppEvent::FormMoveCursorRight => Self::Modal(ModalMessage::FormMoveCursorRight),
-            AppEvent::FormMoveCursorStart => Self::Modal(ModalMessage::FormMoveCursorStart),
-            AppEvent::FormMoveCursorEnd => Self::Modal(ModalMessage::FormMoveCursorEnd),
-            AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
-            AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
-            AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
-            _ => unreachable!("non-modal AppEvent routed to from_modal_event"),
+            AppEvent::OpenHelp => ControlFlow::Break(Self::Modal(ModalMessage::OpenHelp)),
+            AppEvent::OpenSearch => ControlFlow::Break(Self::Modal(ModalMessage::OpenSearch)),
+            AppEvent::CloseModal => ControlFlow::Break(Self::Modal(ModalMessage::CloseModal)),
+            AppEvent::SubmitForm => ControlFlow::Break(Self::Modal(ModalMessage::SubmitForm)),
+            AppEvent::ConfirmCycleFocus => {
+                ControlFlow::Break(Self::Modal(ModalMessage::ConfirmCycleFocus))
+            }
+            AppEvent::FormChar(c) => ControlFlow::Break(Self::Modal(ModalMessage::FormChar(c))),
+            AppEvent::FormBackspace => ControlFlow::Break(Self::Modal(ModalMessage::FormBackspace)),
+            AppEvent::FormDelete => ControlFlow::Break(Self::Modal(ModalMessage::FormDelete)),
+            AppEvent::FormMoveCursorLeft => {
+                ControlFlow::Break(Self::Modal(ModalMessage::FormMoveCursorLeft))
+            }
+            AppEvent::FormMoveCursorRight => {
+                ControlFlow::Break(Self::Modal(ModalMessage::FormMoveCursorRight))
+            }
+            AppEvent::FormMoveCursorStart => {
+                ControlFlow::Break(Self::Modal(ModalMessage::FormMoveCursorStart))
+            }
+            AppEvent::FormMoveCursorEnd => {
+                ControlFlow::Break(Self::Modal(ModalMessage::FormMoveCursorEnd))
+            }
+            AppEvent::FormNextField => ControlFlow::Break(Self::Modal(ModalMessage::FormNextField)),
+            AppEvent::FormPrevField => ControlFlow::Break(Self::Modal(ModalMessage::FormPrevField)),
+            AppEvent::FormToggleCheckbox => {
+                ControlFlow::Break(Self::Modal(ModalMessage::FormToggleCheckbox))
+            }
+            other => ControlFlow::Continue(other),
         }
     }
 
     /// Convert split-mode, dashboard-grab, and terminal-scrollback
     /// [`AppEvent`] variants into UI-navigation messages. Split out so the
     /// top-level converter stays within the clippy line budget.
-    fn from_split_grab_or_scroll_event(event: AppEvent) -> Self {
+    fn from_split_grab_or_scroll_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         use UiNavigationMessage as U;
         match event {
-            AppEvent::EnterSplitMode => Self::UiNavigation(U::EnterSplitMode),
-            AppEvent::ExitSplitMode => Self::UiNavigation(U::ExitSplitMode),
-            AppEvent::EnterGrabMode => Self::UiNavigation(U::EnterGrabMode),
-            AppEvent::ExitGrabMode => Self::UiNavigation(U::ExitGrabMode),
-            AppEvent::GrabMoveUp => Self::UiNavigation(U::GrabMoveUp),
-            AppEvent::GrabMoveDown => Self::UiNavigation(U::GrabMoveDown),
-            AppEvent::SetSplitFilter(filter) => Self::UiNavigation(U::SetSplitFilter(filter)),
-            AppEvent::EnterDashboardGrab => Self::UiNavigation(U::EnterDashboardGrab),
-            AppEvent::ExitDashboardGrab => Self::UiNavigation(U::ExitDashboardGrab),
-            AppEvent::DashboardGrabMoveUp => Self::UiNavigation(U::DashboardGrabMoveUp),
-            AppEvent::DashboardGrabMoveDown => Self::UiNavigation(U::DashboardGrabMoveDown),
-            // Terminal scrollback viewport events (issue #198).
-            AppEvent::TerminalScrollUp => Self::UiNavigation(U::TerminalScrollUp),
-            AppEvent::TerminalScrollDown => Self::UiNavigation(U::TerminalScrollDown),
-            AppEvent::TerminalScrollPageUp => Self::UiNavigation(U::TerminalScrollPageUp),
-            AppEvent::TerminalScrollPageDown => Self::UiNavigation(U::TerminalScrollPageDown),
-            AppEvent::TerminalFollowTail => Self::UiNavigation(U::TerminalFollowTail),
-            AppEvent::TerminalScrollToTop => Self::UiNavigation(U::TerminalScrollToTop),
-            // Shell-overlay events (issue #222).
-            AppEvent::OpenShellOverlay => Self::UiNavigation(U::OpenShellOverlay),
-            AppEvent::CloseShellOverlay => Self::UiNavigation(U::CloseShellOverlay),
-            AppEvent::HideShellOverlay => Self::UiNavigation(U::HideShellOverlay),
-            AppEvent::ResumeShellOverlay(agent_id) => {
-                Self::UiNavigation(U::ResumeShellOverlay(agent_id))
+            AppEvent::EnterSplitMode => ControlFlow::Break(Self::UiNavigation(U::EnterSplitMode)),
+            AppEvent::ExitSplitMode => ControlFlow::Break(Self::UiNavigation(U::ExitSplitMode)),
+            AppEvent::EnterGrabMode => ControlFlow::Break(Self::UiNavigation(U::EnterGrabMode)),
+            AppEvent::ExitGrabMode => ControlFlow::Break(Self::UiNavigation(U::ExitGrabMode)),
+            AppEvent::GrabMoveUp => ControlFlow::Break(Self::UiNavigation(U::GrabMoveUp)),
+            AppEvent::GrabMoveDown => ControlFlow::Break(Self::UiNavigation(U::GrabMoveDown)),
+            AppEvent::SetSplitFilter(filter) => {
+                ControlFlow::Break(Self::UiNavigation(U::SetSplitFilter(filter)))
             }
-            _ => unreachable!(
-                "non-split/grab/scroll AppEvent routed to from_split_grab_or_scroll_event"
-            ),
+            AppEvent::EnterDashboardGrab => {
+                ControlFlow::Break(Self::UiNavigation(U::EnterDashboardGrab))
+            }
+            AppEvent::ExitDashboardGrab => {
+                ControlFlow::Break(Self::UiNavigation(U::ExitDashboardGrab))
+            }
+            AppEvent::DashboardGrabMoveUp => {
+                ControlFlow::Break(Self::UiNavigation(U::DashboardGrabMoveUp))
+            }
+            AppEvent::DashboardGrabMoveDown => {
+                ControlFlow::Break(Self::UiNavigation(U::DashboardGrabMoveDown))
+            }
+            // Terminal scrollback viewport events (issue #198).
+            AppEvent::TerminalScrollUp => {
+                ControlFlow::Break(Self::UiNavigation(U::TerminalScrollUp))
+            }
+            AppEvent::TerminalScrollDown => {
+                ControlFlow::Break(Self::UiNavigation(U::TerminalScrollDown))
+            }
+            AppEvent::TerminalScrollPageUp => {
+                ControlFlow::Break(Self::UiNavigation(U::TerminalScrollPageUp))
+            }
+            AppEvent::TerminalScrollPageDown => {
+                ControlFlow::Break(Self::UiNavigation(U::TerminalScrollPageDown))
+            }
+            AppEvent::TerminalFollowTail => {
+                ControlFlow::Break(Self::UiNavigation(U::TerminalFollowTail))
+            }
+            AppEvent::TerminalScrollToTop => {
+                ControlFlow::Break(Self::UiNavigation(U::TerminalScrollToTop))
+            }
+            // Shell-overlay events (issue #222).
+            AppEvent::OpenShellOverlay => {
+                ControlFlow::Break(Self::UiNavigation(U::OpenShellOverlay))
+            }
+            AppEvent::CloseShellOverlay => {
+                ControlFlow::Break(Self::UiNavigation(U::CloseShellOverlay))
+            }
+            AppEvent::HideShellOverlay => {
+                ControlFlow::Break(Self::UiNavigation(U::HideShellOverlay))
+            }
+            AppEvent::ResumeShellOverlay(agent_id) => {
+                ControlFlow::Break(Self::UiNavigation(U::ResumeShellOverlay(agent_id)))
+            }
+            other => ControlFlow::Continue(other),
         }
     }
 
@@ -215,7 +287,10 @@ impl AppMessage {
             | AppEvent::WorkbenchFilterCursorNext
             | AppEvent::WorkbenchSelectPrev
             | AppEvent::WorkbenchSelectNext
-            | AppEvent::WorkbenchAttach => Self::from_workbench_event(event),
+            | AppEvent::WorkbenchAttach => match Self::from_workbench_event(event) {
+                ControlFlow::Break(message) => message,
+                ControlFlow::Continue(unclaimed) => Self::from_unrouted_event(unclaimed),
+            },
             AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
             AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
             AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
@@ -240,13 +315,21 @@ impl AppMessage {
             AppEvent::PersistenceSaveFailed(error) => {
                 Self::Persistence(PersistenceMessage::SaveFailed(error))
             }
+            AppEvent::StageDurableSave => Self::Persistence(PersistenceMessage::StageSave),
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
             AppEvent::Settings(message) => Self::Settings(message),
             AppEvent::Provider(message) => Self::Provider(message),
+            other => Self::from_system_event(other),
+        }
+    }
+
+    /// System-channel events (quit, error/warning clearing, auth remediation
+    /// from issue #244, transient-agent queueing).
+    fn from_system_event(event: AppEvent) -> Self {
+        match event {
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
-            // Auth remediation events route to the System channel (issue #244).
             AppEvent::OpenAuthDialog => Self::System(SystemMessage::OpenAuthDialog),
             AppEvent::AuthCodeReceived { code, url } => {
                 Self::System(SystemMessage::AuthCodeReceived { code, url })
@@ -259,7 +342,6 @@ impl AppMessage {
                 Self::System(SystemMessage::TransientAgentQueued { queue_position })
             }
             AppEvent::TransientAgentDequeued => Self::System(SystemMessage::TransientAgentDequeued),
-            // Catch-all: repository/agent events, then issues/PRs/actions.
             other => Self::from_repository_agent_event(other),
         }
     }
@@ -301,323 +383,77 @@ impl AppMessage {
         }
     }
 
-    /// Convert issues-domain [`AppEvent`] variants into the typed message bus.
+    /// Convert issues-domain [`AppEvent`] variants into the typed message bus,
+    /// or hand the event to the next domain try-converter.
     fn from_issues_event(event: AppEvent) -> Self {
-        if Self::is_issues_event(&event) {
-            Self::Issues(IssuesMessage::from_app_event(event))
-        } else if Self::is_actions_event(&event) {
-            Self::Actions(ActionsMessage::from_app_event(event))
-        } else if Self::is_errors_event(&event) {
-            Self::Errors(ErrorsMessage::from_app_event(event))
-        } else if Self::is_terminal_manager_event(&event) {
-            Self::TerminalManager(TerminalManagerMessage::from_app_event(event))
-        } else {
-            // @plan PLAN-20260624-PR-MODE.P03
-            // @requirement REQ-PR-002
-            Self::from_prs_event(event)
+        match IssuesMessage::try_from_app_event(event) {
+            ControlFlow::Break(message) => Self::Issues(message),
+            ControlFlow::Continue(event) => Self::from_actions_event(event),
         }
     }
 
-    /// Whether the event belongs to the issues domain.
-    fn is_issues_event(event: &AppEvent) -> bool {
-        Self::is_issues_nav_event(event) || Self::is_issues_data_event(event)
+    /// Convert actions-domain [`AppEvent`] variants into the typed message bus,
+    /// or hand the event to the next domain try-converter.
+    fn from_actions_event(event: AppEvent) -> Self {
+        match ActionsMessage::try_from_app_event(event) {
+            ControlFlow::Break(message) => Self::Actions(message),
+            ControlFlow::Continue(event) => Self::from_errors_event(event),
+        }
     }
 
-    /// Whether the event belongs to the errors domain (issue #292).
-    fn is_errors_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::EnterErrorsMode
-                | AppEvent::ExitErrorsMode
-                | AppEvent::RefocusErrorList
-                | AppEvent::ErrorsNavigateUp
-                | AppEvent::ErrorsNavigateDown
-                | AppEvent::ErrorsNavigateHome
-                | AppEvent::ErrorsNavigateEnd
-                | AppEvent::ErrorsEnter
-                | AppEvent::ErrorsCycleFocus
-                | AppEvent::ErrorsCycleFocusReverse
-                | AppEvent::ErrorsScrollDetailUp
-                | AppEvent::ErrorsScrollDetailDown
-                | AppEvent::ErrorsScrollDetailPageUp
-                | AppEvent::ErrorsScrollDetailPageDown
-                | AppEvent::CaptureSilentError(..)
-                | AppEvent::ErrorsClearAll
-        )
+    /// Convert errors-domain [`AppEvent`] variants into the typed message bus,
+    /// or hand the event to the next domain try-converter.
+    fn from_errors_event(event: AppEvent) -> Self {
+        match ErrorsMessage::try_from_app_event(event) {
+            ControlFlow::Break(message) => Self::Errors(message),
+            ControlFlow::Continue(event) => Self::from_terminal_manager_event(event),
+        }
     }
 
-    /// Whether the event belongs to the terminal-manager domain (issue #361
-    /// PR B).
-    fn is_terminal_manager_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::EnterTerminalManagerMode
-                | AppEvent::ExitTerminalManagerMode
-                | AppEvent::TerminalManagerNavigateUp
-                | AppEvent::TerminalManagerNavigateDown
-                | AppEvent::TerminalManagerNavigateHome
-                | AppEvent::TerminalManagerNavigateEnd
-                | AppEvent::RequestShellFocus { .. }
-                | AppEvent::ConfirmShellFocus(_)
-                | AppEvent::FailShellFocus
-                | AppEvent::ShellPreviewResult { .. }
-                | AppEvent::ShellClosed(_)
-        )
-    }
-
-    /// Whether the event belongs to the actions domain.
-    fn is_actions_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::EnterActionsMode
-                | AppEvent::EnterActionsModeWithPrFilter { .. }
-                | AppEvent::ExitActionsMode
-                | AppEvent::RefocusActionsList
-                | AppEvent::ActionsReload
-                | AppEvent::ActionsNavigateUp
-                | AppEvent::ActionsNavigateDown
-                | AppEvent::ActionsNavigatePageUp(_)
-                | AppEvent::ActionsNavigatePageDown(_)
-                | AppEvent::ActionsNavigateHome
-                | AppEvent::ActionsNavigateEnd
-                | AppEvent::ActionsEnter
-                | AppEvent::ActionsCycleFocus
-                | AppEvent::ActionsCycleFocusReverse
-                | AppEvent::ActionsSetDetailGeometry { .. }
-                | AppEvent::ActionsScrollDetailUp
-                | AppEvent::ActionsScrollDetailDown
-                | AppEvent::ActionsExpandJob
-                | AppEvent::ActionsCollapseJob
-                | AppEvent::ActionsDetailEscape
-                | AppEvent::ActionsNavigateJobUp
-                | AppEvent::ActionsNavigateJobDown
-                | AppEvent::ActionsBeginDetailReload { .. }
-                | AppEvent::ActionsRunsLoaded { .. }
-                | AppEvent::ActionsRunsLoadFailed { .. }
-                | AppEvent::ActionsRunsPageLoaded { .. }
-                | AppEvent::ActionsRunsPageLoadFailed { .. }
-                | AppEvent::ActionsDetailLoaded { .. }
-                | AppEvent::ActionsDetailLoadFailed { .. }
-                | AppEvent::WorkflowsLoaded { .. }
-                | AppEvent::WorkflowsLoadFailed { .. }
-                | AppEvent::ActionsOpenFilterControls
-                | AppEvent::ActionsCloseFilterControls
-                | AppEvent::ActionsApplyFilter
-                | AppEvent::ActionsClearFilter
-                | AppEvent::ActionsClearDraftFilter
-                | AppEvent::ActionsFilterNavigateNext
-                | AppEvent::ActionsFilterNavigatePrev
-                | AppEvent::ActionsCycleFilterStatus
-                | AppEvent::CycleActionsSortByNext
-                | AppEvent::CycleActionsSortByPrev
-                | AppEvent::ToggleActionsSortOrder
-                | AppEvent::ActionsFocusSearchInput
-                | AppEvent::ActionsBlurSearchInput
-                | AppEvent::ActionsSetSearchQuery { .. }
-                | AppEvent::ActionsApplySearch
-                | AppEvent::ActionsClearSearch
-                | AppEvent::ActionsUpdateDraftFilter { .. }
-                | AppEvent::OpenWorkflowDispatch(_)
-                | AppEvent::CloseWorkflowDispatch
-                | AppEvent::WorkflowDispatchSubmitted { .. }
-                | AppEvent::WorkflowDispatchSuccess { .. }
-                | AppEvent::WorkflowDispatchFailed { .. }
-        )
-    }
-
-    /// Whether the event is an issues navigation/lifecycle event.
-    fn is_issues_nav_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::EnterIssuesMode
-                | AppEvent::ExitIssuesMode
-                | AppEvent::RefocusIssueList
-                | AppEvent::IssuesNavigateUp
-                | AppEvent::IssuesNavigateDown
-                | AppEvent::IssuesNavigatePageUp(_)
-                | AppEvent::IssuesNavigatePageDown(_)
-                | AppEvent::IssuesNavigateHome
-                | AppEvent::IssuesNavigateEnd
-                | AppEvent::IssuesEnter
-                | AppEvent::IssuesCycleFocus
-                | AppEvent::IssuesCycleFocusReverse
-                | AppEvent::IssuesScrollDetailUp
-                | AppEvent::IssuesScrollDetailDown
-                | AppEvent::IssuesScrollDetailPageUp
-                | AppEvent::IssuesScrollDetailPageDown
-                | AppEvent::IssueDetailSubfocusNext
-                | AppEvent::IssueDetailSubfocusPrev
-                | AppEvent::OpenFilterControls
-                | AppEvent::CloseFilterControls
-                | AppEvent::ApplyFilter
-                | AppEvent::ClearFilter
-                | AppEvent::ClearDraftFilter
-                | AppEvent::FilterNavigateNext
-                | AppEvent::FilterNavigatePrev
-                | AppEvent::CycleFilterState
-                | AppEvent::CycleIssueSortByNext
-                | AppEvent::CycleIssueSortByPrev
-                | AppEvent::ToggleIssueSortOrder
-                | AppEvent::FocusSearchInput
-                | AppEvent::BlurSearchInput
-                | AppEvent::SetSearchQuery { .. }
-                | AppEvent::ApplySearch
-                | AppEvent::ClearSearch
-                | AppEvent::UpdateDraftFilter { .. }
-        )
-    }
-
-    /// Whether the event is an issues data/mutation/agent event.
-    fn is_issues_data_event(event: &AppEvent) -> bool {
-        Self::is_issues_core_data_event(event)
-            || matches!(
-                event,
-                AppEvent::BeginIssueListSendDetail(..)
-                    | AppEvent::CancelIssueListSendDetail
-                    | AppEvent::IssueListSendDetailReady { .. }
-                    | AppEvent::IssueDetailAuthRequired(..)
-            )
-            || Self::is_new_issue_form_data_event(event)
-            || Self::is_issue_property_data_event(event)
-    }
-
-    /// Core issues data/mutation/lifecycle/agent events (issue inline composer,
-    /// close/delete, agent chooser). Split from `is_issues_data_event` to stay
-    /// under the clippy too-many-lines limit (issue #407).
-    fn is_issues_core_data_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::IssueListLoaded { .. }
-                | AppEvent::IssueListLoadFailed { .. }
-                | AppEvent::IssueListPageLoaded { .. }
-                | AppEvent::IssueDetailLoaded { .. }
-                | AppEvent::IssueDetailLoadFailed { .. }
-                | AppEvent::IssueCommentsPageLoaded { .. }
-                | AppEvent::IssueCommentsPageFailed { .. }
-                | AppEvent::OpenNewIssueComposer
-                | AppEvent::OpenNewCommentComposer
-                | AppEvent::OpenReplyComposer { .. }
-                | AppEvent::OpenInlineEditor { .. }
-                | AppEvent::InlineChar(_)
-                | AppEvent::InlineNewline
-                | AppEvent::InlineBackspace
-                | AppEvent::InlineDelete
-                | AppEvent::InlineCursorLeft
-                | AppEvent::InlineCursorRight
-                | AppEvent::InlineCursorUp
-                | AppEvent::InlineCursorDown
-                | AppEvent::InlineCursorHome
-                | AppEvent::InlineCursorEnd
-                | AppEvent::InlineSubmit
-                | AppEvent::InlineCancelOrEsc
-                | AppEvent::RequestIssueRewrite
-                | AppEvent::IssueRewriteSucceeded { .. }
-                | AppEvent::IssueRewriteFailed { .. }
-                | AppEvent::MutationSubmitted { .. }
-                | AppEvent::IssueCreated { .. }
-                | AppEvent::CommentCreated { .. }
-                | AppEvent::CommentCreateFailed { .. }
-                | AppEvent::IssueBodyUpdated { .. }
-                | AppEvent::CommentUpdated { .. }
-                | AppEvent::MutationFailed { .. }
-                | AppEvent::CloseIssue
-                | AppEvent::OpenDeleteIssueConfirm
-                | AppEvent::IssueDeleteConfirm
-                | AppEvent::IssueDeleteCancel
-                | AppEvent::IssueClosed { .. }
-                | AppEvent::IssueDeleted { .. }
-                | AppEvent::OpenCloseReasonChooser
-                | AppEvent::CloseReasonNavigateUp
-                | AppEvent::CloseReasonNavigateDown
-                | AppEvent::CloseReasonSelect
-                | AppEvent::CloseReasonDuplicateSearchChar(_)
-                | AppEvent::CloseReasonDuplicateSearchBackspace
-                | AppEvent::CloseReasonDuplicateSearchNavigateUp
-                | AppEvent::CloseReasonDuplicateSearchNavigateDown
-                | AppEvent::CloseReasonConfirm
-                | AppEvent::CloseReasonCancel
-                | AppEvent::OpenAgentChooser { .. }
-                | AppEvent::AgentChooserNavigateUp
-                | AppEvent::AgentChooserNavigateDown
-                | AppEvent::AgentChooserConfirm
-                | AppEvent::AgentChooserCancel
-                | AppEvent::SendToAgentCompleted
-                | AppEvent::SendToAgentFailed { .. }
-                | AppEvent::IssueSelfAssignmentFailed { .. }
-        )
-    }
-
-    /// Whether the event is a New Issue dialog data/agent event.
-    fn is_new_issue_form_data_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::OpenNewIssueComposer
-                | AppEvent::NewIssueTemplateNext
-                | AppEvent::NewIssueTypeNext
-                | AppEvent::NewIssueTitleChar(_)
-                | AppEvent::NewIssueTitleBackspace
-                | AppEvent::NewIssueTitleDelete
-                | AppEvent::NewIssueTitleCursorLeft
-                | AppEvent::NewIssueTitleCursorRight
-                | AppEvent::NewIssueTitleCursorHome
-                | AppEvent::NewIssueTitleCursorEnd
-                | AppEvent::NewIssueBodyChar(_)
-                | AppEvent::NewIssueBodyNewline
-                | AppEvent::NewIssueBodyBackspace
-                | AppEvent::NewIssueBodyDelete
-                | AppEvent::NewIssueBodyCursorLeft
-                | AppEvent::NewIssueBodyCursorRight
-                | AppEvent::NewIssueBodyCursorUp
-                | AppEvent::NewIssueBodyCursorDown
-                | AppEvent::NewIssueBodyCursorHome
-                | AppEvent::NewIssueBodyCursorEnd
-                | AppEvent::NewIssueFocusNext
-                | AppEvent::NewIssueFocusPrev
-                | AppEvent::NewIssueSubmit
-                | AppEvent::NewIssueCancel
-                | AppEvent::NewIssueCreated { .. }
-                | AppEvent::NewIssueCreateFailed { .. }
-                | AppEvent::NewIssueOptionsLoaded { .. }
-                | AppEvent::NewIssueOptionsFailed { .. }
-        )
-    }
-
-    /// Property-editor and silent-refresh issues events (issue #175).
-    fn is_issue_property_data_event(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::IssueOpenPropertyEditor { .. }
-                | AppEvent::IssuePropertyEditorNavigateUp
-                | AppEvent::IssuePropertyEditorNavigateDown
-                | AppEvent::IssuePropertyEditorToggle
-                | AppEvent::IssuePropertyEditorConfirm
-                | AppEvent::IssuePropertyEditorCancel
-                | AppEvent::IssuePropertyEditorTitleChar(_)
-                | AppEvent::IssuePropertyEditorTitleBackspace
-                | AppEvent::IssuePropertyEditorTitleDelete
-                | AppEvent::IssuePropertyEditorTitleCursorLeft
-                | AppEvent::IssuePropertyEditorTitleCursorRight
-                | AppEvent::IssuePropertyEditorTitleCursorHome
-                | AppEvent::IssuePropertyEditorTitleCursorEnd
-                | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
-                | AppEvent::IssuePropertyEditorOptionsFailed { .. }
-                | AppEvent::IssuePropertyEditSucceeded { .. }
-                | AppEvent::IssuePostMutationRefreshStarted
-                | AppEvent::IssuePropertyEditFailed { .. }
-                | AppEvent::IssuePropertyEditorValidationError { .. }
-                | AppEvent::IssueListSilentRefreshed { .. }
-                | AppEvent::IssueListSilentRefreshFailed { .. }
-                | AppEvent::IssueDetailSilentRefreshed { .. }
-                | AppEvent::IssueDetailSilentRefreshFailed { .. }
-        )
+    /// Convert terminal-manager-domain [`AppEvent`] variants into the typed
+    /// message bus, or hand the event to the PR try-converter.
+    fn from_terminal_manager_event(event: AppEvent) -> Self {
+        match TerminalManagerMessage::try_from_app_event(event) {
+            ControlFlow::Break(message) => Self::TerminalManager(message),
+            ControlFlow::Continue(event) => Self::from_prs_event(event),
+        }
     }
 
     /// Convert PR-domain [`AppEvent`] variants into the typed message bus.
     ///
     /// @pseudocode component-004 lines 46-50
     fn from_prs_event(event: AppEvent) -> Self {
-        Self::PullRequests(PullRequestsMessage::from_app_event(event))
+        match PullRequestsMessage::try_from_app_event(event) {
+            ControlFlow::Break(message) => Self::PullRequests(message),
+            ControlFlow::Continue(unclaimed) => Self::from_unrouted_event(unclaimed),
+        }
     }
+
+    /// Report an event that no message domain claimed.
+    ///
+    /// The try-converter chain above is exhaustive over `AppEvent`, so this is
+    /// only reachable when a new variant is added without a converter arm.
+    /// Drift is surfaced on the errors screen (mirroring the panic-capture
+    /// route) instead of crashing the TUI.
+    fn from_unrouted_event(event: AppEvent) -> Self {
+        Self::Errors(ErrorsMessage::CaptureSilent {
+            title: "Unroutable AppEvent".to_owned(),
+            detail: format!("{event:?} matched no message domain"),
+            source: ErrorSource::Panic,
+            timestamp: unix_timestamp(),
+        })
+    }
+}
+
+/// Unix epoch seconds used to stamp a captured converter-drift error, matching
+/// the panic-capture timestamp convention.
+fn unix_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or_else(
+            |_| "0".to_owned(),
+            |duration| duration.as_secs().to_string(),
+        )
 }
 
 impl From<AppMessage> for AppEvent {
@@ -647,6 +483,7 @@ impl From<AppMessage> for AppEvent {
 impl From<UiNavigationMessage> for AppEvent {
     fn from(message: UiNavigationMessage) -> Self {
         match message {
+            UiNavigationMessage::Back => Self::Back,
             UiNavigationMessage::NavigateUp => Self::NavigateUp,
             UiNavigationMessage::NavigateDown => Self::NavigateDown,
             UiNavigationMessage::NavigatePageUp(page) => Self::NavigatePageUp(page),
@@ -661,12 +498,6 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::CyclePaneFocus => Self::CyclePaneFocus,
             UiNavigationMessage::ToggleTerminalFocus => Self::ToggleTerminalFocus,
             UiNavigationMessage::ToggleHideIdleRepositories => Self::ToggleHideIdleRepositories,
-            UiNavigationMessage::FocusDashboardSearch => Self::FocusDashboardSearch,
-            UiNavigationMessage::BlurDashboardSearch => Self::BlurDashboardSearch,
-            UiNavigationMessage::SetDashboardSearchQuery { query } => {
-                Self::SetDashboardSearchQuery { query }
-            }
-            UiNavigationMessage::ClearDashboardSearch => Self::ClearDashboardSearch,
             UiNavigationMessage::EnterSplitMode => Self::EnterSplitMode,
             UiNavigationMessage::ExitSplitMode => Self::ExitSplitMode,
             UiNavigationMessage::EnterGrabMode => Self::EnterGrabMode,
@@ -797,5 +628,36 @@ impl From<SystemMessage> for AppEvent {
             }
             SystemMessage::TransientAgentDequeued => Self::TransientAgentDequeued,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stage_durable_save_routes_to_persistence() {
+        assert!(matches!(
+            AppMessage::from(AppEvent::StageDurableSave),
+            AppMessage::Persistence(PersistenceMessage::StageSave)
+        ));
+    }
+
+    #[test]
+    fn domain_events_route_through_try_converters() {
+        assert!(matches!(
+            AppMessage::from(AppEvent::Quit),
+            AppMessage::System(SystemMessage::Quit)
+        ));
+        assert!(matches!(
+            AppMessage::from(AppEvent::ErrorsNavigateDown),
+            AppMessage::Errors(ErrorsMessage::Navigate(crate::messages::NavDir::Down))
+        ));
+        assert!(matches!(
+            AppMessage::from(AppEvent::TerminalManagerNavigateUp),
+            AppMessage::TerminalManager(TerminalManagerMessage::Navigate(
+                crate::messages::NavDir::Up
+            ))
+        ));
     }
 }

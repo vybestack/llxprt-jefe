@@ -175,6 +175,125 @@ pub(super) fn validate_effective_binding_count(
     }
 }
 
+pub(super) fn validate_declared_bindings(
+    actions: &[Action],
+    bindings: &[Binding],
+    declared: &[(ContextId, ActionId)],
+    fallback: &ContextStack,
+) -> Result<(), RegistryDiagnostic> {
+    for (index, (context, action_id)) in declared.iter().enumerate() {
+        let binding = declared_binding(actions, bindings, &declared[..index], context, action_id)?;
+        validate_prior_declaration_conflicts(bindings, &declared[..index], binding)?;
+        validate_fallback_conflicts(actions, bindings, fallback, binding)?;
+    }
+    Ok(())
+}
+
+fn declared_binding<'a>(
+    actions: &[Action],
+    bindings: &'a [Binding],
+    prior: &[(ContextId, ActionId)],
+    context: &ContextId,
+    action_id: &ActionId,
+) -> Result<&'a Binding, RegistryDiagnostic> {
+    if prior
+        .iter()
+        .any(|(prior_context, prior_action)| prior_context == context && prior_action == action_id)
+    {
+        return Err(diagnostic(RegistryDiagnosticKind::DuplicateBinding(
+            context.clone(),
+            action_id.clone(),
+        )));
+    }
+    let action = find_action(actions, action_id)
+        .ok_or_else(|| diagnostic(RegistryDiagnosticKind::UnknownAction(action_id.clone())))?;
+    if !action.contexts.contains(context) {
+        return Err(diagnostic(RegistryDiagnosticKind::ActionContextMismatch(
+            context.clone(),
+            action_id.clone(),
+        )));
+    }
+    if action.protected {
+        return Err(diagnostic(RegistryDiagnosticKind::ProtectedDeclared(
+            action_id.clone(),
+            context.clone(),
+        )));
+    }
+    bindings
+        .iter()
+        .find(|binding| {
+            binding.context == *context
+                && binding.action == *action_id
+                && !binding.chords.is_empty()
+        })
+        .ok_or_else(|| {
+            diagnostic(RegistryDiagnosticKind::DeclaredUnbound(
+                action_id.clone(),
+                context.clone(),
+            ))
+        })
+}
+
+fn validate_prior_declaration_conflicts(
+    bindings: &[Binding],
+    prior: &[(ContextId, ActionId)],
+    binding: &Binding,
+) -> Result<(), RegistryDiagnostic> {
+    for (prior_context, prior_action) in prior {
+        if *prior_action == binding.action {
+            continue;
+        }
+        let Some(candidate) = bindings.iter().find(|candidate| {
+            candidate.context == *prior_context
+                && candidate.action == *prior_action
+                && !candidate.chords.is_empty()
+        }) else {
+            continue;
+        };
+        if let Some(chord) = overlapping_chord(candidate, binding) {
+            return Err(diagnostic(RegistryDiagnosticKind::ImplicitShadow(
+                candidate.context.clone(),
+                binding.context.clone(),
+                chord,
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_fallback_conflicts(
+    actions: &[Action],
+    bindings: &[Binding],
+    fallback: &ContextStack,
+    binding: &Binding,
+) -> Result<(), RegistryDiagnostic> {
+    let mut implicit_shadow = None;
+    for fallback_context in fallback.iter() {
+        for host in bindings.iter().filter(|candidate| {
+            candidate.context == *fallback_context && candidate.action != binding.action
+        }) {
+            let Some(chord) = overlapping_chord(binding, host) else {
+                continue;
+            };
+            if binding_is_protected(actions, host) {
+                return Err(diagnostic(RegistryDiagnosticKind::ProtectedShadowed(
+                    host.action.clone(),
+                    host.context.clone(),
+                    chord,
+                )));
+            }
+            implicit_shadow.get_or_insert_with(|| {
+                RegistryDiagnosticKind::ImplicitShadow(
+                    binding.context.clone(),
+                    host.context.clone(),
+                    chord,
+                )
+            });
+        }
+    }
+    implicit_shadow.map_or(Ok(()), |kind| Err(diagnostic(kind)))
+}
+
 pub(super) fn validate_context_conflicts(bindings: &[Binding]) -> Result<(), RegistryDiagnostic> {
     for (index, first) in bindings.iter().enumerate() {
         for second in &bindings[index + 1..] {

@@ -19,16 +19,16 @@
 use crate::domain::Id;
 use crate::domain::effects::{ProviderContinuation, ProviderInvocation, ProviderRequestKey};
 use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
+use crate::domain::plugin_config::validate_fields;
 use crate::runtime::provider::protocol::Outcome;
 
 use super::provider_request_model::{ConfirmationBinding, PendingConfirmation, RequestStatus};
-use super::types::ConfirmFocus;
 
 // Re-export public data types so consumers reach them through this module.
 pub use super::provider_request_model::{
     ActionPolicy, ActiveRequest, CONFIRMATION_TTL_SECONDS, CancelOutcome, ConfirmInput,
     ConfirmOutcome, InvokeInput, InvokeOutcome, MAX_ACTIVE_REQUESTS, PendingConfirmationView,
-    ProviderRequestError, UnavailableReason,
+    ProviderConfirmationIdentity, ProviderRequestError, UnavailableReason,
 };
 
 /// Allocate the next generation, failing typed on u64 exhaustion.
@@ -41,6 +41,18 @@ pub(super) fn next_generation(current: u64) -> Result<u64, ProviderRequestError>
         .ok_or(ProviderRequestError::GenerationExhausted)
 }
 
+fn confirmation_matches(
+    pending: &PendingConfirmation,
+    identity: &ProviderConfirmationIdentity,
+) -> bool {
+    pending.confirmation_id == *identity.confirmation_id()
+        && pending.binding.owner == *identity.owner()
+        && pending.binding.action_id == *identity.action_id()
+        && pending.binding.generation == identity.generation()
+        && pending.binding.context_screen == *identity.context_screen()
+        && pending.binding.context_instance == *identity.context_instance()
+}
+
 /// Fields borrowed from a `RequestHostConfirmation` outcome for confirmation
 /// token creation.
 struct ConfirmationFields<'a> {
@@ -49,6 +61,20 @@ struct ConfirmationFields<'a> {
     body: &'a str,
     confirm_label: &'a str,
     continuation_schema: &'a [crate::domain::plugin::field::Field],
+}
+
+pub(crate) fn validate_continuation_schema(
+    schema: &[crate::domain::plugin::field::Field],
+) -> Result<(), ProviderRequestError> {
+    let host_decision_id = crate::domain::Id::internal(crate::domain::InternalId::OverlayDecision);
+    for (index, field) in schema.iter().enumerate() {
+        if field.id() == &host_decision_id
+            || schema[..index].iter().any(|prior| prior.id() == field.id())
+        {
+            return Err(ProviderRequestError::InvalidContinuationSchema);
+        }
+    }
+    Ok(())
 }
 
 /// Validate one outcome against the immutable action policy.
@@ -60,14 +86,18 @@ struct ConfirmationFields<'a> {
 /// never reach this action-outcome validator.
 fn validate_outcome(policy: &ActionPolicy, outcome: &Outcome) -> Result<(), ProviderRequestError> {
     match outcome {
-        Outcome::RequestHostConfirmation { destructive, .. } => {
+        Outcome::RequestHostConfirmation {
+            destructive,
+            continuation_schema,
+            ..
+        } => {
             if policy.confirmation() != ActionConfirmation::ProviderContinuation
                 || !policy.allows(ActionOutcome::RequestHostConfirmation)
                 || *destructive != policy.destructive()
             {
                 return Err(ProviderRequestError::PolicyViolation);
             }
-            Ok(())
+            validate_continuation_schema(continuation_schema)
         }
         Outcome::Navigate { .. } => {
             if policy.allows(ActionOutcome::NavigateDeclaredRoute) {
@@ -101,7 +131,6 @@ fn validate_outcome(policy: &ActionPolicy, outcome: &Outcome) -> Result<(), Prov
 pub struct ProviderRequestState {
     requests: Vec<ActiveRequest>,
     pending_confirmations: Vec<PendingConfirmation>,
-    confirmation_focus: ConfirmFocus,
     next_generation: u64,
 }
 
@@ -136,46 +165,52 @@ impl ProviderRequestState {
         self.pending_confirmations.len()
     }
 
-    /// Focused control for the current provider confirmation.
+    /// Read the oldest pending confirmation regardless of owner context.
     #[must_use]
-    pub const fn confirmation_focus(&self) -> ConfirmFocus {
-        self.confirmation_focus
+    pub fn first_pending_confirmation(&self) -> Option<PendingConfirmationView<'_>> {
+        self.pending_confirmations
+            .first()
+            .map(PendingConfirmation::view)
     }
 
-    /// Move focus between the safe cancel control and the declared confirm
-    /// control. Returns whether a pending confirmation owned the input.
-    pub fn cycle_confirmation_focus(&mut self) -> bool {
-        if self.pending_confirmations.is_empty() {
+    /// Consume one exact pending confirmation without starting invocation B.
+    pub fn cancel_confirmation(&mut self, identity: &ProviderConfirmationIdentity) -> bool {
+        let Some(index) = self
+            .pending_confirmations
+            .iter()
+            .position(|pending| confirmation_matches(pending, identity))
+        else {
             return false;
-        }
-        self.confirmation_focus = match self.confirmation_focus {
-            ConfirmFocus::Cancel => ConfirmFocus::Confirm,
-            ConfirmFocus::Confirm => ConfirmFocus::Cancel,
         };
+        self.pending_confirmations.remove(index);
         true
     }
 
-    /// Consume the latest pending confirmation without starting invocation B.
-    /// Returns whether a token was cancelled.
-    pub fn cancel_latest_confirmation(&mut self) -> bool {
-        let cancelled = self.pending_confirmations.pop().is_some();
-        if cancelled {
-            self.confirmation_focus = ConfirmFocus::Cancel;
-        }
-        cancelled
+    /// Read one exact pending provider confirmation.
+    #[must_use]
+    pub fn pending_confirmation_view(
+        &self,
+        identity: &ProviderConfirmationIdentity,
+    ) -> Option<PendingConfirmationView<'_>> {
+        self.pending_confirmations
+            .iter()
+            .find(|pending| confirmation_matches(pending, identity))
+            .map(PendingConfirmation::view)
     }
 
-    /// Read-only view of the most recently registered pending confirmation's
-    /// UI fields, if any (CW10-08/CW10-13).
-    ///
-    /// The pure view projection reads the exact declared title/body/confirm
-    /// label/continuation schema from this view rather than from caller-supplied
-    /// strings, so the rendered confirmation is byte-identical to what the
-    /// provider declared.
+    /// Read the oldest queued confirmation owned by one exact screen instance.
     #[must_use]
-    pub fn latest_pending_confirmation_view(&self) -> Option<PendingConfirmationView<'_>> {
+    pub fn first_pending_confirmation_for(
+        &self,
+        context_screen: &str,
+        context_instance: &str,
+    ) -> Option<PendingConfirmationView<'_>> {
         self.pending_confirmations
-            .last()
+            .iter()
+            .find(|pending| {
+                pending.binding.context_screen.as_str() == context_screen
+                    && pending.binding.context_instance.as_str() == context_instance
+            })
             .map(PendingConfirmation::view)
     }
 
@@ -204,6 +239,17 @@ impl ProviderRequestState {
     pub fn drain_terminal(&mut self) -> usize {
         let before = self.requests.len();
         self.requests.retain(|req| !req.is_terminal());
+        before - self.requests.len()
+    }
+
+    /// Remove observed terminal requests owned by one exact screen instance.
+    pub fn drain_terminal_for(&mut self, context_screen: &str, context_instance: &str) -> usize {
+        let before = self.requests.len();
+        self.requests.retain(|request| {
+            !request.is_terminal()
+                || request.context_screen.as_str() != context_screen
+                || request.context_instance.as_str() != context_instance
+        });
         before - self.requests.len()
     }
 
@@ -388,9 +434,11 @@ impl ProviderRequestState {
         };
         let arguments = self.requests[index].arguments.clone();
         let policy = self.requests[index].policy.clone();
-        // Replace any existing token for the same confirmation id (single-use).
-        self.pending_confirmations
-            .retain(|token| token.confirmation_id != *fields.confirmation_id);
+        // Replace only the same authenticated single-use token. Provider-supplied
+        // ids are scoped by the immutable invocation binding, not globally.
+        self.pending_confirmations.retain(|token| {
+            token.confirmation_id != *fields.confirmation_id || token.binding != binding
+        });
         self.pending_confirmations.push(PendingConfirmation {
             binding,
             confirmation_id: fields.confirmation_id.clone(),
@@ -402,7 +450,6 @@ impl ProviderRequestState {
             arguments,
             policy,
         });
-        self.confirmation_focus = ConfirmFocus::Cancel;
     }
 
     /// Record a terminal error (first terminal wins, CW10-09).
@@ -490,8 +537,9 @@ impl ProviderRequestState {
     /// atomically. The exact owner/action/context/generation binding and
     /// confirmation id must match, and the token must not be expired. The
     /// generation counter is advanced **only** when the token is validated and
-    /// consumed: an invalid confirm returns [`ConfirmationNotFound`] without
-    /// advancing the counter, and an expired confirm consumes the token
+    /// consumed: an unknown confirm returns [`ConfirmationNotFound`], while a
+    /// changed screen/resource binding returns [`ProviderRequestError::StaleContext`],
+    /// both without advancing the counter; an expired confirm consumes the token
     /// (fail-fast single-use, so a repeated expired attempt cannot probe or
     /// reuse it) without advancing the counter. Generation exhaustion preserves
     /// the token: the next generation is computed without mutating, then the
@@ -506,8 +554,8 @@ impl ProviderRequestState {
     ///
     /// Returns [`ProviderRequestError::ActiveLimitExceeded`],
     /// [`ProviderRequestError::GenerationExhausted`],
-    /// [`ProviderRequestError::ConfirmationNotFound`], or
-    /// [`ProviderRequestError::Expired`].
+    /// [`ProviderRequestError::ConfirmationNotFound`],
+    /// [`ProviderRequestError::StaleContext`], or [`ProviderRequestError::Expired`].
     ///
     /// [`ConfirmationNotFound`]: ProviderRequestError::ConfirmationNotFound
     pub fn confirm(
@@ -515,50 +563,63 @@ impl ProviderRequestState {
         input: ConfirmInput<'_>,
         now_epoch: u64,
     ) -> Result<ConfirmOutcome, ProviderRequestError> {
+        let position = self.validate_confirmation(&input, now_epoch)?;
+        self.commit_confirmation(position, input)
+    }
+
+    fn validate_confirmation(
+        &mut self,
+        input: &ConfirmInput<'_>,
+        now_epoch: u64,
+    ) -> Result<usize, ProviderRequestError> {
         if self.live_count() >= MAX_ACTIVE_REQUESTS {
             return Err(ProviderRequestError::ActiveLimitExceeded {
                 limit: MAX_ACTIVE_REQUESTS,
             });
         }
-        let expected = ConfirmationBinding {
-            owner: input.owner.clone(),
-            action_id: input.action_id.clone(),
-            context_screen: input.context_screen.clone(),
-            context_instance: input.context_instance.clone(),
-            context_refs: input.context_refs.clone(),
-            generation: input.generation,
-        };
-        // Immutable lookup first: an invalid confirm must not advance the
-        // generation counter, so nothing is mutated until the exact token is
-        // found.
         let position = self
             .pending_confirmations
             .iter()
             .position(|token| {
-                token.confirmation_id == *input.confirmation_id && token.binding == expected
+                token.confirmation_id == *input.confirmation_id
+                    && token.binding.owner == *input.owner
+                    && token.binding.action_id == *input.action_id
+                    && token.binding.generation == input.generation
             })
             .ok_or(ProviderRequestError::ConfirmationNotFound)?;
-
-        // Fail-fast single-use expiry: an expired token is consumed once so a
-        // repeated expired attempt cannot probe or reuse it, but no generation
-        // is allocated (the counter is not advanced).
-        let elapsed = now_epoch.saturating_sub(self.pending_confirmations[position].created_epoch);
+        let token = &self.pending_confirmations[position];
+        if token.binding.context_screen != *input.context_screen
+            || token.binding.context_instance != *input.context_instance
+            || token.binding.context_refs != *input.context_refs
+        {
+            return Err(ProviderRequestError::StaleContext);
+        }
+        let elapsed = now_epoch.saturating_sub(token.created_epoch);
         if elapsed >= CONFIRMATION_TTL_SECONDS {
             self.pending_confirmations.remove(position);
-            self.confirmation_focus = ConfirmFocus::Cancel;
             return Err(ProviderRequestError::Expired { elapsed });
         }
+        let has_exact_fields = token.continuation_schema.len() == input.values.len()
+            && token
+                .continuation_schema
+                .iter()
+                .all(|field| input.values.contains_key(field.id()));
+        if !has_exact_fields
+            || !validate_fields(&token.continuation_schema, input.values).is_empty()
+        {
+            return Err(ProviderRequestError::InvalidContinuationValues);
+        }
+        Ok(position)
+    }
 
-        // Compute the next generation without mutating so generation
-        // exhaustion preserves the single-use token; only then consume the
-        // token and commit the generation/request together (atomic).
+    fn commit_confirmation(
+        &mut self,
+        position: usize,
+        input: ConfirmInput<'_>,
+    ) -> Result<ConfirmOutcome, ProviderRequestError> {
         let generation = next_generation(self.next_generation)?;
         let token = self.pending_confirmations.remove(position);
-        self.confirmation_focus = ConfirmFocus::Cancel;
         self.next_generation = generation;
-
-        // Build invocation B from the consumed token's original invocation A
-        // data, carrying the exact continuation values.
         let key = ProviderRequestKey {
             owner: token.binding.owner.clone(),
             action_id: token.binding.action_id.clone(),
@@ -630,3 +691,7 @@ mod tests;
 #[cfg(test)]
 #[path = "provider_request_red_tests.rs"]
 mod red_tests;
+
+#[cfg(test)]
+#[path = "provider_requests_continuation_tests.rs"]
+mod continuation_tests;

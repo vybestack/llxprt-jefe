@@ -32,12 +32,11 @@ impl AppState {
             agent_id: Some(agent_id.clone()),
             generation: self.shell_overlay.generation.wrapping_add(1),
             previous_pane_focus: Some(self.pane_focus),
-            inventory: self.shell_overlay.inventory.clone(),
         };
         // Record the shell window in the runtime inventory (issue #361). The
         // caller (runtime boundary) only invokes this after a successful open,
         // so recording here keeps the inventory consistent with visibility.
-        self.shell_overlay.inventory.record(agent_id);
+        self.shell_inventory.record(agent_id);
         // Focus the terminal so keyboard input is forwarded to the shell.
         self.terminal_focused = true;
         self.pane_focus = crate::state::PaneFocus::Terminal;
@@ -48,7 +47,7 @@ impl AppState {
     /// Deactivate the shell overlay, restoring its launch surface.
     pub fn close_shell_overlay(&mut self) {
         if let Some(agent_id) = self.shell_overlay.agent_id.take() {
-            self.shell_overlay.inventory.remove(&agent_id);
+            self.shell_inventory.remove(&agent_id);
             self.restore_after_shell_overlay();
         }
     }
@@ -95,12 +94,11 @@ impl AppState {
     /// duplicate the window because the runtime only re-selects an existing
     /// window.
     pub fn resume_shell_overlay(&mut self, agent_id: AgentId) {
-        self.shell_overlay.inventory.record(agent_id.clone());
+        self.shell_inventory.record(agent_id.clone());
         self.shell_overlay = ShellOverlayState {
             agent_id: Some(agent_id),
             generation: self.shell_overlay.generation.wrapping_add(1),
             previous_pane_focus: Some(self.pane_focus),
-            inventory: self.shell_overlay.inventory.clone(),
         };
         self.terminal_focused = true;
         self.pane_focus = crate::state::PaneFocus::Terminal;
@@ -111,48 +109,48 @@ impl AppState {
     /// Whether `agent_id` owns a tracked shell window (visible or hidden).
     #[must_use]
     pub fn has_shell_window(&self, agent_id: &AgentId) -> bool {
-        self.shell_overlay.inventory.contains(agent_id)
+        self.shell_inventory.contains(agent_id)
     }
 
     /// Record a shell window in the runtime inventory (issue #361). Called by
     /// the runtime boundary after a successful open/resume/adopt.
     pub fn record_shell_window(&mut self, agent_id: AgentId) {
-        self.shell_overlay.inventory.record(agent_id);
+        self.shell_inventory.record(agent_id);
     }
 
     /// Remove `agent_id` from the runtime inventory (issue #361). Called by
     /// the runtime boundary after a successful close, disappearance, kill, or
     /// startup orphan cleanup. Returns whether an entry was removed.
     pub fn remove_shell_window(&mut self, agent_id: &AgentId) -> bool {
-        self.shell_overlay.inventory.remove(agent_id)
+        self.shell_inventory.remove(agent_id)
     }
 
     /// Snapshot the agent IDs owning tracked shell windows (issue #361).
     /// Used by graceful shutdown to close every Jefe-created shell.
     #[must_use]
     pub fn shell_window_owners(&self) -> Vec<AgentId> {
-        self.shell_overlay.inventory.to_vec()
+        self.shell_inventory.to_vec()
     }
 
     #[must_use]
     pub fn shell_focus_ordinal(&self, agent_id: &AgentId) -> u64 {
-        self.shell_overlay.inventory.focus_ordinal(agent_id)
+        self.shell_inventory.focus_ordinal(agent_id)
     }
 
     pub fn record_shell_focus(&mut self, agent_id: &AgentId) {
-        self.shell_overlay.inventory.record_focus(agent_id);
+        self.shell_inventory.record_focus(agent_id);
     }
 
     /// Replace the entire shell inventory from runtime ground truth
     /// (issue #361). Used by startup adoption and batched reconciliation.
     pub fn replace_shell_inventory(&mut self, agents: Vec<AgentId>) {
-        self.shell_overlay.inventory.replace(agents);
+        self.shell_inventory.replace(agents);
     }
 
     /// Clear the entire shell inventory (issue #361). Used by graceful
     /// shutdown after best-effort close attempts.
     pub fn clear_shell_inventory(&mut self) {
-        self.shell_overlay.inventory.clear();
+        self.shell_inventory.clear();
     }
 
     fn reset_shell_terminal_view(&mut self) {
@@ -279,7 +277,7 @@ mod tests {
         let mut state = AppState::test_fixture();
         state.hide_shell_overlay();
         assert_eq!(state.shell_overlay.agent_id, None);
-        assert!(state.shell_overlay.inventory.is_empty());
+        assert!(state.shell_inventory.is_empty());
     }
 
     #[test]
@@ -354,7 +352,7 @@ mod tests {
         assert!(state.shell_overlay_active());
         assert!(state.has_shell_window(&agent_id));
         // Resume does not duplicate the inventory entry.
-        assert_eq!(state.shell_overlay.inventory.len(), 1);
+        assert_eq!(state.shell_inventory.len(), 1);
     }
 
     #[test]
@@ -402,7 +400,7 @@ mod tests {
         let agent_id = AgentId("agent-1".into());
         state.record_shell_window(agent_id.clone());
         state.record_shell_window(agent_id.clone());
-        assert_eq!(state.shell_overlay.inventory.len(), 1);
+        assert_eq!(state.shell_inventory.len(), 1);
     }
 
     #[test]
@@ -430,7 +428,7 @@ mod tests {
         state.record_shell_window(AgentId("a".into()));
         state.record_shell_window(AgentId("b".into()));
         state.clear_shell_inventory();
-        assert!(state.shell_overlay.inventory.is_empty());
+        assert!(state.shell_inventory.is_empty());
     }
 
     #[test]

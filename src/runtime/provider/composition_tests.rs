@@ -134,22 +134,29 @@ fn one_shot_package_publishes_action_and_starts_no_process() {
     };
     let root = temp.path().join("packages");
     let host = HostTriple::current();
-    write_package(
-        &root,
+    let manifest = manifest_json(
         "vendor.oneshot",
         "1.0.0",
-        &manifest_json(
-            "vendor.oneshot",
-            "1.0.0",
-            "one-shot",
-            &host_binaries(&host, "bin/provider"),
-        ),
+        "one-shot",
+        &host_binaries(&host, "bin/provider"),
+    )
+    .replace(
+        "\"arguments\": []",
+        "\"arguments\": [{ \"id\": \"branch\", \"label\": \"Branch\", \"type\": \"string\", \"required\": true, \"restart\": \"none\" }]",
     );
+    write_package(&root, "vendor.oneshot", "1.0.0", &manifest);
 
     let composition = compose_for(&root, temp.path(), &["vendor.oneshot"]);
 
     assert_eq!(composition.actions().len(), 1);
     assert_eq!(composition.catalog().len(), 1);
+    let (_, descriptor) = composition
+        .catalog()
+        .iter()
+        .next()
+        .unwrap_or_else(|| panic!("published action must retain its descriptor"));
+    assert_eq!(descriptor.arguments.len(), 1);
+    assert_eq!(descriptor.arguments[0].id().as_str(), "branch");
     assert!(
         composition.persistent_candidates().is_empty(),
         "a one-shot package must contribute no startup candidate"

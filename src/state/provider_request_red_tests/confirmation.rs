@@ -1,15 +1,34 @@
 //! Policy/outcome validation and confirmation round-trip RED tests.
 
 use crate::domain::plugin::action::{ActionConfirmation, ActionOutcome};
+use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
 use crate::domain::{Id, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::Outcome;
 
 use super::super::{ConfirmInput, ProviderRequestError, ProviderRequestState};
 use super::support::{
-    action, confirmation_outcome, continuation_policy, default_policy,
-    destructive_continuation_policy, do_invoke_with, empty_map, non_empty_map, owner, policy,
-    screen,
+    action, confirmation_outcome, confirmation_outcome_with_schema, continuation_policy,
+    default_policy, destructive_continuation_policy, do_invoke_with, empty_map, non_empty_map,
+    owner, policy, screen,
 };
+
+fn required_string_field(id: &str) -> Field {
+    Field::parse(FieldDraft {
+        id: Id::parse(id).unwrap_or_else(|error| panic!("valid field id: {error}")),
+        label: "Confirmation".to_owned(),
+        description: None,
+        kind: FieldKind::String,
+        required: true,
+        default: None,
+        min: None,
+        max: None,
+        choices: Vec::new(),
+        unique: false,
+        visible_when: None,
+        restart: RestartScope::None,
+    })
+    .unwrap_or_else(|error| panic!("valid string field: {error}"))
+}
 
 // ── policy mismatch on RequestHostConfirmation ───────────────────────────
 
@@ -165,7 +184,82 @@ fn confirm_rejects_mismatched_resource_refs() {
         },
         1100,
     );
-    assert_eq!(result, Err(ProviderRequestError::ConfirmationNotFound));
+    assert_eq!(result, Err(ProviderRequestError::StaleContext));
+}
+
+fn nested_head_context(head: &str) -> TypedMap {
+    let mut value = TypedMap::new();
+    value.insert(
+        Id::parse("head").unwrap_or_else(|error| panic!("head field: {error}")),
+        TypedValue::String(head.to_owned()),
+    );
+    let mut resource = TypedMap::new();
+    resource.insert(
+        Id::parse("semantic-key").unwrap_or_else(|error| panic!("semantic key field: {error}")),
+        TypedValue::String("review-42".to_owned()),
+    );
+    resource.insert(
+        Id::parse("value").unwrap_or_else(|error| panic!("value field: {error}")),
+        TypedValue::Map(value),
+    );
+    let mut refs = TypedMap::new();
+    refs.insert(
+        Id::parse("review.selection").unwrap_or_else(|error| panic!("resource ref: {error}")),
+        TypedValue::Map(resource),
+    );
+    refs
+}
+
+#[test]
+fn destructive_confirmation_rejects_changed_head_with_same_semantic_key_without_consuming_token() {
+    let mut state = ProviderRequestState::new();
+    let policy = destructive_continuation_policy();
+    let original = nested_head_context("head-a");
+    let outcome = do_invoke_with(&mut state, &policy, original.clone(), empty_map());
+    state
+        .record_outcome(
+            &outcome.key,
+            confirmation_outcome("conf.same-key-head", true),
+            1000,
+        )
+        .unwrap_or_else(|error| panic!("confirmation outcome: {error}"));
+    let confirmation_id =
+        Id::parse("conf.same-key-head").unwrap_or_else(|error| panic!("confirmation id: {error}"));
+    let values = empty_map();
+
+    let rejected = state.confirm(
+        ConfirmInput {
+            owner: &owner(),
+            action_id: &action(),
+            context_screen: &screen(),
+            context_instance: &screen(),
+            context_refs: &nested_head_context("head-b"),
+            generation: outcome.key.generation,
+            confirmation_id: &confirmation_id,
+            values: &values,
+        },
+        1100,
+    );
+
+    assert_eq!(rejected, Err(ProviderRequestError::StaleContext));
+    assert_eq!(state.pending_confirmation_count(), 1);
+    let confirmed = state
+        .confirm(
+            ConfirmInput {
+                owner: &owner(),
+                action_id: &action(),
+                context_screen: &screen(),
+                context_instance: &screen(),
+                context_refs: &original,
+                generation: outcome.key.generation,
+                confirmation_id: &confirmation_id,
+                values: &values,
+            },
+            1101,
+        )
+        .unwrap_or_else(|error| panic!("restored exact context must confirm: {error}"));
+    assert_eq!(confirmed.invocation.context_refs, original);
+    assert_eq!(state.pending_confirmation_count(), 0);
 }
 
 // ── invocation B carries original arguments and context ──────────────────
@@ -211,7 +305,15 @@ fn invocation_b_carries_exact_continuation_values() {
     let pol = continuation_policy();
     let outcome = do_invoke_with(&mut state, &pol, empty_map(), empty_map());
     state
-        .record_outcome(&outcome.key, confirmation_outcome("conf.val", false), 1000)
+        .record_outcome(
+            &outcome.key,
+            confirmation_outcome_with_schema(
+                "conf.val",
+                false,
+                vec![required_string_field("confirm.text")],
+            ),
+            1000,
+        )
         .unwrap_or_else(|e| panic!("outcome: {e}"));
 
     let mut values = TypedMap::new();

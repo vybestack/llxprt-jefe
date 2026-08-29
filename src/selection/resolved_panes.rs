@@ -12,7 +12,7 @@
 
 use crate::selection::geometry::PaneGeometry;
 use crate::selection::text::SelectablePane;
-use crate::workbench::{PanelId, ResolvedLayout, ResolvedPanel, ScreenId};
+use crate::workbench::{PanelId, ResolvedLayout, ResolvedPanel, ScreenId, ScreenIdentity};
 
 /// The selectable pane a descriptor panel corresponds to.
 ///
@@ -114,14 +114,21 @@ pub fn detail_wrap_width(
 /// `shell-preview` in the Terminal Manager. Resolving without the screen would
 /// silently miss the Terminal Manager's pane.
 #[must_use]
-pub fn selectable_to_panel(pane: SelectablePane, screen: ScreenId) -> Option<PanelId> {
+pub fn selectable_to_panel(
+    pane: SelectablePane,
+    screen: impl Into<ScreenIdentity>,
+) -> Option<PanelId> {
+    let screen = screen.into();
     let id = match pane {
         SelectablePane::Sidebar => "repositories",
         SelectablePane::AgentList => "agents",
-        SelectablePane::TerminalView => match screen {
-            ScreenId::Terminals => "shell-preview",
-            _ => "terminal",
-        },
+        SelectablePane::TerminalView => {
+            if screen.compiled() == Some(ScreenId::Terminals) {
+                "shell-preview"
+            } else {
+                "terminal"
+            }
+        }
         SelectablePane::Preview => "preview",
         SelectablePane::IssueList => "issue-list",
         SelectablePane::IssueDetail => "issue-detail",

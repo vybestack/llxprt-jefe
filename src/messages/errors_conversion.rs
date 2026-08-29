@@ -1,5 +1,7 @@
 //! `AppEvent` <-> `ErrorsMessage` conversion (issue #292).
 
+use std::ops::ControlFlow;
+
 use crate::messages::{ErrorsMessage, NavDir, ScrollDir};
 use crate::state::AppEvent;
 
@@ -10,36 +12,43 @@ impl From<ErrorsMessage> for AppEvent {
 }
 
 impl ErrorsMessage {
-    /// Convert an [`AppEvent`] into the corresponding [`ErrorsMessage`].
+    /// Convert an errors-domain [`AppEvent`] into the typed message.
     ///
-    /// # Panics
-    /// Panics via `unreachable!` if the event does not belong to the Errors
-    /// domain. Callers must only pass errors-domain events (guaranteed by
-    /// [`AppMessage::from`]'s routing gate).
-    pub(super) fn from_app_event(event: AppEvent) -> Self {
+    /// Returns [`ControlFlow::Continue`] with the event when it belongs to no
+    /// errors layer, so the dispatcher can hand it to another domain instead
+    /// of panicking.
+    pub(super) fn try_from_app_event(event: AppEvent) -> ControlFlow<Self, AppEvent> {
         match event {
-            AppEvent::EnterErrorsMode => Self::EnterMode,
-            AppEvent::ExitErrorsMode => Self::ExitMode,
-            AppEvent::RefocusErrorList => Self::RefocusList,
-            AppEvent::ErrorsNavigateUp => Self::Navigate(NavDir::Up),
-            AppEvent::ErrorsNavigateDown => Self::Navigate(NavDir::Down),
-            AppEvent::ErrorsNavigateHome => Self::Navigate(NavDir::Home),
-            AppEvent::ErrorsNavigateEnd => Self::Navigate(NavDir::End),
-            AppEvent::ErrorsEnter => Self::Enter,
-            AppEvent::ErrorsCycleFocus => Self::CycleFocus,
-            AppEvent::ErrorsCycleFocusReverse => Self::CycleFocusReverse,
-            AppEvent::ErrorsScrollDetailUp => Self::ScrollDetail(ScrollDir::Up),
-            AppEvent::ErrorsScrollDetailDown => Self::ScrollDetail(ScrollDir::Down),
-            AppEvent::ErrorsScrollDetailPageUp => Self::ScrollDetail(ScrollDir::PageUp),
-            AppEvent::ErrorsScrollDetailPageDown => Self::ScrollDetail(ScrollDir::PageDown),
-            AppEvent::CaptureSilentError(title, detail, source, timestamp) => Self::CaptureSilent {
-                title,
-                detail,
-                source,
-                timestamp,
-            },
-            AppEvent::ErrorsClearAll => Self::ClearAll,
-            _ => unreachable!("unhandled event for ErrorsMessage: {:?}", event),
+            AppEvent::EnterErrorsMode => ControlFlow::Break(Self::EnterMode),
+            AppEvent::ExitErrorsMode => ControlFlow::Break(Self::ExitMode),
+            AppEvent::RefocusErrorList => ControlFlow::Break(Self::RefocusList),
+            AppEvent::ErrorsNavigateUp => ControlFlow::Break(Self::Navigate(NavDir::Up)),
+            AppEvent::ErrorsNavigateDown => ControlFlow::Break(Self::Navigate(NavDir::Down)),
+            AppEvent::ErrorsNavigateHome => ControlFlow::Break(Self::Navigate(NavDir::Home)),
+            AppEvent::ErrorsNavigateEnd => ControlFlow::Break(Self::Navigate(NavDir::End)),
+            AppEvent::ErrorsEnter => ControlFlow::Break(Self::Enter),
+            AppEvent::ErrorsCycleFocus => ControlFlow::Break(Self::CycleFocus),
+            AppEvent::ErrorsCycleFocusReverse => ControlFlow::Break(Self::CycleFocusReverse),
+            AppEvent::ErrorsScrollDetailUp => ControlFlow::Break(Self::ScrollDetail(ScrollDir::Up)),
+            AppEvent::ErrorsScrollDetailDown => {
+                ControlFlow::Break(Self::ScrollDetail(ScrollDir::Down))
+            }
+            AppEvent::ErrorsScrollDetailPageUp => {
+                ControlFlow::Break(Self::ScrollDetail(ScrollDir::PageUp))
+            }
+            AppEvent::ErrorsScrollDetailPageDown => {
+                ControlFlow::Break(Self::ScrollDetail(ScrollDir::PageDown))
+            }
+            AppEvent::CaptureSilentError(title, detail, source, timestamp) => {
+                ControlFlow::Break(Self::CaptureSilent {
+                    title,
+                    detail,
+                    source,
+                    timestamp,
+                })
+            }
+            AppEvent::ErrorsClearAll => ControlFlow::Break(Self::ClearAll),
+            other => ControlFlow::Continue(other),
         }
     }
 
@@ -86,5 +95,22 @@ impl ErrorsMessage {
             ScrollDir::PageUp => AppEvent::ErrorsScrollDetailPageUp,
             ScrollDir::PageDown => AppEvent::ErrorsScrollDetailPageDown,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_errors_events_continue_to_next_domain() {
+        assert!(matches!(
+            ErrorsMessage::try_from_app_event(AppEvent::Quit),
+            ControlFlow::Continue(AppEvent::Quit)
+        ));
+        assert!(matches!(
+            ErrorsMessage::try_from_app_event(AppEvent::ErrorsNavigateDown),
+            ControlFlow::Break(ErrorsMessage::Navigate(NavDir::Down))
+        ));
     }
 }

@@ -74,7 +74,7 @@ fn full_navigation_workflow() {
     let (mut state, _, _) = create_test_environment();
 
     // Start at dashboard
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), jefe::workbench::DASHBOARD_IDENTITY);
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 
     // Cycle through panes
@@ -93,7 +93,7 @@ fn full_navigation_workflow() {
 
     // Exit split mode
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), jefe::workbench::DASHBOARD_IDENTITY);
 }
 
 #[test]
@@ -102,7 +102,10 @@ fn full_modal_workflow() {
 
     // Open help
     state = state.apply(AppEvent::OpenHelp).committed_pure();
-    assert_eq!(state.modal, ModalState::Help);
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help)
+    );
 
     // Close help
     state = state.apply(AppEvent::CloseModal).committed_pure();
@@ -110,7 +113,10 @@ fn full_modal_workflow() {
 
     // Open search
     state = state.apply(AppEvent::OpenSearch).committed_pure();
-    assert!(matches!(state.modal, ModalState::Search { .. }));
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Search)
+    );
 
     // Close search
     state = state.apply(AppEvent::CloseModal).committed_pure();
