@@ -606,6 +606,130 @@
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue704/static-failure.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
+      "path": "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+      "sha256": "f829eee669301e8d8a70ec1bc68c2c6a0b4e5b692c069df3073b86eb04b6d962",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+      "sha256": "2333fb9f5c2861e34889c784d156a3929839d364a7c767658b689f3b2eca57f4",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/provider-health-linux.json",
+      "sha256": "ef42a43a93412fa32a330c2887626eab17f2c2a96c59b134009d3b5616ffe44c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/provider-health-linux.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/provider-health-macos.json",
+      "sha256": "ac7ce313fd2b6cfa70fbd3baaa53c7cbedb6ce7262ff323eeed5dbd85d3b0128",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/provider-health-macos.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+      "sha256": "d46680deddbcbaa8aa5f3926420330700aa7e3e92577ba942c18c6b5c5018495",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+      "sha256": "fa60791c6d478f53f775fbea0c73e4643a4792901a7feb9b6a824399c7f73f86",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04",
+        "CW00B-07"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+      "sha256": "5ef252543245973d1fbccf5f508b305d2024a3819e831054285a349862ab53fe",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+      "sha256": "16261d2f3814716342a5020ddcc4a68c1fcb778f9adcb0a16a0ad2898c22b6c8",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+      "sha256": "d746fe14a3f11c67731ab5e647f1635460dbcd4980c828f41ff2de6203e1122d",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "linux",
+      "ci_job": "tui_scenarios_linux",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+      "sha256": "dfc759dcecb6a805ae8a93cd15f8aedde36f147791f403818d955f344b398a60",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
       "path": "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
       "sha256": "40ec0dcd822537b964472883019fcea823df1d1280c4d47da68053a847b39ada",
       "mode": "100644",
