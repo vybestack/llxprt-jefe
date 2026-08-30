@@ -117,6 +117,7 @@ impl AppState {
         let offset = match kind {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
+            HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => return false,
         };
         let changed = *offset != next;
@@ -150,6 +151,7 @@ impl AppState {
                     HostPanelModelSource::AgentList => self
                         .selected_agent()
                         .map(|agent| AppEvent::OpenEditAgent(agent.id.clone())),
+                    HostPanelModelSource::SessionList => self.session_activation_event(),
                     HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
                 };
                 if let Some(event) = event {
@@ -172,10 +174,31 @@ impl AppState {
         }
     }
 
+    /// Resolve Enter on the focused shell row: a close-only row warns, a
+    /// running row requests the generation-guarded shell focus that the
+    /// attach scheduler completes after its owner attaches.
+    fn session_activation_event(&mut self) -> Option<AppEvent> {
+        let row = self.terminal_manager.selected_index.and_then(|index| {
+            crate::state::project_managed_shell_rows(self)
+                .into_iter()
+                .nth(index)
+        })?;
+        if row.close_only {
+            self.warning_message =
+                Some("Cannot focus a non-running agent's shell (close-only).".to_string());
+            return None;
+        }
+        Some(AppEvent::RequestShellFocus {
+            agent_id: row.agent_id.clone(),
+            origin: crate::state::ShellFocusOrigin::ManagerEnter,
+        })
+    }
+
     fn reveal_host_panel_selection(&mut self, kind: HostPanelModelSource, viewport_rows: usize) {
         let selected = match kind {
             HostPanelModelSource::RepositoryList => self.selected_repository_visible_index(),
             HostPanelModelSource::AgentList => self.selected_agent_local_index(),
+            HostPanelModelSource::SessionList => self.terminal_manager.selected_index,
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
         };
         let Some(selected) = selected.and_then(|index| u32::try_from(index).ok()) else {
@@ -185,6 +208,7 @@ impl AppState {
         let offset = match kind {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
+            HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => return,
         };
         if selected < *offset {
@@ -222,6 +246,16 @@ impl AppState {
                     return false;
                 };
                 self.select_agent_by_local_index(local_index);
+                true
+            }
+            HostPanelModelSource::SessionList => {
+                let count = crate::state::project_managed_shell_rows(self).len();
+                let Some(index) = (0..count)
+                    .find(|index| Id::internal_indexed(InternalId::SessionItem, *index) == *id)
+                else {
+                    return false;
+                };
+                self.terminal_manager.selected_index = Some(index);
                 true
             }
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => false,

@@ -12,6 +12,7 @@ pub enum InternalId {
     GitHubPullRequestResource,
     RepositoryItem,
     AgentItem,
+    SessionItem,
 }
 
 impl InternalId {
@@ -28,6 +29,7 @@ impl InternalId {
             Self::GitHubPullRequestResource => "github.pull-request",
             Self::RepositoryItem => "host-repository",
             Self::AgentItem => "host-agent",
+            Self::SessionItem => "host-session",
         }
     }
 }

@@ -25,6 +25,7 @@ pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> Hos
         HostPanelModelSource::SearchInput => search_input(state),
         HostPanelModelSource::AgentList => agent_list(state),
         HostPanelModelSource::AgentPreview => agent_preview(state),
+        HostPanelModelSource::SessionList => session_list(state),
     }
 }
 
@@ -162,5 +163,52 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         action_affordances: Vec::new(),
         selected_id: None,
         scroll_offset: 0,
+    }
+}
+
+fn session_list(state: &AppState) -> HostPanelModel {
+    let rows = crate::state::project_managed_shell_rows(state);
+    let items = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let label = if row.close_only {
+                format!("{} (close-only)", row.agent_name)
+            } else {
+                row.agent_name.clone()
+            };
+            ListItem {
+                id: Id::internal_indexed(InternalId::SessionItem, index),
+                label,
+                description: Some(format!(
+                    "{} · {} · {}{}",
+                    row.repository_name,
+                    row.work_dir,
+                    row.status_label,
+                    if row.close_only {
+                        " · dead/non-running"
+                    } else {
+                        ""
+                    }
+                )),
+                status: Some(row.status_label.clone()),
+                actions: Vec::new(),
+            }
+        })
+        .collect();
+    let selected_id = state
+        .terminal_manager
+        .selected_index
+        .map(|index| Id::internal_indexed(InternalId::SessionItem, index));
+    HostPanelModel {
+        title: "Terminal Manager".to_owned(),
+        body: PanelBody::List(ListBody {
+            items,
+            selected_id: selected_id.clone(),
+            next_page_token: None,
+        }),
+        action_affordances: Vec::new(),
+        selected_id,
+        scroll_offset: state.session_scroll_offset,
     }
 }

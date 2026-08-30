@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "10623127fba5271a3d4bc3ea14ab6ffe4369ef73b9a410569577b8451050479b"
+    "artifact_set_sha256": "d1cbc03782d815ade798d6e48609aeafa87c200f9f7765e0129e8720a5b57a4d"
   },
   "artifacts": [
     {
@@ -254,7 +254,7 @@
     },
     {
       "path": "src/host_panel_models.rs",
-      "sha256": "cfa0edf0bcc788adb43c08c52cb0b6a58bf8a0631476ab2d3f25af38d55becea",
+      "sha256": "44046318ec53516fa31fc633fa939434c894c579554e2f990e325426584ef69b",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -318,7 +318,7 @@
     },
     {
       "path": "src/provider_panel_view_tests_host.rs",
-      "sha256": "5f3491679ecf559a0c5c2a29bcb57766e99f806f587e6d2dcd45f056cd5a6994",
+      "sha256": "d7e59dfadee75c5bcefc4339cb53a93971c37cc17487db9cd60883884769a1ea",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -413,7 +413,7 @@
     },
     {
       "path": "src/state/host_panel_input_ops.rs",
-      "sha256": "17b6bfa4db3abb97eef342aa004e027ea27e0a0ba2e02430e4ac9c39bb3608ac",
+      "sha256": "1b2f247430aeffdc632a75af1a413774eba8dfeab4f6330653556d82151b7e8e",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -433,7 +433,7 @@
     },
     {
       "path": "src/state/navigation.rs",
-      "sha256": "89b17a95d61d2cc51b318979694cae9c16b33fb1abb65c026b0f7028366efc6b",
+      "sha256": "4a75d8e8b14785822c8a536566fc9f85c4f414337e61aff01a492232726dbf6f",
       "mode": "100644",
       "criteria": [
         "CWR2-02",
@@ -715,7 +715,7 @@
     },
     {
       "path": "src/workbench/screens.rs",
-      "sha256": "798ae66d1d223b3f924a7ed9a027865414335719203913ce7ac1b7ab8322ce0f",
+      "sha256": "8ed3de788696b1154f9dbbef96964f3cbf2224d3ce2da0de8e46a08265faf60a",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -728,7 +728,7 @@
     },
     {
       "path": "src/workbench/screens_tests.rs",
-      "sha256": "270ee5f21d5b18090e4d9d1257c955bf2dde9adcc71781294ac4c7544101e39a",
+      "sha256": "19fd956ce7091831ef1c6f218750d8f37ebb03c9fcd1f8e135ad1eca07986b10",
       "mode": "100644",
       "criteria": [
         "CWR2-01",

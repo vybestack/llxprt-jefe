@@ -179,6 +179,7 @@ pub enum HostPanelModelSource {
     SearchInput,
     AgentList,
     AgentPreview,
+    SessionList,
 }
 
 /// Authenticated host authority carried by a compiled panel declaration.
@@ -221,7 +222,9 @@ impl HostPanelCapability {
 impl HostPanelModelSource {
     const fn control_kind(self) -> crate::host_controls::ControlKind {
         match self {
-            Self::RepositoryList | Self::AgentList => crate::host_controls::ControlKind::List,
+            Self::RepositoryList | Self::AgentList | Self::SessionList => {
+                crate::host_controls::ControlKind::List
+            }
             Self::SearchInput => crate::host_controls::ControlKind::Form,
             Self::AgentPreview => crate::host_controls::ControlKind::Detail,
         }

@@ -493,3 +493,27 @@ fn mutating_a_legacy_product_spelling_does_not_change_compiled_host_authority() 
     );
     assert_eq!(validate_descriptor(&dashboard), Ok(()));
 }
+
+#[test]
+fn terminals_shell_list_is_a_declared_host_control() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(ScreenId::Terminals.into())
+        .unwrap_or_else(|| panic!("terminals descriptor must be published"));
+    let shell_list = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "shell-list")
+        .unwrap_or_else(|| panic!("shell-list panel must be declared"));
+    let capability = shell_list
+        .host_capability()
+        .unwrap_or_else(|| unreachable!("shell-list must be a declared host control"));
+    assert_eq!(
+        capability.model_source(),
+        super::descriptor::HostPanelModelSource::SessionList
+    );
+    assert_eq!(
+        capability.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
+}

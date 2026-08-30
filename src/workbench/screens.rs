@@ -962,7 +962,14 @@ fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
         route: RouteId::parse("terminals")?,
         panels: vec![
             sidebar_panel()?,
-            panel("shell-list", "shell-list", true, true, LIST_PANE_CHROME)?,
+            host_panel(
+                "shell-list",
+                "shell-list",
+                HostPanelModelSource::SessionList,
+                ControlKind::List,
+                (true, true),
+                LIST_PANE_CHROME,
+            )?,
             panel(
                 "shell-preview",
                 PTY_PANEL_TYPE,
