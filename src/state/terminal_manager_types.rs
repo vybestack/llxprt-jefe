@@ -8,6 +8,7 @@
 //! multiplexer.
 
 use crate::domain::{AgentId, AgentStatus, RepositoryId};
+use crate::workbench::{ScreenIdentity, ScreenInstanceId};
 
 /// Source that initiated a generation-guarded shell focus request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +53,10 @@ pub struct PendingShellFocus {
     pub generation: u64,
     /// Surface that should present the shell after focus completes.
     pub origin: ShellFocusOrigin,
+    /// Exact screen that initiated the asynchronous focus request.
+    pub screen: ScreenIdentity,
+    /// Exact screen instance that initiated the asynchronous focus request.
+    pub screen_instance: ScreenInstanceId,
 }
 
 /// Read-only preview payload for the selected shell (issue #361 PR B).
@@ -99,8 +104,6 @@ pub struct TerminalManagerState {
     /// Monotonic generation for the manager session; bumped on enter/exit and
     /// selection-driven capture requests so stale results are rejected.
     pub generation: u64,
-    /// Saved agent-mode focus for restoration on exit (mirrors errors/actions).
-    pub prior_agent_focus: Option<super::PriorAgentFocus>,
 }
 
 impl TerminalManagerState {

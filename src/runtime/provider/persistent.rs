@@ -711,6 +711,37 @@ pub(super) fn candidate_health(candidate: &mut OwnedCandidate) -> CandidateHealt
     health
 }
 
+/// Classify process health for a candidate owned by a persistent session.
+///
+/// Unlike startup-supervisor health, session health must not inspect stdout:
+/// panel snapshots are legal post-Ready frames and the owner loop is the sole
+/// authority that parses and forwards them.
+pub(super) fn classify_session_health(
+    wait: io::Result<Option<std::process::ExitStatus>>,
+    capabilities: &[Capability],
+) -> CandidateHealth {
+    classify_health(StdoutProbe::Idle, wait, capabilities)
+}
+
+/// Probe process health without competing with the persistent owner's stdout
+/// delivery path.
+pub(super) fn session_candidate_health(candidate: &mut OwnedCandidate) -> CandidateHealth {
+    if let Some(evidence) = candidate.fault.clone() {
+        return CandidateHealth::ProtocolFault { evidence };
+    }
+    let health = classify_session_health(candidate.process.try_wait(), &candidate.capabilities);
+    match &health {
+        CandidateHealth::Exited { .. } => candidate.exited = true,
+        CandidateHealth::ProbeFailed { .. } => candidate.healthy = false,
+        CandidateHealth::ProtocolFault { evidence } => {
+            candidate.healthy = false;
+            candidate.fault = Some(evidence.clone());
+        }
+        CandidateHealth::Ready { .. } => {}
+    }
+    health
+}
+
 /// One non-blocking stdout probe outcome during a health check.
 pub(super) enum StdoutProbe {
     /// No data is available.
@@ -756,28 +787,19 @@ pub(super) fn classify_health(
     wait_result: io::Result<Option<ExitStatus>>,
     capabilities: &[Capability],
 ) -> CandidateHealth {
-    if let StdoutProbe::Illegal(evidence) = stdout_probe {
-        return CandidateHealth::ProtocolFault { evidence };
-    }
-    // A process exit (Ok(Some)) wins over a normally-closed stdout channel; the
-    // closed channel is only a fault when the process is still alive (Ok(None)).
-    match wait_result {
-        Ok(Some(status)) => CandidateHealth::Exited {
+    match (stdout_probe, wait_result) {
+        (StdoutProbe::Illegal(evidence), _) => CandidateHealth::ProtocolFault { evidence },
+        (_, Ok(Some(status))) => CandidateHealth::Exited {
             exit_code: status.code(),
         },
-        Err(error) => CandidateHealth::ProbeFailed {
+        (_, Err(error)) => CandidateHealth::ProbeFailed {
             error: error.to_string(),
         },
-        Ok(None) => match stdout_probe {
-            StdoutProbe::Closed => CandidateHealth::ProtocolFault {
-                evidence: IllegalStdout::Closed,
-            },
-            StdoutProbe::Idle => CandidateHealth::Ready {
-                capabilities: capabilities.to_vec(),
-            },
-            StdoutProbe::Illegal(_) => {
-                unreachable!("illegal stdout is classified as a protocol fault above")
-            }
+        (StdoutProbe::Closed, Ok(None)) => CandidateHealth::ProtocolFault {
+            evidence: IllegalStdout::Closed,
+        },
+        (StdoutProbe::Idle, Ok(None)) => CandidateHealth::Ready {
+            capabilities: capabilities.to_vec(),
         },
     }
 }

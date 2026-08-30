@@ -51,10 +51,9 @@ impl AppState {
     }
 
     fn open_auth_dialog(&mut self) {
-        // Defense-in-depth: never replace an existing modal from underneath
-        // the user. The dispatch layer only opens auth when no other modal is
-        // active, but the reducer guards independently.
-        if !matches!(self.modal, ModalState::None) {
+        // Modal/overlay ownership is exclusive: auth may only open on an
+        // instance with no active presentation.
+        if !matches!(self.modal, ModalState::None) || self.active_overlay_kind().is_some() {
             return;
         }
         self.modal = ModalState::Auth {

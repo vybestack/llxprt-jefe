@@ -41,14 +41,14 @@ pub(super) fn make_test_issue(number: u64) -> Issue {
     }
 }
 
-/// P13 Test 14: ScreenId::Issues is distinct from ScreenId::Dashboard.
+/// P13 Test 14: ScreenId::Issues is distinct from crate::workbench::DASHBOARD_IDENTITY.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P13
 /// @requirement REQ-ISS-002
 #[test]
 fn test_keybind_bar_issues_mode() {
     let dashboard_state = AppState::test_fixture();
-    assert_eq!(dashboard_state.screen(), ScreenId::Dashboard);
+    assert_eq!(dashboard_state.screen(), crate::workbench::DASHBOARD_IDENTITY);
 
     let issues_state = AppState::test_fixture()
         .apply(AppEvent::EnterIssuesMode)
@@ -62,7 +62,7 @@ fn test_keybind_bar_issues_mode() {
     let exited = issues_state
         .apply(AppEvent::ExitIssuesMode)
         .committed_pure();
-    assert_eq!(exited.screen(), ScreenId::Dashboard);
+    assert_eq!(exited.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert_ne!(exited.screen(), ScreenId::Issues);
 }
 
@@ -243,7 +243,7 @@ fn test_mode_lifecycle_enter_browse_exit() {
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert!(!state.issues_state.active);
 }
 
@@ -305,7 +305,7 @@ fn test_mode_lifecycle_enter_interact_exit() {
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert!(!state.issues_state.active);
 }
 

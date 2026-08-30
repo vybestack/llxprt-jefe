@@ -278,14 +278,14 @@ fn unavailable_action_on_other_screens_only_warns() {
     // bar, and must not write a notice into a screen state they are not
     // showing — a notice written there would appear later, out of context.
     for screen in [
-        crate::workbench::ScreenId::Dashboard,
-        crate::workbench::ScreenId::Repositories,
-        crate::workbench::ScreenId::Actions,
-        crate::workbench::ScreenId::Errors,
-        crate::workbench::ScreenId::Terminals,
+        crate::workbench::DASHBOARD_IDENTITY,
+        crate::workbench::ScreenId::Repositories.into(),
+        crate::workbench::ScreenId::Actions.into(),
+        crate::workbench::ScreenId::Errors.into(),
+        crate::workbench::ScreenId::Terminals.into(),
     ] {
         let mut state = state_with_unprobed_agent();
-        state.nav = crate::state::navigation::NavState::rooted(screen);
+        state.restore_navigation_root(screen);
 
         state.record_unavailable_action(None, "Nothing to do here".to_string());
 

@@ -106,6 +106,7 @@ impl AppState {
             }
             self.preserve_silent_refresh_selection(selected_pr_number);
             self.resort_prs_preserving_selection();
+            self.sync_pr_selected_resource();
         }
     }
 
@@ -140,6 +141,7 @@ impl AppState {
             // arrives.
             self.preserve_silent_refresh_selection(selected_pr_number);
             self.resort_prs_preserving_selection();
+            self.sync_pr_selected_resource();
         }
     }
 

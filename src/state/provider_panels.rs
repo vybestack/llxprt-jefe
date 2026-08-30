@@ -17,6 +17,7 @@ use crate::runtime::provider::protocol::{
     BodyKind, DeactivateReason, HostLocal, PanelEvent, PanelSnapshot,
 };
 use crate::workbench::PanelId;
+pub use crate::workbench::PanelInstanceId;
 
 #[path = "provider_panels_canonical.rs"]
 mod canonical;
@@ -57,28 +58,6 @@ const REFILL_MILLI_PER_MS: u64 = 20;
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
-
-/// A positive, monotonic, session-only panel instance identity.
-///
-/// Allocation is owned exclusively by [`ProviderPanelState::declare`]; the
-/// value is never persisted or reused. [`Self::from_u64`] exists only so a
-/// caller can carry a previously allocated identity back into the reducer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PanelInstanceId(u64);
-
-impl PanelInstanceId {
-    /// Construct an identity from a raw value (identity interop only).
-    #[must_use]
-    pub const fn from_u64(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// The raw identity value.
-    #[must_use]
-    pub const fn as_u64(self) -> u64 {
-        self.0
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -158,6 +137,8 @@ pub enum EventKind {
     Cancel,
     /// A link was selected.
     LinkSelected,
+    /// A tree node's expansion state changed.
+    ExpansionChanged,
 }
 
 /// One manifest-declared allowed event with its argument field grammar.
@@ -165,7 +146,7 @@ pub enum EventKind {
 /// The full event schema is caller-supplied because the manifest
 /// `event_schema` cutover is wired in a later slice; the reducer validates
 /// events only against the declarations it receives here.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventDeclaration {
     /// The declared event kind.
     pub kind: EventKind,
@@ -366,8 +347,8 @@ pub enum PanelError {
     SnapshotInvalid,
     /// The panel generation counter exhausted.
     GenerationExhausted,
-    /// The panel instance counter exhausted.
-    InstanceExhausted,
+    /// The process-global panel instance identity space is exhausted.
+    InstanceIdentityExhausted,
 }
 
 impl std::fmt::Display for PanelError {
@@ -402,8 +383,8 @@ impl std::fmt::Display for PanelError {
             Self::GenerationExhausted => {
                 formatter.write_str("PLG-E502: panel generation counter exhausted")
             }
-            Self::InstanceExhausted => {
-                formatter.write_str("PLG-E502: panel instance counter exhausted")
+            Self::InstanceIdentityExhausted => {
+                formatter.write_str("PLG-E502: panel instance identity space exhausted")
             }
         }
     }
@@ -470,7 +451,7 @@ struct AcceptedModel {
 // ---------------------------------------------------------------------------
 
 /// One panel's in-memory state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PanelRecord {
     id: PanelInstanceId,
     owner: Id,
@@ -523,16 +504,20 @@ impl PanelRecord {
 /// Owns bounded panel identity, lifecycle, generation, accepted model,
 /// revision, rate state, and host-local presentation state. No process handle,
 /// pipe, clock, or persisted field lives here.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderPanelState {
     panels: Vec<PanelRecord>,
-    next_panel_instance_id: u64,
 }
 
 impl Default for ProviderPanelState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+enum SnapshotSelection {
+    Preserve,
+    Replace(Option<Id>),
 }
 
 include!("provider_panels_ops.rs");

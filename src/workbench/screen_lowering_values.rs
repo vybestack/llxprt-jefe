@@ -15,7 +15,7 @@
 //! from closed grammars, not the values beside them, and an author correcting a
 //! large file needs to know which one was wrong.
 
-use crate::domain::action_registry::{Action, ActionId};
+use crate::domain::action_registry::ActionId;
 use crate::domain::input_context::ContextId;
 use crate::domain::{Id, TypedMap, TypedValue};
 
@@ -54,59 +54,6 @@ fn lower_value(value: &toml::Value) -> Result<TypedValue, LoweringError> {
         toml::Value::Float(_) => Err(LoweringError::ConfigValue { kind: "float" }),
         toml::Value::Datetime(_) => Err(LoweringError::ConfigValue { kind: "datetime" }),
     }
-}
-
-/// The actions the compiled inventory publishes.
-///
-/// Compiling the inventory is not free, so a screen builds it once and every
-/// binding it declares resolves against that one copy.
-///
-/// # Errors
-///
-/// Returns [`LoweringError::UnknownBinding`] when the compiled inventory cannot
-/// be built, which is a fault in this program rather than in the definition.
-pub fn published_actions() -> Result<Vec<Action>, LoweringError> {
-    crate::domain::default_action_inventory::compiled_inventory()
-        .map(|inventory| inventory.actions)
-        .map_err(|_| LoweringError::UnknownBinding {
-            field: "action",
-            declared: String::new(),
-        })
-}
-
-/// Check that one binding names an action and a context the inventory
-/// publishes.
-///
-/// The inventory is the sole authority for what actions exist, and a definition
-/// resolves against it rather than declaring anything of its own, so a
-/// definition can request an action but never invent one.
-///
-/// # Errors
-///
-/// Returns [`LoweringError::UnknownBinding`] naming the unresolvable half.
-pub fn resolve_binding(
-    published: &[Action],
-    context: &str,
-    action: &str,
-) -> Result<(), LoweringError> {
-    let declared = published
-        .iter()
-        .find(|candidate| candidate.id.as_str() == action)
-        .ok_or_else(|| LoweringError::UnknownBinding {
-            field: "action",
-            declared: action.to_owned(),
-        })?;
-    if declared
-        .contexts
-        .iter()
-        .any(|declared_context| declared_context.as_str() == context)
-    {
-        return Ok(());
-    }
-    Err(LoweringError::UnknownBinding {
-        field: "context",
-        declared: context.to_owned(),
-    })
 }
 
 /// Lower the route activation schema a definition declares.
@@ -153,20 +100,19 @@ fn lower_kind(field: &ActivationFieldFile) -> ActivationKind {
     }
 }
 
-/// Lower the binding requests a definition declares, resolving each against the
-/// immutable inventory.
+/// Lower the typed binding requests a definition declares.
+///
+/// Action existence and context membership are deliberately validated against
+/// the final composed registry, after provider actions and Settings overrides
+/// are known.
 ///
 /// # Errors
 ///
-/// Returns [`LoweringError::UnknownBinding`] naming the unresolvable half.
-pub fn lower_bindings(
-    published: &[Action],
-    declared: &[(&str, &str)],
-) -> Result<Vec<ScreenBinding>, LoweringError> {
+/// Returns [`LoweringError::UnknownBinding`] when either identifier is malformed.
+pub fn lower_bindings(declared: &[(&str, &str)]) -> Result<Vec<ScreenBinding>, LoweringError> {
     declared
         .iter()
         .map(|(context, action)| {
-            resolve_binding(published, context, action)?;
             Ok(ScreenBinding {
                 context: ContextId::parse(context).map_err(|_| LoweringError::UnknownBinding {
                     field: "context",
@@ -179,4 +125,39 @@ pub fn lower_bindings(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_binding_context_is_refused_during_typed_lowering() {
+        let Err(error) = lower_bindings(&[("Bad Context", "vendor.action")]) else {
+            panic!("malformed context must fail typed lowering");
+        };
+
+        assert!(matches!(
+            error,
+            LoweringError::UnknownBinding {
+                field: "context",
+                declared,
+            } if declared == "Bad Context"
+        ));
+    }
+
+    #[test]
+    fn malformed_binding_action_is_refused_during_typed_lowering() {
+        let Err(error) = lower_bindings(&[("vendor.context", "Bad Action")]) else {
+            panic!("malformed action must fail typed lowering");
+        };
+
+        assert!(matches!(
+            error,
+            LoweringError::UnknownBinding {
+                field: "action",
+                declared,
+            } if declared == "Bad Action"
+        ));
+    }
 }

@@ -7,12 +7,11 @@ use crate::persistence::screen_files::{ScreenFileCandidate, ScreenFileRejection}
 use super::activation::ActivationKind;
 use super::compose::{ScreenComposition, compose_screens};
 use super::compose_fixtures::{candidate, enabled, review_definition, unreadable_candidate};
-use super::descriptor::PortRef;
+use super::descriptor::{OverlayKind, PortRef};
 use super::diagnostics::ScrCode;
 use super::geometry::{Extent, Rect};
 use super::ids::{CustomScreenId, PanelId, PortId, ScreenId, ScreenIdentity};
 use super::panel_types::DEFINABLE_PANEL_TYPES;
-use super::relationship_propagation::{PortValue, RelationshipState, SourceIntent, propagate};
 use super::relationships::{ActivationMode, EmptyPolicy, RelationshipKind};
 use super::resolve::{PanelState, resolve_layout};
 use super::screens::{ScreenRegistry, builtin_screens};
@@ -59,8 +58,19 @@ fn an_enabled_definition_joins_the_registry_after_the_compiled_screens() {
         .map(|screen| screen.id.as_str())
         .collect();
     assert_eq!(identities.last(), Some(&"local.review"));
-    assert_eq!(identities.len(), ScreenId::ALL.len() + 1);
+    assert_eq!(identities.len(), ScreenId::ALL.len() + 2);
     assert!(composition.warnings.is_empty());
+}
+
+#[test]
+fn an_enabled_definition_contributes_its_immutable_resource_schemas() {
+    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
+
+    assert_eq!(composition.resource_schemas.len(), 1);
+    let schema = &composition.resource_schemas[0];
+    assert_eq!(schema.owner_id().as_str(), "local.review");
+    assert_eq!(schema.type_id().as_str(), "local.review.note");
+    assert_eq!(schema.schema_version(), 1);
 }
 
 #[test]
@@ -101,6 +111,28 @@ fn the_lowered_descriptor_copies_the_definition_without_inventing_anything() {
 }
 
 #[test]
+fn lowered_screens_retain_closed_host_overlay_declarations_in_order() {
+    let source = format!(
+        "{}\n[[overlays]]\nkind = \"help\"\n\n[[overlays]]\nkind = \"search\"\n\n[[overlays]]\nkind = \"confirmation\"\n",
+        review_definition()
+    );
+    let composition = composed(&[candidate("review", &source)], &["review"]);
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
+
+    assert_eq!(
+        screen.overlays,
+        vec![
+            OverlayKind::Help,
+            OverlayKind::Search,
+            OverlayKind::Confirmation,
+        ]
+    );
+}
+
+#[test]
 fn the_lowered_descriptor_carries_its_declared_ports_and_relationship() {
     let composition = composed(&[candidate("review", &review_definition())], &["review"]);
     let screen = composition
@@ -134,30 +166,6 @@ fn lowering_the_same_definition_twice_produces_the_same_descriptor() {
     assert_eq!(
         first.registry.get_identity(review_identity()),
         second.registry.get_identity(review_identity())
-    );
-}
-
-#[test]
-fn a_lowered_relationship_propagates_through_the_shared_engine() {
-    let composition = composed(&[candidate("review", &review_definition())], &["review"]);
-    let screen = composition
-        .registry
-        .get_identity(review_identity())
-        .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
-
-    let transition = propagate(
-        screen,
-        &RelationshipState::new(),
-        &SourceIntent::Publish {
-            port: port("pr-list", "selection"),
-            value: PortValue::Subject("42".to_owned()),
-        },
-    )
-    .unwrap_or_else(|error| unreachable!("transition must commit: {error}"));
-
-    assert_eq!(
-        transition.state.value(&port("pr-detail", "subject")),
-        PortValue::Subject("42".to_owned())
     );
 }
 
@@ -209,7 +217,10 @@ const BROKEN_DEFINITION: &str = "screen_schema = 1\nid = \"local.broken\"\n";
 fn an_invalid_dormant_definition_is_omitted_with_a_warning() {
     let composition = composed(&[candidate("broken", BROKEN_DEFINITION)], &[]);
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
     assert_eq!(composition.warnings.len(), 1);
     assert_eq!(composition.warnings[0].code, CfgCode::W004);
     assert_eq!(composition.warnings[0].severity, Severity::Warning);
@@ -224,7 +235,10 @@ fn an_invalid_dormant_definition_is_omitted_with_a_warning() {
 fn a_valid_dormant_definition_is_omitted_without_a_warning() {
     let composition = composed(&[candidate("review", &review_definition())], &[]);
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
     assert!(composition.warnings.is_empty());
 }
 
@@ -325,15 +339,20 @@ fn a_definition_may_not_request_a_pty_panel() {
 }
 
 #[test]
-fn a_definition_naming_an_unknown_action_refuses_publication_as_a_reference() {
+fn lowering_retains_a_well_formed_binding_for_final_registry_validation() {
     let text = format!(
-        "{}\n[[bindings]]\ncontext = \"global\"\naction = \"no-such-action\"\n",
+        "{}\n[[bindings]]\ncontext = \"vendor.context\"\naction = \"vendor.action\"\n",
         review_definition()
     );
 
-    let refusal = refused(&text);
+    let composition = composed(&[candidate("review", &text)], &["review"]);
+    let screen = composition
+        .registry
+        .get_identity(review_identity())
+        .unwrap_or_else(|| panic!("enabled definition must publish"));
 
-    assert_eq!(refusal.configuration.code, CfgCode::E006);
+    assert_eq!(screen.bindings[0].context.as_str(), "vendor.context");
+    assert_eq!(screen.bindings[0].action.as_str(), "vendor.action");
 }
 
 #[test]
@@ -390,17 +409,22 @@ fn an_enabled_member_with_no_file_is_simply_absent() {
     let composition = compose_screens(&compiled(), &[], &enabled(&["review"]))
         .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
 }
 
 #[test]
-fn a_lowered_screen_is_not_resolvable_from_persisted_text() {
+fn a_lowered_screen_is_resolvable_from_its_persisted_identity() {
     let composition = composed(&[candidate("review", &review_definition())], &["review"]);
 
-    assert_eq!(
-        composition.registry.resolve("local.review"),
-        None,
-        "a screen with no renderer must not be restorable as the active screen"
+    assert!(
+        matches!(
+            composition.registry.resolve("local.review"),
+            Some(ScreenIdentity::Custom(_))
+        ),
+        "a published lowered screen must restore through the shared renderer"
     );
     assert_eq!(
         composition
@@ -421,7 +445,10 @@ fn a_definition_is_left_out_when_the_enabled_set_is_empty() {
     )
     .unwrap_or_else(|error| unreachable!("composition must publish: {error}"));
 
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
 }
 
 // ── Dormant candidates are inspected, not lowered (review remediation) ─────
@@ -444,7 +471,10 @@ fn a_dormant_definition_is_parsed_but_never_lowered() {
         composition.warnings.is_empty(),
         "a dormant definition is inspected for well-formedness and no further"
     );
-    assert_eq!(composition.registry.screens().len(), ScreenId::ALL.len());
+    assert_eq!(
+        composition.registry.screens().len(),
+        ScreenId::ALL.len() + 1
+    );
 }
 
 #[test]
@@ -514,6 +544,25 @@ fn an_unknown_panel_type_names_the_ones_a_definition_may_use() {
         assert!(
             refusal.screen.redacted_detail.contains(declared),
             "the refusal must list {declared}, got {:?}",
+            refusal.screen.redacted_detail
+        );
+    }
+}
+
+#[test]
+fn host_product_panel_types_are_not_available_to_local_definitions() {
+    for panel_type in [
+        "repository-list",
+        "search-input",
+        "agent-list",
+        "agent-preview",
+    ] {
+        let refusal = refused(
+            &review_definition().replace("type = \"pr-list\"", &format!("type = \"{panel_type}\"")),
+        );
+        assert!(
+            refusal.screen.redacted_detail.contains("not available"),
+            "{panel_type} must not grant host authority: {:?}",
             refusal.screen.redacted_detail
         );
     }

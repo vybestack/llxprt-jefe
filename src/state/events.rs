@@ -5,6 +5,8 @@ use crate::list_viewport::PageItemCount;
 pub enum AppEvent {
     /// Typed completion for a staged post-commit effect (issue #381 CW01-11).
     EffectCompletion(Box<crate::domain::effects::EffectCompletion>),
+    /// Unwind exactly one active navigation layer using the shared Back reducer.
+    Back,
     NavigateUp,
     NavigateDown,
     NavigatePageUp(PageItemCount),
@@ -19,19 +21,6 @@ pub enum AppEvent {
     CyclePaneFocus,
     ToggleTerminalFocus,
     ToggleHideIdleRepositories,
-    // Dashboard "search lite" for repositories and agents (issue #405).
-    /// Focus the dashboard search input.
-    FocusDashboardSearch,
-    /// Blur the dashboard search input, retaining the query so the filter
-    /// persists (mirrors Issues/PRs Enter-to-apply semantics).
-    BlurDashboardSearch,
-    /// Replace the dashboard search query (live-filtering the repo sidebar
-    /// and agent pane).
-    SetDashboardSearchQuery {
-        query: String,
-    },
-    /// Clear the dashboard search query and blur the input.
-    ClearDashboardSearch,
     /// Open the embedded shell overlay for the selected local running agent.
     OpenShellOverlay,
     /// Close/restore the embedded shell overlay (F10 toggle or natural exit detected).

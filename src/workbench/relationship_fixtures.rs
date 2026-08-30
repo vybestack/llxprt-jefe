@@ -3,7 +3,7 @@
 
 use std::num::NonZeroU16;
 
-use crate::domain::TypedMap;
+use crate::domain::{Id, TypedMap};
 
 use super::descriptor::{
     Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, PortRef,
@@ -48,6 +48,8 @@ fn interned(value: &str) -> &'static str {
 pub fn port(id: &str, direction: PortDirection, type_text: &str, retained: bool) -> PortDescriptor {
     PortDescriptor {
         id: port_id(id),
+        owner_id: Id::parse("github.core")
+            .unwrap_or_else(|error| unreachable!("fixture owner id must parse: {error}")),
         direction,
         type_id: type_id(type_text),
         required: false,
@@ -61,6 +63,7 @@ pub fn panel(id: &str, required: bool, ports: Vec<PortDescriptor>) -> PanelDescr
         id: panel_id(id),
         panel_type: PanelTypeId::parse("list")
             .unwrap_or_else(|error| unreachable!("fixture panel type must parse: {error}")),
+        host_capability: None,
         config: TypedMap::new(),
         focusable: true,
         required,
@@ -106,6 +109,8 @@ pub fn screen(panels: Vec<PanelDescriptor>, relationships: Vec<Relationship>) ->
         panels,
         relationships,
         activation: Vec::new(),
+        overlays: Vec::new(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout,
     }

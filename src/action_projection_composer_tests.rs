@@ -48,7 +48,7 @@ fn project_composer_footer(case: &ComposerFooterCase, chords: &[&str]) -> String
     project_footer(
         &snapshot,
         FooterProjectionInput {
-            screen: case.screen,
+            screen: case.screen.into(),
             terminal_focused: false,
             shell_overlay_active: false,
             shell_resume_available: false,
@@ -131,7 +131,7 @@ fn project_list_send_footer(
     project_footer(
         snapshot,
         FooterProjectionInput {
-            screen: case.screen,
+            screen: case.screen.into(),
             terminal_focused: false,
             shell_overlay_active: false,
             shell_resume_available: false,
@@ -259,7 +259,7 @@ fn list_and_detail_footers_project_only_their_active_send_action() {
         let list_footer = project_footer(
             &snapshot,
             FooterProjectionInput {
-                screen,
+                screen: screen.into(),
                 terminal_focused: false,
                 shell_overlay_active: false,
                 shell_resume_available: false,
@@ -270,7 +270,7 @@ fn list_and_detail_footers_project_only_their_active_send_action() {
         let detail_footer = project_footer(
             &snapshot,
             FooterProjectionInput {
-                screen,
+                screen: screen.into(),
                 terminal_focused: false,
                 shell_overlay_active: false,
                 shell_resume_available: false,
@@ -300,7 +300,7 @@ fn non_item_focus_footers_do_not_advertise_list_send() {
         let footer = project_footer(
             &snapshot,
             FooterProjectionInput {
-                screen,
+                screen: screen.into(),
                 terminal_focused: false,
                 shell_overlay_active: false,
                 shell_resume_available: false,

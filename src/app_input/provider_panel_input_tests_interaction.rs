@@ -26,7 +26,7 @@
             &snapshot,
         );
 
-        let event = action_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::FocusedAction);
         assert!(matches!(
             event,
             Some(PanelEvent::Action { ref id, .. }) if id.as_str() == "open-action"
@@ -68,11 +68,11 @@
             form_draft: None,
         };
         state
-            .provider_panels
+            .provider_panels_mut()
             .update_host_local(panel, host)
             .unwrap_or_else(|error| panic!("host-local fixture: {error}"));
 
-        let event = action_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::FocusedAction);
         assert!(matches!(
             event,
             Some(PanelEvent::Action { ref id, .. }) if id.as_str() == "delete-action"
@@ -104,7 +104,7 @@
             &snapshot,
         );
 
-        assert!(action_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::FocusedAction).is_none());
     }
 
     // ── Submit event tests ───────────────────────────────────────────────
@@ -153,13 +153,104 @@
             form_draft: Some(draft),
         };
         state
-            .provider_panels
+            .provider_panels_mut()
             .update_host_local(panel, host)
             .unwrap_or_else(|error| panic!("host-local fixture: {error}"));
 
-        let event = submit_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::Submit);
         assert!(matches!(event, Some(PanelEvent::Submit { .. })));
         assert_mouse_stages_one(&mut state, panel, PanelHitTarget::Submit);
+    }
+
+    fn provider_form(
+        fields: Vec<jefe::domain::plugin::field::Field>,
+        submit_action: jefe::domain::action_registry::ActionId,
+        name: &str,
+        team: &str,
+    ) -> PanelBody {
+        let mut values = TypedMap::new();
+        values.insert(id("name"), TypedValue::String(name.to_owned()));
+        values.insert(id("team"), TypedValue::String(team.to_owned()));
+        PanelBody::Form(jefe::runtime::provider::protocol::FormBody {
+            fields,
+            values,
+            field_errors: Vec::new(),
+            submit_action,
+        })
+    }
+
+    fn assert_sparse_latest_form_submit(state: &AppState, panel: PanelInstanceId) {
+        let Some(PanelEvent::Submit { values }) =
+            control_event(state, panel, ControlAction::Submit)
+        else {
+            panic!("submit event");
+        };
+        assert_eq!(
+            values.get(&id("name")),
+            Some(&TypedValue::String("edited name".to_owned()))
+        );
+        assert_eq!(
+            values.get(&id("team")),
+            Some(&TypedValue::String("new team".to_owned()))
+        );
+    }
+
+    #[test]
+    fn production_form_edits_remain_sparse_across_new_provider_snapshots() {
+        let owner = id("vendor.panel");
+        let panel_type = id("vendor.panel.form");
+        let submit = action_id("vendor.submit");
+        let fields = vec![
+            string_field("name", "Name", None),
+            string_field("team", "Team", None),
+        ];
+        let initial = provider_form(
+            fields.clone(),
+            submit.clone(),
+            "provider name",
+            "old team",
+        );
+        let mut events = all_event_kinds();
+        let Some(submit_declaration) = events
+            .iter_mut()
+            .find(|declaration| declaration.kind == EventKind::Submit)
+        else {
+            panic!("submit declaration fixture");
+        };
+        submit_declaration.arguments = fields.clone();
+        let snapshot = snapshot_with_body(
+            PanelInstanceId::from_u64(1),
+            initial,
+            BodyKind::Form,
+            vec![affordance("submit", "vendor.submit", true)],
+        );
+        let mut state = crate::test_app_state();
+        let panel = declare_and_accept(
+            &mut state,
+            (&owner, &panel_type),
+            &[BodyKind::Form],
+            &events,
+            std::slice::from_ref(&submit),
+            &snapshot,
+        );
+        assert!(state.submit_provider_panel_event(
+            panel,
+            PanelEvent::FieldChanged {
+                field_id: id("name"),
+                value: TypedValue::String("edited name".to_owned()),
+            },
+        ));
+
+        let latest = provider_form(fields, submit, "new provider name", "new team");
+        accept_next_snapshot(
+            &mut state,
+            panel,
+            latest,
+            BodyKind::Form,
+            vec![affordance("submit", "vendor.submit", true)],
+        );
+
+        assert_sparse_latest_form_submit(&state, panel);
     }
 
     #[test]
@@ -179,7 +270,7 @@
             &snapshot,
         );
 
-        assert!(submit_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::Submit).is_none());
     }
 
     // ── PageRequested event tests ────────────────────────────────────────
@@ -216,7 +307,7 @@
             &snapshot,
         );
 
-        let event = page_next_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::PageNext);
         assert!(matches!(
             event,
             Some(PanelEvent::PageRequested { ref token }) if token == "page2"
@@ -241,7 +332,7 @@
             &snapshot,
         );
 
-        assert!(page_next_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::PageNext).is_none());
     }
 
     // ── LinkSelected event tests ─────────────────────────────────────────
@@ -272,7 +363,7 @@
             &snapshot,
         );
 
-        let event = link_select_event(&state, panel);
+        let event = control_event(&state, panel, ControlAction::FocusedLink);
         assert!(matches!(
             event,
             Some(PanelEvent::LinkSelected { ref link_id }) if link_id.as_str() == "edit-link"
@@ -297,7 +388,7 @@
             &snapshot,
         );
 
-        assert!(link_select_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::FocusedLink).is_none());
     }
 
     // ── Stale/invalid zero-effect tests ──────────────────────────────────
@@ -327,13 +418,13 @@
             &snapshot,
         );
         state
-            .provider_panels
+            .provider_panels_mut()
             .suspend(panel)
             .unwrap_or_else(|error| panic!("suspend: {error}"));
 
         // Suspend drops the model, so action_event has no snapshot to read
         // and correctly produces nothing.
-        assert!(action_event(&state, panel).is_none());
+        assert!(control_event(&state, panel, ControlAction::FocusedAction).is_none());
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -365,14 +456,14 @@
             &snapshot,
         );
 
-        let prior_host = state.provider_panels.host_local(panel).cloned();
+        let prior_host = state.provider_panels().host_local(panel).cloned();
         state.error_message = Some("existing error".to_owned());
-        let Some(event) = action_event(&state, panel) else {
+        let Some(event) = control_event(&state, panel, ControlAction::FocusedAction) else {
             panic!("enabled action must project an event");
         };
         assert!(!state.submit_provider_panel_event(panel, event));
         assert!(state.take_staged_effects().is_empty());
-        assert_eq!(state.provider_panels.host_local(panel), prior_host.as_ref());
+        assert_eq!(state.provider_panels().host_local(panel), prior_host.as_ref());
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
     }
 
@@ -470,7 +561,7 @@
     }
 
     #[test]
-    fn focused_raw_form_edit_preserves_existing_values_and_stages_exactly_one_event() {
+    fn focused_raw_form_edit_keeps_a_sparse_draft_and_stages_exactly_one_event() {
         use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
 
         let (mut state, panel) = active_form(None);
@@ -480,7 +571,7 @@
             "unfocused character input must remain available to global bindings"
         );
         state
-            .provider_panels
+            .provider_panels_mut()
             .update_host_local(
                 panel,
                 HostLocal {
@@ -498,7 +589,7 @@
         let effects = state.take_staged_effects();
         assert_eq!(effects.len(), 1);
         let draft = state
-            .provider_panels
+            .provider_panels()
             .host_local(panel)
             .and_then(|host| host.form_draft.as_ref())
             .unwrap_or_else(|| panic!("accepted edit must create a draft"));
@@ -506,23 +597,43 @@
             draft.get(&id("name")),
             Some(&TypedValue::String("oldx".to_owned()))
         );
-        assert_eq!(
-            draft.get(&id("region")),
-            Some(&TypedValue::String("us".to_owned()))
+        assert!(
+            !draft.contains_key(&id("region")),
+            "untouched provider fields must not be copied into the edit draft"
         );
     }
 
     #[test]
-    fn invalid_raw_form_edit_leaves_host_state_and_effects_unchanged() {
+    fn constraint_incomplete_raw_form_edit_stays_host_local_without_provider_effect() {
         use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind};
         use jefe::domain::plugin::field::Scalar;
 
         let (mut state, panel) = active_form(Some(Scalar::Integer(3)));
-        let prior = state.provider_panels.host_local(panel).cloned();
+        state
+            .provider_panels_mut()
+            .update_host_local(
+                panel,
+                HostLocal {
+                    focus_target: Some(id("name")),
+                    ..HostLocal::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("focus field: {error}"));
         let key = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
-
-        assert!(edit_form_field(&state, panel, &key).is_none());
-        assert_eq!(state.provider_panels.host_local(panel), prior.as_ref());
+        let Some(RawKeyMutation::Draft { field_id, value }) =
+            edit_form_field(&state, panel, &key)
+        else {
+            panic!("constraint-incomplete edit must remain a host-local draft");
+        };
+        assert!(update_form_draft(&mut state, panel, field_id, value));
+        assert_eq!(
+            state
+                .provider_panels()
+                .host_local(panel)
+                .and_then(|host| host.form_draft.as_ref())
+                .and_then(|draft| draft.get(&id("name"))),
+            Some(&TypedValue::String("oldx".to_owned()))
+        );
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -532,14 +643,14 @@
 
         let (mut state, panel) = active_form(None);
         state
-            .provider_panels
+            .provider_panels_mut()
             .fail_runtime(panel)
             .unwrap_or_else(|error| panic!("runtime failure: {error}"));
-        let prior = state.provider_panels.host_local(panel).cloned();
+        let prior = state.provider_panels().host_local(panel).cloned();
         let key = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('x'));
 
         assert!(edit_form_field(&state, panel, &key).is_none());
-        assert_eq!(state.provider_panels.host_local(panel), prior.as_ref());
+        assert_eq!(state.provider_panels().host_local(panel), prior.as_ref());
         assert!(state.take_staged_effects().is_empty());
     }
 
@@ -554,6 +665,6 @@
 
         assert!(edit_form_field(&state, panel, &escape).is_none());
         assert!(edit_form_field(&state, panel, &emergency).is_none());
-        assert!(state.provider_panels.host_local(panel).is_none());
+        assert!(state.provider_panels().host_local(panel).is_none());
         assert!(state.take_staged_effects().is_empty());
     }

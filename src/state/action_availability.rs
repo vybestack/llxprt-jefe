@@ -20,6 +20,20 @@ const ACTION_AVAILABILITY_OWNER: &str = "core.keymap";
 const ACTION_AVAILABILITY_SUBJECT: &str = "action-availability";
 
 impl AppState {
+    #[must_use]
+    pub const fn provider_surface_action(
+        &self,
+    ) -> Option<&crate::domain::action_registry::ActionId> {
+        self.nav.current().provider_surface_action()
+    }
+
+    pub(crate) fn set_provider_surface_action(
+        &mut self,
+        action: Option<crate::domain::action_registry::ActionId>,
+    ) {
+        self.nav.current_mut().set_provider_surface_action(action);
+    }
+
     /// Record a refused action in the global warning and the active work-item
     /// screen's existing notice band. Provider actions also retain enough typed
     /// identity to open the dedicated unavailable surface.
@@ -28,19 +42,19 @@ impl AppState {
         action_id: Option<crate::domain::action_registry::ActionId>,
         reason: String,
     ) {
-        self.provider_surface_action = action_id.filter(|action_id| {
+        let surface_action = action_id.filter(|action_id| {
             self.action_registry()
                 .provider_actions()
                 .any(|action| action.id == *action_id)
         });
+        self.set_provider_surface_action(surface_action);
         match self.compiled_screen() {
             Some(super::ScreenId::Issues) => self.issues_state.draft_notice = Some(reason.clone()),
             Some(super::ScreenId::PullRequests) => {
                 self.prs_state.draft_notice = Some(reason.clone());
             }
             Some(
-                super::ScreenId::Dashboard
-                | super::ScreenId::Repositories
+                super::ScreenId::Repositories
                 | super::ScreenId::Actions
                 | super::ScreenId::Errors
                 | super::ScreenId::Terminals

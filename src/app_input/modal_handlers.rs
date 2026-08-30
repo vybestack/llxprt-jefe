@@ -7,9 +7,8 @@ use tracing::warn;
 use jefe::domain::{AgentId, AgentLaunchRequest, SandboxEngine};
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::generated_agent_form::GeneratedAgentFormFocus;
-use jefe::state::{
-    AgentFormFocus, AppEvent, AppState, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
-};
+use jefe::state::screen_overlays::ConfirmationRequest;
+use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus};
 
 use super::{
     AppStateHandle, SharedContext, close_modal_and_persist, durable_save_request,
@@ -77,78 +76,68 @@ fn persist_current_state(app_state: &mut AppStateHandle, ctx: &SharedContext) {
 }
 
 pub(super) fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let modal_snapshot = {
+    let Some((request_snapshot, cancel_focused)) = ({
         let state = app_state.read();
-        state.modal.clone()
+        state
+            .nav
+            .current()
+            .overlays()
+            .generic_confirmation()
+            .cloned()
+            .map(|request| {
+                (
+                    request,
+                    state.confirmation_choice() == Some(jefe::state::ConfirmFocus::Cancel),
+                )
+            })
+    }) else {
+        return;
     };
 
     // If Cancel is focused, Enter dismisses without performing the action (issue #228).
-    if confirm_focus_is_cancel(&modal_snapshot) {
-        close_modal_and_persist(app_state, ctx);
+    if cancel_focused {
+        super::close_expected_generic_confirmation_and_persist(app_state, ctx, &request_snapshot);
         return;
     }
 
-    match modal_snapshot {
-        ModalState::ConfirmDeleteAgent {
+    match &request_snapshot {
+        ConfirmationRequest::DeleteAgent {
             id,
             delete_work_dir,
-            ..
-        } => confirm_delete_agent(app_state, ctx, id, delete_work_dir),
-        ModalState::ConfirmDeleteRepository { id, .. } => {
-            confirm_delete_repository(app_state, ctx, id);
-        }
-        ModalState::ConfirmServerLostRecovery { agent_ids, .. } => {
-            super::relaunch::dispatch_server_lost_recovery(app_state, ctx, agent_ids);
-        }
-        ModalState::PreflightPrompt {
-            agent_id,
-            signature,
-            issue,
-            issue_self_assignment,
-            ..
-        } => super::preflight::handle_preflight_prompt_enter(
+        } => confirm_delete_agent(
             app_state,
             ctx,
-            agent_id,
-            signature,
-            issue,
-            issue_self_assignment,
+            &request_snapshot,
+            id.clone(),
+            *delete_work_dir,
         ),
-        ModalState::ConfirmIssueDirtyCopy {
-            agent_id,
-            work_dir,
-            signature,
-            payload,
-            ..
-        } => super::issues_send::confirm_issue_dirty_copy_enter(
-            app_state, ctx, agent_id, work_dir, signature, payload,
-        ),
-        ModalState::ConfirmIssueOriginMismatch {
-            agent_id,
-            work_dir,
-            signature,
-            payload,
-            ..
-        } => super::issues_send::confirm_issue_origin_mismatch_enter(
-            app_state, ctx, agent_id, work_dir, signature, payload,
-        ),
-        _ => {}
-    }
-}
-
-/// Returns true when the confirm modal's focused button is Cancel (issue #228).
-pub(super) fn confirm_focus_is_cancel(modal: &ModalState) -> bool {
-    match modal {
-        ModalState::ConfirmDeleteAgent { confirm_focus, .. }
-        | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
-        | ModalState::ConfirmKillAgent { confirm_focus, .. }
-        | ModalState::ConfirmServerLostRecovery { confirm_focus, .. }
-        | ModalState::PreflightPrompt { confirm_focus, .. }
-        | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
-        | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {
-            *confirm_focus == ConfirmFocus::Cancel
+        ConfirmationRequest::DeleteRepository { id } => {
+            confirm_delete_repository(app_state, ctx, &request_snapshot, id.clone());
         }
-        _ => false,
+        ConfirmationRequest::KillAgent { id } => {
+            confirm_kill_agent(app_state, ctx, &request_snapshot, id.clone());
+        }
+        ConfirmationRequest::ServerLostRecovery { agent_ids } => {
+            super::relaunch::dispatch_server_lost_recovery(
+                app_state,
+                ctx,
+                &request_snapshot,
+                agent_ids.clone(),
+            );
+        }
+        ConfirmationRequest::Preflight { .. } => {
+            super::preflight::handle_preflight_prompt_enter(app_state, ctx, &request_snapshot);
+        }
+        ConfirmationRequest::IssueDirtyCopy { .. } => {
+            super::issues_send::confirm_issue_dirty_copy_enter(app_state, ctx, &request_snapshot);
+        }
+        ConfirmationRequest::IssueOriginMismatch { .. } => {
+            super::issues_send::confirm_issue_origin_mismatch_enter(
+                app_state,
+                ctx,
+                &request_snapshot,
+            );
+        }
     }
 }
 
@@ -163,25 +152,53 @@ pub(super) fn generated_back_is_focused(modal: &ModalState) -> bool {
 fn confirm_delete_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
+    expected: &ConfirmationRequest,
     id: AgentId,
     delete_work_dir: bool,
 ) {
+    if !app_state
+        .write()
+        .close_expected_generic_confirmation(expected)
+    {
+        return;
+    }
     reap_orphan_before_delete(app_state, &id);
     kill_agent_before_delete(ctx, &id);
 
     let mut state = app_state.write();
     let _ = jefe::state::delete_selected_agent(&mut state, &id, delete_work_dir);
-    state.modal = ModalState::None;
     let persisted = durable_save_request(&mut state);
     drop(state);
     schedule_durable_save(ctx, persisted);
 }
 
+fn confirm_kill_agent(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    expected: &ConfirmationRequest,
+    id: AgentId,
+) {
+    if !app_state
+        .write()
+        .close_expected_generic_confirmation(expected)
+    {
+        return;
+    }
+    super::agent_lifecycle_ops::dispatch_kill_agent(app_state, ctx, id);
+}
+
 fn confirm_delete_repository(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
+    expected: &ConfirmationRequest,
     id: jefe::domain::RepositoryId,
 ) {
+    if !app_state
+        .write()
+        .close_expected_generic_confirmation(expected)
+    {
+        return;
+    }
     let agent_ids: Vec<AgentId> = {
         let state = app_state.read();
         state
@@ -199,7 +216,6 @@ fn confirm_delete_repository(
 
     let mut state = app_state.write();
     jefe::state::delete_selected_repository(&mut state, &id);
-    state.modal = ModalState::None;
     let persisted = durable_save_request(&mut state);
     drop(state);
     schedule_durable_save(ctx, persisted);

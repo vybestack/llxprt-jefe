@@ -22,12 +22,13 @@ use std::time::{Duration, Instant};
 use crate::domain::Id;
 
 use super::drains::StdoutEvent;
+use super::dto::Capability;
 use super::encode;
 use super::error::ProviderError;
 use super::identifiers::Direction;
 use super::outcome::{OneShotOutcome, OneShotResult, SupervisorFailure};
 use super::persistent::{
-    CandidateHealth, CandidateHealthSnapshot, OwnedCandidate, candidate_health, reap_owned,
+    CandidateHealth, CandidateHealthSnapshot, OwnedCandidate, reap_owned, session_candidate_health,
 };
 use super::protocol::{
     InvokeActionPayload, LifecycleOrder, MessageKind, ProgressPayload, ProgressTracker,
@@ -318,7 +319,14 @@ impl PersistentSessionOwner {
             .panel_tx
             .as_ref()
             .ok_or(PersistentInvokeError::SessionGone)?;
-        sender
+        let available = match session.available.lock() {
+            Ok(available) => available,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if !*available {
+            return Err(PersistentInvokeError::SessionGone);
+        }
+        let result = sender
             .try_send(PanelCommand {
                 request_id,
                 payload,
@@ -326,15 +334,25 @@ impl PersistentSessionOwner {
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => PersistentInvokeError::QueueFull,
                 mpsc::TrySendError::Disconnected(_) => PersistentInvokeError::SessionGone,
-            })
+            });
+        drop(available);
+        result
     }
 
-    /// Drain all currently queued asynchronous panel snapshots.
+    /// Drain asynchronous snapshots only while their exact owner is available.
     #[must_use]
     pub fn drain_panel_deliveries(&self) -> Vec<PanelDelivery> {
         let mut deliveries = Vec::new();
         for session in &self.sessions {
-            deliveries.extend(session.panel_rx.try_iter());
+            let available = match session.available.lock() {
+                Ok(available) => available,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if *available {
+                deliveries.extend(session.panel_rx.try_iter());
+            } else {
+                session.panel_rx.try_iter().for_each(drop);
+            }
         }
         deliveries
     }
@@ -435,6 +453,16 @@ mod active_input_order_tests {
     use super::*;
 
     #[test]
+    fn panel_traffic_requires_the_negotiated_panels_capability() {
+        assert!(!panel_traffic_allowed(&[
+            super::super::dto::Capability::Actions
+        ]));
+        assert!(panel_traffic_allowed(&[
+            super::super::dto::Capability::Panels
+        ]));
+    }
+
+    #[test]
     fn queued_provider_frame_wins_over_cancel_and_shutdown() {
         let (stdout_tx, stdout_rx) = mpsc::channel();
         let (control_tx, control_rx) = mpsc::sync_channel(1);
@@ -499,6 +527,149 @@ mod active_input_order_tests {
             panic!("deactivate command must retain its closed payload");
         };
         assert_eq!(queued, payload);
+    }
+
+    #[test]
+    fn unavailable_owner_rejects_every_panel_command_before_enqueue() {
+        let plugin_id =
+            Id::parse("vendor.failed").unwrap_or_else(|error| panic!("plugin fixture: {error:?}"));
+        let (panel_tx, panel_command_rx) = mpsc::sync_channel(3);
+        let (_delivery_tx, panel_rx) = mpsc::sync_channel(1);
+        let owner = PersistentSessionOwner {
+            sessions: vec![PersistentSession {
+                plugin_id: plugin_id.clone(),
+                invocation_tx: None,
+                panel_tx: Some(panel_tx),
+                panel_rx,
+                control_tx: None,
+                available: Arc::new(Mutex::new(false)),
+                thread: None,
+            }],
+        };
+        let request_id = super::super::identifiers::RequestId::new_host(8)
+            .unwrap_or_else(|error| panic!("request fixture: {error:?}"));
+        let payloads = [
+            PanelCommandPayload::Activate(super::super::panel_model::ActivatePanelPayload {
+                panel_instance_id: 9,
+                screen_instance_id: 10,
+                panel_type: plugin_id.clone(),
+                activation: crate::domain::TypedMap::new(),
+                prior_host_local: None,
+                generation: 3,
+            }),
+            PanelCommandPayload::Deactivate(super::super::panel_model::DeactivatePanelPayload {
+                panel_instance_id: 9,
+                generation: 3,
+                reason: super::super::panel_model::DeactivateReason::Dispose,
+            }),
+            PanelCommandPayload::Event(super::super::panel_model::PanelEventPayload {
+                panel_instance_id: 9,
+                generation: 3,
+                revision: 1,
+                event: super::super::panel_model::PanelEvent::Retry,
+            }),
+        ];
+
+        for payload in payloads {
+            assert_eq!(
+                owner.send_panel(&plugin_id, request_id.clone(), payload),
+                Err(PersistentInvokeError::SessionGone)
+            );
+        }
+        assert!(matches!(
+            panel_command_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn unavailable_owner_discards_already_queued_panel_deliveries() {
+        let plugin_id =
+            Id::parse("vendor.failed").unwrap_or_else(|error| panic!("plugin fixture: {error:?}"));
+        let (delivery_tx, panel_rx) = mpsc::sync_channel(1);
+        let snapshot = super::super::panel_model::PanelSnapshot {
+            model_schema: 1,
+            panel_instance_id: 9,
+            generation: 3,
+            revision: 1,
+            kind: super::super::protocol::BodyKind::Empty,
+            title: "Stale".to_owned(),
+            description: None,
+            loading: false,
+            action_affordances: Vec::new(),
+            body: super::super::protocol::PanelBody::Empty(super::super::protocol::EmptyBody {
+                message: "stale".to_owned(),
+                action: None,
+            }),
+        };
+        delivery_tx
+            .send(PanelDelivery {
+                plugin_id: plugin_id.clone(),
+                process_generation: 1,
+                payload_byte_count: 1,
+                snapshot,
+            })
+            .unwrap_or_else(|error| panic!("delivery fixture: {error:?}"));
+        let owner = PersistentSessionOwner {
+            sessions: vec![PersistentSession {
+                plugin_id,
+                invocation_tx: None,
+                panel_tx: None,
+                panel_rx,
+                control_tx: None,
+                available: Arc::new(Mutex::new(false)),
+                thread: None,
+            }],
+        };
+
+        assert!(owner.drain_panel_deliveries().is_empty());
+        assert!(owner.drain_panel_deliveries().is_empty());
+    }
+    #[test]
+    fn available_owner_delivers_queued_panel_snapshots_and_drops_unavailable_ones() {
+        use super::super::panel_model::PanelSnapshot;
+        use super::super::protocol::{BodyKind, PanelBody};
+        let plugin_id = Id::parse("vendor.ok").unwrap_or_else(|error| panic!("id: {error:?}"));
+        let (delivery_tx, panel_rx) = mpsc::sync_channel(1);
+        let snapshot = PanelSnapshot {
+            model_schema: 1,
+            panel_instance_id: 9,
+            generation: 3,
+            revision: 1,
+            kind: BodyKind::Empty,
+            title: "Fresh".to_owned(),
+            description: None,
+            loading: false,
+            action_affordances: Vec::new(),
+            body: PanelBody::Empty(super::super::protocol::EmptyBody {
+                message: "fresh".to_owned(),
+                action: None,
+            }),
+        };
+        delivery_tx
+            .send(PanelDelivery {
+                plugin_id: plugin_id.clone(),
+                process_generation: 1,
+                payload_byte_count: 1,
+                snapshot,
+            })
+            .unwrap_or_else(|error| panic!("delivery fixture: {error:?}"));
+        let owner = PersistentSessionOwner {
+            sessions: vec![PersistentSession {
+                plugin_id,
+                invocation_tx: None,
+                panel_tx: None,
+                panel_rx,
+                control_tx: None,
+                available: Arc::new(Mutex::new(true)),
+                thread: None,
+            }],
+        };
+
+        let deliveries = owner.drain_panel_deliveries();
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].snapshot.title, "Fresh");
+        assert!(owner.drain_panel_deliveries().is_empty());
     }
 
     #[test]

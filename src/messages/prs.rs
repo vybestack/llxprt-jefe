@@ -11,6 +11,17 @@ use super::{
 
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
+/// Closed vertical direction for the merge-method chooser.
+///
+/// The chooser is a short fixed list with no paging, so only `Up` and `Down`
+/// are representable; the closed payload makes totalizing other
+/// [`NavDir`](super::NavDir) variants unrepresentable at the type level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeNavDirection {
+    Up,
+    Down,
+}
+
 #[derive(Debug, Clone)]
 pub enum PullRequestsMessage {
     EnterMode,
@@ -202,7 +213,7 @@ pub enum PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-009
     OpenMergeChooser,
-    MergeNavigate(NavDir),
+    MergeNavigate(MergeNavDirection),
     MergeConfirm,
     MergeCancel,
     Merged {

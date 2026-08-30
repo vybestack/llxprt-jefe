@@ -8,6 +8,7 @@
 //! Acceptance criteria from: analysis/crud-validation-error-matrix.md
 
 use jefe::domain::{Agent, AgentId, Repository, RepositoryId};
+use jefe::state::screen_overlays::ConfirmationRequest;
 use jefe::state::transition::TransitionExt;
 use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, RepositoryFormFocus};
 use std::path::PathBuf;
@@ -53,13 +54,17 @@ fn open_help_modal() {
 
     state = state.apply(AppEvent::OpenHelp).committed_pure();
 
-    assert_eq!(state.modal, ModalState::Help);
+    assert_eq!(
+        state.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help)
+    );
 }
 
 #[test]
 fn close_help_modal() {
-    let mut state = create_form_test_state();
-    state.modal = ModalState::Help;
+    let mut state = create_form_test_state()
+        .apply(AppEvent::OpenHelp)
+        .committed_pure();
 
     state = state.apply(AppEvent::CloseModal).committed_pure();
 
@@ -77,12 +82,11 @@ fn open_confirm_delete_agent_modal() {
         .committed_pure();
 
     assert_eq!(
-        state.modal,
-        ModalState::ConfirmDeleteAgent {
+        state.nav.current().overlays().generic_confirmation(),
+        Some(&ConfirmationRequest::DeleteAgent {
             id: agent_id,
             delete_work_dir: false,
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        }
+        })
     );
 }
 
@@ -142,21 +146,21 @@ fn submit_new_repository_form_creates_repository() {
 fn toggle_delete_work_dir_in_confirm_modal() {
     let mut state = create_form_test_state();
     let agent_id = AgentId("agent-1".into());
-    state.modal = ModalState::ConfirmDeleteAgent {
-        id: agent_id.clone(),
-        delete_work_dir: false,
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    assert!(
+        state.open_confirmation_payload(ConfirmationRequest::DeleteAgent {
+            id: agent_id.clone(),
+            delete_work_dir: false,
+        })
+    );
 
     state = state.apply(AppEvent::ToggleDeleteWorkDir).committed_pure();
 
     assert_eq!(
-        state.modal,
-        ModalState::ConfirmDeleteAgent {
+        state.nav.current().overlays().generic_confirmation(),
+        Some(&ConfirmationRequest::DeleteAgent {
             id: agent_id,
             delete_work_dir: true,
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        }
+        })
     );
 }
 
@@ -164,11 +168,12 @@ fn toggle_delete_work_dir_in_confirm_modal() {
 fn cancel_delete_closes_modal_without_deletion() {
     let mut state = create_form_test_state();
     let agent_id = AgentId("agent-1".into());
-    state.modal = ModalState::ConfirmDeleteAgent {
-        id: agent_id,
-        delete_work_dir: false,
-        confirm_focus: jefe::state::ConfirmFocus::Cancel,
-    };
+    assert!(
+        state.open_confirmation_payload(ConfirmationRequest::DeleteAgent {
+            id: agent_id,
+            delete_work_dir: false,
+        })
+    );
 
     state = state.apply(AppEvent::CloseModal).committed_pure();
 

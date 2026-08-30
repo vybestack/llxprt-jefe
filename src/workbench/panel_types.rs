@@ -15,11 +15,9 @@ use super::ids::{IdError, PanelTypeId, check_identifier};
 use super::screens::PTY_PANEL_TYPE;
 
 /// Every panel type a screen definition may name, in registry order.
-pub const DEFINABLE_PANEL_TYPES: [&str; 16] = [
+pub const DEFINABLE_PANEL_TYPES: [&str; 12] = [
     "action-detail",
     "action-list",
-    "agent-list",
-    "agent-preview",
     "error-detail",
     "error-list",
     "filter-band",
@@ -28,8 +26,6 @@ pub const DEFINABLE_PANEL_TYPES: [&str; 16] = [
     "notice-band",
     "pr-detail",
     "pr-list",
-    "repository-list",
-    "search-input",
     "shell-list",
     "shell-preview",
 ];

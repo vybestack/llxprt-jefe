@@ -3,7 +3,10 @@
 
 use crate::domain::effects::{Correlation, CorrelationId, EffectError, EffectFamily, SemanticKey};
 use crate::domain::{Id, effects::EffectErrorKind};
-use crate::workbench::{ActivationValues, PanelId, ScreenId, ScreenRegistry, builtin_screens};
+use crate::workbench::{
+    ActivationValues, PanelId, PanelInstanceId, ScreenId, ScreenInstanceId, ScreenRegistry,
+    builtin_screens,
+};
 
 use super::navigation::{
     Activation, NavIntent, NavMessage, NavOutcome, NavState, NavTransition, reduce_navigation,
@@ -16,8 +19,8 @@ fn registry() -> ScreenRegistry {
     builtin_screens().unwrap_or_else(|_| unreachable!("the compiled registry must be well formed"))
 }
 
-fn rooted(screen: ScreenId) -> NavState {
-    NavState::rooted(screen)
+fn rooted_dashboard() -> NavState {
+    NavState::default()
 }
 
 fn push_to(state: &NavState, screen: ScreenId) -> NavIntent {
@@ -46,7 +49,7 @@ fn owner() -> Id {
 
 /// A dirty session whose owner declares a real save.
 fn savable() -> NavState {
-    let state = rooted(ScreenId::Dashboard);
+    let state = rooted_dashboard();
     send(
         state,
         NavMessage::MarkDirty {
@@ -62,7 +65,7 @@ fn savable() -> NavState {
 
 /// A dirty session whose draft has nowhere to save to.
 fn unsavable() -> NavState {
-    let state = rooted(ScreenId::Dashboard);
+    let state = rooted_dashboard();
     send(
         state,
         NavMessage::MarkDirty {
@@ -156,7 +159,7 @@ fn leaving_a_dirty_screen_raises_the_guard_instead_of_navigating() {
 
 #[test]
 fn leaving_a_clean_screen_raises_no_guard() {
-    let state = rooted(ScreenId::Dashboard);
+    let state = rooted_dashboard();
     let intent = push_to(&state, ScreenId::Issues);
 
     let transition = send(state, NavMessage::Navigate(intent));
@@ -194,7 +197,10 @@ fn choosing_save_asks_the_owner_and_does_not_navigate_yet() {
     let transition = send(guarded, NavMessage::ResolveDirty(DirtyChoice::Save));
 
     assert_asked_to_save(&transition.draft, None);
-    assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
+    assert_eq!(
+        transition.state.current().screen,
+        crate::workbench::DASHBOARD_IDENTITY
+    );
     assert!(matches!(
         transition
             .state
@@ -273,7 +279,7 @@ fn a_completion_naming_a_stale_generation_changes_nothing() {
 
 #[test]
 fn a_completion_with_no_guard_waiting_changes_nothing() {
-    let state = rooted(ScreenId::Dashboard);
+    let state = rooted_dashboard();
     let correlation = completion(&state, owner_key());
     let expected = state.clone();
 
@@ -308,7 +314,10 @@ fn a_failed_save_retains_the_draft_the_screen_and_the_choices() {
     );
 
     assert_eq!(transition.outcome, NavOutcome::SaveFailed);
-    assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
+    assert_eq!(
+        transition.state.current().screen,
+        crate::workbench::DASHBOARD_IDENTITY
+    );
     assert_eq!(transition.state.current().dirty, held);
     let Some(guard) = transition.state.guard() else {
         panic!("the guard must stay up so recovery choices remain reachable");
@@ -393,6 +402,57 @@ fn discarding_abandons_the_draft_and_performs_the_navigation() {
 }
 
 #[test]
+fn guard_and_cancel_allocate_no_identities_and_discard_allocates_only_the_entered_instance() {
+    let dirty = savable();
+    let intent = push_to(&dirty, ScreenId::Issues);
+    let before_guard_panels = PanelInstanceId::test_allocation_count();
+    let before_guard_screens = ScreenInstanceId::test_allocation_count();
+    let guarded = send(dirty, NavMessage::Navigate(intent));
+    assert_eq!(
+        PanelInstanceId::test_allocation_count(),
+        before_guard_panels,
+        "pure preflight must not reserve panel identities"
+    );
+    assert_eq!(
+        ScreenInstanceId::test_allocation_count(),
+        before_guard_screens,
+        "pure preflight must not reserve screen identities"
+    );
+
+    let cancelled = send(guarded.state, NavMessage::ResolveDirty(DirtyChoice::Cancel));
+    assert_eq!(
+        PanelInstanceId::test_allocation_count(),
+        before_guard_panels
+    );
+    assert_eq!(
+        ScreenInstanceId::test_allocation_count(),
+        before_guard_screens
+    );
+
+    let intent = push_to(&cancelled.state, ScreenId::Issues);
+    let guarded = send(cancelled.state, NavMessage::Navigate(intent));
+    let before_discard_panels = PanelInstanceId::test_allocation_count();
+    let before_discard_screens = ScreenInstanceId::test_allocation_count();
+    let transition = send(
+        guarded.state,
+        NavMessage::ResolveDirty(DirtyChoice::Discard),
+    );
+    assert!(matches!(transition.outcome, NavOutcome::Pushed { .. }));
+    let panel_count = registry().get(ScreenId::Issues).map_or_else(
+        || unreachable!("Issues is compiled"),
+        |screen| screen.panels.len(),
+    );
+    assert_eq!(
+        PanelInstanceId::test_allocation_count() - before_discard_panels,
+        u64::try_from(panel_count).unwrap_or_else(|_| unreachable!("panel count fits u64"))
+    );
+    assert_eq!(
+        ScreenInstanceId::test_allocation_count() - before_discard_screens,
+        1
+    );
+}
+
+#[test]
 fn a_discarded_draft_does_not_follow_the_session_to_the_next_screen() {
     let state = savable();
     let intent = push_to(&state, ScreenId::Issues);
@@ -422,7 +482,10 @@ fn cancelling_keeps_the_draft_and_drops_the_navigation() {
 
     assert_eq!(transition.outcome, NavOutcome::Cancelled);
     assert_eq!(transition.draft, DraftAction::None);
-    assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
+    assert_eq!(
+        transition.state.current().screen,
+        crate::workbench::DASHBOARD_IDENTITY
+    );
     assert_eq!(transition.state.current().dirty, held);
     assert!(
         transition.state.guard().is_none(),
@@ -434,7 +497,7 @@ fn cancelling_keeps_the_draft_and_drops_the_navigation() {
 fn cancelling_restores_the_exact_focus_the_guard_interrupted() {
     let mut state = savable();
     let registry = registry();
-    let Some(descriptor) = registry.get(ScreenId::Dashboard) else {
+    let Some(descriptor) = registry.get_identity(crate::workbench::DASHBOARD_IDENTITY) else {
         unreachable!("every compiled screen has a descriptor");
     };
     let Some(other) = descriptor
@@ -476,7 +539,10 @@ fn choosing_save_for_a_draft_with_nowhere_to_save_leaves_the_guard_up() {
 
     assert_eq!(transition.outcome, NavOutcome::GuardRaised);
     assert_eq!(transition.draft, DraftAction::None);
-    assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
+    assert_eq!(
+        transition.state.current().screen,
+        crate::workbench::DASHBOARD_IDENTITY
+    );
     assert!(
         matches!(
             transition
@@ -506,7 +572,7 @@ fn discarding_a_draft_with_nowhere_to_save_leaves() {
 #[test]
 fn resolving_with_no_guard_up_changes_nothing() {
     for choice in [DirtyChoice::Save, DirtyChoice::Discard, DirtyChoice::Cancel] {
-        let state = rooted(ScreenId::Dashboard);
+        let state = rooted_dashboard();
         let expected = state.clone();
         let transition = send(state, NavMessage::ResolveDirty(choice));
         assert_eq!(transition.state, expected, "{choice:?} must be inert");
@@ -668,7 +734,7 @@ fn a_completion_for_a_draft_that_has_since_been_replaced_changes_nothing() {
 
     assert_eq!(
         transition.state.current().screen,
-        ScreenId::Dashboard,
+        crate::workbench::DASHBOARD_IDENTITY,
         "an answer about a replaced draft must not navigate"
     );
     assert!(transition.state.current().dirty.is_dirty());
@@ -715,7 +781,7 @@ fn a_late_answer_from_an_abandoned_attempt_does_not_resolve_the_retry() {
 
     assert_eq!(
         transition.state.current().screen,
-        ScreenId::Dashboard,
+        crate::workbench::DASHBOARD_IDENTITY,
         "the abandoned attempt must not navigate on the retry's behalf"
     );
     assert!(transition.state.current().dirty.is_dirty());
@@ -744,7 +810,10 @@ fn nothing_resolves_the_guard_before_the_owner_says_what_it_registered() {
         },
     );
 
-    assert_eq!(transition.state.current().screen, ScreenId::Dashboard);
+    assert_eq!(
+        transition.state.current().screen,
+        crate::workbench::DASHBOARD_IDENTITY
+    );
     assert!(transition.state.current().dirty.is_dirty());
 }
 

@@ -52,9 +52,11 @@ pub use super::dto::{
 // Closed panel model and direct panel/migration DTOs (issue #391).
 pub use super::panel_model::{
     ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
-    DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError, HostLocal,
-    ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody, PanelEvent,
-    PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow, StatusRowState,
+    DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, FormFieldError,
+    HostLocal, ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody,
+    PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
+    StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 
 // Pure validators.

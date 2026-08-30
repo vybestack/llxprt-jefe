@@ -259,6 +259,68 @@ pub(super) struct ConfirmationBinding {
     pub(super) generation: u64,
 }
 
+/// Complete immutable identity of one presented provider confirmation token.
+///
+/// The provider-supplied confirmation id is not globally unique. The host binds
+/// it to invocation A and the exact open screen instance before presentation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderConfirmationIdentity {
+    owner: Id,
+    action_id: Id,
+    generation: u64,
+    confirmation_id: Id,
+    context_screen: Id,
+    context_instance: Id,
+}
+
+impl ProviderConfirmationIdentity {
+    #[must_use]
+    pub const fn owner(&self) -> &Id {
+        &self.owner
+    }
+
+    #[must_use]
+    pub const fn action_id(&self) -> &Id {
+        &self.action_id
+    }
+
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    #[must_use]
+    pub const fn confirmation_id(&self) -> &Id {
+        &self.confirmation_id
+    }
+
+    #[must_use]
+    pub const fn context_screen(&self) -> &Id {
+        &self.context_screen
+    }
+
+    #[must_use]
+    pub const fn context_instance(&self) -> &Id {
+        &self.context_instance
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fixture(confirmation_id: Id) -> Self {
+        Self {
+            owner: Id::parse("test.provider")
+                .unwrap_or_else(|error| panic!("test provider identity: {error}")),
+            action_id: Id::parse("test.confirm")
+                .unwrap_or_else(|error| panic!("test action identity: {error}")),
+            generation: 1,
+            confirmation_id,
+            context_screen: Id::parse("test.screen")
+                .unwrap_or_else(|error| panic!("test screen identity: {error}")),
+            context_instance: Id::parse("test.instance")
+                .unwrap_or_else(|error| panic!("test instance identity: {error}")),
+        }
+    }
+}
+
 /// One pending single-use confirmation token (CW10-08).
 ///
 /// Stores the exact UI fields (title, body, confirm label, schema) plus the
@@ -267,6 +329,7 @@ pub(super) struct ConfirmationBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PendingConfirmation {
     pub(super) binding: ConfirmationBinding,
+
     pub(super) confirmation_id: Id,
     pub(super) created_epoch: u64,
     pub(super) title: String,
@@ -281,7 +344,12 @@ impl PendingConfirmation {
     /// Read-only view of this token's UI fields for the pure view projection.
     pub(super) fn view(&self) -> PendingConfirmationView<'_> {
         PendingConfirmationView {
+            owner: &self.binding.owner,
+            action_id: &self.binding.action_id,
+            generation: self.binding.generation,
             confirmation_id: &self.confirmation_id,
+            context_screen: &self.binding.context_screen,
+            context_instance: &self.binding.context_instance,
             title: &self.title,
             body: &self.body,
             confirm_label: &self.confirm_label,
@@ -297,7 +365,12 @@ impl PendingConfirmation {
 /// declared values without owning or mutating reducer state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PendingConfirmationView<'a> {
+    owner: &'a Id,
+    action_id: &'a Id,
+    generation: u64,
     confirmation_id: &'a Id,
+    context_screen: &'a Id,
+    context_instance: &'a Id,
     title: &'a str,
     body: &'a str,
     confirm_label: &'a str,
@@ -305,10 +378,53 @@ pub struct PendingConfirmationView<'a> {
 }
 
 impl<'a> PendingConfirmationView<'a> {
+    /// Complete host-authenticated identity carried by the presentation layer.
+    #[must_use]
+    pub fn identity(self) -> ProviderConfirmationIdentity {
+        ProviderConfirmationIdentity {
+            owner: self.owner.clone(),
+            action_id: self.action_id.clone(),
+            generation: self.generation,
+            confirmation_id: self.confirmation_id.clone(),
+            context_screen: self.context_screen.clone(),
+            context_instance: self.context_instance.clone(),
+        }
+    }
+
+    /// Provider owner authenticated by invocation A.
+    #[must_use]
+    pub const fn owner(self) -> &'a Id {
+        self.owner
+    }
+
+    /// Action authenticated by invocation A.
+    #[must_use]
+    pub const fn action_id(self) -> &'a Id {
+        self.action_id
+    }
+
+    /// Request generation authenticated by invocation A.
+    #[must_use]
+    pub const fn generation(self) -> u64 {
+        self.generation
+    }
+
     /// Single-use confirmation identity declared by the provider.
     #[must_use]
     pub const fn confirmation_id(self) -> &'a Id {
         self.confirmation_id
+    }
+
+    /// Screen declaration that owns this confirmation.
+    #[must_use]
+    pub const fn context_screen(self) -> &'a Id {
+        self.context_screen
+    }
+
+    /// Open screen instance that owns this confirmation.
+    #[must_use]
+    pub const fn context_instance(self) -> &'a Id {
+        self.context_instance
     }
 
     /// The modal title declared by the provider.
@@ -361,6 +477,12 @@ pub enum ProviderRequestError {
     },
     /// No pending confirmation matched the supplied identity.
     ConfirmationNotFound,
+    /// A provider continuation schema collided with host fields or repeated an identifier.
+    InvalidContinuationSchema,
+    /// Submitted continuation values did not exactly match the declared schema.
+    InvalidContinuationValues,
+    /// The current screen instance or freshly projected resources no longer match the intent.
+    StaleContext,
     /// The u64 generation counter exhausted.
     GenerationExhausted,
     /// A `RequestHostConfirmation` outcome violated the action policy
@@ -393,6 +515,14 @@ impl std::fmt::Display for ProviderRequestError {
             Self::ConfirmationNotFound => {
                 formatter.write_str("no pending confirmation matches this identity")
             }
+            Self::InvalidContinuationSchema => formatter.write_str(
+                "provider continuation schema collides with host fields or repeats an identifier",
+            ),
+            Self::InvalidContinuationValues => {
+                formatter.write_str("continuation values do not exactly match the declared schema")
+            }
+            Self::StaleContext => formatter
+                .write_str("provider action context no longer matches the authorized intent"),
             Self::GenerationExhausted => {
                 formatter.write_str("provider generation counter exhausted")
             }

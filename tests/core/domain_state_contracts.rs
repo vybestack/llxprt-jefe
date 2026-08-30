@@ -485,7 +485,7 @@ fn toggle_terminal_focus_clears_terminal_focused() {
 fn enter_split_mode_changes_active_screen() {
     let state = {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
         state
     };
 
@@ -510,30 +510,28 @@ fn exit_split_mode_returns_to_dashboard() {
 
     assert_eq!(
         next.screen(),
-        ScreenId::Dashboard,
+        jefe::workbench::DASHBOARD_IDENTITY,
         "ExitSplitMode should return to Dashboard"
     );
 }
 
 #[test]
-fn open_help_sets_modal_to_help() {
+fn open_help_activates_the_instance_overlay() {
     let state = crate::common_app_state::app_state();
 
     let next = state.apply(AppEvent::OpenHelp).committed_pure();
 
-    assert!(
-        matches!(next.modal, ModalState::Help),
-        "OpenHelp should set modal to Help"
+    assert_eq!(
+        next.active_overlay_kind(),
+        Some(jefe::workbench::OverlayKind::Help)
     );
 }
 
 #[test]
 fn close_modal_clears_modal() {
-    let state = {
-        let mut state = crate::common_app_state::app_state();
-        state.modal = ModalState::Help;
-        state
-    };
+    let state = crate::common_app_state::app_state()
+        .apply(AppEvent::OpenHelp)
+        .committed_pure();
 
     let next = state.apply(AppEvent::CloseModal).committed_pure();
 

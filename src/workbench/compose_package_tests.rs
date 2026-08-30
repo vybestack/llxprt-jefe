@@ -11,10 +11,12 @@ use crate::test_support::MustErr;
 use std::fs;
 use std::path::Path;
 
-use super::compose::{CompositionRefused, compose_screens_with_packages};
+use super::compose::{CompositionRefused, compose_screens, compose_screens_with_package_sources};
+use super::compose_fixtures::{candidate, enabled, review_definition};
 use super::config::panel_insets;
+use super::descriptor::OverlayKind;
 use super::geometry::Insets;
-use super::ids::{PanelId, PluginScreenId, ScreenIdentity};
+use super::ids::{CustomScreenId, PanelId, PluginScreenId, ScreenIdentity};
 use super::intern::intern;
 use super::screens::{ScreenRegistry, builtin_screens};
 
@@ -23,6 +25,7 @@ use crate::domain::plugin::HostTriple;
 use crate::persistence::diagnostic::CfgCode;
 use crate::persistence::plugin_inventory::{InstalledPackage, MANIFEST_FILE_NAME, scan};
 use crate::persistence::plugin_roots::{PluginRoot, PluginRootKind};
+use crate::persistence::screen_files::PackageScreenSources;
 use crate::persistence::settings_document::{PublishedSettings, SettingsDocument};
 
 // ---------------------------------------------------------------------------
@@ -152,6 +155,40 @@ panel = "list"
     )
 }
 
+fn screen_toml_with_overlays(screen_id: &str, panel_type: &str) -> String {
+    let overlays = r#"[[overlays]]
+kind = "help"
+
+[[overlays]]
+kind = "search"
+
+[[overlays]]
+kind = "confirmation"
+
+[[panels]]"#;
+    screen_toml(screen_id, panel_type).replace("[[panels]]", overlays)
+}
+
+fn screen_toml_with_resource(screen_id: &str, panel_type: &str) -> String {
+    screen_toml(screen_id, panel_type)
+        .replace("screen_schema = 1", "screen_schema = 2")
+        .replace(
+            "[[panels]]",
+            r#"[[resources]]
+type_id = "vendor.demo.item"
+schema_version = 1
+semantic_key = "semantic-key"
+
+[[resources.fields]]
+id = "semantic-key"
+label = "Semantic key"
+type = "string"
+required = true
+
+[[panels]]"#,
+        )
+}
+
 /// Write one package to `root` with a manifest and, optionally, screen bytes.
 fn write_package(root: &Path, id: &str, version: &str, manifest: &str, screen: Option<&str>) {
     let dir = root.join(id).join(version);
@@ -200,7 +237,8 @@ fn compose(
     packages: &[InstalledPackage],
     published: &PublishedSettings,
 ) -> Result<super::compose::ScreenComposition, CompositionRefused> {
-    compose_screens_with_packages(&compiled(), &[], packages, published)
+    let sources = PackageScreenSources::capture(packages);
+    compose_screens_with_package_sources(&compiled(), &[], packages, &sources, published)
 }
 
 /// The owner-qualified `Package` identity for `<pkg>.<screen>`.
@@ -227,6 +265,50 @@ fn contribution(path: &str, screen_id: &str) -> String {
 // ---------------------------------------------------------------------------
 // Acceptance tests
 // ---------------------------------------------------------------------------
+
+#[test]
+fn selected_package_panel_owns_a_local_screen_panel() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    write_package(
+        &root,
+        "vendor.demo",
+        "1.0.0",
+        &manifest_json("vendor.demo", "1.0.0", &host, "[]"),
+        None,
+    );
+    let packages = scan_root(&root);
+    let mut published = settings(&packages, &[("vendor.demo", Some("1.0.0"))]);
+    published.workbench.enabled_screens.push(
+        crate::domain::Id::parse("local.review")
+            .unwrap_or_else(|error| panic!("local screen identity: {error}")),
+    );
+    let local = candidate("review", &screen_toml("local.review", "vendor.demo.list"));
+    let sources = PackageScreenSources::capture(&packages);
+
+    let composition = compose_screens_with_package_sources(
+        &compiled(),
+        &[local],
+        &packages,
+        &sources,
+        &published,
+    )
+    .unwrap_or_else(|error| panic!("compose local provider panel: {error}"));
+    let identity = ScreenIdentity::Custom(
+        CustomScreenId::parse("local.review")
+            .unwrap_or_else(|error| panic!("local identity: {error}")),
+    );
+    let binding = composition
+        .registry
+        .panel_binding(identity, &PanelId::from_static("list"))
+        .unwrap_or_else(|| panic!("selected package must own the local panel"));
+    assert_eq!(binding.owner.as_str(), "vendor.demo");
+    assert_eq!(binding.panel_type.as_str(), "vendor.demo.list");
+    assert_eq!(binding.model_kinds.len(), 1);
+}
 
 #[test]
 fn selected_package_screen_joins_registry() {
@@ -271,6 +353,124 @@ fn selected_package_screen_joins_registry() {
     );
 }
 
+fn package_overlay_kinds() -> Vec<OverlayKind> {
+    let Ok(temp) = tempfile::tempdir() else {
+        return Vec::new();
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    write_package(
+        &root,
+        "vendor.demo",
+        "1.0.0",
+        &manifest_json(
+            "vendor.demo",
+            "1.0.0",
+            &host,
+            &contribution("screens/main.screen.toml", "vendor.demo.screen"),
+        ),
+        Some(&screen_toml_with_overlays(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
+    );
+    let packages = scan_root(&root);
+    let published = settings(&packages, &[("vendor.demo", Some("1.0.0"))]);
+    let composition = compose(&packages, &published)
+        .unwrap_or_else(|error| unreachable!("composition must succeed: {error}"));
+    composition
+        .registry
+        .get_identity(package_identity("vendor.demo", "screen"))
+        .map_or_else(Vec::new, |descriptor| descriptor.overlays.clone())
+}
+
+#[test]
+fn builtin_local_and_package_overlay_declarations_lower_identically() {
+    assert_eq!(
+        package_overlay_kinds(),
+        OverlayKind::ALL.to_vec(),
+        "a package declaration must lower to the exact host vocabulary"
+    );
+
+    // Built-in arm: every compiled descriptor carries the same vocabulary.
+    let compiled = compiled();
+    for descriptor in compiled.screens() {
+        assert_eq!(
+            descriptor.overlays,
+            OverlayKind::ALL.to_vec(),
+            "built-in {} must declare the host overlay vocabulary",
+            descriptor.id
+        );
+    }
+
+    // Local arm: a local definition file lowers to the same vocabulary.
+    let local_overlays = r#"
+[[overlays]]
+kind = "help"
+
+[[overlays]]
+kind = "search"
+
+[[overlays]]
+kind = "confirmation"
+
+"#;
+    let local_source = format!("{}{}", review_definition(), local_overlays);
+    let local = compose_screens(
+        &compiled,
+        &[candidate("review", &local_source)],
+        &enabled(&["review"]),
+    )
+    .unwrap_or_else(|error| unreachable!("local composition must publish: {error}"));
+    let local_screen = local
+        .registry
+        .get_identity(ScreenIdentity::Custom(
+            CustomScreenId::parse("local.review")
+                .unwrap_or_else(|error| unreachable!("fixture identity must parse: {error}")),
+        ))
+        .unwrap_or_else(|| panic!("the lowered local screen must be registered"));
+    assert_eq!(
+        local_screen.overlays,
+        OverlayKind::ALL.to_vec(),
+        "a local declaration must lower to the exact host vocabulary"
+    );
+}
+
+#[test]
+fn selected_package_screen_contributes_definition_owned_resource_schemas() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    write_package(
+        &root,
+        "vendor.demo",
+        "1.0.0",
+        &manifest_json(
+            "vendor.demo",
+            "1.0.0",
+            &host,
+            &contribution("screens/main.screen.toml", "vendor.demo.screen"),
+        ),
+        Some(&screen_toml_with_resource(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
+    );
+    let packages = scan_root(&root);
+    let published = settings(&packages, &[("vendor.demo", Some("1.0.0"))]);
+
+    let composition = compose(&packages, &published)
+        .unwrap_or_else(|error| unreachable!("composition must succeed: {error}"));
+
+    assert_eq!(composition.resource_schemas.len(), 1);
+    let schema = &composition.resource_schemas[0];
+    assert_eq!(schema.owner_id().as_str(), "vendor.demo.screen");
+    assert_eq!(schema.type_id().as_str(), "vendor.demo.item");
+    assert_eq!(schema.schema_version(), 1);
+}
+
 #[test]
 fn disabled_package_contributes_nothing() {
     let Ok(temp) = tempfile::tempdir() else {
@@ -288,7 +488,10 @@ fn disabled_package_contributes_nothing() {
             &host,
             &contribution("screens/main.screen.toml", "vendor.demo.screen"),
         ),
-        Some(&screen_toml("vendor.demo.screen", "vendor.demo.list")),
+        Some(&screen_toml_with_resource(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
     );
     let packages = scan_root(&root);
     // Settings do not enable the package.
@@ -301,6 +504,10 @@ fn disabled_package_contributes_nothing() {
             package_identity("vendor.demo", "screen")
         ),
         "a disabled package must not contribute screens"
+    );
+    assert!(
+        composition.resource_schemas.is_empty(),
+        "a disabled package must not contribute resource schemas"
     );
 }
 
@@ -334,7 +541,10 @@ fn unselected_version_contributes_nothing() {
             &host,
             &contribution("screens/main.screen.toml", "vendor.demo.screen"),
         ),
-        Some(&screen_toml("vendor.demo.screen", "vendor.demo.list")),
+        Some(&screen_toml_with_resource(
+            "vendor.demo.screen",
+            "vendor.demo.list",
+        )),
     );
     let packages = scan_root(&root);
     // Select version 2.0.0 — version 1.0.0 contributes nothing.
@@ -347,6 +557,11 @@ fn unselected_version_contributes_nothing() {
             package_identity("vendor.demo", "screen")
         ),
         "the selected version's screen must be in the registry"
+    );
+    assert_eq!(
+        composition.resource_schemas.len(),
+        1,
+        "only the selected version may contribute its resource schema"
     );
 }
 
@@ -570,7 +785,7 @@ fn package_without_screens_contributes_nothing() {
     assert!(
         composition
             .registry
-            .get(crate::workbench::ScreenId::Dashboard)
+            .get_identity(crate::workbench::DASHBOARD_IDENTITY)
             .is_some(),
         "built-in screens must still be in the registry"
     );
@@ -668,7 +883,7 @@ fn selected_package_screen_preserves_builtin_screens() {
     assert!(
         composition
             .registry
-            .get(crate::workbench::ScreenId::Dashboard)
+            .get_identity(crate::workbench::DASHBOARD_IDENTITY)
             .is_some(),
         "compiled screens must still be present"
     );
@@ -705,4 +920,67 @@ fn panel_action_authority_contains_only_actions_available_on_its_screen() {
 
     assert_eq!(binding.action_authority.len(), 1);
     assert_eq!(binding.action_authority[0].as_str(), "vendor.pkg.run");
+}
+
+#[test]
+fn selected_provider_panel_declaration_binds_identically_to_local_and_package_screens() {
+    let Ok(temp) = tempfile::tempdir() else {
+        return;
+    };
+    let root = temp.path().join("packages");
+    let host = HostTriple::current();
+    let screens = contribution("screens/main.screen.toml", "vendor.demo.main");
+    let manifest = manifest_json("vendor.demo", "1.0.0", &host, &screens).replace(
+        r#""model_kinds": ["list"]"#,
+        r#""model_kinds": ["list", "tree", "detail", "structured-diff", "form", "status", "progress", "empty", "error"]"#,
+    );
+    write_package(
+        &root,
+        "vendor.demo",
+        "1.0.0",
+        &manifest,
+        Some(&screen_toml("vendor.demo.main", "vendor.demo.list")),
+    );
+    let packages = scan_root(&root);
+    let mut published = settings(&packages, &[("vendor.demo", Some("1.0.0"))]);
+    published.workbench.enabled_screens.push(
+        crate::domain::Id::parse("local.fixture")
+            .unwrap_or_else(|error| panic!("local identity: {error}")),
+    );
+    let local = candidate("fixture", &screen_toml("local.fixture", "vendor.demo.list"));
+    let sources = PackageScreenSources::capture(&packages);
+
+    let composition = compose_screens_with_package_sources(
+        &compiled(),
+        &[local],
+        &packages,
+        &sources,
+        &published,
+    )
+    .unwrap_or_else(|error| panic!("cross-origin composition: {error}"));
+    let local_identity = ScreenIdentity::Custom(
+        CustomScreenId::parse("local.fixture")
+            .unwrap_or_else(|error| panic!("custom screen identity: {error}")),
+    );
+    let local_binding = composition
+        .registry
+        .panel_binding(local_identity, &PanelId::from_static("list"))
+        .unwrap_or_else(|| panic!("local provider panel binding must exist"));
+    let package_binding = composition
+        .registry
+        .panel_binding(
+            package_identity("vendor.demo", "main"),
+            &PanelId::from_static("list"),
+        )
+        .unwrap_or_else(|| panic!("package provider panel binding must exist"));
+
+    assert_eq!(local_binding.model_kinds, package_binding.model_kinds);
+    assert_eq!(local_binding.model_kinds.len(), 9);
+    assert_eq!(local_binding.owner, package_binding.owner);
+    assert_eq!(local_binding.panel_type, package_binding.panel_type);
+    assert_eq!(local_binding.event_schema, package_binding.event_schema);
+    assert_eq!(
+        local_binding.action_authority,
+        package_binding.action_authority
+    );
 }

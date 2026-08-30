@@ -17,16 +17,14 @@ use crate::domain::input_context::ContextId;
 use crate::domain::keymap::Chord;
 use crate::messages::NavDir;
 use crate::messages::settings::LayoutMessage;
-use crate::persistence::diagnostic::{CfgCode, Diagnostic, DiagnosticPath, Severity};
-use crate::persistence::keymap_edit::compose_published;
-use crate::persistence::{SettingsCandidate, SettingsEdit, SyntaxPath};
+use crate::persistence::{SettingsEdit, SyntaxPath};
 use crate::workbench::descriptor::{LayoutNode, ScreenDescriptor};
 
 use super::AppState;
 use super::agent_types_editor::AgentIntent;
 use super::keys_editor_project::{self, CaptureOutcome, ChordText, KeyIntent, classify_capture};
 use super::layout_editor::{LayoutEditorState, NodeDialog};
-use super::screens_editor::{self, CompositionStatus, ScreenEditorRow, ScreenIntent};
+use super::screens_editor::{self, ScreenEditorRow, ScreenIntent};
 use super::settings::{ADD_CHORD_PROMPT, CAPTURE_PROMPT};
 use super::settings_tail::step;
 use super::settings_types::{CaptureMode, ChordCapture};
@@ -680,52 +678,4 @@ fn choose_panel(editor: &mut LayoutEditorState, screen: &ScreenDescriptor, direc
         return;
     };
     dialog.panel_choice = step(dialog.panel_choice, count, direction);
-}
-
-/// Every reason a registry owner refuses this candidate.
-///
-/// The document publishing is not the whole of "this candidate is valid": the
-/// registries composed from it have their own rules, and a candidate that
-/// publishes but composes into no keymap or an unusable screen is one a save
-/// would make the session unable to start from. Each owner is asked, and each
-/// answers in its own words.
-pub(super) fn registry_refusals(
-    candidate: &SettingsCandidate,
-    registry: &crate::workbench::ScreenRegistry,
-) -> Vec<Diagnostic> {
-    let mut refusals = Vec::new();
-    if let Err(diagnostic) = compose_published(candidate.published(), "settings") {
-        refusals.push(diagnostic.as_settings_diagnostic());
-    }
-    refusals.extend(screen_refusals(candidate, registry));
-    refusals.sort();
-    refusals
-}
-
-/// Every screen whose candidate layout the descriptor validator refuses.
-fn screen_refusals(
-    candidate: &SettingsCandidate,
-    registry: &crate::workbench::ScreenRegistry,
-) -> Vec<Diagnostic> {
-    screens_editor::project_screens(registry, candidate.published())
-        .into_iter()
-        .filter_map(|row| match row.composition {
-            CompositionStatus::Valid => None,
-            CompositionStatus::Invalid { code, reason } => {
-                Some(layout_diagnostic(row.screen_id.as_str(), &code, &reason))
-            }
-        })
-        .collect()
-}
-
-fn layout_diagnostic(screen: &str, code: &str, reason: &str) -> Diagnostic {
-    let mut diagnostic = Diagnostic::new(
-        CfgCode::E005,
-        Severity::Error,
-        DiagnosticPath::new(format!("/workbench/layout_overrides/{screen}")),
-        None,
-        "correct the layout override, or reset it to the compiled layout",
-    );
-    diagnostic.redacted_detail = format!("{code}: {reason}");
-    diagnostic
 }

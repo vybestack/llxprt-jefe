@@ -191,18 +191,17 @@ fn auth_failed_then_succeeded_closes_modal() {
 }
 
 #[test]
-fn open_auth_dialog_does_not_clobber_existing_form_modal() {
-    // A form modal (e.g. NewRepository) must not be replaced by the auth
-    // dialog from underneath the user. The dispatch layer is responsible for
-    // only opening auth when no other modal is active; the reducer defends by
-    // ignoring OpenAuthDialog when a non-None modal is already open.
-    let mut state = AppState::test_fixture();
-    state.modal = ModalState::Help;
+fn open_auth_dialog_does_not_clobber_an_existing_host_overlay() {
+    let state = AppState::test_fixture()
+        .apply(AppEvent::OpenHelp)
+        .committed_pure();
     let next = state.apply(AppEvent::OpenAuthDialog).committed_pure();
-    assert!(
-        matches!(next.modal, ModalState::Help),
-        "OpenAuthDialog must not replace an existing modal"
+    assert_eq!(
+        next.active_overlay_kind(),
+        Some(crate::workbench::OverlayKind::Help),
+        "OpenAuthDialog must not replace an existing host overlay"
     );
+    assert!(matches!(next.modal, ModalState::None));
 }
 
 #[test]

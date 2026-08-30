@@ -17,11 +17,21 @@ use std::path::PathBuf;
 mod config_contract_tests;
 
 mod config_contract;
+mod internal_id;
+pub(crate) use internal_id::InternalId;
+pub use internal_id::overlay_decision_id;
+
 pub use config_contract::{
     ByteSpan, CanonicalDateTime, CanonicalDecimal, CanonicalSemver, ConfigContractError, Id,
     OwnerCatalog, OwnerDescriptor, OwnerKind, ProvenanceKind, ProvenanceOrigin, SecretRef,
     TypedMap, TypedValue,
 };
+
+mod typed_port_value;
+pub use typed_port_value::TypedPortValue;
+#[cfg(test)]
+#[path = "typed_port_value_tests.rs"]
+mod typed_port_value_tests;
 
 mod state_contract;
 pub use state_contract::{

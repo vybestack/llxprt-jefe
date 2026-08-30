@@ -16,26 +16,37 @@
 //!
 //! This type owns no handle, spawns nothing, and performs no I/O.
 
+#[cfg(test)]
+#[path = "published_workbench_tests.rs"]
+mod published_workbench_tests;
+
 use crate::agent_registry::AgentTypeRegistry;
 use crate::domain::action_registry::ActionRegistrySnapshot;
+use crate::domain::plugin::HostTriple;
 use crate::persistence::diagnostic::Diagnostic;
 use crate::persistence::plugin_inventory::PluginInventory;
 use crate::persistence::settings_document::PublishedSettings;
 use crate::runtime::provider::persistent::PersistentPublication;
-use crate::runtime::provider::{ProviderCatalog, ProviderComposition};
+use crate::runtime::provider::{Containment, ProviderCatalog, ProviderComposition};
+use crate::startup_screens::ScreenSources;
 use crate::startup_selection::SelectedOwner;
 use crate::workbench::compose::ScreenComposition;
+use crate::workbench::resource_schemas::ResourceSchemaRegistry;
 use crate::workbench::screens::ScreenRegistry;
 
 /// One atomically composed workbench candidate: every static declaration the
 /// session will run, validated before anything is started or published.
 #[derive(Debug)]
 pub struct PublishedWorkbench {
+    screen_sources: ScreenSources,
+    host: HostTriple,
+    containment: Containment,
     settings: PublishedSettings,
     inventory: PluginInventory,
     selected: Vec<SelectedOwner>,
     agents: AgentTypeRegistry,
     screens: ScreenComposition,
+    resource_schemas: ResourceSchemaRegistry,
     providers: ProviderComposition,
     provider_ready: Option<PersistentPublication>,
     actions: ActionRegistrySnapshot,
@@ -47,6 +58,12 @@ pub struct PublishedWorkbench {
 /// this keeps the argument list inside the project's lint bounds while naming
 /// what must arrive together.
 pub(crate) struct WorkbenchParts {
+    /// Immutable screen bytes captured before candidate composition.
+    pub(crate) screen_sources: ScreenSources,
+    /// Host identity used for deterministic provider selection.
+    pub(crate) host: HostTriple,
+    /// Containment values used for deterministic provider projection.
+    pub(crate) containment: Containment,
     /// The effective Settings snapshot everything was composed against.
     pub(crate) settings: PublishedSettings,
     /// The one retained package inventory scan.
@@ -57,6 +74,8 @@ pub(crate) struct WorkbenchParts {
     pub(crate) agents: AgentTypeRegistry,
     /// The composed screen registry and its non-fatal warnings.
     pub(crate) screens: ScreenComposition,
+    /// The immutable typed-resource schemas validated before publication.
+    pub(crate) resource_schemas: ResourceSchemaRegistry,
     /// The static provider composition.
     pub(crate) providers: ProviderComposition,
     /// The one static action registry snapshot.
@@ -72,15 +91,47 @@ impl PublishedWorkbench {
     #[must_use]
     pub(crate) fn from_parts(parts: WorkbenchParts) -> Self {
         Self {
+            screen_sources: parts.screen_sources,
+            host: parts.host,
+            containment: parts.containment,
             settings: parts.settings,
             inventory: parts.inventory,
             selected: parts.selected,
             agents: parts.agents,
             screens: parts.screens,
+            resource_schemas: parts.resource_schemas,
             providers: parts.providers,
             provider_ready: None,
             actions: parts.actions,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_test_declarations(
+        &mut self,
+        screens: ScreenComposition,
+        resource_schemas: ResourceSchemaRegistry,
+    ) {
+        self.screens = screens;
+        self.resource_schemas = resource_schemas;
+    }
+
+    /// Immutable screen-source snapshot retained for pure candidate recomposition.
+    #[must_use]
+    pub(crate) const fn screen_sources(&self) -> &ScreenSources {
+        &self.screen_sources
+    }
+
+    /// Host identity retained for pure candidate provider selection.
+    #[must_use]
+    pub(crate) const fn host(&self) -> &HostTriple {
+        &self.host
+    }
+
+    /// Containment projection retained for pure candidate provider composition.
+    #[must_use]
+    pub(crate) const fn containment(&self) -> &Containment {
+        &self.containment
     }
 
     /// The effective, typed Settings the candidate was composed from.
@@ -111,6 +162,12 @@ impl PublishedWorkbench {
     #[must_use]
     pub const fn screen_registry(&self) -> &ScreenRegistry {
         &self.screens.registry
+    }
+
+    /// The immutable resource schemas every runtime value must satisfy.
+    #[must_use]
+    pub const fn resource_schemas(&self) -> &ResourceSchemaRegistry {
+        &self.resource_schemas
     }
 
     /// Non-fatal composition warnings, one per preserved omitted definition.

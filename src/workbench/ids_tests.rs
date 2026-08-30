@@ -3,8 +3,8 @@
 
 use super::ids::{
     ID_BYTE_LIMIT, IdError, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_SCREENS,
-    MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelTypeId, RouteId, SCREEN_NAMESPACES,
-    ScreenId, ScreenInstanceId,
+    MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN, PanelId, PanelInstanceAllocator, PanelInstanceId,
+    PanelTypeId, RouteId, SCREEN_NAMESPACES, ScreenId, ScreenInstanceAllocator, ScreenInstanceId,
 };
 
 #[test]
@@ -65,8 +65,9 @@ fn screen_resolution_does_not_depend_on_declaration_position() {
 }
 
 #[test]
-fn the_default_screen_is_the_dashboard() {
-    assert_eq!(ScreenId::default(), ScreenId::Dashboard);
+fn dashboard_is_not_a_compiled_residual_screen() {
+    assert_eq!(ScreenId::from_stable("core.dashboard"), None);
+    assert_eq!(ScreenId::ALL.len(), 7);
 }
 
 #[test]
@@ -150,6 +151,36 @@ fn screen_instance_ids_are_distinct_and_monotonic() {
     let second = ScreenInstanceId::next();
     assert_ne!(first, second);
     assert!(second > first);
+}
+
+#[test]
+fn screen_instance_allocator_refuses_exhaustion_without_wrapping_or_reusing_zero() {
+    let allocator = ScreenInstanceAllocator::starting_at(u64::MAX - 1);
+
+    assert_eq!(
+        allocator.next().map(ScreenInstanceId::get),
+        Ok(u64::MAX - 1)
+    );
+    assert!(allocator.next().is_err());
+    assert!(allocator.next().is_err());
+
+    let zero = ScreenInstanceAllocator::starting_at(0);
+    assert!(zero.next().is_err());
+}
+
+#[test]
+fn panel_instance_allocator_refuses_exhaustion_without_wrapping_or_reusing_zero() {
+    let allocator = PanelInstanceAllocator::starting_at(u64::MAX - 1);
+
+    assert_eq!(
+        allocator.next().map(PanelInstanceId::as_u64),
+        Ok(u64::MAX - 1)
+    );
+    assert!(allocator.next().is_err());
+    assert!(allocator.next().is_err());
+
+    let zero = PanelInstanceAllocator::starting_at(0);
+    assert!(zero.next().is_err());
 }
 
 #[test]

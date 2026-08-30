@@ -531,7 +531,7 @@ fn it_exit_restores_prior_dashboard_focus() {
     // Exit restores prior focus.
     state.apply_in_place(AppEvent::ExitPrsMode);
     assert!(!state.prs_state.active);
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert_eq!(
         state.pane_focus,
         PaneFocus::Agents,
@@ -718,7 +718,7 @@ fn it_dashboard_and_issues_modes_unaffected() {
     let state = AppState::test_fixture();
     assert_eq!(
         state.screen(),
-        ScreenId::Dashboard,
+        crate::workbench::DASHBOARD_IDENTITY,
         "default must be Dashboard"
     );
 
@@ -728,7 +728,7 @@ fn it_dashboard_and_issues_modes_unaffected() {
     assert_eq!(entered.screen(), ScreenId::Issues);
     assert!(entered.issues_state.active);
     let exited = entered.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(exited.screen(), ScreenId::Dashboard);
+    assert_eq!(exited.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert!(!exited.issues_state.active);
 
     // PR mode does not interfere.

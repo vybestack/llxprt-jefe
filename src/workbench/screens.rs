@@ -31,16 +31,46 @@
 
 use std::num::NonZeroU16;
 
+use crate::domain::action_registry::HandlerKey;
+use crate::domain::default_action_inventory::{InventoryError, compiled_inventory};
+use crate::domain::input_context::{ContextId, ContextIdError};
+use crate::host_controls::ControlKind;
+
+use super::activation::ScreenBinding;
 use super::config::insets_config;
 use super::descriptor::{
-    Axis, LayoutChild, LayoutNode, PanelDescriptor, PortDirection, ScreenDescriptor, Size,
+    Axis, HostPanelCapability, HostPanelModelSource, LayoutChild, LayoutNode, OverlayKind,
+    PanelDescriptor, PortDirection, ScreenDescriptor, Size,
 };
 use super::geometry::Insets;
 use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
 use super::screens_ports::{selection_port, subject_port, workspace_relationships};
 
-pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT, master_detail_edge};
+pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT};
 use super::validate::{DescriptorError, validate_descriptor};
+fn dashboard_bindings() -> Result<Vec<ScreenBinding>, RegistryError> {
+    let dashboard = ContextId::parse("dashboard")?;
+    let inventory = compiled_inventory()?;
+    let help_action = inventory
+        .actions
+        .iter()
+        .find(|action| {
+            action.handler == HandlerKey::OpenHelp && action.contexts.contains(&dashboard)
+        })
+        .map(|action| action.id.clone())
+        .ok_or(RegistryError::MissingDashboardContextBinding)?;
+    let binding = inventory
+        .bindings
+        .into_iter()
+        .find(|binding| binding.context == dashboard && binding.action == help_action)
+        .ok_or(RegistryError::MissingDashboardContextBinding)?;
+    Ok(vec![ScreenBinding {
+        context: binding.context,
+        action: binding.action,
+    }])
+}
+
+const HOST_OVERLAYS: [OverlayKind; 3] = OverlayKind::ALL;
 
 /// Panel type whose visible content rectangle drives a live PTY.
 ///
@@ -119,6 +149,10 @@ const BORDERED_BAND_CHROME: Insets = Insets::new(1, 1, 1, 1);
 pub enum RegistryError {
     /// A compiled identifier violates the identifier grammar.
     Id(IdError),
+    /// The immutable compiled action inventory is invalid.
+    ActionInventory(InventoryError),
+    /// A compiled input context violates the context grammar.
+    ContextId(ContextIdError),
     /// A compiled descriptor violates a structural invariant.
     Descriptor(DescriptorError),
     /// Two compiled descriptors share one screen identity.
@@ -136,11 +170,25 @@ pub enum RegistryError {
         /// The screen with no descriptor.
         screen: ScreenId,
     },
+    /// The canonical action inventory has no Dashboard context marker.
+    MissingDashboardContextBinding,
 }
 
 impl From<IdError> for RegistryError {
     fn from(error: IdError) -> Self {
         Self::Id(error)
+    }
+}
+
+impl From<InventoryError> for RegistryError {
+    fn from(error: InventoryError) -> Self {
+        Self::ActionInventory(error)
+    }
+}
+
+impl From<ContextIdError> for RegistryError {
+    fn from(error: ContextIdError) -> Self {
+        Self::ContextId(error)
     }
 }
 
@@ -154,6 +202,10 @@ impl std::fmt::Display for RegistryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Id(error) => write!(formatter, "invalid compiled identifier: {error}"),
+            Self::ActionInventory(error) => write!(formatter, "{error}"),
+            Self::ContextId(error) => {
+                write!(formatter, "invalid compiled input context: {error}")
+            }
             Self::Descriptor(error) => write!(formatter, "invalid compiled descriptor: {error}"),
             Self::DuplicateScreen { screen } => {
                 write!(formatter, "screen {screen} is declared twice")
@@ -163,6 +215,9 @@ impl std::fmt::Display for RegistryError {
             }
             Self::MissingScreen { screen } => {
                 write!(formatter, "screen {screen} has no compiled descriptor")
+            }
+            Self::MissingDashboardContextBinding => {
+                formatter.write_str("canonical action inventory has no Dashboard context marker")
             }
         }
     }
@@ -177,10 +232,10 @@ pub struct ScreenRegistry {
     panel_bindings: Vec<PackagePanelBinding>,
 }
 
-/// Exact selected-package ownership for one lowered screen panel.
+/// Exact selected-provider ownership for one lowered screen panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackagePanelBinding {
-    /// Lowered package screen that contains the panel.
+    /// Lowered local or package screen that places the panel.
     pub screen: ScreenIdentity,
     /// Panel identity within the screen.
     pub panel: PanelId,
@@ -267,27 +322,20 @@ impl ScreenRegistry {
     /// Resolve a routable screen from text that came from outside the program.
     ///
     /// This is the only way a persisted or otherwise external value becomes a
-    /// [`ScreenId`], so an unrecognised value can never become an identity no
-    /// descriptor backs. A lowered custom screen is deliberately not resolvable
-    /// here: it has a descriptor but no renderer or route, so restoring a
-    /// session onto it would open a screen nothing can draw.
+    /// [`ScreenIdentity`], so an unrecognised value can never become an identity
+    /// no published descriptor backs.
     #[must_use]
-    pub fn resolve(&self, value: &str) -> Option<ScreenId> {
+    pub fn resolve(&self, value: &str) -> Option<ScreenIdentity> {
         self.screens
             .iter()
             .find(|screen| screen.id.as_str() == value)
-            .and_then(|screen| screen.id.compiled())
+            .map(|screen| screen.id)
     }
 
     /// The screen selected when no valid prior screen is known.
-    ///
-    /// Only a compiled screen can be the fallback, because the fallback must
-    /// always be renderable and routable.
     #[must_use]
     pub fn initial_screen(&self) -> Option<&ScreenDescriptor> {
-        self.screens
-            .iter()
-            .find(|screen| screen.id.compiled().is_some())
+        self.screens.first()
     }
 }
 
@@ -339,19 +387,34 @@ fn panel(
         id: PanelId::parse(id)?,
         panel_type: PanelTypeId::parse(panel_type)?,
         config: insets_config(chrome).ok_or(IdError::InvalidByte)?,
+        host_capability: None,
         focusable,
         required,
         ports: Vec::new(),
     })
 }
 
+fn host_panel(
+    id: &'static str,
+    panel_type: &'static str,
+    model_source: HostPanelModelSource,
+    control_kind: ControlKind,
+    (focusable, required): (bool, bool),
+    chrome: Insets,
+) -> Result<PanelDescriptor, IdError> {
+    let mut descriptor = panel(id, panel_type, focusable, required, chrome)?;
+    descriptor.host_capability = Some(HostPanelCapability::compiled(model_source, control_kind));
+    Ok(descriptor)
+}
+
 /// The repository sidebar, which every workspace screen shares.
 fn sidebar_panel() -> Result<PanelDescriptor, IdError> {
-    panel(
+    host_panel(
         REPOSITORIES_PANEL,
         "repository-list",
-        true,
-        true,
+        HostPanelModelSource::RepositoryList,
+        ControlKind::List,
+        (true, true),
         SIDEBAR_CHROME,
     )
 }
@@ -441,27 +504,55 @@ fn focus_order(ids: &[&'static str]) -> Result<Vec<PanelId>, IdError> {
 
 // ── Shipped screens ────────────────────────────────────────────────────────
 
-/// `core.dashboard` — sidebar, agent list over the embedded terminal, preview.
-///
-/// The search row appears only while the dashboard filter is focused or
-/// active, so it is a band the application shows and hides.
+fn dashboard_panels() -> Result<Vec<PanelDescriptor>, IdError> {
+    Ok(vec![
+        sidebar_panel()?,
+        host_panel(
+            "search",
+            "search-input",
+            HostPanelModelSource::SearchInput,
+            ControlKind::Form,
+            (false, false),
+            BAND_CHROME,
+        )?,
+        host_panel(
+            "agents",
+            "agent-list",
+            HostPanelModelSource::AgentList,
+            ControlKind::List,
+            (true, false),
+            LIST_PANE_CHROME,
+        )?,
+        panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
+        host_panel(
+            "preview",
+            "agent-preview",
+            HostPanelModelSource::AgentPreview,
+            ControlKind::Detail,
+            (false, false),
+            PREVIEW_CHROME,
+        )?,
+    ])
+}
+
+/// `core.dashboard` — sidebar, agent list over the embedded terminal, and preview.
+/// The search row is a band shown only while the Dashboard filter is focused or active.
 fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenIdentity::Compiled(ScreenId::Dashboard),
-        title: "Dashboard".to_owned(),
+        id: crate::workbench::DASHBOARD_IDENTITY,
+        title: "LLxprt Jefe".to_owned(),
         route: RouteId::parse("dashboard")?,
-        panels: vec![
-            sidebar_panel()?,
-            panel("search", "search-input", false, false, BAND_CHROME)?,
-            panel("agents", "agent-list", true, false, LIST_PANE_CHROME)?,
-            panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
-            panel("preview", "agent-preview", false, false, PREVIEW_CHROME)?,
-        ],
+        panels: dashboard_panels()?,
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "agents", "terminal"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
-        bindings: Vec::new(),
+        overlays: HOST_OVERLAYS.to_vec(),
+        host_capabilities: vec![
+            super::descriptor::HostScreenCapability::DashboardActionContext,
+            super::descriptor::HostScreenCapability::DashboardFooter,
+        ],
+        bindings: dashboard_bindings()?,
         layout: column(vec![
             band_child(leaf("search")?, SEARCH_ROW_ROWS, -100),
             required_child(
@@ -513,6 +604,8 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         focus_order: focus_order(&[REPOSITORIES_PANEL])?,
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: HOST_OVERLAYS.to_vec(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: column(vec![
             band_child(leaf("filter")?, SPLIT_FILTER_ROWS, -100),
@@ -557,6 +650,8 @@ struct WorkspaceSpec {
     banner: &'static str,
     /// Identity of the conditional filter-controls band.
     filter: &'static str,
+    /// Immutable owner of the subject resource schema.
+    subject_owner: Option<&'static str>,
     /// Versioned type the list publishes and the detail consumes, when the
     /// screen couples them.
     ///
@@ -582,7 +677,6 @@ fn ported(
 #[must_use]
 pub const fn route_of(screen: ScreenId) -> RouteId {
     RouteId::from_static(match screen {
-        ScreenId::Dashboard => "dashboard",
         ScreenId::Repositories => "repositories",
         ScreenId::Issues => "issues",
         ScreenId::PullRequests => "pull-requests",
@@ -603,7 +697,7 @@ pub const fn route_of(screen: ScreenId) -> RouteId {
 #[must_use]
 pub const fn initial_focus(screen: ScreenId) -> PanelId {
     PanelId::from_static(match screen {
-        ScreenId::Dashboard | ScreenId::Repositories => REPOSITORIES_PANEL,
+        ScreenId::Repositories => REPOSITORIES_PANEL,
         ScreenId::Issues => ISSUES_LIST_PANEL,
         ScreenId::PullRequests => PULL_REQUESTS_LIST_PANEL,
         ScreenId::Actions => ACTIONS_LIST_PANEL,
@@ -658,17 +752,19 @@ fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryEr
             )?,
             ported(
                 panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
-                selection_port(spec.subject_type, PortDirection::Output)?,
+                selection_port(spec.subject_owner, spec.subject_type, PortDirection::Output)?,
             ),
             ported(
                 panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
-                subject_port(spec.subject_type, PortDirection::Input)?,
+                subject_port(spec.subject_owner, spec.subject_type, PortDirection::Input)?,
             ),
         ],
         initial_focus: PanelId::parse(spec.list)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, spec.list, spec.detail])?,
         relationships: workspace_relationships(spec.list, spec.detail, spec.subject_type)?,
         activation: Vec::new(),
+        overlays: HOST_OVERLAYS.to_vec(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
@@ -691,6 +787,7 @@ fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "issue-detail",
         banner: "issue-list-banner",
         filter: "issue-list-filter",
+        subject_owner: Some("github.issues"),
         subject_type: Some("github.issue@1"),
     })
 }
@@ -706,6 +803,7 @@ fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
         detail: "pr-detail",
         banner: "pr-list-banner",
         filter: "pr-list-filter",
+        subject_owner: Some("github.pull-requests"),
         subject_type: Some("github.pull-request@1"),
     })
 }
@@ -722,6 +820,7 @@ fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
         filter: "action-list-filter",
         // The actions screen loads its run detail on demand rather than
         // following the list selection, so it declares no coupling.
+        subject_owner: None,
         subject_type: None,
     })
 }
@@ -749,6 +848,8 @@ fn errors_screen() -> Result<ScreenDescriptor, RegistryError> {
         focus_order: focus_order(&[REPOSITORIES_PANEL, "error-list", "error-detail"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: HOST_OVERLAYS.to_vec(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
@@ -811,6 +912,8 @@ fn settings_screen() -> Result<ScreenDescriptor, RegistryError> {
         ])?,
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: HOST_OVERLAYS.to_vec(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(SETTINGS_SECTIONS_PANEL)?, SETTINGS_SECTIONS_COLUMNS),
@@ -872,6 +975,8 @@ fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
         focus_order: focus_order(&[REPOSITORIES_PANEL, "shell-list", "shell-preview"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
+        overlays: HOST_OVERLAYS.to_vec(),
+        host_capabilities: Vec::new(),
         bindings: Vec::new(),
         layout: row(vec![
             fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),

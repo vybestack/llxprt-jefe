@@ -256,7 +256,7 @@ fn an_unreadable_persisted_screen_value_costs_only_the_screen() {
     let restored =
         crate::state::durable_restore::from_durable_state(&projected, &compiled_screens())
             .value_or_panic("restore succeeds");
-    assert_eq!(restored.screen, crate::workbench::ScreenId::default());
+    assert_eq!(restored.screen, crate::workbench::DASHBOARD_IDENTITY);
     assert_eq!(
         restored.repositories.len(),
         2,
@@ -271,7 +271,7 @@ fn a_document_without_a_screen_value_opens_on_the_initial_screen() {
     let restored =
         crate::state::durable_restore::from_durable_state(&projected, &compiled_screens())
             .value_or_panic("restore succeeds");
-    assert_eq!(restored.screen, crate::workbench::ScreenId::Dashboard);
+    assert_eq!(restored.screen, crate::workbench::DASHBOARD_IDENTITY);
 }
 
 #[test]

@@ -7,8 +7,7 @@
 //! boundary BEFORE these reducers run.
 
 use super::{
-    AppState, ManagedShellRow, PaneFocus, PriorAgentFocus, ScreenId, ShellFocusOrigin,
-    ShellReturnTarget, status_label_for,
+    AppState, ManagedShellRow, ScreenId, ShellFocusOrigin, ShellReturnTarget, status_label_for,
 };
 use crate::domain::{AgentId, AgentStatus};
 use crate::messages::{NavDir, TerminalManagerMessage};
@@ -22,8 +21,7 @@ use crate::messages::{NavDir, TerminalManagerMessage};
 #[must_use]
 pub fn project_managed_shell_rows(state: &AppState) -> Vec<ManagedShellRow> {
     state
-        .shell_overlay
-        .inventory
+        .shell_inventory
         .iter()
         .map(|agent_id| {
             let agent = state.agents.iter().find(|owner| &owner.id == agent_id);
@@ -57,13 +55,8 @@ pub fn project_managed_shell_rows(state: &AppState) -> Vec<ManagedShellRow> {
 }
 
 impl AppState {
-    /// Enter terminal-manager mode, saving prior focus state (issue #364 PR A).
+    /// Enter terminal-manager mode in a fresh exact screen instance (issue #364 PR A).
     fn enter_terminal_manager_mode(&mut self) -> bool {
-        self.terminal_manager.prior_agent_focus = Some(PriorAgentFocus {
-            pane_focus: self.pane_focus,
-            selected_repository_index: self.selected_repository_index,
-            selected_agent_index: self.selected_agent_index,
-        });
         let _ = self.show_screen(ScreenId::Terminals);
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
@@ -74,25 +67,12 @@ impl AppState {
         true
     }
 
-    /// Exit terminal-manager mode, restoring prior focus state.
+    /// Exit terminal-manager mode after clearing transient state on the disposed instance.
     fn exit_terminal_manager_mode(&mut self) {
-        let _ = self.leave_screen();
         self.terminal_manager.active = false;
         self.terminal_manager.clear_pending_focus();
         self.terminal_manager.preview = super::ShellPreview::default();
-        if let Some(prior) = self.terminal_manager.prior_agent_focus.take() {
-            self.pane_focus = prior.pane_focus;
-            self.selected_agent_index = prior
-                .selected_agent_index
-                .map(|idx| idx.min(self.agents.len().saturating_sub(1)))
-                .filter(|_| !self.agents.is_empty());
-            self.selected_repository_index = prior
-                .selected_repository_index
-                .map(|idx| idx.min(self.repositories.len().saturating_sub(1)))
-                .filter(|_| !self.repositories.is_empty());
-        } else {
-            self.pane_focus = PaneFocus::Agents;
-        }
+        let _ = self.leave_screen();
     }
 
     fn handle_terminal_manager_navigation(&mut self, dir: NavDir) -> bool {
@@ -138,12 +118,16 @@ impl AppState {
         if !resumable {
             return true;
         }
+        let screen = self.nav.current().screen;
+        let screen_instance = self.nav.current().id;
         self.terminal_manager.clear_pending_focus();
         let generation = self.terminal_manager.bump_generation();
         self.terminal_manager.pending_focus = Some(super::PendingShellFocus {
             agent_id,
             generation,
             origin,
+            screen,
+            screen_instance,
         });
         true
     }
@@ -158,6 +142,8 @@ impl AppState {
         };
         if pending.generation != self.terminal_manager.generation
             || &pending.agent_id != attached_agent_id
+            || pending.screen != self.nav.current().screen
+            || pending.screen_instance != self.nav.current().id
         {
             return false;
         }
@@ -166,7 +152,7 @@ impl AppState {
         match pending.origin {
             ShellFocusOrigin::DashboardF10 => {
                 self.terminal_manager.active = false;
-                let _ = self.show_screen(ScreenId::Dashboard);
+                let _ = self.show_dashboard();
                 self.shell_return_target = ShellReturnTarget::Dashboard;
             }
             ShellFocusOrigin::ManagerEnter => {
@@ -446,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn exit_manager_clamps_prior_focus_after_lists_shrink() {
+    fn exit_manager_restores_exact_source_selection_after_lists_shrink() {
         let mut state = state_with_two_shells();
         state.selected_agent_index = Some(1);
         state.selected_repository_index = Some(0);
@@ -456,8 +442,8 @@ mod tests {
 
         state.apply_terminal_manager_message(TerminalManagerMessage::ExitMode);
 
-        assert_eq!(state.selected_agent_index, Some(0));
-        assert_eq!(state.selected_repository_index, None);
+        assert_eq!(state.selected_agent_index, Some(1));
+        assert_eq!(state.selected_repository_index, Some(0));
     }
 
     #[test]

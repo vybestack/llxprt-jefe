@@ -377,7 +377,7 @@ mod tests {
     fn test_filter_esc_closes() {
         let state = filter_state();
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Esc));
-        assert!(matches!(evt, Some(AppEvent::CloseFilterControls)));
+        assert!(matches!(evt, Some(AppEvent::Back)));
     }
 
     #[test]

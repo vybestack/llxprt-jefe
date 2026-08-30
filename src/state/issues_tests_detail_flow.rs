@@ -301,7 +301,7 @@ fn test_exit_focus_restoration_valid() {
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
     assert_eq!(state.pane_focus, PaneFocus::Agents);
     assert_eq!(state.selected_agent_index, Some(1));
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
 }
 
 /// P15 Test 11: Enter issues, agent removed while in issues mode, exit — fallback, no crash.
@@ -336,15 +336,13 @@ fn test_exit_focus_restoration_stale() {
     // Enter issues mode with agent-0 selected
     let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
 
-    // Simulate agent removed while in issues mode by injecting stale prior_agent_focus
-    // (In real usage agents can be deleted; we directly set a stale index)
+    // Simulate the selected agent being removed while the source Dashboard is suspended.
     let mut state = state;
-    state.agents.clear(); // delete agent
-    // prior_agent_focus still points to index 0 (now out-of-bounds)
+    state.agents.clear();
 
-    // Exit — should fall back gracefully
+    // Exit restores the exact source instance without panicking.
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert!(!state.issues_state.active);
     // No panic; agent_index is None or 0 (fallback)
     assert!(
@@ -766,7 +764,7 @@ fn test_esc_chain_all_six_levels_integrated() {
 
     // Level 6: Nothing else active — ExitIssuesMode exits mode
     let state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), crate::workbench::DASHBOARD_IDENTITY);
     assert!(!state.issues_state.active);
 }
 

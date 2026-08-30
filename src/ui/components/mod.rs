@@ -40,6 +40,7 @@ pub(crate) mod filter_bar;
 /// @plan PLAN-20260329-ISSUES-MODE.P14
 /// @requirement REQ-ISS-008
 mod filter_controls;
+mod host_control_overlay;
 /// @requirement issue #182
 mod issue_delete_confirm;
 /// Issue detail pane projection. The pure header projection
@@ -133,6 +134,7 @@ pub use filter_controls::{
     actions_filter_action_hints, actions_filter_fields, actions_filter_props,
     issue_filter_action_hints, issue_filter_fields, issue_filter_props,
 };
+pub use host_control_overlay::{HostControlOverlay, HostControlOverlayProps};
 pub use issue_delete_confirm::{
     IssueDeleteConfirmOverlay, IssueDeleteConfirmProps, delete_confirm_header, delete_confirm_hint,
 };

@@ -4,15 +4,40 @@
 use crate::persistence::diagnostic::{ARRAY_LIMIT, MAP_LIMIT, NESTING_LIMIT, STRING_LIMIT};
 
 use super::ids::{
-    ID_BYTE_LIMIT, MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_LAYOUT_DEPTH,
-    MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_SPLIT_CHILDREN,
-    MIN_SPLIT_CHILDREN,
+    ID_BYTE_LIMIT, MAX_ACTIVATION_FIELDS, MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE,
+    MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN, MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN,
+    MAX_RESOURCES_PER_SCREEN, MAX_SPLIT_CHILDREN, MIN_SPLIT_CHILDREN,
 };
 use super::screen_file::parse_screen_file;
 use super::screen_file_bounds::ScreenSyntaxReason;
 use super::screen_file_fixtures::{
     HEADER, LAYOUT, PANELS, leaf_layout, rejected, single_panel_text, valid_text,
 };
+
+fn resources_text(count: usize) -> String {
+    (0..count)
+        .map(|index| {
+            format!(
+                "\n[[resources]]\ntype_id = \"local.resource-{index}\"\nschema_version = 1\nsemantic_key = \"key\"\n[[resources.fields]]\nid = \"key\"\nlabel = \"Key\"\ntype = \"string\"\nrequired = true\n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat()
+}
+
+fn resource_fields_text(count: usize) -> String {
+    let fields = (0..count)
+        .map(|index| {
+            format!(
+                "\n[[resources.fields]]\nid = \"field-{index}\"\nlabel = \"Field {index}\"\ntype = \"string\"\nrequired = true\n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    format!(
+        "\n[[resources]]\ntype_id = \"local.resource\"\nschema_version = 1\nsemantic_key = \"field-0\"\n{fields}"
+    )
+}
 
 // ── Structural bounds, at the limit and one past it ────────────────────────
 
@@ -27,6 +52,47 @@ fn panels_text(count: usize) -> String {
         })
         .collect::<Vec<String>>()
         .concat()
+}
+#[test]
+fn a_screen_may_declare_resources_up_to_the_limit_but_not_one_past_it() {
+    let accepted = format!(
+        "{HEADER}{}{PANELS}{LAYOUT}",
+        resources_text(MAX_RESOURCES_PER_SCREEN)
+    )
+    .replace("screen_schema = 1", "screen_schema = 2");
+    assert!(parse_screen_file(&accepted).is_ok());
+
+    let rejected_text = format!(
+        "{HEADER}{}{PANELS}{LAYOUT}",
+        resources_text(MAX_RESOURCES_PER_SCREEN + 1)
+    )
+    .replace("screen_schema = 1", "screen_schema = 2");
+    assert!(matches!(
+        rejected(&rejected_text),
+        ScreenSyntaxReason::ResourceCount { count }
+            if count == MAX_RESOURCES_PER_SCREEN + 1
+    ));
+}
+
+#[test]
+fn a_resource_may_declare_fields_up_to_the_limit_but_not_one_past_it() {
+    let accepted = format!(
+        "{HEADER}{}{PANELS}{LAYOUT}",
+        resource_fields_text(MAX_FIELDS_PER_RESOURCE)
+    )
+    .replace("screen_schema = 1", "screen_schema = 2");
+    assert!(parse_screen_file(&accepted).is_ok());
+
+    let rejected_text = format!(
+        "{HEADER}{}{PANELS}{LAYOUT}",
+        resource_fields_text(MAX_FIELDS_PER_RESOURCE + 1)
+    )
+    .replace("screen_schema = 1", "screen_schema = 2");
+    assert!(matches!(
+        rejected(&rejected_text),
+        ScreenSyntaxReason::ResourceFieldCount { count }
+            if count == MAX_FIELDS_PER_RESOURCE + 1
+    ));
 }
 
 /// An inline leaf node naming panel `p<index>`.
@@ -120,7 +186,7 @@ fn screen_with_ports(count: usize) -> String {
     let ports: String = (0..count)
         .map(|index| {
             format!(
-                "\n[[panels.ports]]\nid = \"port{index}\"\ndirection = \"output\"\ntype_id = \"t@1\"\nrequired = false\nretained = false\n"
+                "\n[[panels.ports]]\nid = \"port{index}\"\ndirection = \"output\"\nowner = \"local.review\"\ntype_id = \"t@1\"\nrequired = false\nretained = false\n"
             )
         })
         .collect::<Vec<String>>()

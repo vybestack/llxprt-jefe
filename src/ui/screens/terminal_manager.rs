@@ -255,9 +255,7 @@ pub fn TerminalManagerScreen(props: &TerminalManagerScreenProps) -> impl Into<An
                 hints: state
                     .unwrap_or_else(|| panic!("screen render requires AppState"))
                     .footer_hints(crate::action_projection::FooterProjectionInput {
-                        screen: state.map_or(ScreenId::Terminals, |s| {
-                            s.compiled_screen().unwrap_or(ScreenId::Terminals)
-                        }),
+                        screen: ScreenId::Terminals.into(),
                         terminal_focused: live_shell_active,
                         shell_overlay_active: false,
                         shell_resume_available: false,

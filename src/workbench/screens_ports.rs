@@ -7,7 +7,9 @@
 //! there is one description of what "list drives detail" means and one engine
 //! that carries it out.
 
-use super::descriptor::{PortDescriptor, PortDirection, PortRef, ScreenDescriptor};
+use crate::domain::Id;
+
+use super::descriptor::{PortDescriptor, PortDirection, PortRef};
 use super::ids::{IdError, PanelId, PortId, VersionedTypeId};
 use super::relationships::{ActivationMode, EmptyPolicy, Relationship, RelationshipKind};
 
@@ -22,10 +24,11 @@ pub const SUBJECT_PORT: &str = "subject";
 ///
 /// Returns the violated identifier rule for a malformed compiled name.
 pub fn selection_port(
+    owner_id: Option<&str>,
     subject_type: Option<&'static str>,
     direction: PortDirection,
 ) -> Result<Option<PortDescriptor>, IdError> {
-    typed_port(SELECTION_PORT, subject_type, direction, false)
+    typed_port(SELECTION_PORT, owner_id, subject_type, direction, false)
 }
 
 /// The detail panel's subject input, when the screen couples list and detail.
@@ -37,14 +40,16 @@ pub fn selection_port(
 ///
 /// Returns the violated identifier rule for a malformed compiled name.
 pub fn subject_port(
+    owner_id: Option<&str>,
     subject_type: Option<&'static str>,
     direction: PortDirection,
 ) -> Result<Option<PortDescriptor>, IdError> {
-    typed_port(SUBJECT_PORT, subject_type, direction, false)
+    typed_port(SUBJECT_PORT, owner_id, subject_type, direction, false)
 }
 
 fn typed_port(
     id: &'static str,
+    owner_id: Option<&str>,
     subject_type: Option<&'static str>,
     direction: PortDirection,
     retained: bool,
@@ -52,8 +57,13 @@ fn typed_port(
     let Some(subject_type) = subject_type else {
         return Ok(None);
     };
+    let Some(owner_id) = owner_id else {
+        return Ok(None);
+    };
+    let owner_id = Id::parse(owner_id).map_err(|_| IdError::InvalidByte)?;
     Ok(Some(PortDescriptor {
         id: PortId::parse(id)?,
+        owner_id,
         direction,
         type_id: VersionedTypeId::parse(subject_type)?,
         required: false,
@@ -92,17 +102,4 @@ pub fn workspace_relationships(
             port: PortId::parse(SUBJECT_PORT)?,
         },
     }])
-}
-
-/// The master-detail edge a screen declares, if it declares one.
-///
-/// Reducers ask the descriptor rather than naming ports themselves, so the
-/// declaration stays the single source of truth for which panels are coupled.
-#[must_use]
-pub fn master_detail_edge(descriptor: &ScreenDescriptor) -> Option<(PortRef, PortRef)> {
-    descriptor
-        .relationships
-        .iter()
-        .find(|relationship| matches!(relationship.kind, RelationshipKind::MasterDetail { .. }))
-        .map(|relationship| (relationship.source, relationship.target))
 }

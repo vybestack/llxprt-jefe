@@ -125,7 +125,7 @@ fn the_migrated_identity_is_always_present_in_the_registry() {
             unreachable!("the shipped registry is never empty");
         };
         assert!(
-            registry.get(outcome.screen_id()).is_some(),
+            registry.get_identity(outcome.screen_id()).is_some(),
             "{legacy} migrated to an identity the registry does not contain"
         );
     }

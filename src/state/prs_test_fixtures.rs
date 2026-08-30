@@ -42,7 +42,7 @@ fn test_repository(repo_id: &str) -> Repository {
 }
 
 /// Build a test `PullRequest` for the given number.
-fn test_pull_request(pr_number: u64) -> PullRequest {
+pub(super) fn test_pull_request(pr_number: u64) -> PullRequest {
     PullRequest {
         number: pr_number,
         title: format!("PR #{pr_number}"),

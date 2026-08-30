@@ -1,0 +1,42 @@
+{
+  "manifest_schema": 1,
+  "id": "vendor.panel",
+  "version": "2.0.0",
+  "display_name": "Panel Fixture",
+  "host_api": { "minimum": "0.0.1", "maximum": "99.0.0" },
+  "protocol": 1,
+  "provider": { "mode": "persistent", "binaries": { "aarch64-apple-darwin": "bin/provider" } },
+  "actions": [
+    {
+      "id": "vendor.panel.open-review",
+      "label": "Open package review",
+      "description": "Open the selected package provider panel",
+      "category": "vendor.panel",
+      "contexts": ["dashboard"],
+      "arguments": [],
+      "timeout_seconds": 60,
+      "destructive": false,
+      "confirmation": "none",
+      "handler": "open-review",
+      "allowed_outcomes": ["navigate-declared-route"]
+    }
+  ],
+  "panels": [
+    {
+      "id": "vendor.panel.review-list",
+      "model_kinds": ["list", "detail"],
+      "event_schema": [
+        { "kind": "selected", "arguments": [] },
+        { "kind": "activated", "arguments": [] }
+      ],
+      "handler": "review-list",
+      "ports": [{ "id": "selection" }]
+    }
+  ],
+  "routes": [
+    { "id": "vendor.panel.open", "activation_fields": [], "target_screen": "vendor.panel.review" }
+  ],
+  "screens": [
+    { "path": "screens/main.screen.toml", "screen_ids": ["vendor.panel.review"] }
+  ]
+}

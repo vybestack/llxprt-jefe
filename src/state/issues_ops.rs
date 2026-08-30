@@ -3,8 +3,7 @@
 
 use super::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus,
-    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PrFocus, PriorAgentFocus,
-    ScreenId,
+    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PrFocus, ScreenId,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
@@ -15,19 +14,20 @@ use crate::messages::IssuesMessage;
 mod issues_rewrite_ops;
 
 impl AppState {
-    /// Enter issues mode, saving prior focus state.
+    /// Enter issues mode in a fresh exact screen instance.
     ///
     /// When entering from PR mode (cross-mode `i` key, issue #164), the PR
-    /// mode is deactivated in-place: its per-repo preferences are snapshot
-    /// and its overlays cleared, but `prior_agent_focus` is NOT restored to
-    /// Dashboard (that would bounce the user out of list-mode UX). The
-    /// exclusivity invariant holds: at most one of `issues_state.active` /
-    /// `prs_state.active` is true after this call.
+    /// instance is replaced after its per-repo preferences are recorded and
+    /// its transient state is cleared. Back therefore still restores the exact
+    /// instance that opened the first list mode. At most one of
+    /// `issues_state.active` / `prs_state.active` is true after this call.
     fn enter_issues_mode(&mut self) {
         // Finding 1: deactivate PR mode if active so both list modes are
         // never simultaneously active (which would corrupt per-repo
         // preferences on a repo change).
         let from_sibling_list_mode = self.prs_state.active;
+        let source_repository_index = self.selected_repository_index;
+        let source_agent_index = self.selected_agent_index;
         if self.prs_state.active {
             self.remember_pr_preferences();
             self.prs_state.active = false;
@@ -40,21 +40,6 @@ impl AppState {
             self.prs_state.filter_ui.controls_open = false;
             self.prs_state.search_input_focused = false;
         }
-        // Finding 1: only save prior_agent_focus if none exists yet, so a
-        // Dashboard → Issues → PRs → Issues round-trip does not clobber the
-        // original saved focus.
-        if self.issues_state.prior_agent_focus.is_none() {
-            self.issues_state.prior_agent_focus = Some(PriorAgentFocus {
-                pane_focus: self.pane_focus,
-                selected_repository_index: self.selected_repository_index,
-                selected_agent_index: self.selected_agent_index,
-            });
-        }
-        // Finding 2: normalize terminal-focus state so a cross-mode switch
-        // from a terminal-focused PR view does not leave terminal capture
-        // active in a list-mode render.
-        self.terminal_focused = false;
-        self.pane_focus = PaneFocus::Agents;
         // The cross-mode jump takes the place of the screen it came from, so
         // Back still returns to whatever opened the first list mode.
         let _ = if from_sibling_list_mode {
@@ -62,12 +47,15 @@ impl AppState {
         } else {
             self.show_screen(ScreenId::Issues)
         };
+        // Seed route context from the exact source snapshot, then keep every
+        // subsequent mutation on this new screen instance.
+        self.selected_repository_index = source_repository_index;
+        self.selected_agent_index = source_agent_index;
+        self.terminal_focused = false;
+        self.pane_focus = PaneFocus::Agents;
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
         self.issues_state.list.clear();
-        if let Some(detail) = &mut self.issues_state.issue_detail {
-            detail.comments.cancel_pending();
-        }
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
         self.issues_state.loading.comments = false;
@@ -76,6 +64,11 @@ impl AppState {
         self.issues_state.agent_chooser = None;
         self.issues_state.filter_ui.controls_open = false;
         self.issues_state.search_input_focused = false;
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            // Unreachable: cleared above; retained as defensive cleanup for the
+            // seeded detail instance so a stale cancellation never leaks.
+            detail.comments.cancel_pending();
+        }
         self.restore_issue_preferences();
         self.issues_state.detail_subfocus = DetailSubfocus::Body;
         self.issues_state.draft_notice = None;
@@ -100,9 +93,8 @@ impl AppState {
             .min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
     }
 
-    /// Exit issues mode, restoring prior focus state.
+    /// Exit issues mode after clearing transient state on the disposed instance.
     fn exit_issues_mode(&mut self) {
-        let _ = self.leave_screen();
         self.issues_state.active = false;
         self.issues_state.detail_pending = None;
         self.issues_state.loading.detail = false;
@@ -113,28 +105,7 @@ impl AppState {
         // M7: clear property editor on mode exit.
         self.issues_state.property_editor = None;
         self.issues_state.property_mutation_pending = None;
-        if let Some(prior) = self.issues_state.prior_agent_focus.take() {
-            self.pane_focus = prior.pane_focus;
-            if let Some(idx) = prior.selected_agent_index {
-                if idx < self.agents.len() {
-                    self.selected_agent_index = Some(idx);
-                } else {
-                    self.pane_focus = PaneFocus::Agents;
-                    self.selected_agent_index = if self.agents.is_empty() {
-                        None
-                    } else {
-                        Some(0)
-                    };
-                }
-            }
-            if let Some(idx) = prior.selected_repository_index
-                && idx < self.repositories.len()
-            {
-                self.selected_repository_index = Some(idx);
-            }
-        } else {
-            self.pane_focus = PaneFocus::Agents;
-        }
+        let _ = self.leave_screen();
     }
 
     fn detail_subfocus_next(&mut self) {
@@ -286,6 +257,7 @@ impl AppState {
             self.issues_state.new_issue_form = None;
         }
         self.issues_state.list.clear();
+        self.sync_issue_selected_resource();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
         }
@@ -357,20 +329,9 @@ impl AppState {
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
-    /// Invalidate the issue detail when the screen's declared master-detail
-    /// relationship says its subject moved (issue #385, CW05-09).
-    ///
-    /// The rule lives in the `github.issues` descriptor rather than here, so
-    /// the coupling between the list and the detail pane is stated once, as
-    /// data, in the same form a user-authored screen would state it.
+    /// Invalidate issue-detail work when the list selection moves.
     fn invalidate_detail_requests_if_issue_selection_changed(&mut self, previous: Option<usize>) {
         if self.issues_state.selected_issue_index() == previous {
-            return;
-        }
-        if !crate::state::screen_relationships::couples_list_to_detail(
-            self.published_workbench().screen_registry(),
-            ScreenId::Issues,
-        ) {
             return;
         }
         self.issues_state.loading.detail = false;
@@ -380,6 +341,7 @@ impl AppState {
             detail.comments.cancel_pending();
         }
         self.issues_state.detail_scroll_offset = 0;
+        self.sync_issue_selected_resource();
     }
 
     fn cycle_issues_focus(&mut self) {
@@ -461,6 +423,7 @@ impl AppState {
                     self.issues_state.search_query.trim().to_string();
                 self.issues_state.search_input_focused = false;
                 self.issues_state.list.clear();
+                self.sync_issue_selected_resource();
                 if let Some(detail) = &mut self.issues_state.issue_detail {
                     detail.comments.cancel_pending();
                 }
@@ -508,6 +471,7 @@ impl AppState {
 
     fn reload_issue_list_for_filter_change(&mut self) {
         self.issues_state.list.clear();
+        self.sync_issue_selected_resource();
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
         }
@@ -717,6 +681,7 @@ impl AppState {
     /// a removed/running/cross-repo agent is silently dropped.
     fn open_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         let context_available = self.modal == super::ModalState::None
+            && self.active_overlay_kind().is_none()
             && matches!(
                 self.issues_state.issue_focus,
                 IssueFocus::IssueList | IssueFocus::IssueDetail

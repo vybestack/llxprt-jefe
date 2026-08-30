@@ -1,0 +1,16 @@
+screen_schema = 1
+id = "local.control-fixture"
+title = "Control Fixture"
+route = "control-fixture"
+initial_focus = "control"
+focus_order = ["control"]
+
+[[panels]]
+id = "control"
+type = "vendor.fixture.control"
+focusable = true
+required = true
+
+[layout]
+type = "leaf"
+panel = "control"

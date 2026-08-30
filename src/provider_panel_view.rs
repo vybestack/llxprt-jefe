@@ -7,14 +7,14 @@
 //! snapshot: the renderer, mouse router, and projection all read the same
 //! rectangles.
 
-use crate::domain::Id;
-use crate::runtime::provider::protocol::{
-    Affordance, DetailBody, EmptyBody, ErrorBody, FormBody, ListBody, PanelBody, ProgressBody,
-    StatusBody,
-};
+pub use crate::host_controls::PanelHitTarget;
+use crate::host_controls::project_control_body;
+use crate::runtime::provider::protocol::{Affordance, PanelBody};
+use crate::state::AppState;
 use crate::state::provider_panels::{PanelLifecycle, ProviderPanelState};
-use crate::text_wrap::wrap_text;
-use crate::workbench::{PanelId, Rect, ResolvedLayout, ScreenDescriptor};
+use crate::workbench::{
+    PTY_PANEL_TYPE, PanelId, Rect, ResolvedLayout, ScreenDescriptor, ScreenInstanceId,
+};
 
 // ---------------------------------------------------------------------------
 // View structures consumed by the iocraft component
@@ -53,30 +53,17 @@ pub struct PanelProjection {
     /// Largest valid host-local scroll offset for this projection.
     pub max_scroll_offset: u32,
     /// Semantic target occupying each display line, aligned with `lines`.
+    /// Which shared renderer consumes this panel's projected content.
+    pub render: PanelRender,
     pub hit_targets: Vec<Option<PanelHitTarget>>,
 }
-
-/// One semantic target rendered on a provider-panel content row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PanelHitTarget {
-    /// A selectable list item.
-    ListItem(Id),
-    /// An editable form field.
-    Field(Id),
-    /// A declared action affordance.
-    Action(Id),
-    /// The form submit control.
-    Submit,
-    /// The list's next-page control.
-    PageRequested,
-    /// A retry control on an error panel.
-    Retry,
-    /// A cancellation control on a progress panel.
-    Cancel,
-    /// A detail link affordance.
-    Link(Id),
-    /// A visible control that is explicitly unavailable.
-    Unavailable,
+/// Shared content renderer selected by the descriptor panel type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelRender {
+    /// The closed public host-control projection.
+    Control,
+    /// The private host PTY rendered through `TerminalView`.
+    EmbeddedTerminal,
 }
 
 /// Distinct lifecycle-derived rendering status for a provider panel.
@@ -96,6 +83,37 @@ pub enum PanelStatus {
     Disposed,
 }
 
+/// Projection refusal when resolved geometry and the active screen diverge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelProjectionError {
+    /// Geometry belongs to another exact screen instance.
+    StaleLayout {
+        expected: ScreenInstanceId,
+        actual: ScreenInstanceId,
+    },
+    /// Geometry omitted one descriptor-owned panel.
+    MissingPanel(PanelId),
+}
+
+impl std::fmt::Display for PanelProjectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleLayout { expected, actual } => write!(
+                formatter,
+                "resolved layout belongs to screen instance {actual:?}, expected {expected:?}"
+            ),
+            Self::MissingPanel(panel) => {
+                write!(
+                    formatter,
+                    "resolved layout omitted descriptor panel {panel}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PanelProjectionError {}
+
 // ---------------------------------------------------------------------------
 // Public projection entry point
 // ---------------------------------------------------------------------------
@@ -106,31 +124,24 @@ pub enum PanelStatus {
 /// is re-derived. Body text is Unicode-aware wrapped at the content width and
 /// clipped by the host-local scroll offset.
 ///
-/// # Panics
-///
-/// Panics when `layout` is not the resolver output for `descriptor`. The layout
-/// resolver's closed postcondition is one entry for every descriptor panel,
-/// including collapsed panels; continuing with partial geometry would create a
-/// second layout interpretation and make rendering and hit testing disagree.
-#[must_use]
+/// Returns a typed refusal when `layout` is not the resolver output for
+/// `descriptor`. Continuing with partial geometry would create a second layout
+/// interpretation and make rendering and hit testing disagree.
 pub fn project_provider_screen(
     descriptor: &ScreenDescriptor,
     screen_instance_id: u64,
     panels: &ProviderPanelState,
     layout: &ResolvedLayout,
     focused_panel: &PanelId,
-) -> ProviderScreenView {
+) -> Result<ProviderScreenView, PanelProjectionError> {
     let projected = descriptor
         .panels
         .iter()
         .map(|descriptor_panel| {
-            let Some(resolved) = layout.panel(&descriptor_panel.id) else {
-                panic!(
-                    "resolved layout omitted descriptor panel {}",
-                    descriptor_panel.id
-                );
-            };
-            project_one_panel(PanelProjectionInput {
+            let resolved = layout
+                .panel(&descriptor_panel.id)
+                .ok_or(PanelProjectionError::MissingPanel(descriptor_panel.id))?;
+            Ok(project_one_panel(PanelProjectionInput {
                 id: descriptor_panel.id,
                 focused: &descriptor_panel.id == focused_panel,
                 visible: resolved.visible,
@@ -138,16 +149,100 @@ pub fn project_provider_screen(
                 content: resolved.content,
                 panels,
                 instance: panels.panel_for_screen(screen_instance_id, &descriptor_panel.id),
-            })
+            }))
         })
-        .collect();
-    ProviderScreenView {
+        .collect::<Result<Vec<_>, PanelProjectionError>>()?;
+    Ok(ProviderScreenView {
         title: descriptor.title.clone(),
         panels: projected,
         too_small: layout.too_small.is_some(),
-    }
+    })
 }
 
+/// Project the active definition through provider-backed and host-owned controls.
+pub fn project_current_screen(
+    state: &AppState,
+    descriptor: &ScreenDescriptor,
+    layout: &ResolvedLayout,
+) -> Result<ProviderScreenView, PanelProjectionError> {
+    let current_instance = state.nav.current().id;
+    if layout.screen_instance != current_instance {
+        return Err(PanelProjectionError::StaleLayout {
+            expected: current_instance,
+            actual: layout.screen_instance,
+        });
+    }
+    let instance_id = current_instance.get();
+    let registry = state.published_workbench().screen_registry();
+    let mut view = project_provider_screen(
+        descriptor,
+        instance_id,
+        state.provider_panels(),
+        layout,
+        &state.nav.current().panel_focus,
+    )?;
+    for (panel_descriptor, projection) in descriptor.panels.iter().zip(&mut view.panels) {
+        if !projection.visible
+            || registry
+                .panel_binding(descriptor.id, &panel_descriptor.id)
+                .is_some()
+            || state
+                .provider_panels()
+                .panel_for_screen(instance_id, &panel_descriptor.id)
+                .is_some()
+        {
+            continue;
+        }
+        if panel_descriptor.panel_type.as_str() == PTY_PANEL_TYPE {
+            "Terminal".clone_into(&mut projection.title);
+            projection.status = PanelStatus::Active;
+            projection.lines.clear();
+            projection.hit_targets.clear();
+            projection.max_scroll_offset = 0;
+            projection.render = PanelRender::EmbeddedTerminal;
+            continue;
+        }
+        if let Some(capability) = panel_descriptor.host_capability {
+            let model =
+                crate::host_panel_models::project_host_panel(state, capability.model_source());
+            if crate::host_controls::ControlKind::from(model.body.kind())
+                == capability.control_kind()
+            {
+                project_host_model(projection, model);
+            }
+        }
+    }
+    Ok(view)
+}
+
+/// Fill one host-owned panel from its projected model, clamping the retained
+/// scroll offset to the visible row window after any source shrink.
+fn project_host_model(
+    projection: &mut PanelProjection,
+    model: crate::host_panel_models::HostPanelModel,
+) {
+    let body_width = usize::from(projection.content.width.max(1));
+    let rows = project_model_rows(ModelProjectionInput {
+        body: &model.body,
+        affordances: &model.action_affordances,
+        description: None,
+        loading: false,
+        stale: false,
+        selected_id: model.selected_id.as_ref(),
+        form_draft: None,
+        body_width,
+    });
+    projection.title = model.title;
+    projection.status = PanelStatus::Active;
+    let maximum = rows
+        .len()
+        .saturating_sub(usize::from(projection.content.height));
+    projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
+    let clipped = clip_to_content(rows, model.scroll_offset, projection.content.height);
+    projection.lines = clipped.iter().map(|row| row.text.clone()).collect();
+    projection.hit_targets = clipped.into_iter().map(|row| row.target).collect();
+    projection.render = PanelRender::Control;
+}
 // ---------------------------------------------------------------------------
 // Per-panel projection
 // ---------------------------------------------------------------------------
@@ -184,6 +279,44 @@ impl ProjectedRow {
     }
 }
 
+struct ModelProjectionInput<'a> {
+    body: &'a PanelBody,
+    affordances: &'a [Affordance],
+    description: Option<&'a str>,
+    loading: bool,
+    stale: bool,
+    selected_id: Option<&'a crate::domain::Id>,
+    form_draft: Option<&'a crate::domain::TypedMap>,
+    body_width: usize,
+}
+
+fn project_model_rows(input: ModelProjectionInput<'_>) -> Vec<ProjectedRow> {
+    let mut rows = Vec::new();
+    if input.loading {
+        rows.push(ProjectedRow::plain("loading…"));
+    }
+    if input.stale {
+        rows.push(ProjectedRow::plain("stale"));
+    }
+    rows.extend(project_description(input.description, input.body_width));
+    rows.extend(
+        project_control_body(
+            input.body,
+            input.affordances,
+            input.selected_id,
+            input.form_draft,
+            input.body_width,
+        )
+        .into_iter()
+        .map(|row| ProjectedRow {
+            text: row.text,
+            target: row.target,
+        }),
+    );
+    project_affordances(input.body, input.affordances, &mut rows);
+    rows
+}
+
 fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
     if !input.visible {
         return hidden_panel(input.id);
@@ -204,21 +337,18 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
         || input.id.as_str().to_owned(),
         |snapshot| snapshot.title.clone(),
     );
-    let mut rows = Vec::new();
-    if let Some(snapshot) = snapshot {
-        if snapshot.loading {
-            rows.push(ProjectedRow::plain("loading…"));
-        }
-        if stale {
-            rows.push(ProjectedRow::plain("stale"));
-        }
-        let body_width = usize::from(input.content.width.max(1));
-        if let Some(description) = &snapshot.description {
-            push_wrapped(&mut rows, description, body_width, None);
-        }
-        project_body(snapshot, selected_id, form_draft, body_width, &mut rows);
-        project_affordances(snapshot, &mut rows);
-    }
+    let rows = snapshot.map_or_else(Vec::new, |snapshot| {
+        project_model_rows(ModelProjectionInput {
+            body: &snapshot.body,
+            affordances: &snapshot.action_affordances,
+            description: snapshot.description.as_deref(),
+            loading: snapshot.loading,
+            stale,
+            selected_id,
+            form_draft,
+            body_width: usize::from(input.content.width.max(1)),
+        })
+    });
     let max_scroll_offset =
         u32::try_from(rows.len().saturating_sub(usize::from(input.content.height)))
             .unwrap_or(u32::MAX);
@@ -236,6 +366,7 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
         lines,
         max_scroll_offset,
         hit_targets,
+        render: PanelRender::Control,
     }
 }
 
@@ -252,6 +383,7 @@ fn hidden_panel(id: PanelId) -> PanelProjection {
         lines: Vec::new(),
         max_scroll_offset: 0,
         hit_targets: Vec::new(),
+        render: PanelRender::Control,
     }
 }
 
@@ -268,6 +400,7 @@ fn unavailable_panel(id: PanelId, focused: bool, chrome: Rect, content: Rect) ->
         lines: vec!["provider unavailable".to_owned()],
         max_scroll_offset: 0,
         hit_targets: vec![None],
+        render: PanelRender::Control,
     }
 }
 
@@ -303,24 +436,29 @@ fn clip_to_content(
     rows.into_iter().skip(offset).take(max).collect()
 }
 
+fn project_description(description: Option<&str>, width: usize) -> Vec<ProjectedRow> {
+    description.map_or_else(Vec::new, |description| {
+        crate::text_wrap::wrap_text(description, width)
+            .into_iter()
+            .map(|row| ProjectedRow::plain(row.text))
+            .collect()
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Affordance projection
 // ---------------------------------------------------------------------------
 
-fn project_affordances(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    rows: &mut Vec<ProjectedRow>,
-) {
+fn project_affordances(body: &PanelBody, affordances: &[Affordance], rows: &mut Vec<ProjectedRow>) {
     rows.extend(
-        snapshot
-            .action_affordances
+        affordances
             .iter()
-            .filter(|affordance| !body_projects_affordance(&snapshot.body, affordance))
+            .filter(|affordance| !body_projects_affordance(body, affordance))
             .map(|affordance| {
                 if affordance.enabled {
                     ProjectedRow::targeted(
                         format!("[{}] {}", affordance.id, affordance.label),
-                        affordance_target(snapshot, affordance),
+                        affordance_target(body, affordance),
                     )
                 } else {
                     ProjectedRow::targeted(
@@ -346,272 +484,21 @@ fn body_projects_affordance(body: &PanelBody, affordance: &Affordance) -> bool {
         PanelBody::Form(body) => body.submit_action == affordance.action_id,
         PanelBody::Error(body) => body.retry_action.as_ref() == Some(&affordance.id),
         PanelBody::List(_)
+        | PanelBody::Tree(_)
         | PanelBody::Detail(_)
+        | PanelBody::StructuredDiff(_)
         | PanelBody::Status(_)
         | PanelBody::Progress(_)
         | PanelBody::Empty(_) => false,
     }
 }
 
-fn affordance_target(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    affordance: &Affordance,
-) -> PanelHitTarget {
-    match &snapshot.body {
+fn affordance_target(body: &PanelBody, affordance: &Affordance) -> PanelHitTarget {
+    match body {
         PanelBody::Detail(detail) if detail.actions.contains(&affordance.id) => {
             PanelHitTarget::Link(affordance.id.clone())
         }
         _ => PanelHitTarget::Action(affordance.id.clone()),
-    }
-}
-
-fn action_target(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    id: &Id,
-    enabled_target: PanelHitTarget,
-) -> Option<PanelHitTarget> {
-    snapshot
-        .action_affordances
-        .iter()
-        .find(|affordance| &affordance.id == id)
-        .map(|affordance| {
-            if affordance.enabled {
-                enabled_target
-            } else {
-                PanelHitTarget::Unavailable
-            }
-        })
-}
-
-// ---------------------------------------------------------------------------
-// Body projection (all seven kinds, Unicode-aware wrapping)
-// ---------------------------------------------------------------------------
-
-fn project_body(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    selected_id: Option<&Id>,
-    form_draft: Option<&crate::domain::TypedMap>,
-    width: usize,
-    rows: &mut Vec<ProjectedRow>,
-) {
-    match &snapshot.body {
-        PanelBody::List(body) => project_list(snapshot, body, selected_id, width, rows),
-        PanelBody::Detail(body) => project_detail(snapshot, body, width, rows),
-        PanelBody::Form(body) => project_form(snapshot, body, form_draft, width, rows),
-        PanelBody::Status(body) => project_status(body, rows),
-        PanelBody::Progress(body) => rows.push(progress_row(body)),
-        PanelBody::Empty(body) => rows.push(empty_row(snapshot, body)),
-        PanelBody::Error(body) => rows.push(error_row(snapshot, body)),
-    }
-}
-
-fn project_list(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    body: &ListBody,
-    selected_id: Option<&Id>,
-    width: usize,
-    rows: &mut Vec<ProjectedRow>,
-) {
-    let selected = selected_id
-        .filter(|selected| body.items.iter().any(|item| &item.id == *selected))
-        .or_else(|| {
-            body.selected_id
-                .as_ref()
-                .filter(|selected| body.items.iter().any(|item| &item.id == *selected))
-        })
-        .or_else(|| body.items.first().map(|item| &item.id));
-    for item in &body.items {
-        let item_target = PanelHitTarget::ListItem(item.id.clone());
-        let marker = if selected == Some(&item.id) {
-            ">> "
-        } else {
-            "   "
-        };
-        let status_suffix = item
-            .status
-            .as_deref()
-            .map_or(String::new(), |value| format!(" [{value}]"));
-        push_wrapped(
-            rows,
-            &format!("{marker}{}{status_suffix}", item.label),
-            width,
-            Some(item_target.clone()),
-        );
-        if let Some(description) = &item.description {
-            push_wrapped(rows, &format!("   {description}"), width, Some(item_target));
-        }
-        for action in &item.actions {
-            let target = action_target(snapshot, action, PanelHitTarget::Action(action.clone()));
-            push_wrapped(rows, &format!("   actions: {action}"), width, target);
-        }
-    }
-    if body.next_page_token.is_some() {
-        rows.push(ProjectedRow::targeted(
-            "more results available",
-            PanelHitTarget::PageRequested,
-        ));
-    }
-}
-
-fn project_detail(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    body: &DetailBody,
-    width: usize,
-    rows: &mut Vec<ProjectedRow>,
-) {
-    push_wrapped(rows, &body.document, width, None);
-    for row in &body.metadata {
-        push_wrapped(rows, &format!("{}: {}", row.label, row.value), width, None);
-    }
-    for action in &body.actions {
-        let target = action_target(snapshot, action, PanelHitTarget::Link(action.clone()));
-        push_wrapped(rows, &format!("actions: {action}"), width, target);
-    }
-}
-
-fn project_form(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    body: &FormBody,
-    form_draft: Option<&crate::domain::TypedMap>,
-    width: usize,
-    rows: &mut Vec<ProjectedRow>,
-) {
-    for field in &body.fields {
-        let value = form_draft
-            .and_then(|draft| draft.get(field.id()))
-            .or_else(|| body.values.get(field.id()));
-        let raw = value.map_or_else(
-            || format!("{}: _", field.label()),
-            |value| format!("{}: {}", field.label(), display_value(value)),
-        );
-        push_wrapped(
-            rows,
-            &raw,
-            width,
-            Some(PanelHitTarget::Field(field.id().clone())),
-        );
-    }
-    for error in &body.field_errors {
-        push_wrapped(
-            rows,
-            &format!("{}: {}", error.field_id, error.message),
-            width,
-            None,
-        );
-    }
-    let target = snapshot
-        .action_affordances
-        .iter()
-        .find(|affordance| affordance.action_id == body.submit_action)
-        .map(|affordance| {
-            if affordance.enabled {
-                PanelHitTarget::Submit
-            } else {
-                PanelHitTarget::Unavailable
-            }
-        });
-    push_wrapped(
-        rows,
-        &format!("submit: {}", body.submit_action.as_str()),
-        width,
-        target,
-    );
-}
-
-fn project_status(body: &StatusBody, rows: &mut Vec<ProjectedRow>) {
-    rows.extend(body.rows.iter().map(|row| {
-        ProjectedRow::plain(format!(
-            "[{}] {}: {}",
-            row.state.as_str(),
-            row.label,
-            row.value
-        ))
-    }));
-}
-
-fn progress_row(body: &ProgressBody) -> ProjectedRow {
-    let progress = match (body.completed, body.total) {
-        (Some(completed), Some(total)) => format!("{} {completed}/{total}", body.message),
-        _ => body.message.clone(),
-    };
-    if body.cancellable {
-        ProjectedRow::targeted(format!("{progress} [Cancel]"), PanelHitTarget::Cancel)
-    } else {
-        ProjectedRow::plain(progress)
-    }
-}
-
-fn empty_row(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    body: &EmptyBody,
-) -> ProjectedRow {
-    let Some(action) = &body.action else {
-        return ProjectedRow::plain(body.message.clone());
-    };
-    let text = format!("{} [{action}]", body.message);
-    match action_target(snapshot, action, PanelHitTarget::Action(action.clone())) {
-        Some(target) => ProjectedRow::targeted(text, target),
-        None => ProjectedRow::plain(text),
-    }
-}
-
-fn error_row(
-    snapshot: &crate::runtime::provider::protocol::PanelSnapshot,
-    body: &ErrorBody,
-) -> ProjectedRow {
-    let Some(action) = &body.retry_action else {
-        return ProjectedRow::plain(format!("{} {}", body.code, body.message));
-    };
-    let text = format!("{} {} [Retry: {action}]", body.code, body.message);
-    let target = if body.retryable {
-        action_target(snapshot, action, PanelHitTarget::Retry)
-    } else {
-        None
-    };
-    match target {
-        Some(target) => ProjectedRow::targeted(text, target),
-        None => ProjectedRow::plain(text),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Wrapping helpers
-// ---------------------------------------------------------------------------
-
-/// Push one logical text line, wrapped at `width` display cells.
-///
-/// Each wrapped sub-row becomes one entry in `rows`, so a long detail document
-/// that wraps across three rows occupies three entries. Semantic targets travel
-/// with the rows they produced rather than being reconstructed from display text.
-fn push_wrapped(
-    rows: &mut Vec<ProjectedRow>,
-    text: &str,
-    width: usize,
-    target: Option<PanelHitTarget>,
-) {
-    for row in wrap_text(text, width) {
-        rows.push(ProjectedRow {
-            text: row.text,
-            target: target.clone(),
-        });
-    }
-}
-
-fn display_value(value: &crate::domain::TypedValue) -> String {
-    use crate::domain::TypedValue;
-    match value {
-        TypedValue::String(value) => value.clone(),
-        TypedValue::Bool(value) => value.to_string(),
-        TypedValue::Integer(value) => value.to_string(),
-        TypedValue::Decimal(value) => value.as_str().to_owned(),
-        TypedValue::Datetime(value) => value.as_str().to_owned(),
-        TypedValue::List(values) => values
-            .iter()
-            .map(display_value)
-            .collect::<Vec<_>>()
-            .join(", "),
-        TypedValue::Map(_) => "<map>".to_owned(),
-        TypedValue::SecretRef(reference) => format!("set ({})", reference.env.env()),
     }
 }
 

@@ -374,7 +374,7 @@ fn read_local_agent(
     require_running: bool,
 ) -> Option<(jefe::domain::AgentId, std::path::PathBuf)> {
     let state = app_state.read();
-    if state.screen() != ScreenId::Dashboard {
+    if !state.has_host_agent_panel() {
         return None;
     }
     let agent = state.selected_agent()?;

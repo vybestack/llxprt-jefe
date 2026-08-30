@@ -3,8 +3,8 @@
 
 use super::screen_file::parse_screen_file;
 use super::screen_file::{
-    ActivationKind, ActivationModeFile, EmptyPolicyFile, LayoutFile, PortDirectionFile,
-    RelationshipFile, SizeFile,
+    ActivationKind, ActivationModeFile, EmptyPolicyFile, LayoutFile, OverlayKindFile,
+    PortDirectionFile, RelationshipFile, ResourceFieldKind, SizeFile,
 };
 use super::screen_file_bounds::ScreenSyntaxReason;
 use super::screen_file_fixtures::{HEADER, LAYOUT, PANELS, parsed, rejected, valid_text};
@@ -27,18 +27,165 @@ fn a_complete_valid_file_parses_into_the_closed_syntax() {
 }
 
 #[test]
-fn a_port_declaration_carries_its_direction_type_and_retention() {
+fn host_owned_overlays_use_a_closed_declaration_vocabulary() {
+    let overlays = r#"
+[[overlays]]
+kind = "help"
+
+[[overlays]]
+kind = "search"
+
+[[overlays]]
+kind = "confirmation"
+"#;
+    let file = parsed(&format!("{HEADER}{overlays}{PANELS}{LAYOUT}"));
+
+    assert_eq!(
+        file.overlays
+            .iter()
+            .map(|overlay| overlay.get_ref().kind)
+            .collect::<Vec<_>>(),
+        vec![
+            OverlayKindFile::Help,
+            OverlayKindFile::Search,
+            OverlayKindFile::Confirmation,
+        ]
+    );
+
+    let unknown = format!("{HEADER}[[overlays]]\nkind = \"package-widget\"\n{PANELS}{LAYOUT}");
+    assert!(matches!(
+        rejected(&unknown),
+        ScreenSyntaxReason::Malformed { .. }
+    ));
+}
+
+#[test]
+fn overlay_declarations_reject_package_supplied_implementation_fields() {
+    for field in ["implementation", "drawing", "input", "snapshot", "handler"] {
+        let source = format!(
+            "{HEADER}[[overlays]]\nkind = \"help\"\n{field} = \"overlay.rs\"\n{PANELS}{LAYOUT}"
+        );
+        assert!(
+            matches!(rejected(&source), ScreenSyntaxReason::Malformed { .. }),
+            "a package-supplied overlay `{field}` must be rejected"
+        );
+    }
+}
+#[test]
+fn host_owned_overlays_are_schema_independent_declarations() {
+    // Overlay declarations are a closed host vocabulary on any supported
+    // screen schema (1 or 2): both legacy and current schema-1 files accept
+    // the same help/search/confirmation kinds and still reject package-supplied
+    // implementation fields.
+    for schema in [1, 2] {
+        let header = format!(
+            "screen_schema = {schema}\nid = \"local.review\"\ntitle = \"Review\"\nroute = \"review\"\ninitial_focus = \"pr-list\"\nfocus_order = [\"pr-list\", \"pr-detail\"]\n"
+        );
+        let overlays = "[[overlays]]\nkind = \"help\"\n[[overlays]]\nkind = \"search\"\n[[overlays]]\nkind = \"confirmation\"\n";
+        let text = format!("{header}{overlays}{PANELS}{LAYOUT}");
+        let file = parsed(&text);
+        assert_eq!(file.overlays.len(), 3, "schema {schema} overlays");
+    }
+}
+
+#[test]
+fn a_port_declaration_carries_its_owner_direction_type_and_retention() {
     let file = parsed(&valid_text());
 
     let output = &file.panels[0].get_ref().ports[0];
     assert_eq!(output.get_ref().id, "selection");
+    assert_eq!(
+        output.get_ref().owner.as_deref(),
+        Some("github.pull-requests")
+    );
     assert_eq!(output.get_ref().direction, PortDirectionFile::Output);
     assert_eq!(output.get_ref().type_id, "github.pull-request@1");
     assert!(!output.get_ref().retained);
 
     let input = &file.panels[1].get_ref().ports[0];
     assert_eq!(input.get_ref().direction, PortDirectionFile::Input);
+
     assert!(input.get_ref().retained);
+}
+
+#[test]
+fn legacy_schema_one_ports_remain_parseable_without_an_explicit_owner() {
+    let text = valid_text().replace("owner = \"github.pull-requests\"\n", "");
+    let file = parsed(&text);
+
+    assert_eq!(file.screen_schema, 1);
+    assert!(file.panels[0].get_ref().ports[0].get_ref().owner.is_none());
+}
+
+#[test]
+fn current_schema_requires_every_port_owner_explicitly() {
+    let text = valid_text()
+        .replace("screen_schema = 1", "screen_schema = 2")
+        .replacen("owner = \"github.pull-requests\"\n", "", 1);
+
+    assert!(matches!(
+        rejected(&text),
+        ScreenSyntaxReason::Malformed { .. }
+    ));
+}
+
+#[test]
+fn a_resource_declaration_is_closed_and_carries_its_exact_schema() {
+    let resource = r#"
+[[resources]]
+type_id = "local.review.note"
+schema_version = 1
+semantic_key = "semantic-key"
+
+[[resources.fields]]
+id = "semantic-key"
+label = "Semantic key"
+type = "string"
+required = true
+"#;
+    let text = format!("{HEADER}{resource}{PANELS}{LAYOUT}")
+        .replace("screen_schema = 1", "screen_schema = 2");
+
+    let file = parsed(&text);
+    let resource = file.resources[0].get_ref();
+    assert_eq!(resource.type_id, "local.review.note");
+    assert_eq!(resource.schema_version, 1);
+    assert_eq!(resource.semantic_key, "semantic-key");
+    assert_eq!(resource.fields.len(), 1);
+    assert_eq!(resource.fields[0].get_ref().id, "semantic-key");
+    assert_eq!(resource.fields[0].get_ref().label, "Semantic key");
+    assert_eq!(resource.fields[0].get_ref().kind, ResourceFieldKind::String);
+    assert!(resource.fields[0].get_ref().required);
+
+    let with_default = text.replace(
+        "type = \"string\"\nrequired = true",
+        "type = \"string\"\nrequired = true\ndefault = \"hidden\"",
+    );
+    assert!(matches!(
+        rejected(&with_default),
+        ScreenSyntaxReason::Malformed { .. }
+    ));
+}
+#[test]
+fn legacy_schema_one_cannot_claim_the_definition_owned_resource_extension() {
+    let resource = r#"
+[[resources]]
+type_id = "local.review.note"
+schema_version = 1
+semantic_key = "semantic-key"
+
+[[resources.fields]]
+id = "semantic-key"
+label = "Semantic key"
+type = "string"
+required = true
+"#;
+    let text = format!("{HEADER}{resource}{PANELS}{LAYOUT}");
+
+    assert!(matches!(
+        rejected(&text),
+        ScreenSyntaxReason::Malformed { .. }
+    ));
 }
 
 #[test]
@@ -256,11 +403,11 @@ fn a_secret_activation_field_kind_has_no_spelling() {
 
 #[test]
 fn an_unsupported_schema_version_is_rejected_by_number() {
-    let text = valid_text().replace("screen_schema = 1", "screen_schema = 2");
+    let text = valid_text().replace("screen_schema = 1", "screen_schema = 3");
 
     assert_eq!(
         rejected(&text),
-        ScreenSyntaxReason::UnsupportedSchema { found: 2 }
+        ScreenSyntaxReason::UnsupportedSchema { found: 3 }
     );
 }
 

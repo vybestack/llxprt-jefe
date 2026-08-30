@@ -55,7 +55,7 @@ fn create_split_test_state() -> AppState {
 fn s_key_enters_split_mode() {
     let state = {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Dashboard);
+        state.restore_navigation_root(jefe::workbench::DASHBOARD_IDENTITY);
         state
     };
 
@@ -70,7 +70,7 @@ fn esc_key_exits_split_mode() {
 
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 
-    assert_eq!(state.screen(), ScreenId::Dashboard);
+    assert_eq!(state.screen(), jefe::workbench::DASHBOARD_IDENTITY);
 }
 
 // ============================================================================

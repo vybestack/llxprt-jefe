@@ -23,9 +23,10 @@ use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope, S
 use crate::domain::{Id, TypedMap, TypedValue};
 
 use super::panel_model::{
-    Affordance, DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError,
-    ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
-    StatusRowState,
+    Affordance, BodyKind, DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody,
+    FormBody, FormFieldError, ListBody, ListItem, PanelBody, PanelSnapshot, ProgressBody,
+    StatusBody, StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile,
+    StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody, TreeNode,
 };
 
 #[test]
@@ -87,6 +88,80 @@ fn panel_fixture_id(text: &str) -> Id {
     Id::parse(text).unwrap_or_else(|error| panic!("id fixture {text:?}: {error}"))
 }
 
+fn secret_tree_body(secret: &str) -> PanelBody {
+    PanelBody::Tree(TreeBody {
+        schema_version: 1,
+        nodes: vec![TreeNode {
+            id: panel_fixture_id("tree-node"),
+            parent_id: None,
+            label: format!("tree label {secret}"),
+            semantic_key: panel_fixture_id("tree-key"),
+            depth: 0,
+            expandable: true,
+            expanded: false,
+        }],
+        selected_id: Some(panel_fixture_id("tree-node")),
+    })
+}
+
+fn secret_structured_diff_body(secret: &str) -> PanelBody {
+    PanelBody::StructuredDiff(StructuredDiffBody {
+        schema_version: 1,
+        files: vec![
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-added"),
+                path: StructuredDiffPath::Added(format!("added/{secret}")),
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: Vec::new(),
+            },
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-removed"),
+                path: StructuredDiffPath::Removed(format!("removed/{secret}")),
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: Vec::new(),
+            },
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-modified"),
+                path: StructuredDiffPath::Modified(format!("modified/{secret}")),
+                old_mode: None,
+                new_mode: None,
+                binary: true,
+                hunks: Vec::new(),
+            },
+            StructuredDiffFile {
+                id: panel_fixture_id("diff-file"),
+                path: StructuredDiffPath::Renamed {
+                    old: format!("old/{secret}"),
+                    new: format!("new/{secret}"),
+                },
+
+                old_mode: Some(format!("old-mode-{secret}")),
+                new_mode: Some(format!("new-mode-{secret}")),
+                binary: false,
+                hunks: vec![StructuredDiffHunk {
+                    header: format!("header {secret}"),
+                    old_start: 1,
+                    old_lines: 1,
+                    new_start: 1,
+                    new_lines: 1,
+                    lines: vec![StructuredDiffLine {
+                        origin: DiffLineOrigin::Context,
+                        old_line: Some(1),
+                        new_line: Some(1),
+                        content: format!("line {secret}"),
+                        no_newline: false,
+                    }],
+                }],
+            },
+        ],
+        selected_file_id: Some(panel_fixture_id("diff-file")),
+    })
+}
+
 fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
     vec![
         PanelBody::List(ListBody {
@@ -100,6 +175,7 @@ fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
             selected_id: Some(panel_fixture_id("item")),
             next_page_token: Some(format!("page {secret}")),
         }),
+        secret_tree_body(secret),
         PanelBody::Detail(DetailBody {
             document: format!("document {secret}"),
             metadata: vec![DetailMetadata {
@@ -108,6 +184,7 @@ fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
             }],
             actions: Vec::new(),
         }),
+        secret_structured_diff_body(secret),
         PanelBody::Form(FormBody {
             fields: Vec::new(),
             values: TypedMap::from([(
@@ -187,6 +264,38 @@ fn panel_snapshot_redaction_covers_every_provider_authored_body_surface() {
         );
         assert!(rendered.contains(REDACTION_PLACEHOLDER), "{rendered}");
     }
+}
+
+#[test]
+fn panel_snapshot_redaction_fails_closed_when_a_tree_semantic_key_contains_a_secret() {
+    let secret = "hunter2";
+    let redactor = Redactor::new(vec![secret.to_owned()]);
+    let snapshot = PanelSnapshot {
+        model_schema: 1,
+        panel_instance_id: 1,
+        generation: 1,
+        revision: 1,
+        kind: BodyKind::Tree,
+        title: "Tree".to_owned(),
+        description: None,
+        loading: false,
+        action_affordances: Vec::new(),
+        body: PanelBody::Tree(TreeBody {
+            schema_version: 1,
+            nodes: vec![TreeNode {
+                id: panel_fixture_id("tree-node"),
+                parent_id: None,
+                label: "Node".to_owned(),
+                semantic_key: panel_fixture_id(secret),
+                depth: 0,
+                expandable: false,
+                expanded: false,
+            }],
+            selected_id: Some(panel_fixture_id("tree-node")),
+        }),
+    };
+
+    assert!(redact_panel_snapshot(snapshot, &redactor).is_none());
 }
 
 #[test]

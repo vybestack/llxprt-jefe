@@ -177,115 +177,85 @@ fn enter_prs_mode_clears_terminal_focus() {
     );
 }
 
-/// EnterIssuesMode must not clobber an existing saved `prior_agent_focus`
-/// when re-entering Issues mode after a Dashboard → Issues → PRs → Issues
-/// round-trip (Finding 1).
+/// Replacing a sibling list mode retains the exact original source for Back.
 #[test]
-fn enter_issues_mode_does_not_clobber_existing_prior_focus() {
-    use crate::domain::{Agent, AgentId};
+fn replacing_a_sibling_list_mode_restores_the_exact_original_source() {
     use crate::state::PaneFocus;
-    use crate::state::PriorAgentFocus;
 
-    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    // Add an agent so selected_agent_index is Some(0) after enter-mode saves.
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Agent One".to_string(),
-        std::path::PathBuf::from("/tmp/agent"),
-    ));
-    state.selected_agent_index = Some(0);
+    let mut dashboard = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
+    dashboard.pane_focus = PaneFocus::Repositories;
+    let dashboard_id = dashboard.nav.current().id;
 
-    // Enter Issues mode so prior_agent_focus is set by the reducer.
-    let mut state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    // Now overwrite with a KNOWN sentinel value that differs from what the
-    // current pane_focus/selections would produce on re-entry.
-    let original_prior = PriorAgentFocus {
-        pane_focus: PaneFocus::Repositories,
-        selected_repository_index: Some(0),
-        selected_agent_index: None, // sentinel: None, but live selection is Some(0)
-    };
-    state.issues_state.prior_agent_focus = Some(original_prior.clone());
+    let mut issues = dashboard.apply(AppEvent::EnterIssuesMode).committed_pure();
+    issues.pane_focus = PaneFocus::Agents;
 
-    // Switch to PR mode then back to Issues mode.
-    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
-    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
+    let mut prs = issues.apply(AppEvent::EnterPrsMode).committed_pure();
+    prs.pane_focus = PaneFocus::Agents;
+    let dashboard = prs.apply(AppEvent::ExitPrsMode).committed_pure();
 
-    let saved = state
-        .issues_state
-        .prior_agent_focus
-        .as_ref()
-        .unwrap_or_else(|| panic!("prior_agent_focus must be Some after EnterIssuesMode"));
-    assert_eq!(
-        saved.pane_focus, original_prior.pane_focus,
-        "prior_agent_focus must not be clobbered by re-entry"
-    );
-    assert_eq!(
-        saved.selected_repository_index, original_prior.selected_repository_index,
-        "selected_repository_index must be preserved"
-    );
-    assert_eq!(
-        saved.selected_agent_index, original_prior.selected_agent_index,
-        "selected_agent_index must be preserved"
-    );
+    assert_eq!(dashboard.nav.current().id, dashboard_id);
+    assert_eq!(dashboard.screen(), crate::workbench::DASHBOARD_IDENTITY);
+    assert_eq!(dashboard.pane_focus, PaneFocus::Repositories);
 }
 
-/// EnterPrsMode must not clobber an existing saved `prior_agent_focus` when
-/// re-entering PR mode after a Dashboard → PRs → Issues → PRs round-trip
-/// (symmetric to `enter_issues_mode_does_not_clobber_existing_prior_focus`).
+/// The mirrored direction: Dashboard → Issues (replaced by PRs) → Exit PRs
+/// must restore the exact original Dashboard instance, not the Issues replacement.
 #[test]
-fn enter_prs_mode_does_not_clobber_existing_prior_focus() {
-    use crate::domain::{Agent, AgentId};
+fn replacing_a_sibling_list_mode_in_the_other_direction_restores_dashboard() {
     use crate::state::PaneFocus;
-    use crate::state::PriorAgentFocus;
 
-    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
-    // Add an agent so selected_agent_index is Some(0) after enter-mode saves.
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        crate::domain::shipped_agent_type(3),
-        crate::domain::TypedMap::new(),
-        "Agent One".to_string(),
-        std::path::PathBuf::from("/tmp/agent"),
-    ));
-    state.selected_agent_index = Some(0);
+    let mut dashboard = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
+    dashboard.pane_focus = PaneFocus::Repositories;
+    dashboard.selected_repository_index = Some(0);
+    let dashboard_id = dashboard.nav.current().id;
 
-    // Enter PR mode so prior_agent_focus is set by the reducer.
-    let mut state = state.apply(AppEvent::EnterPrsMode).committed_pure();
-    // Now overwrite with a KNOWN sentinel value that differs from what the
-    // current pane_focus/selections would produce on re-entry.
-    let original_prior = PriorAgentFocus {
-        pane_focus: PaneFocus::Repositories,
-        selected_repository_index: Some(0),
-        selected_agent_index: None, // sentinel: None, but live selection is Some(0)
-    };
-    state.prs_state.prior_agent_focus = Some(original_prior.clone());
+    let mut issues = dashboard.apply(AppEvent::EnterIssuesMode).committed_pure();
+    issues.pane_focus = PaneFocus::Agents;
+    issues.selected_agent_index = Some(0);
 
-    // Switch to Issues mode then back to PR mode.
-    let state = state.apply(AppEvent::EnterIssuesMode).committed_pure();
-    let state = state.apply(AppEvent::EnterPrsMode).committed_pure();
+    // PR mode replaces the Issues instance (cross-mode `p`).
+    let mut prs = issues.apply(AppEvent::EnterPrsMode).committed_pure();
+    prs.pane_focus = PaneFocus::Agents;
+    let before_back_id = prs.nav.current().id;
+    assert_ne!(before_back_id, dashboard_id);
 
-    let saved = state
-        .prs_state
-        .prior_agent_focus
-        .as_ref()
-        .unwrap_or_else(|| panic!("prior_agent_focus must be Some after EnterPrsMode"));
-    assert_eq!(
-        saved.pane_focus, original_prior.pane_focus,
-        "prior_agent_focus must not be clobbered by re-entry"
-    );
-    assert_eq!(
-        saved.selected_repository_index, original_prior.selected_repository_index,
-        "selected_repository_index must be preserved"
-    );
-    assert_eq!(
-        saved.selected_agent_index, original_prior.selected_agent_index,
-        "selected_agent_index must be preserved"
-    );
+    // Exit PRs: Back restores the exact instance that opened Issues mode,
+    // i.e. the Dashboard, not the replaced Issues screen.
+    let dashboard_again = prs.apply(AppEvent::ExitPrsMode).committed_pure();
+    assert_eq!(dashboard_again.screen(), crate::workbench::DASHBOARD_IDENTITY);
+    assert_eq!(dashboard_again.nav.current().id, dashboard_id);
+    assert_eq!(dashboard_again.pane_focus, PaneFocus::Repositories);
+    assert_eq!(dashboard_again.selected_repository_index, Some(0));
 }
+
+/// Exact-source replacement preserves each screen's own selection/presentation, so
+/// the two instances are distinguishable beyond their instance ids.
+#[test]
+fn sibling_replacement_exact_instances_keep_distinct_presentations() {
+    use crate::state::PaneFocus;
+
+    let mut issues_source = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
+    issues_source = issues_source.apply(AppEvent::EnterIssuesMode).committed_pure();
+    issues_source.pane_focus = PaneFocus::Agents;
+    issues_source.selected_agent_index = Some(0);
+
+    let source_repository_index = issues_source.selected_repository_index;
+    let prs = issues_source.apply(AppEvent::EnterPrsMode).committed_pure();
+    // PR entry seeds its own route context (repository 0, agents) and pane.
+    assert_eq!(prs.selected_repository_index, source_repository_index);
+    assert_eq!(prs.pane_focus, PaneFocus::Agents);
+
+    let prs_id_before_back = prs.nav.current().id;
+    let restored = prs.apply(AppEvent::ExitPrsMode).committed_pure();
+    let prs_id = prs_id_before_back;
+    assert_eq!(restored.screen(), crate::workbench::DASHBOARD_IDENTITY);
+    assert_eq!(restored.selected_repository_index, Some(0));
+    // The restored instance is the original Dashboard that opened Issues mode,
+    // so its pane focus is the pre-jump Repositories selection, not Agents.
+    assert_eq!(restored.pane_focus, PaneFocus::Repositories);
+    assert_ne!(restored.nav.current().id, prs_id);
+}
+
 
 #[test]
 fn leaving_issues_mode_invalidates_pending_detail_load() {

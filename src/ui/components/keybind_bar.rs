@@ -11,8 +11,12 @@ use crate::action_projection::{FooterProjectionInput, project_footer_effective};
 #[cfg(test)]
 use crate::domain::action_registry::{ActionRegistrySnapshot, AvailabilityGeneration};
 #[cfg(test)]
+use crate::domain::default_action_inventory::display::FooterMode;
+#[cfg(test)]
 use crate::state::{ActionsFocus, ScreenId};
 use crate::theme::{ResolvedColors, ThemeColors};
+#[cfg(test)]
+use crate::workbench::ScreenIdentity;
 
 /// Props for the keybind bar component.
 #[derive(Default, Props)]
@@ -31,7 +35,7 @@ pub struct KeybindBarProps {
 #[must_use]
 pub fn keybind_hints_for(
     snapshot: &ActionRegistrySnapshot,
-    screen: ScreenId,
+    screen: impl Into<ScreenIdentity>,
     terminal_focused: bool,
     actions_focus: Option<ActionsFocus>,
 ) -> String {
@@ -44,7 +48,7 @@ pub fn keybind_hints_for(
 pub fn keybind_hints_for_effective(
     snapshot: &ActionRegistrySnapshot,
     runtime: Option<&AvailabilityGeneration>,
-    screen: ScreenId,
+    screen: impl Into<ScreenIdentity>,
     terminal_focused: bool,
     actions_focus: Option<ActionsFocus>,
 ) -> String {
@@ -52,7 +56,7 @@ pub fn keybind_hints_for_effective(
         snapshot,
         runtime,
         FooterProjectionInput {
-            screen,
+            screen: screen.into(),
             terminal_focused,
             shell_overlay_active: false,
             shell_resume_available: false,
@@ -92,21 +96,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dashboard_hints_include_shell_shortcuts_without_changing_focused_terminal_hint() {
-        let dashboard = keybind_hints_for(
+    fn split_hints_include_shell_shortcuts_without_changing_focused_terminal_hint() {
+        let dashboard = project_footer_effective(
             &crate::action_projection::test_snapshot(),
-            ScreenId::Dashboard,
-            false,
             None,
+            FooterProjectionInput {
+                screen: crate::workbench::DASHBOARD_IDENTITY,
+                terminal_focused: false,
+                shell_overlay_active: false,
+                shell_resume_available: false,
+                actions_focus: None,
+                mode_override: Some(FooterMode::Dashboard),
+            },
         );
         assert!(dashboard.contains("F10 shell"));
         assert!(dashboard.contains("F8 external term"));
         assert_eq!(
-            keybind_hints_for(
+            project_footer_effective(
                 &crate::action_projection::test_snapshot(),
-                ScreenId::Dashboard,
-                true,
-                None
+                None,
+                FooterProjectionInput {
+                    screen: crate::workbench::DASHBOARD_IDENTITY,
+                    terminal_focused: true,
+                    shell_overlay_active: false,
+                    shell_resume_available: false,
+                    actions_focus: None,
+                    mode_override: Some(FooterMode::Dashboard),
+                },
             ),
             "F12 unfocus"
         );
@@ -177,12 +193,12 @@ mod tests {
                         crate::test_support::published_workbench().actions(),
                         None,
                         FooterProjectionInput {
-                            screen: ScreenId::Dashboard,
+                            screen: crate::workbench::DASHBOARD_IDENTITY,
                             terminal_focused: true,
                             shell_overlay_active: true,
                             shell_resume_available: false,
                             actions_focus: None,
-                            mode_override: None,
+                            mode_override: Some(FooterMode::Dashboard),
                         },
                     ),
                     identity_label: "pid:1 abc".to_string(),
@@ -200,40 +216,6 @@ mod tests {
         assert!(rendered.contains("F12 hide shell"));
         assert!(rendered.contains("F10 close shell"));
         assert!(!rendered.contains("F11 close shell"));
-    }
-
-    #[test]
-    fn dashboard_footer_offers_f10_resume_when_selected_agent_has_hidden_shell() {
-        let mut element = element! {
-            Box(width: 180u32, height: 1u32) {
-                KeybindBar(
-                    hints: project_footer_effective(
-                        crate::test_support::published_workbench().actions(),
-                        None,
-                        FooterProjectionInput {
-                            screen: ScreenId::Dashboard,
-                            terminal_focused: false,
-                            shell_overlay_active: false,
-                            shell_resume_available: true,
-                            actions_focus: None,
-                            mode_override: None,
-                        },
-                    ),
-                    identity_label: "pid:1 abc".to_string(),
-                    colors: ThemeColors::default(),
-                )
-            }
-        };
-        let canvas = element.render(Some(180));
-        let mut output = Vec::new();
-        canvas
-            .write_ansi(&mut output)
-            .unwrap_or_else(|error| panic!("render keybind bar: {error}"));
-        let rendered = String::from_utf8_lossy(&output);
-
-        assert!(rendered.contains("F10 resume shell"));
-        assert!(rendered.contains("F7 shells"));
-        assert!(rendered.contains("F8 external term"));
     }
 
     #[test]
@@ -301,7 +283,7 @@ mod tests {
                 KeybindBar(
                     hints: keybind_hints_for(
                         crate::test_support::published_workbench().actions(),
-                        ScreenId::Dashboard,
+                        ScreenId::Repositories,
                         false,
                         None,
                     ),

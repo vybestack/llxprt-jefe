@@ -378,6 +378,7 @@ pub enum ProviderPanelEvent {
     Retry,
     Cancel,
     LinkSelected { link_id: Id },
+    ExpansionChanged { id: Id, expanded: bool },
 }
 
 /// Provider/package availability operations.

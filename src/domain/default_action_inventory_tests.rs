@@ -164,7 +164,7 @@ fn s4_inventory_is_source_audited_without_ticket_only_aliases() {
         ("prs.changes", "v", H::PullRequestsEdit),
         ("prs.merge-chooser", "Enter", H::PullRequestsChooserConfirm),
         ("actions.detail", "Right", H::ActionsActivate),
-        ("dashboard.search", "Esc", H::SearchCancel),
+        ("search", "Esc", H::SearchCancel),
     ] {
         assert!(has(context, chord, handler));
     }

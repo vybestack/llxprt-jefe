@@ -121,16 +121,26 @@ fn first_live_panel(state: &mut ProviderPanelState) -> PanelInstanceId {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn declare_allocates_a_positive_monotonic_instance() {
+fn declare_allocates_positive_non_reused_instances() {
     let mut state = ProviderPanelState::new();
     let a = declare(&mut state, 1).instance;
     let b = declare(&mut state, 1).instance;
     let c = declare(&mut state, 1).instance;
-    assert_eq!(a.as_u64(), 1);
-    assert_eq!(b.as_u64(), 2);
-    assert_eq!(c.as_u64(), 3);
+    assert!(a.as_u64() > 0);
+    assert!(b.as_u64() > 0);
+    assert!(c.as_u64() > 0);
     assert_ne!(a, b);
+    assert_ne!(a, c);
     assert_ne!(b, c);
+}
+
+#[test]
+fn declared_and_preallocated_panels_share_one_process_identity_authority() {
+    let mut state = ProviderPanelState::new();
+    let preallocated = PanelInstanceId::next();
+    let ordinary = declare(&mut state, 1).instance;
+
+    assert_ne!(ordinary, preallocated);
 }
 
 #[test]
@@ -674,6 +684,46 @@ fn host_local_at_limit_is_accepted_and_one_byte_over_is_rejected() {
 }
 
 #[test]
+fn authoritative_snapshot_selection_cannot_exceed_the_host_local_bound() {
+    let mut state = ProviderPanelState::new();
+    let panel = first_live_panel(&mut state);
+    let mut probe_values = TypedMap::new();
+    probe_values.insert(id("vendor.f"), TypedValue::String("x".to_owned()));
+    let probe = HostLocal {
+        focus_target: None,
+        scroll_offset: 0,
+        selected_id: None,
+        form_draft: Some(probe_values),
+    };
+    let fill_len = HOST_LOCAL_MAX_BYTES - super::host_local_canonical_bytes(&probe) + 1;
+    let mut values = TypedMap::new();
+    values.insert(id("vendor.f"), TypedValue::String("x".repeat(fill_len)));
+    let retained = HostLocal {
+        focus_target: None,
+        scroll_offset: 0,
+        selected_id: None,
+        form_draft: Some(values),
+    };
+    assert_eq!(super::host_local_canonical_bytes(&retained), HOST_LOCAL_MAX_BYTES);
+    state
+        .update_host_local(panel, retained.clone())
+        .must("at-limit host local accepted");
+    let generation = state.generation(panel).must("generation known");
+    let mut snapshot = list_snapshot(panel.as_u64(), generation, 1, &["vendor.selection"]);
+    let PanelBody::List(list) = &mut snapshot.body else {
+        panic!("list fixture");
+    };
+    list.selected_id = Some(id("vendor.selection"));
+
+    let result = accept(&mut state, panel, &snapshot, 0, 1);
+
+    assert_eq!(result, Err(PanelError::HostLocalTooLarge));
+    assert_eq!(state.host_local(panel), Some(&retained));
+    assert!(state.accepted_snapshot(panel).is_none());
+    assert_eq!(state.lifecycle(panel), Some(PanelLifecycle::Failed));
+}
+
+#[test]
 fn host_local_canonical_bytes_is_pure_and_deterministic() {
     let a = HostLocal {
         focus_target: Some(id("vendor.f")),
@@ -837,6 +887,38 @@ fn snapshot_kind_not_declared_by_manifest_fails_without_applying_model() {
         state.lifecycle(declared.instance),
         Some(PanelLifecycle::Failed)
     );
+    assert!(state.accepted_snapshot(declared.instance).is_none());
+}
+
+#[test]
+fn snapshot_body_kind_must_match_its_declared_kind_before_commit() {
+    let mut state = ProviderPanelState::default();
+    let declared = state
+        .declare(DeclareInput {
+            owner: &owner(),
+            panel_id: &PanelId::from_static("main"),
+            screen_instance_id: 7,
+            panel_type: &panel_type(),
+            activation: &empty_activation(),
+            allowed_model_kinds: &[BodyKind::List],
+            allowed_events: &[],
+            action_authority: &[],
+            process_generation: 1,
+        })
+        .must("declare succeeds");
+    let activated = state.activate(declared.instance).must("activate succeeds");
+    let mut snapshot = empty_snapshot(declared.instance.as_u64(), activated.effect.generation, 1);
+    snapshot.kind = BodyKind::List;
+
+    let result = state.accept_snapshot(AcceptSnapshot {
+        owner: &owner(),
+        received_process_generation: 1,
+        snapshot: &snapshot,
+        payload_byte_count: 1,
+        elapsed_ms: 0,
+    });
+
+    assert_eq!(result, Err(PanelError::SnapshotInvalid));
     assert!(state.accepted_snapshot(declared.instance).is_none());
 }
 

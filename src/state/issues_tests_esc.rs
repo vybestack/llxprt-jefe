@@ -101,7 +101,7 @@ fn test_esc_exits_issues_mode() {
     state.issues_state.search_input_focused = false;
 
     let new_state = state.apply(AppEvent::ExitIssuesMode).committed_pure();
-    assert_eq!(new_state.screen(), ScreenId::Dashboard);
+    assert_eq!(new_state.screen(), crate::workbench::DASHBOARD_IDENTITY);
 }
 
 /// Test 23: OpenInlineEditor is blocked when another inline control is active.

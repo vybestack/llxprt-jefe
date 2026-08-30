@@ -183,7 +183,7 @@ fn test_pr_property_editor_enter_confirms() {
 fn test_pr_property_editor_esc_cancels() {
     let state = prs_state_with_property_editor();
     let event = resolve_prs_key_event(&state, &key(KeyCode::Esc));
-    assert!(matches!(event, Some(AppEvent::PrPropertyEditorCancel)));
+    assert!(matches!(event, Some(AppEvent::Back)));
 }
 
 #[test]

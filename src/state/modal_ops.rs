@@ -12,6 +12,7 @@ use crate::domain::{
 use crate::messages::{ModalMessage, RepositoryAgentMessage};
 
 use super::AppState;
+use super::screen_overlays::ConfirmationRequest;
 use super::types::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, ConfirmFocus, ModalState,
     RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
@@ -175,11 +176,11 @@ fn sandbox_flags_field(values: &TypedMap) -> String {
 impl AppState {
     pub(super) fn apply_modal_message(&mut self, message: ModalMessage) {
         match message {
-            ModalMessage::OpenHelp => self.modal = ModalState::Help,
+            ModalMessage::OpenHelp => {
+                self.nav.current_mut().overlays_mut().open_help();
+            }
             ModalMessage::OpenSearch => {
-                self.modal = ModalState::Search {
-                    query: String::new(),
-                };
+                self.nav.current_mut().overlays_mut().open_search();
             }
             ModalMessage::CloseModal => self.close_modal(),
             ModalMessage::SubmitForm => self.handle_submit_form(),
@@ -203,10 +204,7 @@ impl AppState {
             RepositoryAgentMessage::OpenNewRepository => self.open_new_repository_modal(),
             RepositoryAgentMessage::OpenEditRepository(id) => self.open_edit_repository_modal(id),
             RepositoryAgentMessage::OpenDeleteRepository(id) => {
-                self.modal = ModalState::ConfirmDeleteRepository {
-                    id,
-                    confirm_focus: ConfirmFocus::Cancel,
-                };
+                self.open_confirmation_payload(ConfirmationRequest::DeleteRepository { id });
             }
             RepositoryAgentMessage::OpenNewAgent(repository_id) => {
                 self.open_new_agent_modal(repository_id);
@@ -216,11 +214,10 @@ impl AppState {
             }
             RepositoryAgentMessage::OpenEditAgent(id) => self.open_edit_agent_modal(id),
             RepositoryAgentMessage::OpenDeleteAgent(id) => {
-                self.modal = ModalState::ConfirmDeleteAgent {
+                self.open_confirmation_payload(ConfirmationRequest::DeleteAgent {
                     id,
                     delete_work_dir: false,
-                    confirm_focus: ConfirmFocus::Cancel,
-                };
+                });
             }
             RepositoryAgentMessage::ToggleDeleteWorkDir => self.toggle_delete_work_dir(),
             RepositoryAgentMessage::ProbeAgentAvailability(probes) => {
@@ -233,6 +230,9 @@ impl AppState {
     }
 
     fn open_new_repository_modal(&mut self) {
+        if self.active_overlay_kind().is_some() {
+            return;
+        }
         let default_type_id = self
             .available_agent_type_ids
             .first()
@@ -292,6 +292,9 @@ impl AppState {
     }
 
     fn open_edit_repository_modal(&mut self, id: RepositoryId) {
+        if self.active_overlay_kind().is_some() {
+            return;
+        }
         let fields = self
             .repositories
             .iter()
@@ -325,6 +328,9 @@ impl AppState {
     }
 
     fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
+        if self.active_overlay_kind().is_some() {
+            return;
+        }
         let Some(defaults) = new_agent_repository_defaults(&self.repositories, &repository_id)
         else {
             return;
@@ -356,6 +362,9 @@ impl AppState {
         &mut self,
         type_id: &crate::domain::agent_definition::AgentTypeId,
     ) {
+        if self.active_overlay_kind().is_some() {
+            return;
+        }
         let Some(observation) = self
             .agent_type_availability
             .iter()
@@ -385,19 +394,88 @@ impl AppState {
     }
 
     fn close_modal(&mut self) {
-        if let ModalState::GeneratedAgent {
-            return_focus,
-            return_agent_type_index,
-            ..
-        } = &self.modal
-        {
-            self.pane_focus = *return_focus;
-            self.selected_agent_type_index = *return_agent_type_index;
+        if self.close_generic_confirmation() {
+            return;
+        }
+        // A ProviderConfirmation overlay whose presented identity no longer
+        // resolves to a pending token (consumed, cancelled, or expired) has
+        // nothing left to act on, so close it here rather than gating CloseModal;
+        // a live provider confirmation keeps its own opacity and is not dismissed.
+        let is_live_provider_confirmation = self
+            .nav
+            .current()
+            .overlays()
+            .provider_confirmation()
+            .is_some_and(|_| self.current_provider_confirmation().is_some());
+        if is_live_provider_confirmation {
+            return;
+        }
+        self.nav.current_mut().overlays_mut().close();
+        let return_state = match &self.modal {
+            ModalState::GeneratedAgent {
+                return_focus,
+                return_agent_type_index,
+                ..
+            } => Some((*return_focus, *return_agent_type_index)),
+            _ => None,
+        };
+        if let Some((return_focus, return_agent_type_index)) = return_state {
+            self.pane_focus = return_focus;
+            self.selected_agent_type_index = return_agent_type_index;
         }
         self.modal = ModalState::None;
     }
 
+    /// Atomically close the active instance's exact generic Confirmation.
+    ///
+    /// Provider confirmations and confirmations owned by suspended instances are
+    /// rejected without mutation.
+    pub fn close_generic_confirmation(&mut self) -> bool {
+        if self
+            .nav
+            .current()
+            .overlays()
+            .generic_confirmation()
+            .is_none()
+        {
+            return false;
+        }
+        self.nav.current_mut().overlays_mut().close()
+    }
+
+    /// Close the generic Confirmation only when its request still matches the
+    /// caller's previously observed request. The equality check and close occur
+    /// under the same mutable state guard, so a replacement cannot authorize
+    /// stale work.
+    pub fn close_expected_generic_confirmation(
+        &mut self,
+        expected: &super::screen_overlays::ConfirmationRequest,
+    ) -> bool {
+        if self.nav.current().overlays().generic_confirmation() != Some(expected) {
+            return false;
+        }
+        self.nav.current_mut().overlays_mut().close()
+    }
+
+    /// Open one of the seven generic confirmation requests in the active
+    /// instance's declared Confirmation overlay.
+    ///
+    /// Returns `false` without mutation when the current instance does not
+    /// declare Confirmation or another overlay is active.
+    pub fn open_confirmation_payload(
+        &mut self,
+        request: super::screen_overlays::ConfirmationRequest,
+    ) -> bool {
+        self.nav
+            .current_mut()
+            .overlays_mut()
+            .open_generic_confirmation(request)
+    }
+
     fn open_edit_agent_modal(&mut self, id: AgentId) {
+        if self.active_overlay_kind().is_some() {
+            return;
+        }
         let fields = self
             .agents
             .iter()
@@ -452,54 +530,96 @@ impl AppState {
     }
 
     fn toggle_delete_work_dir(&mut self) {
-        if let ModalState::ConfirmDeleteAgent {
+        let Some(super::screen_overlays::ConfirmationRequest::DeleteAgent {
             delete_work_dir, ..
-        } = &mut self.modal
-        {
-            *delete_work_dir = !*delete_work_dir;
+        }) = self.nav.current().overlays().generic_confirmation()
+        else {
+            return;
+        };
+        let Some(value) = crate::overlay_controls::confirmation_delete_work_dir_value(
+            crate::overlay_controls::ConfirmationContent {
+                title: "Delete agent",
+                message: "Delete work directory",
+                show_delete_work_dir: true,
+                delete_work_dir: *delete_work_dir,
+                focus: self.current_confirm_focus().unwrap_or_default(),
+            },
+            !*delete_work_dir,
+            50,
+        ) else {
+            return;
+        };
+        self.nav
+            .current_mut()
+            .overlays_mut()
+            .set_delete_agent_work_dir(value);
+    }
+
+    /// Toggle the active Confirmation overlay focus between Cancel and
+    /// Confirm (issue #228). No-op when no confirmation is open.
+    fn cycle_confirm_focus(&mut self) {
+        let Some(focus) = self.current_confirm_focus() else {
+            return;
+        };
+        let projection = crate::overlay_controls::project_confirmation(
+            crate::overlay_controls::ConfirmationContent {
+                title: "Confirmation",
+                message: "Choose an action",
+                show_delete_work_dir: false,
+                delete_work_dir: false,
+                focus,
+            },
+            60,
+        );
+        if matches!(
+            crate::overlay_controls::confirmation_command(
+                &projection,
+                crate::host_controls::ControlAction::Next,
+            ),
+            Some(crate::overlay_controls::ConfirmationCommand::CycleFocus)
+        ) {
+            self.nav
+                .current_mut()
+                .overlays_mut()
+                .cycle_confirmation_focus();
         }
     }
 
-    /// Toggle confirm-dialog button focus between Cancel and Confirm (issue #228).
-    fn cycle_confirm_focus(&mut self) {
-        let next = match self.current_confirm_focus() {
-            Some(ConfirmFocus::Cancel) => ConfirmFocus::Confirm,
-            Some(ConfirmFocus::Confirm) => ConfirmFocus::Cancel,
-            None => return,
-        };
-        self.set_confirm_focus(next);
+    /// Resolve the active generic confirmation choice through the shared Form control.
+    #[must_use]
+    pub fn confirmation_choice(&self) -> Option<ConfirmFocus> {
+        let focus = self.current_confirm_focus()?;
+        let projection = crate::overlay_controls::project_confirmation(
+            crate::overlay_controls::ConfirmationContent {
+                title: "Confirmation",
+                message: "Choose an action",
+                show_delete_work_dir: false,
+                delete_work_dir: false,
+                focus,
+            },
+            60,
+        );
+        match crate::overlay_controls::confirmation_command(
+            &projection,
+            crate::host_controls::ControlAction::Activate,
+        ) {
+            Some(crate::overlay_controls::ConfirmationCommand::ChooseCancel) => {
+                Some(ConfirmFocus::Cancel)
+            }
+            Some(crate::overlay_controls::ConfirmationCommand::ChooseConfirm) => {
+                Some(ConfirmFocus::Confirm)
+            }
+            Some(crate::overlay_controls::ConfirmationCommand::CycleFocus) | None => None,
+        }
     }
 
-    /// Read the confirm focus from whichever confirm variant is active.
-    /// Returns `None` for non-confirm modals.
+    /// The active instance's generic Confirmation decision focus.
     #[must_use]
     pub fn current_confirm_focus(&self) -> Option<ConfirmFocus> {
-        match &self.modal {
-            ModalState::ConfirmDeleteAgent { confirm_focus, .. }
-            | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
-            | ModalState::ConfirmKillAgent { confirm_focus, .. }
-            | ModalState::ConfirmServerLostRecovery { confirm_focus, .. }
-            | ModalState::PreflightPrompt { confirm_focus, .. }
-            | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
-            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => Some(*confirm_focus),
-            _ => None,
-        }
-    }
-
-    /// Replace the confirm focus on the active confirm variant, preserving all
-    /// other fields. No-op for non-confirm modals (issue #228).
-    fn set_confirm_focus(&mut self, focus: ConfirmFocus) {
-        match &mut self.modal {
-            ModalState::ConfirmDeleteAgent { confirm_focus, .. }
-            | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
-            | ModalState::ConfirmKillAgent { confirm_focus, .. }
-            | ModalState::ConfirmServerLostRecovery { confirm_focus, .. }
-            | ModalState::PreflightPrompt { confirm_focus, .. }
-            | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
-            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {
-                *confirm_focus = focus;
-            }
-            _ => {}
-        }
+        self.nav
+            .current()
+            .overlays()
+            .generic_confirmation()
+            .and_then(|_| self.nav.current().overlays().confirmation_focus())
     }
 }

@@ -23,6 +23,7 @@ required = true
 [[panels.ports]]
 id = "selection"
 direction = "output"
+owner = "github.pull-requests"
 type_id = "github.pull-request@1"
 required = false
 retained = false
@@ -36,6 +37,7 @@ required = false
 [[panels.ports]]
 id = "subject"
 direction = "input"
+owner = "github.pull-requests"
 type_id = "github.pull-request@1"
 required = false
 retained = true

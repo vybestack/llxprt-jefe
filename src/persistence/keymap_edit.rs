@@ -38,6 +38,10 @@ impl KeymapDiagnostic {
         }
     }
 
+    pub(crate) fn from_detail(detail: impl Into<String>) -> Self {
+        Self::new(detail)
+    }
+
     /// This refusal as one settings diagnostic the Settings shell can report.
     ///
     /// The Settings screen reports every reason a candidate cannot be saved in

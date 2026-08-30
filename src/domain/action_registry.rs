@@ -17,12 +17,36 @@ use action_registry_validate::{
     validate_protected,
 };
 
+#[path = "action_registry_declared.rs"]
+mod declared;
+
 pub const ACTION_ID_BYTE_LIMIT: usize = 128;
 pub const ACTION_LABEL_CELL_LIMIT: usize = 128;
 pub const ACTION_DESCRIPTION_BYTE_LIMIT: usize = 4_096;
+
+/// Closed host-internal action identifiers whose spellings are fixed at compile time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InternalActionId {
+    OverlaySubmit,
+    ProviderRetry,
+}
+
+impl InternalActionId {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::OverlaySubmit => "host.overlay-submit",
+            Self::ProviderRetry => "host.provider-retry",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ActionId(String);
 impl ActionId {
+    pub(crate) fn internal(value: InternalActionId) -> Self {
+        Self(value.as_str().to_owned())
+    }
+
     pub fn parse(value: &str) -> Result<Self, ActionIdError> {
         let valid = !value.is_empty()
             && value.len() <= ACTION_ID_BYTE_LIMIT
@@ -33,6 +57,10 @@ impl ActionId {
                     || matches!(byte, b'.' | b'-' | b'_')
             })
             && !value.contains("..")
+            // The `host.` prefix is reserved for actions constructed through
+            // [`ActionId::internal`], which are owned solely by the sealed host
+            // control runtime. A manifest or settings file can never bind one.
+            && !value.starts_with("host.")
             && !value.ends_with('.');
         if valid {
             Ok(Self(value.to_owned()))
@@ -698,6 +726,8 @@ pub enum RegistryDiagnosticKind {
     ImplicitShadow(ContextId, ContextId, Chord),
     ProtectedUnbound(ActionId, ContextId),
     ProtectedShadowed(ActionId, ContextId, Chord),
+    ProtectedDeclared(ActionId, ContextId),
+    DeclaredUnbound(ActionId, ContextId),
     ProtectedUnavailable(ActionId),
     DuplicateAvailability(ActionId),
     MissingAvailability(ActionId),

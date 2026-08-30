@@ -16,6 +16,7 @@
 //! set of independent publications that can disagree.
 
 use crate::agent_registry::{AgentTypeRegistry, RegistryPublishError};
+use crate::domain::Id;
 use crate::domain::action_registry::ActionRegistrySnapshot;
 use crate::domain::plugin::{HostTriple, ProviderSelection};
 use crate::persistence::keymap_edit::compose_published_with_providers;
@@ -28,6 +29,10 @@ use crate::runtime::provider::{
 };
 use crate::startup_screens::{self as screens, ScreenStartupError};
 use crate::startup_selection::{ProviderRequirement, SelectedOwner, SelectionRefused};
+use crate::workbench::{
+    BuiltinResourceSchemaError, ResourceSchemaError, ResourceSchemaRegistry, ScreenIdentity,
+    builtin_resource_schemas,
+};
 
 /// Why the workbench candidate could not be composed statically.
 ///
@@ -45,10 +50,94 @@ pub enum WorkbenchStaticFailure {
     Agents(RegistryPublishError),
     /// An enabled screen definition was refused by composition.
     Screens(ScreenStartupError),
+    /// A typed-resource schema failed publication.
+    Resources(ResourcePublicationError),
     /// A required provider cannot statically serve its active declarations.
     Provider(ProviderStaticRefused),
-    /// Compiled and provider actions cannot compose into one registry.
+    /// Published actions and screen declarations cannot compose into one registry.
     Actions(crate::persistence::keymap_edit::KeymapDiagnostic),
+}
+/// Why immutable resource schemas could not join one candidate registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourcePublicationError {
+    /// A shipped resource declaration is internally inconsistent.
+    Builtin(BuiltinResourceSchemaError),
+    /// Definition-owned and shipped schemas conflict.
+    Composition(ResourceSchemaError),
+    /// One active port does not name an exact schema in the candidate catalog.
+    PortReference {
+        /// Identity of the screen containing the rejected port.
+        screen: ScreenIdentity,
+        /// Panel containing the rejected port.
+        panel: String,
+        /// Rejected port identifier.
+        port: String,
+        /// Exact catalog mismatch.
+        source: ResourceSchemaError,
+    },
+    /// A validated workbench type could not be represented by the domain ID contract.
+    InvalidPortType {
+        /// Identity of the screen containing the rejected port.
+        screen: ScreenIdentity,
+        /// Panel containing the rejected port.
+        panel: String,
+        /// Rejected port identifier.
+        port: String,
+        /// Full versioned type spelling.
+        type_id: String,
+    },
+}
+
+impl ResourcePublicationError {
+    /// Whether the refusal was caused by an active screen definition.
+    #[must_use]
+    pub const fn is_definition_fault(&self) -> bool {
+        match self {
+            Self::Builtin(_) => false,
+            Self::Composition(_) => true,
+            Self::PortReference { screen, .. } | Self::InvalidPortType { screen, .. } => {
+                !matches!(screen, ScreenIdentity::Compiled(_))
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for ResourcePublicationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Builtin(error) => write!(formatter, "{error}"),
+            Self::Composition(error) => write!(formatter, "{error}"),
+            Self::PortReference {
+                screen,
+                panel,
+                port,
+                source,
+            } => write!(
+                formatter,
+                "screen {screen} port {panel}.{port} has invalid resource schema reference: {source}"
+            ),
+            Self::InvalidPortType {
+                screen,
+                panel,
+                port,
+                type_id,
+            } => write!(
+                formatter,
+                "screen {screen} port {panel}.{port} has invalid resource type {type_id}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ResourcePublicationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Builtin(error) => Some(error),
+            Self::Composition(error) => Some(error),
+            Self::PortReference { source, .. } => Some(source),
+            Self::InvalidPortType { .. } => None,
+        }
+    }
 }
 
 impl WorkbenchStaticFailure {
@@ -56,7 +145,8 @@ impl WorkbenchStaticFailure {
     #[must_use]
     pub const fn exit_code(&self) -> u8 {
         match self {
-            Self::Agents(_) => 78,
+            Self::Resources(error) if error.is_definition_fault() => 2,
+            Self::Agents(_) | Self::Resources(_) => 78,
             Self::Screens(error) => error.exit_code(),
             Self::Selection(_) | Self::Provider(_) | Self::Actions(_) => 2,
         }
@@ -72,6 +162,7 @@ impl WorkbenchStaticFailure {
             | Self::Screens(ScreenStartupError::Definitions(_) | ScreenStartupError::Refused(_)) => {
                 true
             }
+            Self::Resources(error) => error.is_definition_fault(),
             Self::Agents(_) | Self::Screens(ScreenStartupError::Compiled(_)) => false,
         }
     }
@@ -83,12 +174,12 @@ impl std::fmt::Display for WorkbenchStaticFailure {
             Self::Selection(refusal) => write!(formatter, "selection refused: {refusal}"),
             Self::Agents(error) => write!(formatter, "shipped agents failed to publish: {error}"),
             Self::Screens(error) => write!(formatter, "screen composition refused: {error}"),
+            Self::Resources(error) => {
+                write!(formatter, "resource schemas failed to publish: {error}")
+            }
             Self::Provider(refusal) => write!(formatter, "required provider refused: {refusal}"),
             Self::Actions(diagnostic) => {
-                write!(
-                    formatter,
-                    "action registry refused provider actions: {diagnostic}"
-                )
+                write!(formatter, "action registry refused candidate: {diagnostic}")
             }
         }
     }
@@ -100,6 +191,7 @@ impl std::error::Error for WorkbenchStaticFailure {
             Self::Selection(refusal) => Some(refusal),
             Self::Agents(error) => Some(error),
             Self::Screens(error) => Some(error),
+            Self::Resources(error) => Some(error),
             Self::Provider(refusal) => Some(refusal),
             Self::Actions(diagnostic) => Some(diagnostic),
         }
@@ -167,6 +259,13 @@ pub struct WorkbenchCandidateRequest<'a> {
     pub containment: Containment,
 }
 
+struct CandidateInputs<'a> {
+    inventory: &'a PluginInventory,
+    settings: &'a PublishedSettings,
+    host: &'a HostTriple,
+    containment: &'a Containment,
+}
+
 /// Scan the ordered package roots exactly once for candidate construction.
 ///
 /// The scan is the same one normal startup performs, kept here so the
@@ -179,10 +278,11 @@ pub fn scan_inventory(paths: &ResolvedPaths) -> PluginInventory {
 
 /// Compose every active static declaration into one workbench candidate.
 ///
-/// Deterministic and side-effect-free: identical inputs compose an identical
-/// aggregate. No provider process is started, no containment directory is
-/// created, and no durable byte is written — including the state import,
-/// which a later slice performs as the final fallible step before commit.
+/// Captures definition and package-screen bytes once, then performs deterministic,
+/// process-free composition from that immutable snapshot. No provider process is
+/// started, no containment directory is created, and no durable byte is written —
+/// including the state import, which a later slice performs as the final fallible
+/// step before commit.
 ///
 /// # Errors
 ///
@@ -194,41 +294,225 @@ pub fn scan_inventory(paths: &ResolvedPaths) -> PluginInventory {
 pub fn build_workbench_candidate(
     request: &WorkbenchCandidateRequest<'_>,
 ) -> Result<PublishedWorkbench, WorkbenchStaticFailure> {
-    let selected = select_owners(request).map_err(WorkbenchStaticFailure::Selection)?;
+    let screen_sources = screens::ScreenSources::capture(request.paths, request.inventory)
+        .map_err(WorkbenchStaticFailure::Screens)?;
+    compose_workbench_candidate(
+        CandidateInputs {
+            inventory: request.inventory,
+            settings: request.settings,
+            host: &request.host,
+            containment: &request.containment,
+        },
+        screen_sources,
+    )
+}
+
+/// Recompose the candidate screen stage once, then ask every independent later
+/// registry owner whether it can publish from that same immutable stage.
+pub(crate) fn recompose_workbench_candidate_failures_with_screens(
+    current: &PublishedWorkbench,
+    settings: &PublishedSettings,
+) -> (
+    Vec<WorkbenchStaticFailure>,
+    Option<crate::workbench::ScreenRegistry>,
+) {
+    let inputs = CandidateInputs {
+        inventory: current.inventory(),
+        settings,
+        host: current.host(),
+        containment: current.containment(),
+    };
+    let sources = current.screen_sources().clone();
+    let (selected, packages, screens) = match compose_screen_stage(&inputs, &sources) {
+        Ok(stage) => stage,
+        Err(error) => return (vec![error], None),
+    };
+    let registry = screens.registry.clone();
+    let mut failures = Vec::new();
+    if let Err(error) = AgentTypeRegistry::shipped().map_err(WorkbenchStaticFailure::Agents) {
+        failures.push(error);
+    }
+    if let Err(error) = compose_resource_schemas(&screens) {
+        failures.push(error);
+    }
+    if let Err(error) = validate_selected_providers(&inputs, &selected) {
+        failures.push(error);
+    }
+    let providers = compose_providers(&inputs, &packages);
+    match compose_actions(&inputs, &providers) {
+        Ok(actions) => {
+            if let Err(error) = validate_screen_bindings(&registry, &actions, providers.catalog())
+                .map_err(WorkbenchStaticFailure::Actions)
+            {
+                failures.push(error);
+            }
+        }
+        Err(error) => failures.push(error),
+    }
+    (failures, Some(registry))
+}
+
+fn compose_workbench_candidate(
+    inputs: CandidateInputs<'_>,
+    screen_sources: screens::ScreenSources,
+) -> Result<PublishedWorkbench, WorkbenchStaticFailure> {
+    let (selected, packages, screens) = compose_screen_stage(&inputs, &screen_sources)?;
+    compose_after_screens(inputs, screen_sources, selected, &packages, screens)
+}
+
+fn compose_screen_stage(
+    inputs: &CandidateInputs<'_>,
+    sources: &screens::ScreenSources,
+) -> Result<
+    (
+        Vec<SelectedOwner>,
+        Vec<crate::persistence::plugin_inventory::InstalledPackage>,
+        crate::workbench::compose::ScreenComposition,
+    ),
+    WorkbenchStaticFailure,
+> {
+    let selected = select_owners(inputs).map_err(WorkbenchStaticFailure::Selection)?;
     let packages = selected
         .iter()
         .map(|owner| owner.package().clone())
         .collect::<Vec<_>>();
+    let screens = compose_screens(inputs, sources, &packages)?;
+    Ok((selected, packages, screens))
+}
+
+fn compose_after_screens(
+    inputs: CandidateInputs<'_>,
+    screen_sources: screens::ScreenSources,
+    selected: Vec<SelectedOwner>,
+    packages: &[crate::persistence::plugin_inventory::InstalledPackage],
+    screens: crate::workbench::compose::ScreenComposition,
+) -> Result<PublishedWorkbench, WorkbenchStaticFailure> {
     let agents = AgentTypeRegistry::shipped().map_err(WorkbenchStaticFailure::Agents)?;
-    let screens = compose_screens(request, &packages)?;
-    validate_selected_providers(request, &selected)?;
-    let providers = compose_providers(request, &packages);
-    let actions = compose_actions(request, &providers)?;
+    let resource_schemas = compose_resource_schemas(&screens)?;
+    validate_selected_providers(&inputs, &selected)?;
+    let providers = compose_providers(&inputs, packages);
+    let actions = compose_actions(&inputs, &providers)?;
+    validate_screen_bindings(&screens.registry, &actions, providers.catalog())
+        .map_err(WorkbenchStaticFailure::Actions)?;
     Ok(PublishedWorkbench::from_parts(WorkbenchParts {
-        settings: request.settings.clone(),
-        inventory: request.inventory.clone(),
+        screen_sources,
+        host: inputs.host.clone(),
+        containment: inputs.containment.clone(),
+        settings: inputs.settings.clone(),
+        inventory: inputs.inventory.clone(),
         selected,
         agents,
         screens,
+        resource_schemas,
         providers,
         actions,
     }))
 }
+pub(crate) fn validate_screen_bindings(
+    screens: &crate::workbench::ScreenRegistry,
+    actions: &ActionRegistrySnapshot,
+    providers: &crate::runtime::provider::ProviderCatalog,
+) -> Result<(), crate::persistence::keymap_edit::KeymapDiagnostic> {
+    let fallback =
+        crate::domain::input_context::ContextStack::from_ordered(["workbench", "global"], false)
+            .map_err(|error| {
+                crate::persistence::keymap_edit::KeymapDiagnostic::from_detail(error.to_string())
+            })?;
+    for screen in screens.screens() {
+        if screen.bindings.is_empty() {
+            continue;
+        }
+        for binding in &screen.bindings {
+            if let Some(descriptor) = providers.get(&binding.action)
+                && !descriptor.arguments.is_empty()
+            {
+                return Err(
+                    crate::persistence::keymap_edit::KeymapDiagnostic::from_detail(format!(
+                        "screen '{}' binding '{}:{}' cannot invoke provider action with declared arguments",
+                        screen.id,
+                        binding.context,
+                        binding.action.as_str()
+                    )),
+                );
+            }
+        }
+        let declared = screen
+            .bindings
+            .iter()
+            .map(|binding| (binding.context.clone(), binding.action.clone()))
+            .collect::<Vec<_>>();
+        actions
+            .validate_declared_bindings(&declared, &fallback)
+            .map_err(|error| {
+                crate::persistence::keymap_edit::KeymapDiagnostic::from_detail(format!(
+                    "screen '{}' declared invalid bindings: {error}",
+                    screen.id
+                ))
+            })?;
+    }
 
-/// Resolve every active selection against the retained inventory.
-fn select_owners(
-    request: &WorkbenchCandidateRequest<'_>,
-) -> Result<Vec<SelectedOwner>, SelectionRefused> {
-    crate::startup_selection::select_exactly(request.inventory, request.settings)
+    Ok(())
 }
 
-/// Compose the screen registry from compiled descriptors, definitions, and
-/// exactly the selected packages.
+fn compose_resource_schemas(
+    screens: &crate::workbench::compose::ScreenComposition,
+) -> Result<ResourceSchemaRegistry, WorkbenchStaticFailure> {
+    let builtins = builtin_resource_schemas()
+        .map_err(ResourcePublicationError::Builtin)
+        .map_err(WorkbenchStaticFailure::Resources)?;
+    let mut declarations = builtins.schemas();
+    declarations.extend(screens.resource_schemas.iter().cloned());
+    let schemas = ResourceSchemaRegistry::publish(declarations)
+        .map_err(ResourcePublicationError::Composition)
+        .map_err(WorkbenchStaticFailure::Resources)?;
+    validate_port_resource_references(&screens.registry, &schemas)?;
+    Ok(schemas)
+}
+
+fn validate_port_resource_references(
+    screens: &crate::workbench::ScreenRegistry,
+    schemas: &ResourceSchemaRegistry,
+) -> Result<(), WorkbenchStaticFailure> {
+    for screen in screens.screens() {
+        for panel in &screen.panels {
+            for port in &panel.ports {
+                let type_id = Id::parse(port.type_id.name()).map_err(|_| {
+                    WorkbenchStaticFailure::Resources(ResourcePublicationError::InvalidPortType {
+                        screen: screen.id,
+                        panel: panel.id.as_str().to_owned(),
+                        port: port.id.as_str().to_owned(),
+                        type_id: port.type_id.as_str().to_owned(),
+                    })
+                })?;
+                schemas
+                    .validate_reference(&port.owner_id, &type_id, port.type_id.version())
+                    .map_err(|source| {
+                        WorkbenchStaticFailure::Resources(ResourcePublicationError::PortReference {
+                            screen: screen.id,
+                            panel: panel.id.as_str().to_owned(),
+                            port: port.id.as_str().to_owned(),
+                            source,
+                        })
+                    })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve every active selection against the retained inventory.
+fn select_owners(inputs: &CandidateInputs<'_>) -> Result<Vec<SelectedOwner>, SelectionRefused> {
+    crate::startup_selection::select_exactly(inputs.inventory, inputs.settings)
+}
+
+/// Compose the screen registry from compiled descriptors, captured definitions,
+/// and exactly the selected packages.
 fn compose_screens(
-    request: &WorkbenchCandidateRequest<'_>,
+    inputs: &CandidateInputs<'_>,
+    sources: &screens::ScreenSources,
     packages: &[crate::persistence::plugin_inventory::InstalledPackage],
 ) -> Result<crate::workbench::compose::ScreenComposition, WorkbenchStaticFailure> {
-    screens::compose(request.paths, packages, request.settings)
+    screens::compose_captured(sources, packages, inputs.settings)
         .map_err(WorkbenchStaticFailure::Screens)
 }
 
@@ -239,14 +523,14 @@ fn compose_screens(
 /// part of this aggregate, so an invalid one-shot or configuration-only owner
 /// must refuse the candidate just as an invalid persistent owner does.
 fn validate_selected_providers(
-    request: &WorkbenchCandidateRequest<'_>,
+    inputs: &CandidateInputs<'_>,
     selected: &[SelectedOwner],
 ) -> Result<(), WorkbenchStaticFailure> {
     for owner in selected {
         let manifest = owner.package().manifest();
         if matches!(owner.requirement(), ProviderRequirement::Required { .. })
             && !matches!(
-                manifest.provider().select(&request.host),
+                manifest.provider().select(inputs.host),
                 ProviderSelection::Ready(_)
             )
         {
@@ -254,11 +538,11 @@ fn validate_selected_providers(
                 ProviderStaticRefused::RequiredUnavailable {
                     owner: owner.owner().clone(),
                     version: Box::new(owner.package().coordinate().version().clone()),
-                    host: request.host.clone(),
+                    host: inputs.host.clone(),
                 },
             ));
         }
-        if let Err(detail) = validate_selected_configuration(request.settings, manifest) {
+        if let Err(detail) = validate_selected_configuration(inputs.settings, manifest) {
             return Err(WorkbenchStaticFailure::Provider(
                 ProviderStaticRefused::InvalidConfiguration {
                     owner: owner.owner().clone(),
@@ -272,24 +556,24 @@ fn validate_selected_providers(
 
 /// Compose the static provider contribution from the selected packages.
 fn compose_providers(
-    request: &WorkbenchCandidateRequest<'_>,
+    inputs: &CandidateInputs<'_>,
     packages: &[crate::persistence::plugin_inventory::InstalledPackage],
 ) -> ProviderComposition {
     compose(&CompositionRequest {
         packages,
-        settings: request.settings,
-        host: request.host.clone(),
-        containment: request.containment.clone(),
+        settings: inputs.settings,
+        host: inputs.host.clone(),
+        containment: inputs.containment.clone(),
     })
 }
 
 /// Compose compiled and provider actions into the one static snapshot.
 fn compose_actions(
-    request: &WorkbenchCandidateRequest<'_>,
+    inputs: &CandidateInputs<'_>,
     providers: &ProviderComposition,
 ) -> Result<ActionRegistrySnapshot, WorkbenchStaticFailure> {
     compose_published_with_providers(
-        request.settings,
+        inputs.settings,
         "startup candidate",
         providers.actions().to_vec(),
         providers.availability().to_vec(),
@@ -297,3 +581,7 @@ fn compose_actions(
     .map_err(WorkbenchStaticFailure::Actions)
     .map(|composed| composed.snapshot().clone())
 }
+
+#[cfg(test)]
+#[path = "startup_candidate_tests.rs"]
+mod tests;

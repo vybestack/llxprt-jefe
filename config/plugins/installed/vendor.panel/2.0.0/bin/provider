@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+read -r hello
+process_generation=$(printf '%s\n' "$hello" | sed -n 's/.*"generation":\([0-9][0-9]*\).*/\1/p')
+printf '%s\n' "{\"protocol\":1,\"type\":\"hello-ack\",\"request_id\":\"p-100001\",\"generation\":$process_generation,\"payload\":{\"provider_name\":\"panel-fixture\",\"protocol\":1}}"
+read -r configure
+printf '%s\n' "{\"protocol\":1,\"type\":\"ready\",\"request_id\":\"p-100002\",\"generation\":$process_generation,\"payload\":{\"capabilities\":[\"actions\",\"panels\"]}}"
+read -r invoke
+printf '%s\n' "{\"protocol\":1,\"type\":\"outcome\",\"request_id\":\"p-100003\",\"generation\":$process_generation,\"payload\":{\"kind\":\"navigate\",\"route_id\":\"vendor.panel.open\",\"activation\":{}}}"
+read -r activate
+panel_instance_id=$(printf '%s\n' "$activate" | sed -n 's/.*"panel_instance_id":\([0-9][0-9]*\).*/\1/p')
+panel_generation=$(printf '%s\n' "$activate" | sed -n 's/.*"payload":{.*"generation":\([0-9][0-9]*\).*/\1/p')
+printf '%s\n' "{\"protocol\":1,\"type\":\"panel-snapshot\",\"request_id\":\"p-100004\",\"generation\":$process_generation,\"payload\":{\"model_schema\":1,\"panel_instance_id\":$panel_instance_id,\"generation\":$panel_generation,\"revision\":1,\"kind\":\"list\",\"title\":\"Selected package review\",\"description\":\"Version 2.0.0\",\"loading\":false,\"action_affordances\":[],\"body\":{\"kind\":\"list\",\"items\":[{\"id\":\"alpha\",\"label\":\"Alpha from 2.0.0\",\"description\":\"Selected manifest content\",\"actions\":[]},{\"id\":\"beta\",\"label\":\"Beta\",\"actions\":[]}],\"selected_id\":\"alpha\"}}}"
+while read -r message; do
+  case "$message" in
+    *"shutdown"*)
+      printf '%s\n' "{\"protocol\":1,\"type\":\"shutdown-ack\",\"request_id\":\"p-100005\",\"generation\":$process_generation,\"payload\":{}}"
+      exit 0
+      ;;
+  esac
+done

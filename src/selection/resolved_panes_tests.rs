@@ -10,21 +10,21 @@ use crate::selection::geometry::pane_at;
 use crate::selection::text::SelectablePane;
 use crate::selection::{ScreenLayout, panel_to_selectable, selectable_to_panel};
 use crate::state::{AppState, ScreenId};
-use crate::workbench::{PanelId, ResolvedLayout};
+use crate::workbench::{PanelId, ResolvedLayout, ScreenIdentity};
 
-fn state_on(screen: ScreenId) -> AppState {
+fn state_on(screen: impl Into<ScreenIdentity>) -> AppState {
     let mut state = AppState::test_fixture();
-    state.nav = crate::state::navigation::NavState::rooted(screen);
+    state.restore_navigation_root(screen);
     state
 }
 
-fn snapshot(screen: ScreenId, cols: u16, rows: u16) -> ResolvedLayout {
+fn snapshot(screen: impl Into<ScreenIdentity>, cols: u16, rows: u16) -> ResolvedLayout {
     resolve_screen(&state_on(screen), cols, rows)
         .unwrap_or_else(|| unreachable!("the shipped registry always resolves"))
 }
 
 fn legacy(screen: ScreenId, cols: u16, rows: u16) -> ScreenLayout {
-    ScreenLayout::new(cols, rows, screen, false, false)
+    ScreenLayout::new(cols, rows, screen.into(), false, false)
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn the_pane_vocabulary_maps_in_both_directions() {
         SelectablePane::ErrorList,
         SelectablePane::ErrorDetail,
     ] {
-        let Some(panel) = selectable_to_panel(pane, ScreenId::Dashboard) else {
+        let Some(panel) = selectable_to_panel(pane, crate::workbench::DASHBOARD_IDENTITY) else {
             unreachable!("{pane:?} must map to a panel");
         };
         assert_eq!(
@@ -59,7 +59,10 @@ fn the_terminal_pane_names_the_right_panel_on_each_screen() {
     // One pane, two panel identities: resolving without the screen would miss
     // the Terminal Manager's preview entirely.
     assert_eq!(
-        selectable_to_panel(SelectablePane::TerminalView, ScreenId::Dashboard),
+        selectable_to_panel(
+            SelectablePane::TerminalView,
+            crate::workbench::DASHBOARD_IDENTITY
+        ),
         Some(PanelId::from_static("terminal"))
     );
     assert_eq!(
@@ -101,7 +104,7 @@ fn overlay_panes_map_to_no_descriptor_panel() {
         SelectablePane::KeybindBar,
     ] {
         assert_eq!(
-            selectable_to_panel(pane, ScreenId::Dashboard),
+            selectable_to_panel(pane, crate::workbench::DASHBOARD_IDENTITY),
             None,
             "{pane:?}"
         );
@@ -129,36 +132,9 @@ fn a_band_is_not_selectable() {
 }
 
 #[test]
-fn snapshot_hit_testing_agrees_with_the_superseded_arithmetic_on_the_dashboard() {
-    let resolved = snapshot(ScreenId::Dashboard, 120, 40);
-    let legacy_layout = legacy(ScreenId::Dashboard, 120, 40);
-    let mut compared = 0_u32;
-    for col in (0_u16..120).step_by(3) {
-        for row in (1_u16..39).step_by(2) {
-            let from_snapshot = pane_at(col, row, Some(&resolved), false, &legacy_layout);
-            let from_arithmetic = pane_at(col, row, None, false, &legacy_layout);
-            let (Some((snapshot_pane, _)), Some((legacy_pane, _))) =
-                (from_snapshot, from_arithmetic)
-            else {
-                continue;
-            };
-            assert_eq!(
-                snapshot_pane, legacy_pane,
-                "pane disagreement at ({col}, {row})"
-            );
-            compared += 1;
-        }
-    }
-    assert!(
-        compared > 200,
-        "expected a broad sweep, compared {compared}"
-    );
-}
-
-#[test]
-fn a_focused_terminal_is_not_selectable_through_either_path() {
-    let resolved = snapshot(ScreenId::Dashboard, 120, 40);
-    let legacy_layout = legacy(ScreenId::Dashboard, 120, 40);
+fn a_focused_terminal_is_not_selectable_through_the_resolved_path() {
+    let resolved = snapshot(crate::workbench::DASHBOARD_IDENTITY, 120, 40);
+    let legacy_layout = legacy(ScreenId::Repositories, 120, 40);
     let Some(terminal) = resolved.panel(&PanelId::from_static("terminal")) else {
         unreachable!("the dashboard always declares a terminal panel");
     };

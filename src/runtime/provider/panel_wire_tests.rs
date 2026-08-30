@@ -16,11 +16,12 @@ use super::error::ProviderError;
 use super::identifiers::RequestId;
 use super::panel_model::{
     ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
-    HostLocal, ListBody, ListItem, MigrateConfigPayload, PanelBody, PanelEvent, PanelEventPayload,
-    PanelSnapshot,
+    DiffLineOrigin, HostLocal, ListBody, ListItem, MigrateConfigPayload, PanelBody, PanelEvent,
+    PanelEventPayload, PanelSnapshot, StructuredDiffPath,
 };
 use super::protocol::{Direction, Id, RequestOrigin, TypedMap, parse_message};
 use crate::domain::action_registry::ActionId;
+use crate::domain::bounded_json::BoundedJsonError;
 use crate::test_support::Must;
 
 // ---------------------------------------------------------------------------
@@ -471,6 +472,10 @@ fn panel_event_round_trips_each_variant() {
         PanelEvent::Selected {
             id: Id::parse("vendor.i").unwrap_or_else(|e| panic!("{e:?}")),
         },
+        PanelEvent::ExpansionChanged {
+            id: Id::parse("vendor.node").unwrap_or_else(|e| panic!("{e:?}")),
+            expanded: true,
+        },
         PanelEvent::Retry,
         PanelEvent::Cancel,
     ] {
@@ -820,3 +825,5 @@ fn progress_completed_equals_total_is_accepted() {
 // ---------------------------------------------------------------------------
 
 include!("panel_wire_bounds_tests.rs");
+
+include!("panel_tree_diff_tests.rs");

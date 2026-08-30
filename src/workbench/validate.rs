@@ -34,6 +34,20 @@ pub enum DescriptorError {
         /// Offending screen.
         screen: &'static str,
     },
+    /// The same host-owned overlay kind is declared more than once.
+    DuplicateOverlay {
+        /// Offending screen.
+        screen: &'static str,
+        /// Repeated closed overlay kind.
+        overlay: &'static str,
+    },
+    /// A compiled host model was paired with the wrong closed control kind.
+    HostPanelCapabilityMismatch {
+        /// Offending screen.
+        screen: &'static str,
+        /// Offending panel.
+        panel: &'static str,
+    },
     /// The screen declares more than [`MAX_PANELS_PER_SCREEN`] panels.
     TooManyPanels {
         /// Offending screen.
@@ -189,6 +203,16 @@ impl DescriptorError {
                 "screen {screen} declares identifier {identifier:?}: {reason}"
             ),
             Self::NoPanels { screen } => write!(formatter, "screen {screen} declares no panels"),
+            Self::DuplicateOverlay { screen, overlay } => {
+                write!(
+                    formatter,
+                    "screen {screen} declares overlay {overlay} twice"
+                )
+            }
+            Self::HostPanelCapabilityMismatch { screen, panel } => write!(
+                formatter,
+                "screen {screen} panel {panel} pairs a host model with an incompatible control kind"
+            ),
             Self::TooManyPanels { screen, count } => write!(
                 formatter,
                 "screen {screen} declares {count} panels (max {MAX_PANELS_PER_SCREEN})"
@@ -303,13 +327,47 @@ impl std::error::Error for DescriptorError {}
 pub fn validate_descriptor(descriptor: &ScreenDescriptor) -> Result<(), DescriptorError> {
     let screen = descriptor.id.as_str();
     check_identifiers(descriptor, screen)?;
+    check_overlays(descriptor, screen)?;
     check_panel_set(descriptor, screen)?;
+    check_host_panel_capabilities(descriptor, screen)?;
     check_ports(descriptor, screen)?;
     check_layout_placement(descriptor, screen)?;
     check_focus(descriptor, screen)?;
     check_layout_shape(&descriptor.layout, descriptor, screen, 1)?;
     validate_relationships(descriptor)
         .map_err(|reason| DescriptorError::Relationship { screen, reason })
+}
+fn check_overlays(
+    descriptor: &ScreenDescriptor,
+    screen: &'static str,
+) -> Result<(), DescriptorError> {
+    let mut seen = BTreeSet::new();
+    for overlay in &descriptor.overlays {
+        if !seen.insert(*overlay) {
+            return Err(DescriptorError::DuplicateOverlay {
+                screen,
+                overlay: overlay.as_str(),
+            });
+        }
+    }
+    Ok(())
+}
+fn check_host_panel_capabilities(
+    descriptor: &ScreenDescriptor,
+    screen: &'static str,
+) -> Result<(), DescriptorError> {
+    for panel in &descriptor.panels {
+        if panel
+            .host_capability
+            .is_some_and(|capability| !capability.is_consistent())
+        {
+            return Err(DescriptorError::HostPanelCapabilityMismatch {
+                screen,
+                panel: panel.id.as_str(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Check that every panel declares a bounded set of distinctly named ports.

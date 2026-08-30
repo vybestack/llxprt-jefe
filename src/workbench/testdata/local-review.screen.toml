@@ -1,11 +1,23 @@
-screen_schema = 1
+screen_schema = 2
 id = "local.review"
 title = "Review"
 route = "review"
 initial_focus = "pr-list"
 focus_order = ["pr-list", "pr-detail"]
 
+[[resources]]
+type_id = "local.review.note"
+schema_version = 1
+semantic_key = "semantic-key"
+
+[[resources.fields]]
+id = "semantic-key"
+label = "Semantic key"
+type = "string"
+required = true
+
 [[panels]]
+
 id = "pr-list"
 type = "pr-list"
 focusable = true
@@ -14,6 +26,7 @@ required = true
 [[panels.ports]]
 id = "selection"
 direction = "output"
+owner = "github.pull-requests"
 type_id = "github.pull-request@1"
 required = false
 retained = false
@@ -27,6 +40,7 @@ required = false
 [[panels.ports]]
 id = "subject"
 direction = "input"
+owner = "github.pull-requests"
 type_id = "github.pull-request@1"
 required = false
 retained = true

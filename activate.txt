@@ -1,0 +1,1 @@
+{"protocol":1,"type":"activate-panel","request_id":"h-000001","generation":1,"payload":{"panel_instance_id":1,"screen_instance_id":11,"panel_type":"vendor.panel.review-list","activation":{},"generation":1}}

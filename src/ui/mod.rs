@@ -17,9 +17,9 @@ pub mod util;
 // Re-export commonly used types
 pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, TerminalView};
 pub use dashboard_filter_indicator::dashboard_filter_indicator;
-pub use modals::{AuthModal, ConfirmModal, HelpModal};
+pub use modals::AuthModal;
 pub use screens::{
-    ActionsScreen, Dashboard, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
+    ActionsScreen, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
     WorkflowDispatchForm,
 };
 pub use util::{CARET_CHAR, ELLIPSIS, text_with_caret, truncate_with_ellipsis};

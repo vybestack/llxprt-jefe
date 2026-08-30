@@ -29,28 +29,26 @@
 //! confirm, so its empty policy applies at once and any staged selection is
 //! discarded.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::domain::TypedPortValue;
 use crate::persistence::diagnostic::FOLLOW_UP_LIMIT;
 
-use super::descriptor::{PortRef, ScreenDescriptor};
+use super::descriptor::{PortDirection, PortRef, ScreenDescriptor};
 use super::diagnostics::ScrCode;
+use super::ids::{OpenScreenId, PanelId, PanelInstanceId};
 use super::relationships::{EmptyPolicy, Relationship, RelationshipKind, SessionEmptyPolicy};
+use super::resource_schemas::{ResourceSchemaError, ResourceSchemaRegistry};
 
 /// A value crossing a port.
-///
-/// The engine never inspects a subject: it moves opaque identity between panels,
-/// which is what keeps a user-authored screen from being able to express
-/// computation. Only absence and the typed all-value have meaning here, because
-/// only those two are produced by the relationship policies themselves.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortValue {
     /// No value.
     Absent,
-    /// Every subject of the port's type.
+    /// Every resource of the port's declared type.
     All,
-    /// One subject, identified by text only its panels interpret.
-    Subject(String),
+    /// One closed, schema-validated resource value.
+    Typed(TypedPortValue),
 }
 
 impl PortValue {
@@ -61,11 +59,158 @@ impl PortValue {
     }
 }
 
-/// What every port on one screen holds, plus selections awaiting activation.
+/// Exact runtime identity of one port value owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PortInstanceKey {
+    /// The independently open screen instance.
+    pub open_screen_id: OpenScreenId,
+    /// The instantiated panel within that screen.
+    pub panel_instance_id: PanelInstanceId,
+    /// The declared port within that panel.
+    pub port_id: super::PortId,
+}
+
+/// Runtime identities for one open screen definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationshipInstance {
+    open_screen_id: OpenScreenId,
+    panel_instances: BTreeMap<PanelId, PanelInstanceId>,
+}
+
+impl RelationshipInstance {
+    /// Bind one open screen to its independently allocated panel instances.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing, unknown, zero, or aliased panel-instance mappings.
+    pub fn new(
+        descriptor: &ScreenDescriptor,
+        open_screen_id: OpenScreenId,
+        panel_instances: BTreeMap<PanelId, PanelInstanceId>,
+    ) -> Result<Self, RelationshipInstanceError> {
+        let mut allocated = BTreeSet::new();
+        for panel in &descriptor.panels {
+            let Some(instance_id) = panel_instances.get(&panel.id).copied() else {
+                return Err(RelationshipInstanceError::MissingPanel { panel: panel.id });
+            };
+            if instance_id.as_u64() == 0 {
+                return Err(RelationshipInstanceError::InvalidPanelInstance { panel: panel.id });
+            }
+            if !allocated.insert(instance_id) {
+                return Err(RelationshipInstanceError::DuplicatePanelInstance {
+                    panel_instance_id: instance_id,
+                });
+            }
+        }
+        if let Some(panel) = panel_instances
+            .keys()
+            .find(|panel| descriptor.panel(panel).is_none())
+            .copied()
+        {
+            return Err(RelationshipInstanceError::UnknownPanel { panel });
+        }
+        Ok(Self {
+            open_screen_id,
+            panel_instances,
+        })
+    }
+
+    /// Allocate one distinct runtime identity for every declared panel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error before the process-global identity space can wrap.
+    pub fn allocate(
+        descriptor: &ScreenDescriptor,
+        open_screen_id: OpenScreenId,
+    ) -> Result<Self, RelationshipInstanceError> {
+        let panel_instances = descriptor
+            .panels
+            .iter()
+            .map(|panel| {
+                PanelInstanceId::try_next()
+                    .map(|instance| (panel.id, instance))
+                    .map_err(|_| RelationshipInstanceError::IdentityExhausted)
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            open_screen_id,
+            panel_instances,
+        })
+    }
+
+    /// Runtime identity allocated for a declared panel.
+    #[must_use]
+    pub fn panel_instance_id(&self, panel: &PanelId) -> Option<PanelInstanceId> {
+        self.panel_instances.get(panel).copied()
+    }
+
+    /// The runtime identity of this open screen.
+    #[must_use]
+    pub const fn open_screen_id(&self) -> OpenScreenId {
+        self.open_screen_id
+    }
+
+    /// Resolve a declared port to its exact runtime state key.
+    #[must_use]
+    pub fn port_key(&self, port: &PortRef) -> Option<PortInstanceKey> {
+        self.panel_instances
+            .get(&port.panel)
+            .copied()
+            .map(|panel_instance_id| PortInstanceKey {
+                open_screen_id: self.open_screen_id,
+                panel_instance_id,
+                port_id: port.port,
+            })
+    }
+}
+
+/// Invalid runtime bindings for one open screen instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RelationshipInstanceError {
+    /// A declared panel has no allocated runtime identity.
+    MissingPanel { panel: PanelId },
+    /// A runtime mapping names a panel outside the descriptor.
+    UnknownPanel { panel: PanelId },
+    /// Zero is not an allocated panel identity.
+    InvalidPanelInstance { panel: PanelId },
+    /// Two declared panels were assigned one runtime identity.
+    DuplicatePanelInstance { panel_instance_id: PanelInstanceId },
+    /// The process-global panel identity space is exhausted.
+    IdentityExhausted,
+}
+
+impl std::fmt::Display for RelationshipInstanceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingPanel { panel } => {
+                write!(formatter, "panel {panel} has no runtime instance")
+            }
+            Self::UnknownPanel { panel } => {
+                write!(formatter, "runtime instance names unknown panel {panel}")
+            }
+            Self::InvalidPanelInstance { panel } => {
+                write!(formatter, "panel {panel} has invalid runtime instance zero")
+            }
+            Self::DuplicatePanelInstance { panel_instance_id } => write!(
+                formatter,
+                "panel runtime instance {} is assigned more than once",
+                panel_instance_id.as_u64()
+            ),
+            Self::IdentityExhausted => {
+                formatter.write_str("the process cannot allocate another panel instance")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RelationshipInstanceError {}
+
+/// What every instantiated port holds, plus selections awaiting activation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RelationshipState {
-    values: BTreeMap<PortRef, PortValue>,
-    staged: BTreeMap<PortRef, PortValue>,
+    values: BTreeMap<PortInstanceKey, PortValue>,
+    staged: BTreeMap<PortInstanceKey, PortValue>,
 }
 
 impl RelationshipState {
@@ -75,15 +220,15 @@ impl RelationshipState {
         Self::default()
     }
 
-    /// What `port` holds.
+    /// What one exact runtime port holds.
     #[must_use]
-    pub fn value(&self, port: &PortRef) -> PortValue {
+    pub fn value(&self, port: &PortInstanceKey) -> PortValue {
         self.values.get(port).cloned().unwrap_or(PortValue::Absent)
     }
 
-    /// The selection staged for `target`, if an explicit edge staged one.
+    /// The selection staged for one exact runtime target.
     #[must_use]
-    pub fn staged(&self, target: &PortRef) -> Option<&PortValue> {
+    pub fn staged(&self, target: &PortInstanceKey) -> Option<&PortValue> {
         self.staged.get(target)
     }
 }
@@ -134,13 +279,27 @@ pub struct RelationshipTransition {
 }
 
 /// The transition was abandoned before anything was committed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PropagationAbort {
     /// The transition would change more ports than one transition may.
     FollowUpLimit {
         /// How many changes it attempted.
         attempted: usize,
     },
+    /// A typed resource did not satisfy the immutable published schema.
+    InvalidResource(ResourceSchemaError),
+    /// An instantiated panel mapping was missing for a declared port.
+    MissingPanelInstance { panel: PanelId },
+    /// The active definition is absent from the immutable published registry.
+    UnknownScreen { screen: super::ScreenIdentity },
+    /// The source does not name a declared port.
+    UnknownPort { port: PortRef },
+    /// Only declared output ports may publish source values.
+    SourcePortNotOutput { port: PortRef },
+    /// A typed value did not match its source port's declared type and version.
+    PortTypeMismatch { port: PortRef },
+    /// `All` is policy output, not a source-publishable resource value.
+    InvalidSourceValue { port: PortRef },
 }
 
 impl PropagationAbort {
@@ -150,10 +309,8 @@ impl PropagationAbort {
     /// same code a refused screen registry does: whatever the user sees, the
     /// answer is that the named screen did not do what it declared.
     #[must_use]
-    pub const fn code(self) -> ScrCode {
-        match self {
-            Self::FollowUpLimit { .. } => ScrCode::E301,
-        }
+    pub const fn code(&self) -> ScrCode {
+        ScrCode::E301
     }
 }
 
@@ -163,6 +320,45 @@ impl std::fmt::Display for PropagationAbort {
             Self::FollowUpLimit { attempted } => write!(
                 formatter,
                 "{}: transition attempted {attempted} follow-ups (max {FOLLOW_UP_LIMIT})",
+                self.code()
+            ),
+            Self::InvalidResource(error) => {
+                write!(
+                    formatter,
+                    "{}: invalid relationship resource: {error}",
+                    self.code()
+                )
+            }
+            Self::MissingPanelInstance { panel } => write!(
+                formatter,
+                "{}: panel {panel} has no runtime instance",
+                self.code()
+            ),
+            Self::UnknownScreen { screen } => write!(
+                formatter,
+                "{}: active screen {screen} is not published",
+                self.code()
+            ),
+            Self::UnknownPort { port } => {
+                write!(
+                    formatter,
+                    "{}: source port {port} is not declared",
+                    self.code()
+                )
+            }
+            Self::SourcePortNotOutput { port } => write!(
+                formatter,
+                "{}: source port {port} is not an output",
+                self.code()
+            ),
+            Self::PortTypeMismatch { port } => write!(
+                formatter,
+                "{}: resource type does not match source port {port}",
+                self.code()
+            ),
+            Self::InvalidSourceValue { port } => write!(
+                formatter,
+                "{}: source port {port} cannot publish a policy value",
                 self.code()
             ),
         }
@@ -183,6 +379,8 @@ impl std::error::Error for PropagationAbort {}
 /// [`FOLLOW_UP_LIMIT`] changes. The supplied state is untouched.
 pub fn propagate(
     descriptor: &ScreenDescriptor,
+    schemas: &ResourceSchemaRegistry,
+    instance: &RelationshipInstance,
     state: &RelationshipState,
     intent: &SourceIntent,
 ) -> Result<RelationshipTransition, PropagationAbort> {
@@ -192,8 +390,11 @@ pub fn propagate(
         follow_ups: 0,
     };
     match intent {
-        SourceIntent::Publish { port, value } => publish(descriptor, &mut draft, port, value),
-        SourceIntent::Activate { target } => activate(&mut draft, target),
+        SourceIntent::Publish { port, value } => {
+            validate_source(descriptor, schemas, port, value)?;
+            publish(descriptor, instance, &mut draft, port, value)?;
+        }
+        SourceIntent::Activate { target } => activate(instance, &mut draft, target)?,
     }
     if draft.follow_ups > FOLLOW_UP_LIMIT {
         return Err(PropagationAbort::FollowUpLimit {
@@ -207,6 +408,33 @@ pub fn propagate(
     })
 }
 
+fn validate_source(
+    descriptor: &ScreenDescriptor,
+    schemas: &ResourceSchemaRegistry,
+    port: &PortRef,
+    value: &PortValue,
+) -> Result<(), PropagationAbort> {
+    let Some(declared) = descriptor.port(port) else {
+        return Err(PropagationAbort::UnknownPort { port: *port });
+    };
+    if declared.direction != PortDirection::Output {
+        return Err(PropagationAbort::SourcePortNotOutput { port: *port });
+    }
+    match value {
+        PortValue::Absent => Ok(()),
+        PortValue::All => Err(PropagationAbort::InvalidSourceValue { port: *port }),
+        PortValue::Typed(value) => {
+            let version_matches = declared.type_id.version() == value.schema_version;
+            if declared.type_id.name() != value.type_id.as_str() || !version_matches {
+                return Err(PropagationAbort::PortTypeMismatch { port: *port });
+            }
+            schemas
+                .validate(&declared.owner_id, value)
+                .map_err(PropagationAbort::InvalidResource)
+        }
+    }
+}
+
 /// A transition under construction, discarded whole if it breaks its bound.
 struct Draft {
     state: RelationshipState,
@@ -215,39 +443,50 @@ struct Draft {
 }
 
 /// Apply a source publication and every edge that leaves it.
-fn publish(descriptor: &ScreenDescriptor, draft: &mut Draft, port: &PortRef, value: &PortValue) {
-    set(draft, port, value.clone());
+fn publish(
+    descriptor: &ScreenDescriptor,
+    instance: &RelationshipInstance,
+    draft: &mut Draft,
+    port: &PortRef,
+    value: &PortValue,
+) -> Result<(), PropagationAbort> {
+    set(instance, draft, port, value.clone())?;
     for relationship in &descriptor.relationships {
         if &relationship.source != port {
             continue;
         }
         draft.follow_ups += 1;
-        drive(descriptor, draft, relationship, value);
+        drive(descriptor, instance, draft, relationship, value)?;
     }
+    Ok(())
 }
 
 /// Apply one edge for one published source value.
 fn drive(
     descriptor: &ScreenDescriptor,
+    instance: &RelationshipInstance,
     draft: &mut Draft,
     relationship: &Relationship,
     value: &PortValue,
-) {
+) -> Result<(), PropagationAbort> {
     let target = relationship.target;
+    let target_key = instance
+        .port_key(&target)
+        .ok_or(PropagationAbort::MissingPanelInstance {
+            panel: target.panel,
+        })?;
     if value.is_absent() {
-        // A vanished source is not a pending selection, so discard any staged
-        // one before the empty policy decides what the target shows.
-        draft.state.staged.remove(&target);
+        draft.state.staged.remove(&target_key);
         if let Some(resolved) = absent_value(descriptor, relationship) {
-            set(draft, &target, resolved);
+            set(instance, draft, &target, resolved)?;
         }
-        return;
+        return Ok(());
     }
     if is_explicit(relationship.kind) {
-        draft.state.staged.insert(target, value.clone());
-        return;
+        draft.state.staged.insert(target_key, value.clone());
+        return Ok(());
     }
-    set(draft, &target, value.clone());
+    set(instance, draft, &target, value.clone())
 }
 
 /// What a target holds once its source is absent, or `None` to leave it alone.
@@ -273,21 +512,39 @@ fn absent_value(descriptor: &ScreenDescriptor, relationship: &Relationship) -> O
 }
 
 /// Apply the selection an explicit edge staged for this target.
-fn activate(draft: &mut Draft, target: &PortRef) {
-    let Some(value) = draft.state.staged.remove(target) else {
-        return;
+fn activate(
+    instance: &RelationshipInstance,
+    draft: &mut Draft,
+    target: &PortRef,
+) -> Result<(), PropagationAbort> {
+    let target_key = instance
+        .port_key(target)
+        .ok_or(PropagationAbort::MissingPanelInstance {
+            panel: target.panel,
+        })?;
+    let Some(value) = draft.state.staged.remove(&target_key) else {
+        return Ok(());
     };
     draft.follow_ups += 1;
-    set(draft, target, value);
+    set(instance, draft, target, value)
 }
 
 /// Record one change, unless the port already holds that value.
-fn set(draft: &mut Draft, port: &PortRef, value: PortValue) {
-    if draft.state.value(port) == value {
-        return;
+fn set(
+    instance: &RelationshipInstance,
+    draft: &mut Draft,
+    port: &PortRef,
+    value: PortValue,
+) -> Result<(), PropagationAbort> {
+    let key = instance
+        .port_key(port)
+        .ok_or(PropagationAbort::MissingPanelInstance { panel: port.panel })?;
+    if draft.state.value(&key) == value {
+        return Ok(());
     }
-    draft.state.values.insert(*port, value.clone());
+    draft.state.values.insert(key, value.clone());
     draft.updates.push(PortUpdate { port: *port, value });
+    Ok(())
 }
 
 /// Whether this kind waits for an activation action.

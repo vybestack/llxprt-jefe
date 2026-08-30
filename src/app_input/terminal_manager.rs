@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 use jefe::domain::AgentId;
 use jefe::runtime::{RuntimeManager, RuntimeSession, capture_shell_preview, close_shell_window};
 use jefe::state::{
-    AppEvent, AppState, ManagedShellRow, ScreenId, ShellFocusOrigin, project_managed_shell_rows,
+    AppEvent, AppState, ManagedShellRow, ShellFocusOrigin, project_managed_shell_rows,
 };
 
 use super::{
@@ -215,17 +215,14 @@ struct ManagerPreviewSnapshot {
     generation: u64,
 }
 
-fn expected_focus_screen(origin: ShellFocusOrigin) -> ScreenId {
-    match origin {
-        ShellFocusOrigin::DashboardF10 => ScreenId::Dashboard,
-        ShellFocusOrigin::ManagerEnter => ScreenId::Terminals,
-    }
-}
-
 fn pending_focus_matches(state: &AppState, owner: &AgentId, generation: u64) -> bool {
     matches!(
         state.terminal_manager.pending_focus.as_ref(),
-        Some(value) if value.agent_id == *owner && value.generation == generation
+        Some(value)
+            if value.agent_id == *owner
+                && value.generation == generation
+                && value.screen == state.nav.current().screen
+                && value.screen_instance == state.nav.current().id
     )
 }
 
@@ -295,18 +292,12 @@ pub async fn complete_pending_shell_focus(
     let Some(pending) = pending else {
         return;
     };
-    if app_state.read().screen() != expected_focus_screen(pending.origin) {
-        return;
-    }
-    if pending.agent_id != attached_agent_id {
+    if !pending_focus_matches(&app_state.read(), &attached_agent_id, pending.generation) {
         return;
     }
     let Some(ctx_arc) = ctx.as_ref() else {
         return;
     };
-    if !pending_focus_matches(&app_state.read(), &attached_agent_id, pending.generation) {
-        return;
-    }
     let ctx_clone = std::sync::Arc::clone(ctx_arc);
     let owner = attached_agent_id.clone();
     let result = smol::unblock(move || select_pending_runtime_shell(&ctx_clone, &owner)).await;
@@ -405,10 +396,15 @@ mod pending_focus_tests {
     fn pending_focus_match_is_evaluated_from_executor_snapshot() {
         let agent_id = AgentId("agent-496".to_owned());
         let mut state = crate::test_app_state();
+        let _ = state.enter_screen(jefe::state::ScreenId::Repositories);
+        let screen = state.nav.current().screen;
+        let screen_instance = state.nav.current().id;
         state.terminal_manager.pending_focus = Some(PendingShellFocus {
             agent_id: agent_id.clone(),
             generation: 7,
             origin: ShellFocusOrigin::ManagerEnter,
+            screen,
+            screen_instance,
         });
 
         assert!(pending_focus_matches(&state, &agent_id, 7));
@@ -417,10 +413,19 @@ mod pending_focus_tests {
             &AgentId("other-agent".to_owned()),
             7
         ));
+        let _ = state.enter_screen(jefe::state::ScreenId::Repositories);
+        assert_eq!(state.nav.current().screen, screen);
+        assert_ne!(state.nav.current().id, screen_instance);
+        assert!(state.terminal_manager.pending_focus.is_some());
+        assert!(!pending_focus_matches(&state, &agent_id, 7));
+
+        let screen_instance = state.nav.current().id;
         state.terminal_manager.pending_focus = Some(PendingShellFocus {
             agent_id: agent_id.clone(),
             generation: 8,
             origin: ShellFocusOrigin::ManagerEnter,
+            screen,
+            screen_instance,
         });
         assert!(!pending_focus_matches(&state, &agent_id, 7));
         state.terminal_manager.pending_focus = None;

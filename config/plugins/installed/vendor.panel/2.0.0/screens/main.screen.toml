@@ -1,0 +1,16 @@
+screen_schema = 1
+id = "vendor.panel.review"
+title = "Package Review"
+route = "vendor.panel.open"
+initial_focus = "review"
+focus_order = ["review"]
+
+[[panels]]
+id = "review"
+type = "vendor.panel.review-list"
+focusable = true
+required = true
+
+[layout]
+type = "leaf"
+panel = "review"

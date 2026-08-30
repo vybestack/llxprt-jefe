@@ -1,0 +1,13 @@
+{
+  "manifest_schema": 1,
+  "id": "vendor.panel",
+  "version": "1.0.0",
+  "display_name": "Unselected Panel Fixture",
+  "host_api": { "minimum": "0.0.1", "maximum": "99.0.0" },
+  "protocol": 1,
+  "provider": { "mode": "persistent", "binaries": { "aarch64-apple-darwin": "bin/provider" } },
+  "actions": [],
+  "panels": [{ "id": "vendor.panel.review-list", "model_kinds": ["list"], "event_schema": [{ "kind": "selected", "arguments": [] }], "handler": "review-list", "ports": [{ "id": "selection" }] }],
+  "routes": [],
+  "screens": [{ "path": "screens/main.screen.toml", "screen_ids": ["vendor.panel.review"] }]
+}

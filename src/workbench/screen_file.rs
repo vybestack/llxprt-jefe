@@ -28,14 +28,16 @@ use crate::domain::ByteSpan;
 use super::screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason, check_document_bounds};
 use super::screen_file_shape::check_shape;
 
-/// The only screen-file schema this build understands.
-pub const SCREEN_SCHEMA: u32 = 1;
+/// The oldest screen-file schema retained for compatibility.
+pub const LEGACY_SCREEN_SCHEMA: u32 = 1;
+/// The current screen-file schema understood by this build.
+pub const SCREEN_SCHEMA: u32 = 2;
 
 /// A parsed screen definition file.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScreenFile {
-    /// Declared syntax version; must equal [`SCREEN_SCHEMA`].
+    /// Declared syntax version; must be supported by this build.
     pub screen_schema: u32,
     /// The screen's `local.<member>` identity.
     pub id: Spanned<String>,
@@ -43,6 +45,9 @@ pub struct ScreenFile {
     pub title: String,
     /// Navigation route the screen declares.
     pub route: String,
+    /// Immutable typed-resource schemas owned by this definition.
+    #[serde(default)]
+    pub resources: Vec<Spanned<ResourceFile>>,
     /// Configuration fields the screen's owner publishes.
     #[serde(default)]
     pub activation: Vec<Spanned<ActivationField>>,
@@ -57,9 +62,59 @@ pub struct ScreenFile {
     /// Typed same-screen port relationships.
     #[serde(default)]
     pub relationships: Vec<Spanned<RelationshipFile>>,
+    /// Closed host-owned layers this screen may open.
+    #[serde(default)]
+    pub overlays: Vec<Spanned<OverlayFile>>,
     /// Action bindings the screen requests.
     #[serde(default)]
     pub bindings: Vec<Spanned<BindingRefFile>>,
+}
+
+/// One immutable typed-resource schema owned by this definition.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceFile {
+    /// Unversioned resource type identity.
+    pub type_id: String,
+    /// Positive resource schema version.
+    pub schema_version: u64,
+    /// Field whose canonical value is the resource's semantic identity.
+    pub semantic_key: String,
+    /// Closed fields carried by every resource snapshot.
+    pub fields: Vec<Spanned<ResourceFieldFile>>,
+}
+
+/// One exact field in a definition-owned resource schema.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceFieldFile {
+    /// Field identity within the resource.
+    pub id: String,
+    /// Operator-facing label.
+    pub label: String,
+    /// Exact value kind.
+    #[serde(rename = "type")]
+    pub kind: ResourceFieldKind,
+    /// Whether every snapshot must carry this field.
+    pub required: bool,
+}
+
+/// Closed value kinds admitted by definition-owned resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResourceFieldKind {
+    /// Boolean.
+    Boolean,
+    /// Free text.
+    String,
+    /// Signed integer.
+    Integer,
+    /// Canonical finite decimal.
+    FiniteNumber,
+    /// Filesystem path text.
+    Path,
+    /// List of text values.
+    StringList,
 }
 
 /// One configuration field the screen's owner publishes.
@@ -127,6 +182,11 @@ pub struct PanelFile {
 pub struct PortFile {
     /// Port identity within the panel.
     pub id: String,
+    /// Immutable owner of the named resource schema.
+    ///
+    /// Schema 1 files may omit this field; lowering applies the closed legacy
+    /// owner mapping. Schema 2 requires it explicitly.
+    pub owner: Option<String>,
     /// Which way values cross.
     pub direction: PortDirectionFile,
     /// `<name>@<version>` identity of the carried value.
@@ -274,6 +334,26 @@ pub enum SessionEmptyPolicyFile {
     Retain,
 }
 
+/// One host-owned overlay declaration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlayFile {
+    /// Closed host implementation selected by this declaration.
+    pub kind: OverlayKindFile,
+}
+
+/// Closed host-owned overlay vocabulary admitted by screen definitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OverlayKindFile {
+    /// Keyboard-shortcut reference content.
+    Help,
+    /// Host text-query editor.
+    Search,
+    /// Host yes/no confirmation surface.
+    Confirmation,
+}
+
 /// One action binding the screen requests.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -323,9 +403,9 @@ fn check_schema(document: &toml::Table) -> Result<(), ScreenSyntaxError> {
     // An absent or non-integer `screen_schema` is an ordinary shape error and
     // is left to the typed parse, which can attribute a span to it.
     match declared {
-        Some(found) if found != SCREEN_SCHEMA => Err(ScreenSyntaxError::unspanned(
-            ScreenSyntaxReason::UnsupportedSchema { found },
-        )),
+        Some(found) if !(LEGACY_SCREEN_SCHEMA..=SCREEN_SCHEMA).contains(&found) => Err(
+            ScreenSyntaxError::unspanned(ScreenSyntaxReason::UnsupportedSchema { found }),
+        ),
         _ => Ok(()),
     }
 }

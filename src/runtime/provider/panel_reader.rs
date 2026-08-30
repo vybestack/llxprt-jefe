@@ -26,9 +26,11 @@ use super::object_reader::{
 };
 use super::panel_model::{
     ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
-    DetailBody, DetailMetadata, EmptyBody, ErrorBody, FormBody, FormFieldError, HostLocal,
-    ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody, PanelEvent,
-    PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow, StatusRowState,
+    DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, FormFieldError,
+    HostLocal, ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody,
+    PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
+    StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
+    StructuredDiffPath, TreeBody, TreeNode,
 };
 use super::typed_value::{read_field_declaration, read_typed_map, read_typed_value};
 
@@ -43,6 +45,21 @@ const LIST_ITEM_LIMIT: usize = 1000;
 
 /// Maximum action ids on one list item.
 const LIST_ITEM_ACTION_LIMIT: usize = 64;
+
+/// Maximum nodes in one tree body.
+const TREE_NODE_LIMIT: usize = 1000;
+
+/// Maximum files in one structured diff body.
+const DIFF_FILE_LIMIT: usize = 256;
+
+/// Maximum hunks in one structured diff file.
+const DIFF_HUNK_LIMIT: usize = 1024;
+
+/// Maximum lines in one structured diff hunk.
+const DIFF_LINE_LIMIT: usize = 1024;
+
+/// Maximum UTF-8 bytes in one structured diff line.
+const DIFF_LINE_BYTE_LIMIT: usize = 262_144;
 
 /// Maximum UTF-8 bytes in a detail document.
 const DETAIL_DOCUMENT_BYTE_LIMIT: usize = 262_144;
@@ -108,6 +125,31 @@ const AFFORDANCE_KEYS: [&str; 6] = [
 ];
 const LIST_ITEM_KEYS: [&str; 5] = ["id", "label", "description", "status", "actions"];
 const LIST_BODY_KEYS: [&str; 4] = ["kind", "items", "selected_id", "next_page_token"];
+const TREE_BODY_KEYS: [&str; 4] = ["kind", "schema_version", "nodes", "selected_id"];
+const TREE_NODE_KEYS: [&str; 7] = [
+    "id",
+    "parent_id",
+    "label",
+    "semantic_key",
+    "depth",
+    "expandable",
+    "expanded",
+];
+const STRUCTURED_DIFF_BODY_KEYS: [&str; 4] =
+    ["kind", "schema_version", "files", "selected_file_id"];
+const STRUCTURED_DIFF_FILE_KEYS: [&str; 7] = [
+    "id", "old_path", "new_path", "old_mode", "new_mode", "binary", "hunks",
+];
+const STRUCTURED_DIFF_HUNK_KEYS: [&str; 6] = [
+    "header",
+    "old_start",
+    "old_lines",
+    "new_start",
+    "new_lines",
+    "lines",
+];
+const STRUCTURED_DIFF_LINE_KEYS: [&str; 5] =
+    ["origin", "old_line", "new_line", "content", "no_newline"];
 const DETAIL_BODY_KEYS: [&str; 4] = ["kind", "document", "metadata", "actions"];
 const DETAIL_METADATA_KEYS: [&str; 2] = ["label", "value"];
 const FORM_BODY_KEYS: [&str; 5] = ["kind", "fields", "values", "field_errors", "submit_action"];
@@ -288,6 +330,7 @@ fn read_panel_event_value(value: &BoundedJson, path: &str) -> Result<PanelEvent,
             Ok(PanelEvent::Cancel)
         }
         "link-selected" => read_event_link_selected(value, path),
+        "expansion-changed" => read_event_expansion_changed(value, path),
         other => Err(ProviderError::UnknownValue {
             path: format!("{path}.kind"),
             value: other.to_owned(),
@@ -353,6 +396,18 @@ fn read_event_link_selected(value: &BoundedJson, path: &str) -> Result<PanelEven
     })
 }
 
+fn read_event_expansion_changed(
+    value: &BoundedJson,
+    path: &str,
+) -> Result<PanelEvent, ProviderError> {
+    let members = closed_object(value, path, &["kind", "id", "expanded"])?;
+    verify_kind(members, path, "expansion-changed")?;
+    Ok(PanelEvent::ExpansionChanged {
+        id: read_id(members, path, "id")?,
+        expanded: read_bool(members, path, "expanded")?,
+    })
+}
+
 /// Confirm the `kind` tag equals the expected branch name.
 fn verify_kind(
     members: &[(String, BoundedJson)],
@@ -389,7 +444,9 @@ fn read_panel_body(value: &BoundedJson, kind: BodyKind) -> Result<PanelBody, Pro
     }
     let body = match kind {
         BodyKind::List => PanelBody::List(read_list_body(value)?),
+        BodyKind::Tree => PanelBody::Tree(read_tree_body(value)?),
         BodyKind::Detail => PanelBody::Detail(read_detail_body(value)?),
+        BodyKind::StructuredDiff => PanelBody::StructuredDiff(read_structured_diff_body(value)?),
         BodyKind::Form => PanelBody::Form(read_form_body(value)?),
         BodyKind::Status => PanelBody::Status(read_status_body(value)?),
         BodyKind::Progress => PanelBody::Progress(read_progress_body(value)?),
@@ -413,6 +470,7 @@ fn read_list_body(value: &BoundedJson) -> Result<ListBody, ProviderError> {
     reject_unique_ids(
         items.iter().map(|item| &item.id),
         "panel-snapshot.body.items",
+        "list item id",
     )?;
     let selected_id = read_optional_id(members, "panel-snapshot.body", "selected_id")?;
     if let Some(selected) = selected_id.as_ref()
@@ -445,6 +503,8 @@ fn read_list_item(value: &BoundedJson, path: &str) -> Result<ListItem, ProviderE
         actions,
     })
 }
+
+include!("panel_reader_tree_diff.rs");
 
 fn read_detail_body(value: &BoundedJson) -> Result<DetailBody, ProviderError> {
     let members = closed_object(value, "panel-snapshot.body", &DETAIL_BODY_KEYS)?;
@@ -712,7 +772,10 @@ fn validate_body_action_refs(
                 });
             }
         }
-        PanelBody::Status(_) | PanelBody::Progress(_) => {}
+        PanelBody::Tree(_)
+        | PanelBody::StructuredDiff(_)
+        | PanelBody::Status(_)
+        | PanelBody::Progress(_) => {}
     }
     Ok(())
 }
@@ -757,8 +820,9 @@ where
 fn reject_unique_ids<'a>(
     values: impl Iterator<Item = &'a Id>,
     path: &str,
+    label: &str,
 ) -> Result<(), ProviderError> {
-    collect_unique(values, path, "list item id").map(|_| ())
+    collect_unique(values, path, label).map(|_| ())
 }
 
 /// Enforce progress-body count invariants: `total` implies `completed`,

@@ -11,7 +11,6 @@ use jefe::state::{AppEvent, AppState, ModalState};
 #[must_use]
 pub fn resolve(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match input_mode_for_state(state) {
-        InputMode::DashboardSearch => super::dashboard_search::resolve_raw_key(state, key_event),
         InputMode::IssuesInline
         | InputMode::IssuesSearch
         | InputMode::IssuesFilter
@@ -35,8 +34,10 @@ pub fn resolve(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
 }
 
 fn resolve_modal_raw_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.active_overlay_kind() == Some(jefe::workbench::OverlayKind::Search) {
+        return resolve_search_modal_raw_key(key_event);
+    }
     match state.modal {
-        ModalState::Search { .. } => resolve_search_modal_raw_key(key_event),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }

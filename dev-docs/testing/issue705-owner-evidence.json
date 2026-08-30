@@ -1,0 +1,1899 @@
+{
+  "schema": 1,
+  "issue": 705,
+  "validation": {
+    "phase": "post-S5",
+    "status": "GREEN",
+    "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
+    "artifact_set_sha256": "34ce05b650afdde98957bcb50d8e7a7c8a567109805e3033ba8bbd6f3a6f7c27"
+  },
+  "artifacts": [
+    {
+      "path": "dev-docs/standards/architecture.md",
+      "sha256": "225ab588f530bc225c567cce80648da51251fe08454c150a02088661e6f1e3a5",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "dev-docs/standards/persistence-and-runtime.md",
+      "sha256": "6c01599b30c6bf6e436cf00b77986bc5b105bfa1c6a13404e422515322301770",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/issue704-owner-evidence.json",
+      "sha256": "3364365b4b0c3870a2abdab540a6703143d6526d097d5c38b73d5602e7233f2d",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/scenario-execution-manifest.json",
+      "sha256": "f98958f7cc825495df7caa5046da090c53d24cd5b99174e31c983e78f489bb6e",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/testing/scenario-owner-evidence.json",
+      "sha256": "bce3d4a3c16620b56eaad25b02fa8e146c3773aef17802d80cc0e91cb651ca95",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+      "sha256": "f829eee669301e8d8a70ec1bc68c2c6a0b4e5b692c069df3073b86eb04b6d962",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01A",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+      "sha256": "2333fb9f5c2861e34889c784d156a3929839d364a7c767658b689f3b2eca57f4",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01A",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/provider-health-linux.json",
+      "sha256": "ef42a43a93412fa32a330c2887626eab17f2c2a96c59b134009d3b5616ffe44c",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/provider-health-macos.json",
+      "sha256": "ac7ce313fd2b6cfa70fbd3baaa53c7cbedb6ce7262ff323eeed5dbd85d3b0128",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+      "sha256": "d46680deddbcbaa8aa5f3926420330700aa7e3e92577ba942c18c6b5c5018495",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+      "sha256": "fa60791c6d478f53f775fbea0c73e4643a4792901a7feb9b6a824399c7f73f86",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+      "sha256": "5ef252543245973d1fbccf5f508b305d2024a3819e831054285a349862ab53fe",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-01A",
+        "CWR2-05",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+      "sha256": "16261d2f3814716342a5020ddcc4a68c1fcb778f9adcb0a16a0ad2898c22b6c8",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-01A",
+        "CWR2-05",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+      "sha256": "d746fe14a3f11c67731ab5e647f1635460dbcd4980c828f41ff2de6203e1122d",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+      "sha256": "dfc759dcecb6a805ae8a93cd15f8aedde36f147791f403818d955f344b398a60",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "docs/technical-overview.md",
+      "sha256": "365d8e15a0b778d685612aa8c66f4594ebceb3247e64cb3778d9278844131d21",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-10",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/app_input/provider_panel_input.rs",
+      "sha256": "5001c9fc066abc3e4675ef373dfd702952b46727fc05c0613004bc82b30733ac",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-05",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/app_input/provider_panel_input_tests_live.rs",
+      "sha256": "b7313328b71e8bec72afbd66c4433899dd2f122298b41b36fc170276c2d9d6d0",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-05",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/app_shell.rs",
+      "sha256": "99ddfd25b437a405d69cc305c72d6f8bb1fff6f67c6a352e43d0df4d077c6525",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-04",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/domain/action_registry.rs",
+      "sha256": "75d3aaa79dbfb0bf1346fe3d7ea5aca300f1c1b24ada00e8eb92532173ece388",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-05",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/host_controls.rs",
+      "sha256": "c115f6d2ff24d0545f69e036135803523d4f613db1c2774c1039292430c127fc",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-01A",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/host_controls_tests.rs",
+      "sha256": "cf9c5571521b385e68c548afd1f849e66877e152d84d0a8d72f8ec75f4e99f40",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-01A",
+        "CWR2-05",
+        "CWR2-06"
+      ]
+    },
+    {
+      "path": "src/host_panel_models.rs",
+      "sha256": "cfa0edf0bcc788adb43c08c52cb0b6a58bf8a0631476ab2d3f25af38d55becea",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/mouse_action_routing.rs",
+      "sha256": "98109bf2a141b96827589489ec2ba964f6efcf7d96f801377fcf4b4e5dc3d311",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/mouse_routing.rs",
+      "sha256": "03c17b01087c1f277ed7d38be2625876854eaa267c071a7853645a2c7df594e6",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-04",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/overlay_controls.rs",
+      "sha256": "7e46e1618b6ad4ccc8a2ba08538edba2b149453c6fa7e3b0c211e49ea3c6b18e",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/overlay_controls_tests.rs",
+      "sha256": "c4940521144379021b4def85d756efeaffb4051722c024a495b6d427945e0532",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-05",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/provider_panel_view.rs",
+      "sha256": "2d4d99ff097feb8704a46c9b0ab7ddcab2dd5d45c7a1165c84ec29eceb266acd",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-01A",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/provider_panel_view_tests_host.rs",
+      "sha256": "5f3491679ecf559a0c5c2a29bcb57766e99f806f587e6d2dcd45f056cd5a6994",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-05",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/provider_panel_view_tests_origins.rs",
+      "sha256": "3563b9bef3ff6bab8a4bc8947cc5f4d7e1b8a136babe7d49b055cf713e34f9e9",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-01A",
+        "CWR2-05"
+      ]
+    },
+    {
+      "path": "src/published_workbench.rs",
+      "sha256": "b182a018178a69ee5aecca5564839a29b69dd08c0b9e11642988d84fe8a176e3",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-05",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/panel_model.rs",
+      "sha256": "41b4e1c4f5492fec2f00ce85359b20759f6919f75a3ab32ff74e4c1b0c924f3e",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01A"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/panel_reader.rs",
+      "sha256": "bcdea63b10b61ad7cecb4251c24099ebe501a2163a33dca452a1cf0c4432f8ad",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01A"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/panel_reader_tree_diff.rs",
+      "sha256": "21477c2c8beec40fa07a8e0236fcb91e3255a1af87bd77ae0be9e12c87197555",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01A"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/panel_tree_diff_tests.rs",
+      "sha256": "335813c4582c6434f066c157d2f4a3223225063a4eb2f0ef611a4c7b10db8942",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01A"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/panel_wire_tests.rs",
+      "sha256": "1ea5d1ae6abb102f9a2c7b08ebefdb54fac4b7034cef433efb2a3ce2a6fec118",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01A"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/persistent_session.rs",
+      "sha256": "5bd6dc2fb4d7e93bfbc56adb27f01f00af3b44d462b8a83477b49bc7c8d2ccac",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/persistent_session_owner.rs",
+      "sha256": "2bb9cff4c4882d48f225b5e76195c742be624ed70ed8632ce15cdd959886301b",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/screen_layout.rs",
+      "sha256": "8e29fe775994676db13df1153ead8b8e0ca9eee82a94b7f8f6626b0a63a31b5a",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/host_panel_input_ops.rs",
+      "sha256": "17b6bfa4db3abb97eef342aa004e027ea27e0a0ba2e02430e4ac9c39bb3608ac",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/instance_presentation_tests.rs",
+      "sha256": "985b788e410d29a4b2edcef43e74196f5f3d8d519b72bbccfeb9bb5a1485aed5",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/navigation.rs",
+      "sha256": "89b17a95d61d2cc51b318979694cae9c16b33fb1abb65c026b0f7028366efc6b",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-09",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/navigation_ops.rs",
+      "sha256": "4d06b8a31414273f9db9b6f8b8cbdc33009db80d0a0461af22949356faa4afb3",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/navigation_provider_relationship_tests.rs",
+      "sha256": "6454c63f50b43c3c1fb3923b5215a2182d047aaffa4049581bda3c473fe8d2b9",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-03"
+      ]
+    },
+    {
+      "path": "src/state/navigation_unwind.rs",
+      "sha256": "0470821836b1ecf9c735805dae6fc2c44da06a683902eedd388249199329278b",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-06"
+      ]
+    },
+    {
+      "path": "src/state/overlay_confirmation_tests.rs",
+      "sha256": "07a54fb5c55e4259280e43a02b809eaa7bdd61704299eaa2b4d8865ea00142c4",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-05",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/overlay_projection_ops.rs",
+      "sha256": "c02ae97a2527b3f4c720839a16a75c8024d9d3eb2695448e6627b26ba87f2c41",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-05",
+        "CWR2-09",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/provider_action_context.rs",
+      "sha256": "18c2a00474724717ec9855bb1b80de4743a9f09a78de263823ab0aeeba508777",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-06",
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/state/provider_confirmation_admission_tests.rs",
+      "sha256": "6474a499ef558ac968733a34625c4de48978262da0d5a8192625c59a6e8938b7",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-05",
+        "CWR2-08",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/provider_panels.rs",
+      "sha256": "a6cb81b6bf3a0b542d51332ceaaabb111f35f33506f4767fd034f99ee7a3dc98",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/provider_request_red_tests/confirmation.rs",
+      "sha256": "d74f2d566b0f159eea9c23348886c8406f05ce17ccf8083f72511f740228a0cf",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/state/provider_requests_continuation_tests.rs",
+      "sha256": "2080755f333c41ad5ed3993d01972dc88777ea9561d8242cf6ee2253a2bc426a",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-05",
+        "CWR2-07",
+        "CWR2-08",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/provider_view.rs",
+      "sha256": "03b45903dccae26c905419be8b24c4ab8d38b15f7ecf3114d574f1694db00d19",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-05",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/relationship_confirmation_token_tests.rs",
+      "sha256": "2d74fc660f3c7a8ba8cf3a093a6d98924c2a0d4166df12852047d96592c212b8",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-04",
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/state/relationship_runtime_tests.rs",
+      "sha256": "0c08fa560a8aa44f666d4fbdcab04646d95da617836576600c63b92ff138ed56",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-06",
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/state/screen_overlays.rs",
+      "sha256": "6e5e4c7a52977d00e8ffd123e94359cd9a7d61e93629180aa7b00800d48210c3",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/settings_registry_provider_health_tests.rs",
+      "sha256": "866fc42dfa5eee2a83a589e77106daa9f40effe2336d7a348e917279580558e9",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/settings_registry_provider_tests.rs",
+      "sha256": "16de8a5e17421f49000f0368f5d725c474c7bf196e7e3e923a99e1003263c81e",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/types.rs",
+      "sha256": "ffcb2411ce799d5b45108382f046a829a1957af39ea21fb48b2afca2eeb06a99",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/ui/components/keybind_bar.rs",
+      "sha256": "8c4e2a9b58065967435d14aeece26bb56fe8961db87b4e4bd4d7470a5b63100e",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/ui/orchestration.rs",
+      "sha256": "1557a39c3d7c8fc106641fb47473009142503847045111d13925615b6818e6ca",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/compose.rs",
+      "sha256": "c38aebffe74fd53bc625d5d2cdaacdf4ef5241e5b7d9507c29e69df109051e1e",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-03",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/compose_fixtures.rs",
+      "sha256": "a3f61f34b517387d8557484fed95aa5d5901d4663d913a374ca139182e67993a",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/compose_package_tests.rs",
+      "sha256": "9ba18d3f8dca2470feac316f8f6bd7574c461355ddacfee858636ac32b9971aa",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-03",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/ids.rs",
+      "sha256": "1231dab0e886bff116ff218659d91ffbb345031104c65a5620eda8bd44a3ec21",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/workbench/relationship_propagation.rs",
+      "sha256": "1221c7ba4428672d8c69881acdb30755fbd598e70de072d83415c47d9a135777",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-06"
+      ]
+    },
+    {
+      "path": "src/workbench/resource_schemas.rs",
+      "sha256": "25f87ba0a0f2eb6338d5661fa31fe794e077656fc6e6602f581867e7548c88db",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/workbench/screen_lowering.rs",
+      "sha256": "8c8be4afd107a66e9adf779ae575de0709d0d3b52109d0eff584e1f486dfc98b",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-03",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/screens.rs",
+      "sha256": "798ae66d1d223b3f924a7ed9a027865414335719203913ce7ac1b7ab8322ce0f",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-03",
+        "CWR2-05",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/workbench/screens_tests.rs",
+      "sha256": "270ee5f21d5b18090e4d9d1257c955bf2dde9adcc71781294ac4c7544101e39a",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-03",
+        "CWR2-06",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/workbench/testdata/local-control-origin.screen.toml",
+      "sha256": "7a98443104f0f5d25ff68d88cb99bfaffce2f053b6e24ceb8a2310eca12e9dd9",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "tests/issue390/persistent_lifecycle.rs",
+      "sha256": "ae68c1b1a0e71e690414609738aad8ce6c9a6fe34b8c1b3ed0b5e5e3d81985d4",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "tests/issue705_owner_evidence.rs",
+      "sha256": "f467495c721b9dfb47df1a67eb07c26620eb4983e84d93f8e4e3c6dc29b96b22",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "tests/support/issue705_scenarios.rs",
+      "sha256": "680e4640c5e759b410637d668dfc097ae0993885e0038ea0c2e375d95499e663",
+      "mode": "100644",
+      "criteria": [
+        "CWR2-11"
+      ]
+    }
+  ],
+  "criteria": {
+    "CWR2-00": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/app_input/provider_panel_input.rs",
+        "src/app_input/provider_panel_input_tests_live.rs",
+        "src/host_controls.rs",
+        "src/host_controls_tests.rs",
+        "src/host_panel_models.rs",
+        "src/overlay_controls.rs",
+        "src/overlay_controls_tests.rs",
+        "src/provider_panel_view.rs",
+        "src/screen_layout.rs",
+        "src/state/host_panel_input_ops.rs",
+        "src/workbench/compose_fixtures.rs",
+        "src/workbench/testdata/local-control-origin.screen.toml"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-01": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/host_controls.rs",
+        "src/host_controls_tests.rs",
+        "src/host_panel_models.rs",
+        "src/provider_panel_view.rs",
+        "src/provider_panel_view_tests_host.rs",
+        "src/provider_panel_view_tests_origins.rs",
+        "src/state/host_panel_input_ops.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "src/workbench/compose.rs",
+        "src/workbench/compose_fixtures.rs",
+        "src/workbench/compose_package_tests.rs",
+        "src/workbench/ids.rs",
+        "src/workbench/screen_lowering.rs",
+        "src/workbench/screens.rs",
+        "src/workbench/screens_tests.rs",
+        "src/workbench/testdata/local-control-origin.screen.toml"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-01A": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+        "src/host_controls.rs",
+        "src/host_controls_tests.rs",
+        "src/provider_panel_view.rs",
+        "src/provider_panel_view_tests_origins.rs",
+        "src/runtime/provider/panel_model.rs",
+        "src/runtime/provider/panel_reader.rs",
+        "src/runtime/provider/panel_reader_tree_diff.rs",
+        "src/runtime/provider/panel_tree_diff_tests.rs",
+        "src/runtime/provider/panel_wire_tests.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-02": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/standards/persistence-and-runtime.md",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/published_workbench.rs",
+        "src/state/instance_presentation_tests.rs",
+        "src/state/navigation.rs",
+        "src/state/navigation_ops.rs",
+        "src/state/overlay_confirmation_tests.rs",
+        "src/state/overlay_projection_ops.rs",
+        "src/state/provider_confirmation_admission_tests.rs",
+        "src/state/provider_panels.rs",
+        "src/state/provider_view.rs",
+        "src/state/screen_overlays.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "src/state/types.rs",
+        "src/workbench/ids.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-03": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+        "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+        "docs/technical-overview.md",
+        "src/state/navigation.rs",
+        "src/state/navigation_ops.rs",
+        "src/state/navigation_provider_relationship_tests.rs",
+        "src/state/relationship_runtime_tests.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "src/workbench/compose.rs",
+        "src/workbench/compose_package_tests.rs",
+        "src/workbench/ids.rs",
+        "src/workbench/relationship_propagation.rs",
+        "src/workbench/screen_lowering.rs",
+        "src/workbench/screens.rs",
+        "src/workbench/screens_tests.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask quick",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-04": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/standards/persistence-and-runtime.md",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/app_shell.rs",
+        "src/mouse_routing.rs",
+        "src/state/instance_presentation_tests.rs",
+        "src/state/navigation.rs",
+        "src/state/navigation_ops.rs",
+        "src/state/overlay_confirmation_tests.rs",
+        "src/state/provider_confirmation_admission_tests.rs",
+        "src/state/provider_panels.rs",
+        "src/state/relationship_confirmation_token_tests.rs",
+        "src/state/relationship_runtime_tests.rs",
+        "src/state/screen_overlays.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "src/state/types.rs",
+        "src/workbench/relationship_propagation.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask quick",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-05": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/app_input/provider_panel_input.rs",
+        "src/app_input/provider_panel_input_tests_live.rs",
+        "src/domain/action_registry.rs",
+        "src/host_controls.rs",
+        "src/host_controls_tests.rs",
+        "src/overlay_controls.rs",
+        "src/overlay_controls_tests.rs",
+        "src/provider_panel_view.rs",
+        "src/provider_panel_view_tests_host.rs",
+        "src/provider_panel_view_tests_origins.rs",
+        "src/published_workbench.rs",
+        "src/state/overlay_confirmation_tests.rs",
+        "src/state/overlay_projection_ops.rs",
+        "src/state/provider_confirmation_admission_tests.rs",
+        "src/state/provider_requests_continuation_tests.rs",
+        "src/state/provider_view.rs",
+        "src/workbench/compose.rs",
+        "src/workbench/compose_package_tests.rs",
+        "src/workbench/screens.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-06": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/host_controls.rs",
+        "src/host_controls_tests.rs",
+        "src/mouse_action_routing.rs",
+        "src/mouse_routing.rs",
+        "src/overlay_controls.rs",
+        "src/provider_panel_view.rs",
+        "src/state/navigation_ops.rs",
+        "src/state/navigation_unwind.rs",
+        "src/state/provider_action_context.rs",
+        "src/state/relationship_runtime_tests.rs",
+        "src/state/screen_overlays.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "src/ui/orchestration.rs",
+        "src/workbench/compose.rs",
+        "src/workbench/compose_package_tests.rs",
+        "src/workbench/relationship_propagation.rs",
+        "src/workbench/screens.rs",
+        "src/workbench/screens_tests.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask quick",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-07": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+        "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+        "src/state/provider_action_context.rs",
+        "src/state/provider_request_red_tests/confirmation.rs",
+        "src/state/provider_requests_continuation_tests.rs",
+        "src/state/relationship_confirmation_token_tests.rs",
+        "src/state/relationship_runtime_tests.rs",
+        "src/workbench/resource_schemas.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask quick",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-08": {
+      "paths": [
+        "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+        "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+        "src/state/provider_action_context.rs",
+        "src/state/provider_confirmation_admission_tests.rs",
+        "src/state/provider_request_red_tests/confirmation.rs",
+        "src/state/provider_requests_continuation_tests.rs",
+        "src/state/relationship_confirmation_token_tests.rs",
+        "src/state/relationship_runtime_tests.rs",
+        "src/workbench/resource_schemas.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask quick",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-09": {
+      "paths": [
+        "dev-docs/standards/architecture.md",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/app_input/provider_panel_input.rs",
+        "src/app_input/provider_panel_input_tests_live.rs",
+        "src/app_shell.rs",
+        "src/host_controls.rs",
+        "src/host_panel_models.rs",
+        "src/mouse_action_routing.rs",
+        "src/mouse_routing.rs",
+        "src/overlay_controls.rs",
+        "src/overlay_controls_tests.rs",
+        "src/provider_panel_view.rs",
+        "src/provider_panel_view_tests_host.rs",
+        "src/screen_layout.rs",
+        "src/state/host_panel_input_ops.rs",
+        "src/state/instance_presentation_tests.rs",
+        "src/state/navigation.rs",
+        "src/state/navigation_ops.rs",
+        "src/state/overlay_confirmation_tests.rs",
+        "src/state/overlay_projection_ops.rs",
+        "src/state/screen_overlays.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "src/state/types.rs",
+        "src/ui/components/keybind_bar.rs",
+        "src/ui/orchestration.rs",
+        "src/workbench/compose.rs",
+        "src/workbench/compose_fixtures.rs",
+        "src/workbench/compose_package_tests.rs",
+        "src/workbench/ids.rs",
+        "src/workbench/screen_lowering.rs",
+        "src/workbench/screens.rs",
+        "src/workbench/screens_tests.rs",
+        "src/workbench/testdata/local-control-origin.screen.toml"
+      ],
+      "commands": [
+        {
+          "command": "cargo fmt --all --check",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-10": {
+      "paths": [
+        "dev-docs/standards/persistence-and-runtime.md",
+        "dev-docs/tmux-scenarios/issue705/provider-health-linux.json",
+        "dev-docs/tmux-scenarios/issue705/provider-health-macos.json",
+        "docs/technical-overview.md",
+        "src/domain/action_registry.rs",
+        "src/provider_panel_view.rs",
+        "src/published_workbench.rs",
+        "src/runtime/provider/persistent_session.rs",
+        "src/runtime/provider/persistent_session_owner.rs",
+        "src/state/navigation.rs",
+        "src/state/navigation_ops.rs",
+        "src/state/overlay_projection_ops.rs",
+        "src/state/provider_confirmation_admission_tests.rs",
+        "src/state/provider_panels.rs",
+        "src/state/provider_requests_continuation_tests.rs",
+        "src/state/provider_view.rs",
+        "src/state/settings_registry_provider_health_tests.rs",
+        "src/state/settings_registry_provider_tests.rs",
+        "tests/issue390/persistent_lifecycle.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo test --workspace --all-targets --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask ci",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/provider-health-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/provider-health-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    },
+    "CWR2-11": {
+      "paths": [
+        "dev-docs/testing/issue704-owner-evidence.json",
+        "dev-docs/testing/scenario-execution-manifest.json",
+        "dev-docs/testing/scenario-owner-evidence.json",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+        "dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+        "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+        "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+        "docs/technical-overview.md",
+        "src/workbench/ids.rs",
+        "src/workbench/screens.rs",
+        "src/workbench/screens_tests.rs",
+        "tests/issue705_owner_evidence.rs",
+        "tests/support/issue705_scenarios.rs"
+      ],
+      "commands": [
+        {
+          "command": "cargo build --workspace --all-features --locked",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo check --workspace --all-targets --all-features --locked --target x86_64-pc-windows-msvc",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo fmt --all --check",
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        {
+          "command": "cargo test --locked --all-features --test issue705_owner_evidence",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask check source-size",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "cargo xtask ci",
+          "platforms": [
+            "linux",
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/dashboard-parity-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
+          "platforms": [
+            "linux"
+          ]
+        },
+        {
+          "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
+          "platforms": [
+            "macos"
+          ]
+        }
+      ]
+    }
+  },
+  "production_symbols": [
+    {
+      "path": "src/domain/action_registry.rs",
+      "symbol": "pub struct ActionRegistrySnapshot",
+      "criteria": [
+        "CWR2-05",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/host_controls.rs",
+      "symbol": "pub enum ControlKind",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-05"
+      ]
+    },
+    {
+      "path": "src/host_controls.rs",
+      "symbol": "pub(crate) trait HostControlFactory",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/overlay_controls.rs",
+      "symbol": "pub struct HostOverlayLayout",
+      "criteria": [
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/provider_panel_view.rs",
+      "symbol": "pub fn project_current_screen",
+      "criteria": [
+        "CWR2-05",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/published_workbench.rs",
+      "symbol": "pub struct PublishedWorkbench",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-05",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/panel_model.rs",
+      "symbol": "pub struct TreeNode",
+      "criteria": [
+        "CWR2-01A"
+      ]
+    },
+    {
+      "path": "src/runtime/provider/persistent_session.rs",
+      "symbol": "pub struct PersistentSessionOwner",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/navigation.rs",
+      "symbol": "pub struct InstancePresentationState",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04"
+      ]
+    },
+    {
+      "path": "src/state/navigation.rs",
+      "symbol": "pub struct ScreenInstance",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-03",
+        "CWR2-04"
+      ]
+    },
+    {
+      "path": "src/state/navigation_unwind.rs",
+      "symbol": "pub fn resolve_back",
+      "criteria": [
+        "CWR2-06"
+      ]
+    },
+    {
+      "path": "src/state/overlay_projection_ops.rs",
+      "symbol": "pub fn help_control_scroll",
+      "criteria": [
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/provider_action_context.rs",
+      "symbol": "pub fn project_current_context",
+      "criteria": [
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/state/provider_panels.rs",
+      "symbol": "pub struct ProviderPanelState",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/provider_view.rs",
+      "symbol": "pub struct ProviderViewInput",
+      "criteria": [
+        "CWR2-10"
+      ]
+    },
+    {
+      "path": "src/state/screen_overlays.rs",
+      "symbol": "pub struct ScreenOverlayState",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/types.rs",
+      "symbol": "pub fn publish_resolved_layout",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/ui/orchestration.rs",
+      "symbol": "pub fn confirmation_hit_target_at_content_line",
+      "criteria": [
+        "CWR2-06",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/compose.rs",
+      "symbol": "fn bind_selected_provider_panels",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-03",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/workbench/relationship_propagation.rs",
+      "symbol": "pub struct RelationshipInstance",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-04",
+        "CWR2-06"
+      ]
+    },
+    {
+      "path": "src/workbench/resource_schemas.rs",
+      "symbol": "pub struct ResourceSchemaRegistry",
+      "criteria": [
+        "CWR2-07",
+        "CWR2-08"
+      ]
+    },
+    {
+      "path": "src/workbench/screens.rs",
+      "symbol": "pub struct ScreenRegistry",
+      "criteria": [
+        "CWR2-06",
+        "CWR2-11"
+      ]
+    }
+  ],
+  "deleted_symbols": [
+    {
+      "scope": "src",
+      "symbol": "HostControlKind",
+      "criteria": [
+        "CWR2-00",
+        "CWR2-01"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "PriorAgentFocus",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-04"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "ScreenId::Dashboard",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "Subject(String)",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-04"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "detail_target_for",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-04"
+      ]
+    },
+    {
+      "scope": "src",
+      "symbol": "master_detail_edge",
+      "criteria": [
+        "CWR2-03",
+        "CWR2-04"
+      ]
+    }
+  ],
+  "deleted_paths": [
+    {
+      "path": "src/app_input/dashboard_search.rs",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/state/dashboard_search_ops.rs",
+      "criteria": [
+        "CWR2-02",
+        "CWR2-09"
+      ]
+    },
+    {
+      "path": "src/ui/modals/confirm.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/ui/modals/help.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/ui/modals/help_scroll_tests.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/ui/modals/provider.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "path": "src/ui/screens/dashboard.rs",
+      "criteria": [
+        "CWR2-01",
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    }
+  ],
+  "residual_adapters": [
+    {
+      "screen": "Repositories",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "screen": "Issues",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "screen": "PullRequests",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "screen": "Actions",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "screen": "Errors",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "screen": "Terminals",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    },
+    {
+      "screen": "Settings",
+      "path": "src/workbench/screens.rs",
+      "criteria": [
+        "CWR2-09",
+        "CWR2-11"
+      ]
+    }
+  ]
+}
