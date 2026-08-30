@@ -2,7 +2,7 @@
 
 use crate::domain::AgentId;
 use crate::screen_layout::{
-    hidden_panel_ids, initial_runtime_geometry, resolve_screen, screen_rect,
+    hidden_panel_ids, initial_runtime_geometry, pty_resize_viewport, resolve_screen, screen_rect,
 };
 use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState};
@@ -126,6 +126,47 @@ fn a_resize_produces_a_different_geometry() {
         .panel(&PanelId::from_static("issue-list"))
         .map(|panel| panel.chrome);
     assert_ne!(wide_list, narrow_list, "a resize must move the panes");
+}
+
+#[test]
+fn a_resize_targets_the_active_screens_resolved_pty_viewport() {
+    // The Terminal Manager's PTY is the shell preview below the list, not the
+    // dashboard pane the mirror arithmetic models. The resize a child receives
+    // must be the committed frame's rectangle for whichever screen is showing.
+    let state = state_on(ScreenId::Terminals);
+    let viewport = pty_resize_viewport(&state, 120, 40)
+        .unwrap_or_else(|| unreachable!("terminals shows its shell preview"));
+    let layout =
+        resolve_screen(&state, 120, 40).unwrap_or_else(|| unreachable!("terminals resolves"));
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .unwrap_or_else(|| unreachable!("terminals is compiled"));
+    let pty_panel = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.panel_type.as_str() == crate::workbench::PTY_PANEL_TYPE)
+        .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
+    let rect = crate::workbench::pty_content_rect(descriptor, &layout, &pty_panel.id)
+        .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
+    assert_eq!(viewport, (rect.height, rect.width));
+    let mirror = crate::layout::compute_pty_layout_for_windowed(120, 40, false);
+    assert_ne!(
+        viewport,
+        (mirror.pty_rows, mirror.pty_cols),
+        "the dashboard mirror must stop answering for the Terminal Manager screen"
+    );
+}
+
+#[test]
+fn a_screen_without_a_visible_pty_panel_sends_no_resize() {
+    let state = state_on(ScreenId::Settings);
+    assert_eq!(
+        pty_resize_viewport(&state, 120, 40),
+        None,
+        "no fabricated resize may leave the resolver"
+    );
 }
 
 #[test]

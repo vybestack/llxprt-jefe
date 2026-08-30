@@ -258,8 +258,9 @@ fn resolution_is_deterministic_for_the_same_inputs() {
                 let second =
                     resolve_layout(&descriptor, instance, outer, &PanelState::all_visible());
                 let (mut first, mut second) = (
-                    first.expect("resolution must not fail"),
-                    second.expect("resolution must not fail"),
+                    first.unwrap_or_else(|error| unreachable!("resolution must not fail: {error}")),
+                    second
+                        .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}")),
                 );
                 assert_ne!(
                     first.generation, second.generation,
@@ -270,6 +271,55 @@ fn resolution_is_deterministic_for_the_same_inputs() {
                 second.generation = LayoutGeneration::zero();
                 assert_eq!(first, second, "screen {} at {cols}x{rows}", descriptor.id);
             }
+        }
+    }
+}
+
+#[test]
+fn geometry_identity_ignores_generation_so_publication_does_not_chase_frames() {
+    for descriptor in screens() {
+        let instance = ScreenInstanceId::next();
+        let outer = Rect::new(0, 0, 120, 40);
+        let all_visible = PanelState::all_visible();
+        let resolve = |instance, outer, state| {
+            resolve_layout(&descriptor, instance, outer, state)
+                .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"))
+        };
+        let first = resolve(instance, outer, &all_visible);
+        let second = resolve(instance, outer, &all_visible);
+        assert_ne!(first.generation, second.generation);
+        assert!(
+            first.same_geometry(&second),
+            "successive frames of one geometry stay publish-equivalent (screen {})",
+            descriptor.id
+        );
+
+        let resized = resolve(instance, Rect::new(0, 0, 120, 30), &all_visible);
+        assert!(
+            !first.same_geometry(&resized),
+            "a changed outer rectangle is a new geometry (screen {})",
+            descriptor.id
+        );
+
+        let re_instances = resolve(ScreenInstanceId::next(), outer, &all_visible);
+        assert!(
+            !first.same_geometry(&re_instances),
+            "a different screen instance is a new geometry even with equal rectangles (screen {})",
+            descriptor.id
+        );
+
+        if let Some(optional) = descriptor.panels.iter().find(|panel| !panel.required) {
+            let hidden = resolve(
+                instance,
+                outer,
+                &PanelState::all_visible().hiding(&optional.id),
+            );
+            assert!(
+                !first.same_geometry(&hidden),
+                "a changed visibility set is a new geometry (screen {}, panel {})",
+                descriptor.id,
+                optional.id
+            );
         }
     }
 }
@@ -538,8 +588,7 @@ fn an_undeclared_panel_has_no_frame() {
     let foreign_panel = other
         .panels
         .iter()
-        .find(|panel| descriptor.panel(&panel.id).is_none())
-        .map(|panel| panel.id)
+        .find_map(|panel| descriptor.panel(&panel.id).is_none().then_some(panel.id))
         .unwrap_or_else(|| unreachable!("screens do not share every panel id"));
     let layout = resolve(descriptor, 120, 40);
     assert!(

@@ -158,14 +158,25 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::
     let Ok(mut guard) = ctx_arc.lock() else {
         return;
     };
-    let layout = if state.shell_overlay_active() && state.screen() == ScreenId::Terminals {
-        jefe::layout::compute_terminal_manager_pty_layout(cols, rows)
+    // The normal path carries the active screen's resolved PTY viewport, so a
+    // child receives exactly the rectangle it occupies on screen. A frame with
+    // no visible PTY panel sends nothing — there is no fabricated fallback.
+    // The overlay branches still carry their legacy rectangles until those
+    // layers are declared in the descriptor (issue #706 cutover step 2).
+    if state.shell_overlay_active() && state.screen() == ScreenId::Terminals {
+        let layout = jefe::layout::compute_terminal_manager_pty_layout(cols, rows);
+        if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
+            warn!(error = %error, "failed to resize shell terminal");
+        }
     } else if state.shell_overlay_active() {
-        jefe::layout::compute_shell_overlay_pty_layout(cols, rows)
-    } else {
-        jefe::layout::compute_pty_layout(cols, rows)
-    };
-    if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
+        let layout = jefe::layout::compute_shell_overlay_pty_layout(cols, rows);
+        if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
+            warn!(error = %error, "failed to resize shell terminal");
+        }
+    } else if let Some((pty_rows, pty_cols)) =
+        jefe::screen_layout::pty_resize_viewport(state, cols, rows)
+        && let Err(error) = guard.runtime.resize(pty_rows, pty_cols)
+    {
         warn!(error = %error, "failed to resize shell terminal");
     }
 }

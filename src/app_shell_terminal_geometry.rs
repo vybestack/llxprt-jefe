@@ -42,12 +42,14 @@ pub fn terminal_pane_dimensions(
 mod tests {
     use super::*;
     use jefe::workbench::{
-        ActivationValues, Rect, ResolvedLayout, ResolvedPanel, RouteId, ScreenInstanceId,
+        ActivationValues, LayoutGeneration, Rect, ResolvedLayout, ResolvedPanel, RouteId,
+        ScreenInstanceId,
     };
 
     fn terminal_layout(instance: ScreenInstanceId, content: Rect) -> ResolvedLayout {
         ResolvedLayout {
             screen_instance: instance,
+            generation: LayoutGeneration::next(),
             outer: Rect::new(0, 1, 120, 38),
             panels: vec![ResolvedPanel {
                 id: PanelId::from_static("terminal"),

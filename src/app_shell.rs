@@ -462,9 +462,17 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let mut snapshot = snapshot;
     let resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
     let rendered_instance = snapshot.nav.current().id;
+    // Publication keys on geometry identity, not frame identity: each render
+    // mints a fresh LayoutGeneration, and a gate comparing whole snapshots
+    // would republish (and re-render) every frame, starving input handling.
     let should_publish_layout = {
         let state = app_state.read();
-        state.nav.current().id == rendered_instance && state.resolved_layout != resolved_layout
+        let geometry_unchanged = match (&state.resolved_layout, &resolved_layout) {
+            (Some(published), Some(next)) => published.same_geometry(next),
+            (None, None) => true,
+            _ => false,
+        };
+        state.nav.current().id == rendered_instance && !geometry_unchanged
     };
     if should_publish_layout {
         app_state

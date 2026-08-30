@@ -180,6 +180,21 @@ impl ResolvedLayout {
             panel: panel.id,
         })
     }
+
+    /// Whether two snapshots describe the same geometry.
+    ///
+    /// Every frame mints a fresh [`LayoutGeneration`], so derived equality is
+    /// never a usable change signal: a publication or PTY-resize gate keyed on
+    /// it would fire every render. This comparison deliberately ignores the
+    /// generation and answers whether any rectangle, visibility, or screen
+    /// identity actually changed.
+    #[must_use]
+    pub fn same_geometry(&self, other: &Self) -> bool {
+        self.screen_instance == other.screen_instance
+            && self.outer == other.outer
+            && self.panels == other.panels
+            && self.too_small == other.too_small
+    }
 }
 
 /// Resolve one screen's geometry.

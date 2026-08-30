@@ -15,8 +15,8 @@ use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
 use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
 use crate::workbench::{
-    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, ScreenId, pty_content_rect,
-    resolve_layout,
+    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, ScreenDescriptor, ScreenId,
+    pty_content_rect, resolve_layout,
 };
 
 /// Resolve the active screen's geometry for a terminal size.
@@ -55,18 +55,37 @@ pub fn initial_runtime_geometry(state: &AppState) -> Option<(u16, u16)> {
         .published_workbench()
         .screen_registry()
         .get_identity(state.screen())?;
-    let panel_geometry = descriptor
+    pty_viewport_from(descriptor, layout).or_else(|| {
+        (layout.outer.width > 0 && layout.outer.height > 0)
+            .then_some((layout.outer.height, layout.outer.width))
+    })
+}
+
+/// The PTY viewport a resize must send for the active screen, as (rows, cols).
+///
+/// Resolved through the same single authority the renderer commits, so the
+/// dimensions a child receives are the rectangle it occupies on screen. `None`
+/// means this frame shows no visible nonzero PTY panel and no resize may be
+/// sent — there is no fabricated fallback.
+#[must_use]
+pub fn pty_resize_viewport(state: &AppState, term_cols: u16, term_rows: u16) -> Option<(u16, u16)> {
+    let layout = resolve_screen(state, term_cols, term_rows)?;
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    pty_viewport_from(descriptor, &layout)
+}
+
+/// The visible PTY panel's exact content rectangle in one committed frame.
+fn pty_viewport_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout) -> Option<(u16, u16)> {
+    descriptor
         .panels
         .iter()
         .filter(|panel| panel.panel_type.as_str() == PTY_PANEL_TYPE)
         .find_map(|panel| pty_content_rect(descriptor, layout, &panel.id))
         .filter(|rect| rect.width > 0 && rect.height > 0)
-        .map(|rect| (rect.height, rect.width));
-
-    panel_geometry.or_else(|| {
-        (layout.outer.width > 0 && layout.outer.height > 0)
-            .then_some((layout.outer.height, layout.outer.width))
-    })
+        .map(|rect| (rect.height, rect.width))
 }
 
 /// The rectangle a screen may use, after the status bar and keybind bar.

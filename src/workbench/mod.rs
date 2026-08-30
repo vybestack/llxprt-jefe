@@ -165,8 +165,8 @@ pub use relationships::{
     SessionEmptyPolicy, validate_relationships,
 };
 pub use resolve::{
-    PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
-    resolve_layout,
+    LayoutGeneration, PanelFrame, PanelState, ResolvedLayout, ResolvedPanel, TooSmall,
+    pty_content_rect, repair_focus, resolve_layout,
 };
 pub use resource_schemas::{
     BuiltinResourceSchemaError, ResourceSchema, ResourceSchemaError, ResourceSchemaRegistry,
