@@ -17,6 +17,7 @@
 //!   panel in descriptor focus order is visible, with a [`TooSmall`] notice.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::allocate::{AxisChild, LayoutError, allocate_axis};
 use super::config::panel_insets;
@@ -24,6 +25,31 @@ use super::descriptor::{Axis, LayoutChild, LayoutNode, ScreenDescriptor};
 use super::geometry::{Extent, Rect};
 use super::ids::{PanelId, ScreenInstanceId};
 use super::screens::PTY_PANEL_TYPE;
+
+/// Identity of one committed resolved frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutGeneration(u64);
+
+impl LayoutGeneration {
+    /// Issue one unique frame generation.
+    #[must_use]
+    pub fn next() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// The zero generation, used where no frame has committed yet.
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self(0)
+    }
+
+    /// The raw monotonic value, for exact ordering proof.
+    #[must_use]
+    pub fn raw(self) -> u64 {
+        self.0
+    }
+}
 
 /// Panels the application has hidden for reasons the descriptor does not model
 /// (no selection, a closed detail pane, an unavailable data source).
@@ -85,6 +111,13 @@ pub struct ResolvedLayout {
     /// Identity of the snapshot. Consumers compare this to prove they read the
     /// same geometry the renderer used.
     pub screen_instance: ScreenInstanceId,
+    /// Monotonic identity of this committed frame (issue #706).
+    ///
+    /// Every size, visibility, layer, or layout-state change that produced this
+    /// snapshot is assigned a fresh, strictly increasing generation. Any consumer
+    /// below the resolver annotates its output with the same generation so a stale
+    /// completion can be proven to change nothing.
+    pub generation: LayoutGeneration,
     /// The rectangle the screen was resolved into, after global chrome.
     pub outer: Rect,
     /// Every declared panel, in descriptor declaration order.
@@ -371,6 +404,7 @@ fn build_layout(
         .collect();
     ResolvedLayout {
         screen_instance,
+        generation: LayoutGeneration::next(),
         outer,
         panels,
         too_small: None,
@@ -484,6 +518,7 @@ fn too_small_layout(
         .collect();
     ResolvedLayout {
         screen_instance,
+        generation: LayoutGeneration::next(),
         outer,
         panels,
         too_small: Some(TooSmall {

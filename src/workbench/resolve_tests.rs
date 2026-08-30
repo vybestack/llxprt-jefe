@@ -4,7 +4,9 @@
 use super::descriptor::ScreenDescriptor;
 use super::geometry::Rect;
 use super::ids::{PanelId, ScreenInstanceId};
-use super::resolve::{PanelState, ResolvedLayout, pty_content_rect, repair_focus, resolve_layout};
+use super::resolve::{
+    LayoutGeneration, PanelState, ResolvedLayout, pty_content_rect, repair_focus, resolve_layout,
+};
 use super::screens::{PTY_PANEL_TYPE, builtin_screens};
 
 fn screens() -> Vec<ScreenDescriptor> {
@@ -250,10 +252,28 @@ fn resolution_is_deterministic_for_the_same_inputs() {
             for rows in [7_u16, 13, 24, 40] {
                 let instance = ScreenInstanceId::next();
                 let outer = Rect::new(0, 0, cols, rows);
-                let first =
-                    resolve_layout(&descriptor, instance, outer, &PanelState::all_visible());
-                let second =
-                    resolve_layout(&descriptor, instance, outer, &PanelState::all_visible());
+                // Geometry is deterministic; only the frame identity advances.
+                let first = resolve_layout(
+                    &descriptor,
+                    instance,
+                    outer,
+                    &PanelState::all_visible(),
+                );
+                let second = resolve_layout(
+                    &descriptor,
+                    instance,
+                    outer,
+                    &PanelState::all_visible(),
+                );
+                let (mut first, mut second) =
+                    (first.expect("resolution must not fail"), second.expect("resolution must not fail"));
+                assert_ne!(
+                    first.generation, second.generation,
+                    "each commit receives a fresh LayoutGeneration ({}x{}); only its identity may differ",
+                    descriptor.id, rows
+                );
+                first.generation = LayoutGeneration::zero();
+                second.generation = LayoutGeneration::zero();
                 assert_eq!(first, second, "screen {} at {cols}x{rows}", descriptor.id);
             }
         }
@@ -396,4 +416,56 @@ fn the_too_small_notice_reports_a_need_greater_than_what_was_available() {
             || too_small.needed.rows > too_small.available.rows,
         "the notice must state a shortfall, got {too_small:?}"
     );
+}
+
+#[test]
+fn every_committed_frame_receives_a_monotonic_layout_generation() {
+    let descriptors = screens();
+    let Some(descriptor) = descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.as_str() == "core.repositories")
+    else {
+        unreachable!("the repositories screen is compiled in");
+    };
+    let mut previous = None;
+    for (cols, rows, hidden) in [
+        (120, 40, None),
+        (119, 40, None),
+        (120, 39, None),
+        (120, 40, Some(true)),
+        (120, 40, None),
+    ] {
+        let state = match hidden {
+            Some(true) => PanelState::all_visible().hiding(&descriptor.panels[0].id),
+            _ => PanelState::all_visible(),
+        };
+        let generation = resolve_layout(
+            descriptor,
+            ScreenInstanceId::next(),
+            Rect::new(0, 0, cols, rows),
+            &state,
+        )
+        .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"))
+        .generation;
+        if let Some(previous) = previous {
+            assert!(
+                generation.raw() > previous,
+                "every committed frame must advance the generation: {previous} -> {}",
+                generation.raw()
+            );
+        }
+        previous = Some(generation.raw());
+    }
+}
+
+#[test]
+fn a_fresh_instance_resolution_receives_a_new_layout_generation() {
+    let descriptor = &screens()[0];
+    let first = resolve(descriptor, 100, 30);
+    let second = resolve(descriptor, 100, 30);
+    assert_ne!(
+        first.generation, second.generation,
+        "two committed frames must not collapse to one generation, even for identical inputs"
+    );
+    assert_ne!(first.generation.raw(), 0, "a committed frame is never generation zero");
 }
