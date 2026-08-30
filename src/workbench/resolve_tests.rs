@@ -253,20 +253,14 @@ fn resolution_is_deterministic_for_the_same_inputs() {
                 let instance = ScreenInstanceId::next();
                 let outer = Rect::new(0, 0, cols, rows);
                 // Geometry is deterministic; only the frame identity advances.
-                let first = resolve_layout(
-                    &descriptor,
-                    instance,
-                    outer,
-                    &PanelState::all_visible(),
+                let first =
+                    resolve_layout(&descriptor, instance, outer, &PanelState::all_visible());
+                let second =
+                    resolve_layout(&descriptor, instance, outer, &PanelState::all_visible());
+                let (mut first, mut second) = (
+                    first.expect("resolution must not fail"),
+                    second.expect("resolution must not fail"),
                 );
-                let second = resolve_layout(
-                    &descriptor,
-                    instance,
-                    outer,
-                    &PanelState::all_visible(),
-                );
-                let (mut first, mut second) =
-                    (first.expect("resolution must not fail"), second.expect("resolution must not fail"));
                 assert_ne!(
                     first.generation, second.generation,
                     "each commit receives a fresh LayoutGeneration ({}x{}); only its identity may differ",
@@ -467,5 +461,122 @@ fn a_fresh_instance_resolution_receives_a_new_layout_generation() {
         first.generation, second.generation,
         "two committed frames must not collapse to one generation, even for identical inputs"
     );
-    assert_ne!(first.generation.raw(), 0, "a committed frame is never generation zero");
+    assert_ne!(
+        first.generation.raw(),
+        0,
+        "a committed frame is never generation zero"
+    );
+}
+
+#[test]
+fn a_declared_panel_frame_carries_the_committed_generation_and_instance() {
+    let descriptors = screens();
+    let Some(descriptor) = descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.as_str() == "core.repositories")
+    else {
+        unreachable!("the repositories screen is compiled in");
+    };
+    let instance = ScreenInstanceId::next();
+    let layout = resolve_layout(
+        descriptor,
+        instance,
+        Rect::new(0, 0, 120, 40),
+        &PanelState::all_visible(),
+    )
+    .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"));
+    let panel = &descriptor.panels[0];
+    let frame = layout
+        .panel_frame(&panel.id)
+        .unwrap_or_else(|| unreachable!("a declared panel always carries a frame"));
+    assert_eq!(frame.generation, layout.generation);
+    assert_eq!(frame.screen_instance, instance);
+    assert_eq!(frame.panel, panel.id);
+}
+
+#[test]
+fn a_hidden_panel_still_carries_its_frame() {
+    let descriptors = screens();
+    let Some(descriptor) = descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.as_str() == "core.repositories")
+    else {
+        unreachable!("the repositories screen is compiled in");
+    };
+    let hidden_panel = &descriptor.panels[0];
+    let layout = resolve_layout(
+        descriptor,
+        ScreenInstanceId::next(),
+        Rect::new(0, 0, 120, 40),
+        &PanelState::all_visible().hiding(&hidden_panel.id),
+    )
+    .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"));
+    let frame = layout
+        .panel_frame(&hidden_panel.id)
+        .unwrap_or_else(|| unreachable!("a hidden panel still carries a frame"));
+    assert_eq!(
+        frame.generation, layout.generation,
+        "deferral of a hidden panel's PTY work stays bound to the committed frame"
+    );
+}
+
+#[test]
+fn an_undeclared_panel_has_no_frame() {
+    let descriptors = screens();
+    let Some(descriptor) = descriptors
+        .iter()
+        .find(|descriptor| descriptor.id.as_str() == "core.repositories")
+    else {
+        unreachable!("the repositories screen is compiled in");
+    };
+    let Some(other) = descriptors
+        .iter()
+        .find(|candidate| candidate.id.as_str() != "core.repositories")
+    else {
+        unreachable!("more than one builtin screen is compiled in");
+    };
+    let foreign_panel = other
+        .panels
+        .iter()
+        .find(|panel| descriptor.panel(&panel.id).is_none())
+        .map(|panel| panel.id)
+        .unwrap_or_else(|| unreachable!("screens do not share every panel id"));
+    let layout = resolve(descriptor, 120, 40);
+    assert!(
+        layout.panel_frame(&foreign_panel).is_none(),
+        "a panel this snapshot never declared has no frame to carry"
+    );
+}
+
+#[test]
+fn frames_from_separate_commits_differ_only_by_generation() {
+    let descriptor = &screens()[0];
+    let instance = ScreenInstanceId::next();
+    let commit = || {
+        resolve_layout(
+            descriptor,
+            instance,
+            Rect::new(0, 0, 100, 30),
+            &PanelState::all_visible(),
+        )
+        .unwrap_or_else(|error| unreachable!("resolution must not fail: {error}"))
+    };
+    let first = commit();
+    let second = commit();
+    let panel = &descriptor.panels[0];
+    let first_frame = first
+        .panel_frame(&panel.id)
+        .unwrap_or_else(|| unreachable!("a declared panel always carries a frame"));
+    let mut second_frame = second
+        .panel_frame(&panel.id)
+        .unwrap_or_else(|| unreachable!("a declared panel always carries a frame"));
+    assert_ne!(
+        first_frame, second_frame,
+        "two committed frames must not hand a consumer one identity"
+    );
+    second_frame.generation = first_frame.generation;
+    assert_eq!(
+        first_frame, second_frame,
+        "within one screen instance the generation is the only frame discriminator"
+    );
 }

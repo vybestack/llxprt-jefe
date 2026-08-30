@@ -51,6 +51,23 @@ impl LayoutGeneration {
     }
 }
 
+/// The frame identity one consumer below the resolver carries for a panel.
+///
+/// The pair (`screen_instance`, `panel`) names one instantiated panel and is
+/// stable while that screen instance lives; `generation` advances on every
+/// committed frame. Render, mouse, focus, selection, wrap, scroll, viewport,
+/// and PTY consumers annotate their inputs and effects with this value so a
+/// stale completion can be proven to change nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PanelFrame {
+    /// The committed frame the panel's geometry came from.
+    pub generation: LayoutGeneration,
+    /// Which instantiated screen owns the panel.
+    pub screen_instance: ScreenInstanceId,
+    /// Which declared panel of that screen instance this is.
+    pub panel: PanelId,
+}
+
 /// Panels the application has hidden for reasons the descriptor does not model
 /// (no selection, a closed detail pane, an unavailable data source).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -147,6 +164,20 @@ impl ResolvedLayout {
             panel
                 .hit_region
                 .is_some_and(|region| region.contains(col, row))
+        })
+    }
+
+    /// The frame identity a consumer below the resolver carries for `id`.
+    ///
+    /// Returns `None` only for a panel this snapshot never declared. A hidden
+    /// panel still carries a frame, so deferred work such as PTY creation stays
+    /// bound to the committed frame that hid it.
+    #[must_use]
+    pub fn panel_frame(&self, id: &PanelId) -> Option<PanelFrame> {
+        self.panel(id).map(|panel| PanelFrame {
+            generation: self.generation,
+            screen_instance: self.screen_instance,
+            panel: panel.id,
         })
     }
 }
