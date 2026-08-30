@@ -438,8 +438,12 @@ fn generic_runtime_paths_do_not_branch_on_dashboard_identity() {
 
     let navigation = read_repo("src/state/navigation.rs");
     assert_eq!(navigation.matches("DASHBOARD_IDENTITY").count(), 1);
+    // CRLF and LF checkouts must not flip this gate: the production runtime
+    // must never obtain the sealed Dashboard identity through a free string,
+    // and the only legitimate mention is the test-only Default.
+    let normalized = navigation.replace("\r\n", "\n");
     assert!(
-        navigation.contains("#[cfg(test)]\nimpl Default for NavState"),
+        normalized.contains("#[cfg(test)]\nimpl Default for NavState"),
         "produce runtime paths must not branch on the Dashboard identity"
     );
 
