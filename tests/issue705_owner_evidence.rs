@@ -438,7 +438,10 @@ fn generic_runtime_paths_do_not_branch_on_dashboard_identity() {
 
     let navigation = read_repo("src/state/navigation.rs");
     assert_eq!(navigation.matches("DASHBOARD_IDENTITY").count(), 1);
-    assert!(navigation.contains("#[cfg(test)]\nimpl Default for NavState"));
+    assert!(
+        navigation.contains("#[cfg(test)]\nimpl Default for NavState"),
+        "produce runtime paths must not branch on the Dashboard identity"
+    );
 
     for path in rust_files(&repo_path("src/app_input")) {
         let relative = path.to_string_lossy();
