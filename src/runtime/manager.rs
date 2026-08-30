@@ -184,6 +184,20 @@ pub trait RuntimeManager: Send {
     /// Resize the attached terminal.
     fn resize(&mut self, rows: u16, cols: u16) -> Result<(), RuntimeError>;
 
+    /// Resize the attached terminal to one frame's committed PTY viewport.
+    ///
+    /// The generation orders the effect: an offer whose generation does not
+    /// advance past the last applied one is a stale completion and changes
+    /// nothing, so out-of-order arrivals cannot resurrect an old frame's
+    /// rectangle. An unchanged rectangle acknowledges the newer frame without
+    /// churning the attached viewer. Legacy [`RuntimeManager::resize`] remains
+    /// only for the not-yet-declared overlay rectangles (issue #706 cutover
+    /// step 2).
+    fn resize_to_frame(
+        &mut self,
+        viewport: crate::workbench::RuntimeViewport,
+    ) -> Result<(), RuntimeError>;
+
     /// Get the currently attached agent ID.
     fn attached_agent(&self) -> Option<&AgentId>;
 
@@ -286,6 +300,10 @@ pub struct TmuxRuntimeManager {
     pub(crate) cols: u16,
     /// Whether the first committed frame has supplied nonzero PTY geometry.
     pub(super) initial_geometry_configured: bool,
+    /// The frame whose PTY viewport the runtime last adopted. `zero` is the
+    /// pre-commit sentinel: no frame has supplied geometry yet, so every real
+    /// generation orders after it (issue #706 CWR3-04).
+    pub(super) frame_generation: crate::workbench::LayoutGeneration,
     /// Monotonically increasing PTY-output generation counter (issue #198).
     /// Incremented by `take_dirty()`. The history cache compares the stored
     /// generation to decide re-capture.
@@ -379,6 +397,7 @@ impl TmuxRuntimeManager {
             rows,
             cols,
             initial_geometry_configured,
+            frame_generation: crate::workbench::LayoutGeneration::zero(),
             output_generation: AtomicU64::new(0),
             history_cache: HistoryCache::default(),
             lifecycle_counter: AtomicU64::new(0),
@@ -888,6 +907,30 @@ impl RuntimeManager for TmuxRuntimeManager {
 
         if let Some(viewer) = &self.viewer {
             viewer.resize(rows, cols)?;
+        }
+
+        Ok(())
+    }
+
+    fn resize_to_frame(
+        &mut self,
+        viewport: crate::workbench::RuntimeViewport,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_initial_geometry()?;
+        // A completion from a frame the runtime has already superseded changes
+        // nothing, even when its rectangle differs (issue #706 CWR3-04).
+        if viewport.generation <= self.frame_generation {
+            return Ok(());
+        }
+        self.frame_generation = viewport.generation;
+        if viewport.rows == self.rows && viewport.cols == self.cols {
+            return Ok(());
+        }
+        self.rows = viewport.rows;
+        self.cols = viewport.cols;
+
+        if let Some(viewer) = &self.viewer {
+            viewer.resize(viewport.rows, viewport.cols)?;
         }
 
         Ok(())

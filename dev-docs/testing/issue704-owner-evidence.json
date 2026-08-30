@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "12fb5f5ab8a4dee6c5f2db1c73a24262c55c5f0e20ac1fcd6e6ad6b14b70b2cb",
+      "sha256": "e884332cf4dbffcf79a37411016231ce0bb638eeea772fd171b16e76af31b498",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -143,7 +143,7 @@
     },
     {
       "path": "src/runtime/manager_geometry.rs",
-      "sha256": "f9b7dc4379ebfc097f57b5eff81f9aa0cda9ff81140fd3437623c570c819d415",
+      "sha256": "95797f4bf42a992eb258fbfc5ef5409af81a3901340e1f5fc1b48f2d83ba9a52",
       "mode": "100644",
       "criteria": [
         "CWR1-10"

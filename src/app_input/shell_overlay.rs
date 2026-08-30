@@ -173,9 +173,8 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::
         if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
             warn!(error = %error, "failed to resize shell terminal");
         }
-    } else if let Some((pty_rows, pty_cols)) =
-        jefe::screen_layout::pty_resize_viewport(state, cols, rows)
-        && let Err(error) = guard.runtime.resize(pty_rows, pty_cols)
+    } else if let Some(viewport) = jefe::screen_layout::pty_resize_viewport(state, cols, rows)
+        && let Err(error) = guard.runtime.resize_to_frame(viewport)
     {
         warn!(error = %error, "failed to resize shell terminal");
     }

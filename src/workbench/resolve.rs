@@ -31,10 +31,12 @@ use super::screens::PTY_PANEL_TYPE;
 pub struct LayoutGeneration(u64);
 
 impl LayoutGeneration {
-    /// Issue one unique frame generation.
+    /// Issue one unique frame generation. Real frames mint from one upward so
+    /// [`LayoutGeneration::zero`] remains strictly "no frame has committed",
+    /// which runtime consumers use as their pre-commit sentinel.
     #[must_use]
     pub fn next() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
+        static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
     }
 
@@ -66,6 +68,22 @@ pub struct PanelFrame {
     pub screen_instance: ScreenInstanceId,
     /// Which declared panel of that screen instance this is.
     pub panel: PanelId,
+}
+
+/// The PTY viewport one frame hands the runtime manager.
+///
+/// Carries the frame identity alongside the rectangle so create and resize
+/// effects can be proven current: the manager applies an ordered resize only
+/// when its generation advances past the last one it applied, which makes a
+/// stale completion provably change nothing (issue #706 CWR3-02/CWR3-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeViewport {
+    /// Content-rectangle height in rows sent to the child.
+    pub rows: u16,
+    /// Content-rectangle width in columns sent to the child.
+    pub cols: u16,
+    /// The frame this rectangle came from.
+    pub generation: LayoutGeneration,
 }
 
 /// Panels the application has hidden for reasons the descriptor does not model

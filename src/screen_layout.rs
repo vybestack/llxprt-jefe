@@ -15,8 +15,8 @@ use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
 use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
 use crate::workbench::{
-    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, ScreenDescriptor, ScreenId,
-    pty_content_rect, resolve_layout,
+    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, RuntimeViewport, ScreenDescriptor,
+    ScreenId, pty_content_rect, resolve_layout,
 };
 
 /// Resolve the active screen's geometry for a terminal size.
@@ -48,16 +48,21 @@ pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Optio
 /// A visible PTY panel is authoritative when the committed screen declares one.
 /// Screens without a visible PTY still commit their resolved outer frame so
 /// restored sessions can start without consulting ambient terminal dimensions.
+/// The returned viewport carries the committed frame's generation so the
+/// create effect can be proven current (issue #706 CWR3-02).
 #[must_use]
-pub fn initial_runtime_geometry(state: &AppState) -> Option<(u16, u16)> {
+pub fn initial_runtime_geometry(state: &AppState) -> Option<RuntimeViewport> {
     let layout = state.resolved_layout.as_ref()?;
     let descriptor = state
         .published_workbench()
         .screen_registry()
         .get_identity(state.screen())?;
-    pty_viewport_from(descriptor, layout).or_else(|| {
-        (layout.outer.width > 0 && layout.outer.height > 0)
-            .then_some((layout.outer.height, layout.outer.width))
+    committed_viewport_from(descriptor, layout).or_else(|| {
+        (layout.outer.width > 0 && layout.outer.height > 0).then_some(RuntimeViewport {
+            rows: layout.outer.height,
+            cols: layout.outer.width,
+            generation: layout.generation,
+        })
     })
 }
 
@@ -78,6 +83,36 @@ pub fn committed_pty_content_rect(state: &AppState) -> Option<Rect> {
     pty_content_rect_from(descriptor, layout)
 }
 
+/// The runtime viewport the committed frame offers on layout commit.
+///
+/// On layout commit the runtime may be offered at most one ordered resize
+/// carrying this exact rectangle and generation; the manager drops offers
+/// whose generation it has already superseded, so a stale completion changes
+/// nothing (issue #706 CWR3-04). `None` means the frame shows no visible
+/// nonzero PTY panel — a hidden or zero-size panel defers and no resize is
+/// offered.
+#[must_use]
+pub fn committed_runtime_viewport(state: &AppState) -> Option<RuntimeViewport> {
+    let layout = state.resolved_layout.as_ref()?;
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    committed_viewport_from(descriptor, layout)
+}
+
+/// The visible PTY panel's viewport in one committed frame, with its identity.
+fn committed_viewport_from(
+    descriptor: &ScreenDescriptor,
+    layout: &ResolvedLayout,
+) -> Option<RuntimeViewport> {
+    pty_content_rect_from(descriptor, layout).map(|rect| RuntimeViewport {
+        rows: rect.height,
+        cols: rect.width,
+        generation: layout.generation,
+    })
+}
+
 /// The visible PTY panel's exact content rectangle in one resolved frame.
 fn pty_content_rect_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout) -> Option<Rect> {
     descriptor
@@ -88,25 +123,26 @@ fn pty_content_rect_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout)
         .filter(|rect| rect.width > 0 && rect.height > 0)
 }
 
-/// The PTY viewport a resize must send for the active screen, as (rows, cols).
+/// The PTY viewport a resize must send for the active screen.
 ///
 /// Resolved through the same single authority the renderer commits, so the
-/// dimensions a child receives are the rectangle it occupies on screen. `None`
-/// means this frame shows no visible nonzero PTY panel and no resize may be
-/// sent — there is no fabricated fallback.
+/// dimensions a child receives are the rectangle it occupies on screen; the
+/// answer carries the generation its own resolve minted, which is the frame
+/// that would commit for these inputs. `None` means this frame shows no
+/// visible nonzero PTY panel and no resize may be sent — there is no
+/// fabricated fallback.
 #[must_use]
-pub fn pty_resize_viewport(state: &AppState, term_cols: u16, term_rows: u16) -> Option<(u16, u16)> {
+pub fn pty_resize_viewport(
+    state: &AppState,
+    term_cols: u16,
+    term_rows: u16,
+) -> Option<RuntimeViewport> {
     let layout = resolve_screen(state, term_cols, term_rows)?;
     let descriptor = state
         .published_workbench()
         .screen_registry()
         .get_identity(state.screen())?;
-    pty_viewport_from(descriptor, &layout)
-}
-
-/// The visible PTY panel's viewport dimensions in one committed frame.
-fn pty_viewport_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout) -> Option<(u16, u16)> {
-    pty_content_rect_from(descriptor, layout).map(|rect| (rect.height, rect.width))
+    committed_viewport_from(descriptor, &layout)
 }
 
 /// The rectangle a screen may use, after the status bar and keybind bar.

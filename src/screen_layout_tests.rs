@@ -2,12 +2,12 @@
 
 use crate::domain::AgentId;
 use crate::screen_layout::{
-    committed_pty_content_rect, hidden_panel_ids, initial_runtime_geometry, pty_resize_viewport,
-    resolve_screen, screen_rect,
+    committed_pty_content_rect, committed_runtime_viewport, hidden_panel_ids,
+    initial_runtime_geometry, pty_resize_viewport, resolve_screen, screen_rect,
 };
 use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState};
-use crate::workbench::{PanelId, ScreenId, ScreenIdentity, builtin_screens};
+use crate::workbench::{LayoutGeneration, PanelId, ScreenId, ScreenIdentity, builtin_screens};
 
 fn state_on(screen: impl Into<ScreenIdentity>) -> AppState {
     let mut state = AppState::test_fixture();
@@ -64,22 +64,97 @@ fn initial_runtime_geometry_comes_from_the_resolved_frame() {
     let terminal =
         crate::workbench::pty_content_rect(descriptor, layout, &PanelId::from_static("terminal"))
             .unwrap_or_else(|| unreachable!("dashboard terminal is visible"));
+    let viewport = initial_runtime_geometry(&dashboard)
+        .unwrap_or_else(|| unreachable!("dashboard supplies the first PTY viewport"));
     assert_eq!(
-        initial_runtime_geometry(&dashboard),
-        Some((terminal.height, terminal.width))
+        (viewport.rows, viewport.cols),
+        (terminal.height, terminal.width)
+    );
+    assert_eq!(
+        viewport.generation, layout.generation,
+        "the create effect carries the committed frame's generation"
     );
 
     let mut settings = state_on(ScreenId::Settings);
     settings.resolved_layout = resolve_screen(&settings, 120, 40);
-    let outer = settings
+    let layout = settings
         .resolved_layout
         .as_ref()
-        .unwrap_or_else(|| unreachable!("settings resolves"))
-        .outer;
+        .unwrap_or_else(|| unreachable!("settings resolves"));
+    let outer = layout.outer;
+    let viewport = initial_runtime_geometry(&settings)
+        .unwrap_or_else(|| unreachable!("settings commits an outer viewport"));
     assert_eq!(
-        initial_runtime_geometry(&settings),
-        Some((outer.height, outer.width)),
+        (viewport.rows, viewport.cols),
+        (outer.height, outer.width),
         "a screen without a PTY commits its resolved frame rather than ambient terminal size"
+    );
+    assert_eq!(
+        viewport.generation, layout.generation,
+        "the outer fallback still carries the committed frame's generation"
+    );
+}
+
+#[test]
+fn the_committed_frame_supplies_the_runtime_viewport_for_resizes() {
+    // On layout commit the runtime may be offered at most one resize, and it
+    // must carry the committed frame's exact rectangle and generation so a
+    // stale completion can be proven to change nothing (issue #706 CWR3-04).
+    let mut state = state_on(ScreenId::Terminals);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    let layout = state
+        .resolved_layout
+        .as_ref()
+        .unwrap_or_else(|| unreachable!("terminals resolves"));
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .unwrap_or_else(|| unreachable!("terminals is compiled"));
+    let pty_panel = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.panel_type.as_str() == crate::workbench::PTY_PANEL_TYPE)
+        .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
+    let rect = crate::workbench::pty_content_rect(descriptor, layout, &pty_panel.id)
+        .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
+    let viewport = committed_runtime_viewport(&state)
+        .unwrap_or_else(|| unreachable!("a visible PTY panel supplies the runtime viewport"));
+    assert_eq!((viewport.rows, viewport.cols), (rect.height, rect.width));
+    assert_eq!(
+        viewport.generation, layout.generation,
+        "the resize offer carries the committed frame's generation"
+    );
+
+    let mut settings = state_on(ScreenId::Settings);
+    settings.resolved_layout = resolve_screen(&settings, 120, 40);
+    assert_eq!(
+        committed_runtime_viewport(&settings),
+        None,
+        "a frame without a visible PTY panel offers no resize"
+    );
+    assert_eq!(
+        committed_runtime_viewport(&state_on(ScreenId::Terminals)),
+        None,
+        "without a committed frame there is no resize offer"
+    );
+}
+
+#[test]
+fn a_fresh_resize_viewport_carries_a_newly_minted_generation() {
+    // pty_resize_viewport answers terminal-size events, which arrive between
+    // committed frames. Its rectangle comes from a fresh resolve, so its
+    // generation must be one the resolver actually minted for that answer —
+    // bracketed here by two explicit mints — rather than an ambient value.
+    let mut state = state_on(ScreenId::Terminals);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    let before = LayoutGeneration::next();
+    let viewport = pty_resize_viewport(&state, 120, 40)
+        .unwrap_or_else(|| unreachable!("terminals shows its shell preview"));
+    let after = LayoutGeneration::next();
+    assert!(
+        viewport.generation > before && viewport.generation < after,
+        "the resize answer must carry a generation minted by its own resolve"
     );
 }
 
@@ -151,10 +226,10 @@ fn a_resize_targets_the_active_screens_resolved_pty_viewport() {
         .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
     let rect = crate::workbench::pty_content_rect(descriptor, &layout, &pty_panel.id)
         .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
-    assert_eq!(viewport, (rect.height, rect.width));
+    assert_eq!((viewport.rows, viewport.cols), (rect.height, rect.width));
     let mirror = crate::layout::compute_pty_layout_for_windowed(120, 40, false);
     assert_ne!(
-        viewport,
+        (viewport.rows, viewport.cols),
         (mirror.pty_rows, mirror.pty_cols),
         "the dashboard mirror must stop answering for the Terminal Manager screen"
     );

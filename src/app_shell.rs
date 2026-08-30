@@ -482,24 +482,41 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     snapshot.resolved_layout = resolved_layout;
     let snapshot = snapshot;
 
-    if terminal_size.is_some()
-        && !startup_sessions_restored.get()
-        && let Some((rows, cols)) = jefe::screen_layout::initial_runtime_geometry(&snapshot)
-    {
-        let context = ctx
-            .as_ref()
-            .unwrap_or_else(|| panic!("application context is required for runtime restoration"));
-        {
-            let Ok(mut context) = context.lock() else {
-                panic!("application context lock poisoned during runtime configuration");
-            };
-            context
-                .runtime
-                .configure_initial_geometry(rows, cols)
-                .unwrap_or_else(|error| panic!("initial runtime geometry failed: {error}"));
+    if terminal_size.is_some() && !startup_sessions_restored.get() {
+        if let Some(viewport) = jefe::screen_layout::initial_runtime_geometry(&snapshot) {
+            let context = ctx.as_ref().unwrap_or_else(|| {
+                panic!("application context is required for runtime restoration")
+            });
+            {
+                let Ok(mut context) = context.lock() else {
+                    panic!("application context lock poisoned during runtime configuration");
+                };
+                context
+                    .runtime
+                    .configure_initial_geometry(viewport)
+                    .unwrap_or_else(|error| panic!("initial runtime geometry failed: {error}"));
+            }
+            crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
+            startup_sessions_restored.set(true);
         }
-        crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
-        startup_sessions_restored.set(true);
+    } else if terminal_size.is_some()
+        && startup_sessions_restored.get()
+        && should_publish_layout
+        && !snapshot.shell_overlay_active()
+        && let Some(viewport) = jefe::screen_layout::committed_runtime_viewport(&snapshot)
+    {
+        // On layout commit, offer the runtime one ordered resize carrying the
+        // committed frame's exact rectangle and generation. The manager drops
+        // offers whose generation it has already superseded and no-ops an
+        // unchanged rectangle, so only changed visible PTY panels resize and a
+        // stale completion changes nothing (issue #706 CWR3-04). While the
+        // shell overlay owns the PTY, its own resize path is the authority.
+        if let Some(context) = ctx.as_ref()
+            && let Ok(mut context) = context.lock()
+            && let Err(error) = context.runtime.resize_to_frame(viewport)
+        {
+            tracing::warn!(error = %error, "failed to resize terminal to the committed frame");
+        }
     }
 
     // Capture scrollback only when the current descriptor declares the private

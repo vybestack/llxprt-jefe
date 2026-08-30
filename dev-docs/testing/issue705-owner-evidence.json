@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "65cc07d34dd8957e5450df65c2df5524fe6d84f3215ead250465c75435fe7ec8"
+    "artifact_set_sha256": "10623127fba5271a3d4bc3ea14ab6ffe4369ef73b9a410569577b8451050479b"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "430724658a37f0ef0dbcde44ac8afb061cf369d6676b88b77c042a1043f182c6",
+      "sha256": "629a77c06f62aba7e84c64e606700461c8fcd0cef25e19a4282983b88311c787",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "12fb5f5ab8a4dee6c5f2db1c73a24262c55c5f0e20ac1fcd6e6ad6b14b70b2cb",
+      "sha256": "e884332cf4dbffcf79a37411016231ce0bb638eeea772fd171b16e76af31b498",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -211,7 +211,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "42e1f5b5578f25c5b57d5710c6ec944f533180506b4ace0640fc186c0ffa93c6",
+      "sha256": "8eebd5491348fc298ce6fe1478cf1ba49b70c009495771fb3e8321fd9649719a",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -404,7 +404,7 @@
     },
     {
       "path": "src/screen_layout.rs",
-      "sha256": "f527712e46b306428f90208bb56b64226d40334c71e50f9eea50693a3f970faa",
+      "sha256": "ce95e5798d2f8dfa87cd9f758e0ec4e7839589eb896ab5ae811cdb14d72d9855",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
