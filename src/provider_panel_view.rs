@@ -194,6 +194,16 @@ pub fn project_current_screen(
             continue;
         }
         if panel_descriptor.panel_type.as_str() == PTY_PANEL_TYPE {
+            // The Terminal Manager's preview pane carries the single live
+            // viewer only while the shell overlay runs; the rest of the time
+            // it is the throttled read-only preview captured from the
+            // manager channel — never a second live viewer.
+            if descriptor.id == crate::workbench::TERMINALS_IDENTITY
+                && !state.shell_overlay_active()
+            {
+                project_shell_preview(projection, state);
+                continue;
+            }
             "Terminal".clone_into(&mut projection.title);
             projection.status = PanelStatus::Active;
             projection.lines.clear();
@@ -217,6 +227,58 @@ pub fn project_current_screen(
 
 /// Fill one host-owned panel from its projected model, clamping the retained
 /// scroll offset to the visible row window after any source shrink.
+/// Project the Terminal Manager's throttled shell preview into a PTY panel.
+///
+/// Mirrors the retired compiled renderer: a header identifying the selected
+/// shell's owner, then the last captured preview lines (or the same
+/// placeholders the compiled screen showed) so an unfocused manager never
+/// renders a second live viewer.
+fn project_shell_preview(projection: &mut PanelProjection, state: &AppState) {
+    let rows = crate::state::project_managed_shell_rows(state);
+    let selected = state
+        .terminal_manager
+        .selected_index
+        .and_then(|index| rows.get(index));
+    let Some(row) = selected else {
+        projection.status = PanelStatus::Active;
+        projection.lines.clear();
+        projection.hit_targets.clear();
+        projection.max_scroll_offset = 0;
+        return;
+    };
+    let manager = &state.terminal_manager;
+    let mut lines = vec![
+        format!("Agent: {}", row.agent_name),
+        format!(
+            "Repo: {} · Workdir: {} · Status: {}{}",
+            row.repository_name,
+            row.work_dir,
+            row.status_label,
+            if row.close_only { " (close-only)" } else { "" }
+        ),
+        crate::ui::components::SEPARATOR_LINE.to_string(),
+    ];
+    if let Some(pending) = &manager.pending_focus {
+        lines.push(format!("Focusing {}\u{2026}", pending.agent_id.0));
+    }
+    if manager.preview.failed {
+        lines.push("(preview unavailable)".to_owned());
+    } else if manager.preview.lines.is_empty() {
+        if row.close_only {
+            lines.push("(owner not running \u{2014} close-only)".to_owned());
+        } else {
+            lines.push("(capturing preview\u{2026})".to_owned());
+        }
+    } else {
+        lines.extend(manager.preview.lines.iter().cloned());
+    }
+    let maximum = lines.len().saturating_sub(1);
+    projection.status = PanelStatus::Active;
+    projection.lines = lines;
+    projection.hit_targets.clear();
+    projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
+}
+
 fn project_host_model(
     projection: &mut PanelProjection,
     model: crate::host_panel_models::HostPanelModel,

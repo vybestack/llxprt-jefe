@@ -100,7 +100,7 @@ fn a_config_with_no_definitions_directory_composes_the_shipped_screens() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
     assert!(composition.warnings.is_empty());
 }
@@ -114,7 +114,7 @@ fn an_empty_definitions_directory_composes_the_shipped_screens() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
 }
 
@@ -128,7 +128,7 @@ fn an_enabled_definition_on_disk_joins_the_registry() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 2
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS + 1
     );
     assert!(composition.warnings.is_empty());
 }
@@ -143,7 +143,7 @@ fn a_definition_settings_do_not_enable_is_left_out_without_complaint() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
     assert!(composition.resource_schemas.is_empty());
     assert!(composition.warnings.is_empty());

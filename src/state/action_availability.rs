@@ -57,7 +57,6 @@ impl AppState {
                 super::ScreenId::Repositories
                 | super::ScreenId::Actions
                 | super::ScreenId::Errors
-                | super::ScreenId::Terminals
                 | super::ScreenId::Settings,
             )
             // A lowered package or custom screen owns its own notice surface;

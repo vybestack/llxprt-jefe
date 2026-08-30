@@ -75,7 +75,7 @@ impl AppState {
         self.dashboard_grab = None;
         let previous_pane_focus = self.shell_overlay.previous_pane_focus.take();
         if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
-            let _ = self.show_screen(crate::state::ScreenId::Terminals);
+            let _ = self.show_terminal_manager();
             self.terminal_manager.active = true;
             self.pane_focus = crate::state::PaneFocus::Agents;
         } else {
@@ -224,7 +224,7 @@ mod tests {
 
         state.hide_shell_overlay();
 
-        assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::workbench::TERMINALS_IDENTITY);
         assert!(state.terminal_manager.active);
         assert_eq!(state.shell_overlay.previous_pane_focus, None);
         assert_eq!(
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn manager_shell_hide_returns_to_manager_and_clears_return_target() {
         let mut state = AppState::test_fixture();
-        let _ = state.enter_screen(crate::state::ScreenId::Terminals);
+        let _ = state.show_terminal_manager();
         state.terminal_manager.active = true;
         state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
         state.resume_shell_overlay(AgentId("agent-1".into()));
@@ -305,7 +305,7 @@ mod tests {
 
         state.hide_shell_overlay();
 
-        assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::workbench::TERMINALS_IDENTITY);
         assert_eq!(
             state.nav.depth(),
             depth_before,
@@ -325,7 +325,7 @@ mod tests {
         // `state.screen()` stays Terminals either way, so only the depth shows
         // whether the session is stacking copies of the screen it is on.
         let mut state = AppState::test_fixture();
-        let _ = state.enter_screen(crate::state::ScreenId::Terminals);
+        let _ = state.show_terminal_manager();
         state.terminal_manager.active = true;
         let depth = state.nav.depth();
 
@@ -336,7 +336,7 @@ mod tests {
         }
 
         assert_eq!(state.nav.depth(), depth);
-        assert_eq!(state.screen(), crate::state::ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::workbench::TERMINALS_IDENTITY);
     }
 
     #[test]

@@ -19,7 +19,7 @@ use jefe::messages::AppMessage;
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
     ModalViewport, TerminalRenderData, build_modal_element, build_provider_overlay_element,
@@ -533,7 +533,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 .any(|panel| panel.panel_type.as_str() == jefe::workbench::PTY_PANEL_TYPE)
         });
     let history_lines: Vec<String> = if has_embedded_terminal
-        || (snapshot.screen() == ScreenId::Terminals && snapshot.shell_overlay_active())
+        || (snapshot.screen() == jefe::workbench::TERMINALS_IDENTITY
+            && snapshot.shell_overlay_active())
     {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {

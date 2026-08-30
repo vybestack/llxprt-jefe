@@ -66,7 +66,6 @@ const EXPECTED: &[(&str, &[(&str, usize)])] = &[
             ("src/ui/screens/issues.rs", 1),
             ("src/ui/screens/pull_requests.rs", 1),
             ("src/ui/screens/split.rs", 1),
-            ("src/ui/screens/terminal_manager.rs", 1),
         ],
     ),
     (
@@ -122,7 +121,6 @@ const EXPECTED: &[(&str, &[(&str, usize)])] = &[
             ("src/ui/screens/issues.rs", 1),
             ("src/ui/screens/pull_requests.rs", 1),
             ("src/ui/screens/split.rs", 1),
-            ("src/ui/screens/terminal_manager.rs", 1),
         ],
     ),
 ];

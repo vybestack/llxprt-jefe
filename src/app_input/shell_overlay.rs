@@ -13,7 +13,7 @@ use jefe::runtime::{
     DesktopPlatform, ExternalTerminalError, RuntimeError, RuntimeManager, RuntimeSession,
     build_external_terminal_plan, spawn_external_terminal,
 };
-use jefe::state::{AppEvent, ScreenId};
+use jefe::state::AppEvent;
 
 use super::{AppStateHandle, SharedContext, dispatch_app_event};
 
@@ -163,7 +163,7 @@ pub fn resize_terminal(ctx: &SharedContext, cols: u16, rows: u16, state: &jefe::
     // no visible PTY panel sends nothing — there is no fabricated fallback.
     // The overlay branches still carry their legacy rectangles until those
     // layers are declared in the descriptor (issue #706 cutover step 2).
-    if state.shell_overlay_active() && state.screen() == ScreenId::Terminals {
+    if state.shell_overlay_active() && state.screen() == jefe::workbench::TERMINALS_IDENTITY {
         let layout = jefe::layout::compute_terminal_manager_pty_layout(cols, rows);
         if let Err(error) = guard.runtime.resize(layout.pty_rows, layout.pty_cols) {
             warn!(error = %error, "failed to resize shell terminal");

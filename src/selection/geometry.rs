@@ -175,9 +175,10 @@ pub fn pane_at(
             | crate::state::ScreenId::Actions
             | crate::state::ScreenId::Errors,
         ) => issues_pane_at(col, row, render_cols, render_rows, *layout),
-        // Open definitions, Terminal Manager, and Settings resolve every pane
-        // through their descriptor and have no legacy fallback geometry.
-        Some(crate::state::ScreenId::Terminals | crate::state::ScreenId::Settings) | None => None,
+        // Open definitions and Settings resolve every pane through their
+        // descriptor and have no legacy fallback geometry. The Terminal
+        // Manager reaches this None arm through its descriptor identity.
+        Some(crate::state::ScreenId::Settings) | None => None,
     }
 }
 

@@ -1,7 +1,7 @@
 //! Exact terminal dimensions for the current screen-instance frame.
 
 use jefe::state::AppState;
-use jefe::workbench::{PanelId, ScreenId};
+use jefe::workbench::PanelId;
 
 #[must_use]
 pub fn terminal_pane_dimensions(
@@ -10,7 +10,7 @@ pub fn terminal_pane_dimensions(
     term_rows: u16,
 ) -> (usize, usize) {
     if snapshot.shell_overlay_active() {
-        let layout = if snapshot.screen() == ScreenId::Terminals {
+        let layout = if snapshot.screen() == jefe::workbench::TERMINALS_IDENTITY {
             jefe::layout::compute_terminal_manager_pty_layout(term_cols, term_rows)
         } else {
             jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)

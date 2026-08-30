@@ -6,9 +6,7 @@
 //! persisted). Side effects (capture, attach, close) happen at the runtime
 //! boundary BEFORE these reducers run.
 
-use super::{
-    AppState, ManagedShellRow, ScreenId, ShellFocusOrigin, ShellReturnTarget, status_label_for,
-};
+use super::{AppState, ManagedShellRow, ShellFocusOrigin, ShellReturnTarget, status_label_for};
 use crate::domain::{AgentId, AgentStatus};
 use crate::messages::{NavDir, TerminalManagerMessage};
 
@@ -57,7 +55,7 @@ pub fn project_managed_shell_rows(state: &AppState) -> Vec<ManagedShellRow> {
 impl AppState {
     /// Enter terminal-manager mode in a fresh exact screen instance (issue #364 PR A).
     fn enter_terminal_manager_mode(&mut self) -> bool {
-        let _ = self.show_screen(ScreenId::Terminals);
+        let _ = self.show_terminal_manager();
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
         let rows = project_managed_shell_rows(self);
@@ -157,7 +155,7 @@ impl AppState {
             }
             ShellFocusOrigin::ManagerEnter => {
                 self.terminal_manager.active = true;
-                let _ = self.show_screen(ScreenId::Terminals);
+                let _ = self.show_terminal_manager();
                 self.shell_return_target = ShellReturnTarget::TerminalManager;
             }
         }
@@ -406,7 +404,7 @@ mod tests {
             AgentId("agent-1".into()),
         ));
         assert!(ok);
-        assert_eq!(state.screen(), ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::workbench::TERMINALS_IDENTITY);
         assert!(state.terminal_manager.active);
         assert!(state.shell_overlay_active());
         assert!(state.terminal_focused);

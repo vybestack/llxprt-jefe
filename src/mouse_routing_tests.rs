@@ -708,7 +708,7 @@ fn is_event_over_terminal_pane_is_false_without_a_visible_pty_panel() {
 
 fn committed_terminals_state() -> AppState {
     let mut state = crate::test_app_state();
-    state.restore_navigation_root(ScreenId::Terminals);
+    state.restore_navigation_root(jefe::workbench::TERMINALS_IDENTITY);
     state.resolved_layout = jefe::screen_layout::resolve_screen(&state, 120, 40);
     state
 }

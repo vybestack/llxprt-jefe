@@ -66,7 +66,10 @@ fn the_terminal_pane_names_the_right_panel_on_each_screen() {
         Some(PanelId::from_static("terminal"))
     );
     assert_eq!(
-        selectable_to_panel(SelectablePane::TerminalView, ScreenId::Terminals),
+        selectable_to_panel(
+            SelectablePane::TerminalView,
+            crate::workbench::TERMINALS_IDENTITY
+        ),
         Some(PanelId::from_static("shell-preview"))
     );
 }

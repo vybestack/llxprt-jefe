@@ -15,7 +15,6 @@ mod pull_requests;
 /// The Settings screen (issue #387).
 mod settings;
 mod split;
-mod terminal_manager;
 mod workflow_dispatch;
 
 pub use actions::{ActionsScreen, ActionsScreenProps};
@@ -30,5 +29,4 @@ pub use new_repository::{NewRepositoryForm, NewRepositoryFormProps};
 pub use pull_requests::{PullRequestsScreen, PullRequestsScreenProps};
 pub use settings::{SettingsScreen, SettingsScreenProps};
 pub use split::{SplitScreen, SplitScreenProps};
-pub use terminal_manager::{TerminalManagerScreen, TerminalManagerScreenProps};
 pub use workflow_dispatch::{WorkflowDispatchForm, WorkflowDispatchFormProps};

@@ -786,10 +786,9 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        Some(
-            ScreenId::Errors | ScreenId::Repositories | ScreenId::Terminals | ScreenId::Settings,
-        )
-        | None => (false, false),
+        Some(ScreenId::Errors | ScreenId::Repositories | ScreenId::Settings) | None => {
+            (false, false)
+        }
     };
     let error_visible =
         (state.error_message.is_some() && compiled != Some(ScreenId::Errors)) || mode_error;

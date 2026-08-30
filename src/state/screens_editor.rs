@@ -195,8 +195,9 @@ fn project_row(
 ) -> ScreenEditorRow {
     // Composition includes every shipped screen whatever settings say, so a
     // mandatory row reports the truth and says why it cannot be changed.
-    let mandatory =
-        screen.id.compiled().is_some() || screen.id == crate::workbench::DASHBOARD_IDENTITY;
+    let mandatory = screen.id.compiled().is_some()
+        || screen.id == crate::workbench::DASHBOARD_IDENTITY
+        || screen.id == crate::workbench::TERMINALS_IDENTITY;
     let owner = Id::parse(screen.id.as_str()).ok();
     let composition = owner.as_ref().map_or_else(
         || CompositionStatus::Invalid {

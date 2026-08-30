@@ -167,7 +167,6 @@ fn the_compiled_residual_set_is_exactly_seven_and_excludes_dashboard() {
         ScreenId::PullRequests,
         ScreenId::Actions,
         ScreenId::Errors,
-        ScreenId::Terminals,
         ScreenId::Settings,
     ];
     let registered: Vec<ScreenId> = registry
@@ -411,6 +410,25 @@ fn no_flexible_child_reserves_a_minimum_it_does_not_need() {
 }
 
 #[test]
+fn shipped_builtin_count_matches_the_declared_table() {
+    let builtins = registry()
+        .screens()
+        .iter()
+        .filter(|screen| screen.id.compiled().is_none())
+        .count();
+    assert_eq!(
+        builtins,
+        crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
+        "SHIPPED_BUILTIN_SCREENS must name exactly the builtin descriptor screens"
+    );
+    assert_eq!(
+        registry().screens().len(),
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
+        "the shipped table is the residual compiled screens plus the builtins"
+    );
+}
+
+#[test]
 fn initial_focus_agrees_with_every_descriptor() {
     // The compiled table lets a screen instance be created without a fallible
     // registry lookup, which is only safe while the two agree exactly.
@@ -498,7 +516,7 @@ fn mutating_a_legacy_product_spelling_does_not_change_compiled_host_authority() 
 fn terminals_shell_list_is_a_declared_host_control() {
     let registry = registry();
     let descriptor = registry
-        .get_identity(ScreenId::Terminals.into())
+        .get_identity(crate::workbench::TERMINALS_IDENTITY)
         .unwrap_or_else(|| panic!("terminals descriptor must be published"));
     let shell_list = descriptor
         .panels

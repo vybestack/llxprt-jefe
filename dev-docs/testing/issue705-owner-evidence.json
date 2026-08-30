@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "d1cbc03782d815ade798d6e48609aeafa87c200f9f7765e0129e8720a5b57a4d"
+    "artifact_set_sha256": "6f1cfc09e09a88a64f36724f0314328b77f07097a88fa61111f66fad25eb8438"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "629a77c06f62aba7e84c64e606700461c8fcd0cef25e19a4282983b88311c787",
+      "sha256": "51f7008e4fd467990d0fa0260e087e0cb743fe44ab11593ceba3a924056c4dfe",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "e884332cf4dbffcf79a37411016231ce0bb638eeea772fd171b16e76af31b498",
+      "sha256": "60643a8d4c6d5dfb038db5ace448d4ac9da72950da8666ec17973b1da0194cde",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -211,7 +211,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "8eebd5491348fc298ce6fe1478cf1ba49b70c009495771fb3e8321fd9649719a",
+      "sha256": "d11efa28e1827cbed93f4f565bc1a1d62debbb3d025248f2f50c1a4681f93fed",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -273,7 +273,7 @@
     },
     {
       "path": "src/mouse_routing.rs",
-      "sha256": "bfb894bd3c2c2d736f05521568ac0a1eb736e36585f88d2708250ed106e2c805",
+      "sha256": "b17a721c44f826b0425347e3ee134b4020f12dd9e153d30b6aeca1af40a6633d",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -304,7 +304,7 @@
     },
     {
       "path": "src/provider_panel_view.rs",
-      "sha256": "2d4d99ff097feb8704a46c9b0ab7ddcab2dd5d45c7a1165c84ec29eceb266acd",
+      "sha256": "897bc85b2e4380d8234da097bdb925dc3c4e065510db42f30a0c43d291c15e89",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -318,7 +318,7 @@
     },
     {
       "path": "src/provider_panel_view_tests_host.rs",
-      "sha256": "d7e59dfadee75c5bcefc4339cb53a93971c37cc17487db9cd60883884769a1ea",
+      "sha256": "6429573e649a0a12d8cd610c42160f2bd1a17ab2b9decc23831e6276add24c6f",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -404,7 +404,7 @@
     },
     {
       "path": "src/screen_layout.rs",
-      "sha256": "ce95e5798d2f8dfa87cd9f758e0ec4e7839589eb896ab5ae811cdb14d72d9855",
+      "sha256": "0abeb7acec016dbd6da6313ef48e00fbe10ce7cb89675b0fff809a403feac2f3",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -445,7 +445,7 @@
     },
     {
       "path": "src/state/navigation_ops.rs",
-      "sha256": "4d06b8a31414273f9db9b6f8b8cbdc33009db80d0a0461af22949356faa4afb3",
+      "sha256": "5f07a8c5ca43d550bdf6332102b1fcb7e54765e11879300336fc9a4cd8d42031",
       "mode": "100644",
       "criteria": [
         "CWR2-02",
@@ -631,7 +631,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "sha256": "1557a39c3d7c8fc106641fb47473009142503847045111d13925615b6818e6ca",
+      "sha256": "03caf2884268235b990460ac795c64fab9a30e04ce934ab6cb582b11d66edd5f",
       "mode": "100644",
       "criteria": [
         "CWR2-06",
@@ -674,7 +674,7 @@
     },
     {
       "path": "src/workbench/ids.rs",
-      "sha256": "1231dab0e886bff116ff218659d91ffbb345031104c65a5620eda8bd44a3ec21",
+      "sha256": "9fafc6802bef0992c9effd9386ad442d4478d61cb53d80819874c60c8b784155",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -715,7 +715,7 @@
     },
     {
       "path": "src/workbench/screens.rs",
-      "sha256": "8ed3de788696b1154f9dbbef96964f3cbf2224d3ce2da0de8e46a08265faf60a",
+      "sha256": "903dce6f9b38ea3b9b2ad880af0e025cf0c91e286de42971e5a354f811149f53",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -728,7 +728,7 @@
     },
     {
       "path": "src/workbench/screens_tests.rs",
-      "sha256": "19fd956ce7091831ef1c6f218750d8f37ebb03c9fcd1f8e135ad1eca07986b10",
+      "sha256": "637327b4a1fe994e7db7cc7b60674dc16d7987857cc461ac1f167e691b8ed32b",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -758,7 +758,7 @@
     },
     {
       "path": "tests/issue705_owner_evidence.rs",
-      "sha256": "f467495c721b9dfb47df1a67eb07c26620eb4983e84d93f8e4e3c6dc29b96b22",
+      "sha256": "a5800e858f9790f88090e8259fefdeed03712d0f5a8a02f6838f2c1ce9fc18b0",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -1873,14 +1873,6 @@
     },
     {
       "screen": "Errors",
-      "path": "src/workbench/screens.rs",
-      "criteria": [
-        "CWR2-09",
-        "CWR2-11"
-      ]
-    },
-    {
-      "screen": "Terminals",
       "path": "src/workbench/screens.rs",
       "criteria": [
         "CWR2-09",

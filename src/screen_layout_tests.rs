@@ -100,7 +100,7 @@ fn the_committed_frame_supplies_the_runtime_viewport_for_resizes() {
     // On layout commit the runtime may be offered at most one resize, and it
     // must carry the committed frame's exact rectangle and generation so a
     // stale completion can be proven to change nothing (issue #706 CWR3-04).
-    let mut state = state_on(ScreenId::Terminals);
+    let mut state = state_on(crate::workbench::TERMINALS_IDENTITY);
     state.resolved_layout = resolve_screen(&state, 120, 40);
     let layout = state
         .resolved_layout
@@ -134,7 +134,7 @@ fn the_committed_frame_supplies_the_runtime_viewport_for_resizes() {
         "a frame without a visible PTY panel offers no resize"
     );
     assert_eq!(
-        committed_runtime_viewport(&state_on(ScreenId::Terminals)),
+        committed_runtime_viewport(&state_on(crate::workbench::TERMINALS_IDENTITY)),
         None,
         "without a committed frame there is no resize offer"
     );
@@ -146,7 +146,7 @@ fn a_fresh_resize_viewport_carries_a_newly_minted_generation() {
     // committed frames. Its rectangle comes from a fresh resolve, so its
     // generation must be one the resolver actually minted for that answer —
     // bracketed here by two explicit mints — rather than an ambient value.
-    let mut state = state_on(ScreenId::Terminals);
+    let mut state = state_on(crate::workbench::TERMINALS_IDENTITY);
     state.resolved_layout = resolve_screen(&state, 120, 40);
     let before = LayoutGeneration::next();
     let viewport = pty_resize_viewport(&state, 120, 40)
@@ -209,7 +209,7 @@ fn a_resize_targets_the_active_screens_resolved_pty_viewport() {
     // The Terminal Manager's PTY is the shell preview below the list, not the
     // dashboard pane the mirror arithmetic models. The resize a child receives
     // must be the committed frame's rectangle for whichever screen is showing.
-    let state = state_on(ScreenId::Terminals);
+    let state = state_on(crate::workbench::TERMINALS_IDENTITY);
     let viewport = pty_resize_viewport(&state, 120, 40)
         .unwrap_or_else(|| unreachable!("terminals shows its shell preview"));
     let layout =
@@ -250,7 +250,7 @@ fn the_committed_frame_answers_for_the_terminal_pane_rectangle() {
     // Mouse hit-testing and replay translation need the on-screen rectangle
     // the renderer drew, so they read the committed frame instead of
     // re-deriving a mirror from the terminal size (issue #706).
-    let mut state = state_on(ScreenId::Terminals);
+    let mut state = state_on(crate::workbench::TERMINALS_IDENTITY);
     state.resolved_layout = resolve_screen(&state, 120, 40);
     let rect = committed_pty_content_rect(&state)
         .unwrap_or_else(|| unreachable!("the committed terminals frame shows its shell preview"));
@@ -291,7 +291,7 @@ fn a_frame_without_a_visible_pty_panel_has_no_terminal_pane_rectangle() {
 
 #[test]
 fn without_a_committed_frame_there_is_no_terminal_pane_rectangle() {
-    let state = state_on(ScreenId::Terminals);
+    let state = state_on(crate::workbench::TERMINALS_IDENTITY);
     assert!(
         committed_pty_content_rect(&state).is_none(),
         "nothing has been rendered yet, so no rectangle may be fabricated"
@@ -448,10 +448,7 @@ fn every_panel_the_application_hides_is_declared_by_its_screen() {
         }
         // Guard the assertion against becoming vacuous: the screens that carry
         // conditional panels must actually produce some.
-        if matches!(
-            screen,
-            ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals
-        ) {
+        if matches!(screen, ScreenId::Repositories | ScreenId::Errors) {
             assert_eq!(named, 0, "screen {screen} hides nothing conditionally");
         } else {
             assert!(named > 0, "screen {screen} must exercise its hiding rules");

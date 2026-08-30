@@ -2622,7 +2622,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "8eebd5491348fc298ce6fe1478cf1ba49b70c009495771fb3e8321fd9649719a",
+      "sha256": "d11efa28e1827cbed93f4f565bc1a1d62debbb3d025248f2f50c1a4681f93fed",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

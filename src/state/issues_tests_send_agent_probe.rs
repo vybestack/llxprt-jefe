@@ -282,7 +282,7 @@ fn unavailable_action_on_other_screens_only_warns() {
         crate::workbench::ScreenId::Repositories.into(),
         crate::workbench::ScreenId::Actions.into(),
         crate::workbench::ScreenId::Errors.into(),
-        crate::workbench::ScreenId::Terminals.into(),
+        crate::workbench::TERMINALS_IDENTITY,
     ] {
         let mut state = state_with_unprobed_agent();
         state.restore_navigation_root(screen);

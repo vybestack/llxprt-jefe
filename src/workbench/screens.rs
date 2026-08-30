@@ -361,6 +361,11 @@ pub fn builtin_screens() -> Result<ScreenRegistry, RegistryError> {
 
 // ── Construction helpers ───────────────────────────────────────────────────
 
+/// How many shipped screens are declared builtin descriptors rather than
+/// residual compiled adapters. Tests key shipped-screen counts off this so a
+/// migration flips one number instead of a dozen literals.
+pub const SHIPPED_BUILTIN_SCREENS: usize = 2;
+
 /// A weighted share of the cells left once every minimum is satisfied.
 ///
 /// Zero is coerced to one because a weight of zero would silently mean "claim
@@ -682,7 +687,6 @@ pub const fn route_of(screen: ScreenId) -> RouteId {
         ScreenId::PullRequests => "pull-requests",
         ScreenId::Actions => "actions",
         ScreenId::Errors => "errors",
-        ScreenId::Terminals => "terminals",
         ScreenId::Settings => "settings",
     })
 }
@@ -702,7 +706,6 @@ pub const fn initial_focus(screen: ScreenId) -> PanelId {
         ScreenId::PullRequests => PULL_REQUESTS_LIST_PANEL,
         ScreenId::Actions => ACTIONS_LIST_PANEL,
         ScreenId::Errors => ERRORS_LIST_PANEL,
-        ScreenId::Terminals => TERMINALS_LIST_PANEL,
         ScreenId::Settings => SETTINGS_SECTIONS_PANEL,
     })
 }
@@ -957,7 +960,7 @@ fn settings_section_child(id: &'static str, order: i32) -> Result<LayoutChild, I
 /// throttled read-only preview of the selected one.
 fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenIdentity::Compiled(ScreenId::Terminals),
+        id: crate::workbench::TERMINALS_IDENTITY,
         title: "Terminals".to_owned(),
         route: RouteId::parse("terminals")?,
         panels: vec![

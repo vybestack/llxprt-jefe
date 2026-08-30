@@ -55,14 +55,20 @@ pub fn derive_action_context(
             pre_mode(&["dashboard", "global"])
         };
     }
+    // The Terminal Manager is a descriptor screen whose keymap is still the
+    // terminal-manager context, keyed by identity rather than a variant.
+    if state.screen() == jefe::workbench::TERMINALS_IDENTITY {
+        return if input_mode == InputMode::Normal {
+            full_s3(&["terminal-manager", "global"])
+        } else {
+            pre_mode(&["global"])
+        };
+    }
     match state.compiled_screen() {
         Some(ScreenId::Repositories) if input_mode == InputMode::Normal => {
             full_s3(&["split", "global"])
         }
         Some(ScreenId::Errors) if input_mode == InputMode::Normal => full_s3(&["errors", "global"]),
-        Some(ScreenId::Terminals) if input_mode == InputMode::Normal => {
-            full_s3(&["terminal-manager", "global"])
-        }
         Some(ScreenId::Settings) if input_mode == InputMode::Normal => {
             full_s3(&["settings", "global"])
         }
@@ -70,7 +76,7 @@ pub fn derive_action_context(
         Some(ScreenId::PullRequests) => prs_context(state),
         Some(ScreenId::Actions) => actions_context(state),
         Some(ScreenId::Repositories) => pre_mode(&["split", "global"]),
-        Some(ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings) => pre_mode(&["global"]),
+        Some(ScreenId::Errors | ScreenId::Settings) => pre_mode(&["global"]),
         // Lowered package and custom screens share the protected host Back
         // action while panel-specific semantic input remains descriptor-driven.
         None => full_s3(&["workbench", "global"]),

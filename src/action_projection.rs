@@ -478,13 +478,17 @@ pub fn project_footer_effective(
 }
 
 fn footer_mode(screen: ScreenIdentity) -> Option<FooterMode> {
+    // The Terminal Manager is a descriptor screen whose footer is still the
+    // terminal-manager keymap, keyed by identity rather than a variant.
+    if screen == crate::workbench::TERMINALS_IDENTITY {
+        return Some(FooterMode::Terminals);
+    }
     Some(match screen.compiled()? {
         ScreenId::Repositories => FooterMode::Split,
         ScreenId::Issues => FooterMode::Issues,
         ScreenId::PullRequests => FooterMode::PullRequests,
         ScreenId::Actions => FooterMode::Actions,
         ScreenId::Errors => FooterMode::Errors,
-        ScreenId::Terminals => FooterMode::Terminals,
         ScreenId::Settings => FooterMode::Settings,
     })
 }

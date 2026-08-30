@@ -198,7 +198,7 @@ fn a_modal_context_keeps_the_protected_exit_reachable() {
         ScreenId::Issues.into(),
         ScreenId::PullRequests.into(),
         ScreenId::Errors.into(),
-        ScreenId::Terminals.into(),
+        jefe::workbench::TERMINALS_IDENTITY,
     ] {
         let mut state = crate::test_app_state();
         state.restore_navigation_root(screen);
@@ -255,7 +255,6 @@ fn graph_with_host_list_screen_does_not_acquire_dashboard_action_authority() {
         ScreenId::Issues,
         ScreenId::PullRequests,
         ScreenId::Errors,
-        ScreenId::Terminals,
     ] {
         let mut state = crate::test_app_state();
         state.restore_navigation_root(jefe::state::ScreenIdentity::Compiled(screen));

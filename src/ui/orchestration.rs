@@ -14,7 +14,6 @@ use crate::theme::ThemeColors;
 use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
-    TerminalManagerScreen,
 };
 use crate::ui::{
     AuthModal, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
@@ -243,26 +242,6 @@ fn repo_display_name(snapshot: &AppState, id: &crate::domain::RepositoryId) -> S
         .map_or_else(|| String::from("selected repository"), |r| r.name.clone())
 }
 
-fn terminal_manager_element(
-    snapshot: &AppState,
-    colors: &ThemeColors,
-    theme_name: &str,
-    terminal: TerminalRenderData,
-) -> AnyElement<'static> {
-    element! {
-        TerminalManagerScreen(
-            state: Some(snapshot.clone()),
-            colors: Some(colors.clone()),
-            theme_name: theme_name.to_owned(),
-            terminal_snapshot: terminal.snapshot,
-            history_lines: terminal.history_lines,
-            terminal_pane_rows: u16::try_from(terminal.pane_rows).unwrap_or(u16::MAX),
-            terminal_pane_cols: u16::try_from(terminal.pane_cols).unwrap_or(u16::MAX),
-        )
-    }
-    .into_any()
-}
-
 /// Build a screen element for a component taking the shared screen props.
 ///
 /// Every screen except the dashboard and the Terminal Manager renders from the
@@ -308,9 +287,6 @@ pub fn build_screen_element(
         }
         Some(ScreenId::Actions) => screen_element!(ActionsScreen, snapshot, colors, theme_name),
         Some(ScreenId::Errors) => screen_element!(ErrorsScreen, snapshot, colors, theme_name),
-        Some(ScreenId::Terminals) => {
-            terminal_manager_element(snapshot, colors, theme_name, terminal)
-        }
         Some(ScreenId::Settings) => screen_element!(SettingsScreen, snapshot, colors, theme_name),
         None => element! {
             ProviderScreen(

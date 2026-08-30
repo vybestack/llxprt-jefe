@@ -468,7 +468,6 @@ fn prepare_provider_host_outcome_state(
                     jefe::state::ScreenId::Repositories
                     | jefe::state::ScreenId::Actions
                     | jefe::state::ScreenId::Errors
-                    | jefe::state::ScreenId::Terminals
                     | jefe::state::ScreenId::Settings,
                 )
                 | None => Err("provider refresh is unsupported for the current screen".to_owned()),

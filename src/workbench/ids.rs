@@ -617,21 +617,18 @@ pub enum ScreenId {
     Actions,
     /// The errors screen.
     Errors,
-    /// The Terminal Manager screen.
-    Terminals,
     /// The Settings screen.
     Settings,
 }
 
 impl ScreenId {
     /// Every residual compiled adapter, in registry order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Repositories,
         Self::Issues,
         Self::PullRequests,
         Self::Actions,
         Self::Errors,
-        Self::Terminals,
         Self::Settings,
     ];
 
@@ -645,7 +642,6 @@ impl ScreenId {
             Self::PullRequests => "github.pull-requests",
             Self::Actions => "github.actions",
             Self::Errors => "core.errors",
-            Self::Terminals => "core.terminals",
             Self::Settings => "core.settings",
         }
     }
@@ -684,6 +680,12 @@ pub const DASHBOARD_SCREEN_ID: BuiltinScreenId = BuiltinScreenId::from_static("c
 
 /// Open Dashboard definition identity used by navigation and persistence.
 pub const DASHBOARD_IDENTITY: ScreenIdentity = ScreenIdentity::Builtin(DASHBOARD_SCREEN_ID);
+
+/// Canonical identity of the built-in Terminal Manager definition.
+pub const TERMINALS_SCREEN_ID: BuiltinScreenId = BuiltinScreenId::from_static("core.terminals");
+
+/// Open Terminal Manager definition identity used by navigation and overlays.
+pub const TERMINALS_IDENTITY: ScreenIdentity = ScreenIdentity::Builtin(TERMINALS_SCREEN_ID);
 
 impl fmt::Display for ScreenId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
