@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "f9bb42a86a7da08820f970fe42ece391d31feb2ee88e32203fd256d0a9c1a4c5"
+    "artifact_set_sha256": "65cc07d34dd8957e5450df65c2df5524fe6d84f3215ead250465c75435fe7ec8"
   },
   "artifacts": [
     {
@@ -273,7 +273,7 @@
     },
     {
       "path": "src/mouse_routing.rs",
-      "sha256": "03c17b01087c1f277ed7d38be2625876854eaa267c071a7853645a2c7df594e6",
+      "sha256": "bfb894bd3c2c2d736f05521568ac0a1eb736e36585f88d2708250ed106e2c805",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -404,7 +404,7 @@
     },
     {
       "path": "src/screen_layout.rs",
-      "sha256": "53bac12135cc1a2008aea97ba5ab9c431108cdc3e31f973f6c22f05171c1b31c",
+      "sha256": "f527712e46b306428f90208bb56b64226d40334c71e50f9eea50693a3f970faa",
       "mode": "100644",
       "criteria": [
         "CWR2-00",

@@ -542,12 +542,27 @@ pub fn dispatch_terminal_scroll(
 /// instead of calling `capture_history()` (which shells out to tmux
 /// synchronously). The background capture worker fills the cache.
 pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let overlay_active = app_state.read().shell_overlay_active();
-    let pty_layout = if overlay_active {
-        jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows)
-    } else {
-        jefe::layout::compute_pty_layout(term_cols, term_rows)
+    let viewport_rows = {
+        let state = app_state.read();
+        if state.shell_overlay_active() {
+            // The shell overlay is not yet a declared layer, so its rectangle
+            // stays legacy until the descriptor models it (issue #706
+            // cutover step 2).
+            let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+            let layout = jefe::layout::compute_shell_overlay_pty_layout(term_cols, term_rows);
+            Some(layout.pty_rows)
+        } else {
+            // The committed frame is the rectangle the renderer drew
+            // (issue #706): scrollback clamping must match it, not a
+            // re-derived mirror.
+            jefe::screen_layout::committed_pty_content_rect(&state).map(|rect| rect.height)
+        }
+    };
+    let Some(viewport_rows) = viewport_rows else {
+        // No visible PTY panel in the committed frame: preserve existing
+        // geometry instead of zeroing it (zeroing would clear the scroll
+        // offset).
+        return;
     };
 
     // Read retained history + live snapshot rows from the cache (issue #301
@@ -600,7 +615,7 @@ pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &Sh
 
     let mut state = app_state.write();
     let old_total = state.terminal_total_lines;
-    let viewport_rows = usize::from(pty_layout.pty_rows);
+    let viewport_rows = usize::from(viewport_rows);
 
     let (new_offset, new_total) = jefe::state::scrollback_ops::compute_terminal_scroll_geometry(
         state.terminal_history_offset,

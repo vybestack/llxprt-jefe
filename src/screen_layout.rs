@@ -61,6 +61,33 @@ pub fn initial_runtime_geometry(state: &AppState) -> Option<(u16, u16)> {
     })
 }
 
+/// The visible PTY panel's exact content rectangle in the committed frame.
+///
+/// Mouse hit-testing and scroll geometry need the on-screen rectangle the
+/// renderer actually drew, so they read the committed frame rather than
+/// re-deriving dimensions from the terminal size. `None` means this frame
+/// shows no visible nonzero PTY panel — there is no rectangle to hit-test
+/// against and no fabricated fallback.
+#[must_use]
+pub fn committed_pty_content_rect(state: &AppState) -> Option<Rect> {
+    let layout = state.resolved_layout.as_ref()?;
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    pty_content_rect_from(descriptor, layout)
+}
+
+/// The visible PTY panel's exact content rectangle in one resolved frame.
+fn pty_content_rect_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout) -> Option<Rect> {
+    descriptor
+        .panels
+        .iter()
+        .filter(|panel| panel.panel_type.as_str() == PTY_PANEL_TYPE)
+        .find_map(|panel| pty_content_rect(descriptor, layout, &panel.id))
+        .filter(|rect| rect.width > 0 && rect.height > 0)
+}
+
 /// The PTY viewport a resize must send for the active screen, as (rows, cols).
 ///
 /// Resolved through the same single authority the renderer commits, so the
@@ -77,15 +104,9 @@ pub fn pty_resize_viewport(state: &AppState, term_cols: u16, term_rows: u16) -> 
     pty_viewport_from(descriptor, &layout)
 }
 
-/// The visible PTY panel's exact content rectangle in one committed frame.
+/// The visible PTY panel's viewport dimensions in one committed frame.
 fn pty_viewport_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout) -> Option<(u16, u16)> {
-    descriptor
-        .panels
-        .iter()
-        .filter(|panel| panel.panel_type.as_str() == PTY_PANEL_TYPE)
-        .find_map(|panel| pty_content_rect(descriptor, layout, &panel.id))
-        .filter(|rect| rect.width > 0 && rect.height > 0)
-        .map(|rect| (rect.height, rect.width))
+    pty_content_rect_from(descriptor, layout).map(|rect| (rect.height, rect.width))
 }
 
 /// The rectangle a screen may use, after the status bar and keybind bar.

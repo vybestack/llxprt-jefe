@@ -667,14 +667,50 @@ fn wheel_to_terminal_scroll_event_returns_none_for_non_wheel() {
 
 #[test]
 fn is_event_over_terminal_pane_origin_is_outside() {
-    // The origin (0,0) is always outside the terminal pane: the sidebar and
-    // status bar occupy the left columns and top rows. This is a stable,
-    // terminal-size-independent property.
+    // The origin (0,0) is always outside the terminal pane: the list pane and
+    // status bar occupy the left columns and top rows of every screen that
+    // shows a PTY. This is a stable, terminal-size-independent property.
+    let state = committed_terminals_state();
     let origin = fullscreen_event_at(0, 0, MouseEventKind::ScrollUp);
     assert!(
-        !is_event_over_terminal_pane(&origin, false),
-        "(0,0) must be outside the terminal pane (sidebar/status bar region)"
+        !is_event_over_terminal_pane(&state, &origin, false),
+        "(0,0) must be outside the terminal pane (list pane/status bar region)"
     );
+}
+
+#[test]
+fn is_event_over_terminal_pane_hits_the_committed_shell_preview_rect() {
+    let state = committed_terminals_state();
+    let rect = jefe::screen_layout::committed_pty_content_rect(&state)
+        .unwrap_or_else(|| unreachable!("the committed terminals frame shows its shell preview"));
+    let inside = fullscreen_event_at(
+        rect.col + rect.width / 2,
+        rect.row + rect.height / 2,
+        MouseEventKind::ScrollUp,
+    );
+    assert!(
+        is_event_over_terminal_pane(&state, &inside, false),
+        "a wheel inside the committed shell-preview content rect must hit the terminal pane"
+    );
+}
+
+#[test]
+fn is_event_over_terminal_pane_is_false_without_a_visible_pty_panel() {
+    let mut state = crate::test_app_state();
+    state.restore_navigation_root(ScreenId::Settings);
+    state.resolved_layout = jefe::screen_layout::resolve_screen(&state, 120, 40);
+    let anywhere = fullscreen_event_at(60, 12, MouseEventKind::ScrollUp);
+    assert!(
+        !is_event_over_terminal_pane(&state, &anywhere, false),
+        "no PTY panel is on screen, so no point may hit the terminal pane"
+    );
+}
+
+fn committed_terminals_state() -> AppState {
+    let mut state = crate::test_app_state();
+    state.restore_navigation_root(ScreenId::Terminals);
+    state.resolved_layout = jefe::screen_layout::resolve_screen(&state, 120, 40);
+    state
 }
 
 fn fullscreen_event_at(col: u16, row: u16, kind: MouseEventKind) -> iocraft::FullscreenMouseEvent {

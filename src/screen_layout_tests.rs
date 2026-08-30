@@ -2,7 +2,8 @@
 
 use crate::domain::AgentId;
 use crate::screen_layout::{
-    hidden_panel_ids, initial_runtime_geometry, pty_resize_viewport, resolve_screen, screen_rect,
+    committed_pty_content_rect, hidden_panel_ids, initial_runtime_geometry, pty_resize_viewport,
+    resolve_screen, screen_rect,
 };
 use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState};
@@ -166,6 +167,59 @@ fn a_screen_without_a_visible_pty_panel_sends_no_resize() {
         pty_resize_viewport(&state, 120, 40),
         None,
         "no fabricated resize may leave the resolver"
+    );
+}
+
+#[test]
+fn the_committed_frame_answers_for_the_terminal_pane_rectangle() {
+    // Mouse hit-testing and replay translation need the on-screen rectangle
+    // the renderer drew, so they read the committed frame instead of
+    // re-deriving a mirror from the terminal size (issue #706).
+    let mut state = state_on(ScreenId::Terminals);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    let rect = committed_pty_content_rect(&state)
+        .unwrap_or_else(|| unreachable!("the committed terminals frame shows its shell preview"));
+    let layout = state
+        .resolved_layout
+        .as_ref()
+        .unwrap_or_else(|| unreachable!("the frame was just committed"));
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .unwrap_or_else(|| unreachable!("terminals is compiled"));
+    let pty_panel = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.panel_type.as_str() == crate::workbench::PTY_PANEL_TYPE)
+        .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
+    let content = crate::workbench::pty_content_rect(descriptor, layout, &pty_panel.id)
+        .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
+    assert_eq!(rect, content);
+    let mirror = crate::layout::compute_pty_layout_for_windowed(120, 40, false);
+    assert_ne!(
+        (rect.row, rect.col),
+        (mirror.pane_row0, mirror.pane_col0),
+        "the dashboard mirror must stop answering for the Terminal Manager screen"
+    );
+}
+
+#[test]
+fn a_frame_without_a_visible_pty_panel_has_no_terminal_pane_rectangle() {
+    let mut state = state_on(ScreenId::Settings);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    assert!(
+        committed_pty_content_rect(&state).is_none(),
+        "no PTY is on screen, so no pane rectangle exists to hit-test"
+    );
+}
+
+#[test]
+fn without_a_committed_frame_there_is_no_terminal_pane_rectangle() {
+    let state = state_on(ScreenId::Terminals);
+    assert!(
+        committed_pty_content_rect(&state).is_none(),
+        "nothing has been rendered yet, so no rectangle may be fabricated"
     );
 }
 
