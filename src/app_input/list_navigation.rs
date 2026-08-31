@@ -177,7 +177,10 @@ mod tests {
             });
         assert!(state.publish_resolved_layout(screen_instance, resolved));
 
-        assert_eq!(expected, PageItemCount::new(16));
+        // The left rail shares its height with the STATUS block (header plus
+        // four buckets), the way the legacy split screen drew it, so the
+        // sidebar pane is five rows shorter than a full-height list.
+        assert_eq!(expected, PageItemCount::new(11));
         assert_eq!(
             dashboard_page_item_count(&state, Some(ScreenId::Repositories), 100, 25),
             expected

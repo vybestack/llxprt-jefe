@@ -8,14 +8,6 @@ use super::AppState;
 use super::workbench_filter::WorkbenchStatusFilter;
 use crate::workbench_view::StatusBucket;
 
-/// The filter rail lists the buckets in this order, top to bottom.
-const FILTER_ORDER: [StatusBucket; 4] = [
-    StatusBucket::NeedsYou,
-    StatusBucket::Working,
-    StatusBucket::Ready,
-    StatusBucket::Stale,
-];
-
 pub(super) enum WorkbenchNavigation {
     ToggleStatusBucket(StatusBucket),
     NextPage,
@@ -105,7 +97,10 @@ impl AppState {
     /// The bucket the filter cursor currently sits on.
     #[must_use]
     pub fn workbench_filter_cursor_bucket(&self) -> StatusBucket {
-        FILTER_ORDER[self.workbench.filter_cursor.min(FILTER_ORDER.len() - 1)]
+        crate::workbench_view::STATUS_BLOCK_ORDER[self
+            .workbench
+            .filter_cursor
+            .min(crate::workbench_view::STATUS_BLOCK_ORDER.len() - 1)]
     }
 
     /// Handle multi-agent workbench navigation messages.
@@ -129,8 +124,8 @@ impl AppState {
                 self.workbench.filter_cursor = self.workbench.filter_cursor.saturating_sub(1);
             }
             WorkbenchNavigation::NextFilter => {
-                self.workbench.filter_cursor =
-                    (self.workbench.filter_cursor + 1).min(FILTER_ORDER.len() - 1);
+                self.workbench.filter_cursor = (self.workbench.filter_cursor + 1)
+                    .min(crate::workbench_view::STATUS_BLOCK_ORDER.len() - 1);
             }
             WorkbenchNavigation::PreviousSelection => self.move_workbench_selection(false),
             WorkbenchNavigation::NextSelection => self.move_workbench_selection(true),
@@ -140,7 +135,7 @@ impl AppState {
 
     /// Toggle one status bucket in the workbench filter mask and reset the page
     /// to 0, so a shrinking list cannot strand the view on an empty page.
-    fn apply_workbench_status_toggle(&mut self, bucket: StatusBucket) {
+    pub(super) fn apply_workbench_status_toggle(&mut self, bucket: StatusBucket) {
         let current = self.workbench.status_filter.mask();
         self.workbench.status_filter =
             WorkbenchStatusFilter(current.with(bucket, !current.allows(bucket)));

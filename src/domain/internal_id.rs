@@ -13,6 +13,7 @@ pub enum InternalId {
     RepositoryItem,
     AgentItem,
     SessionItem,
+    StatusBucketItem,
 }
 
 impl InternalId {
@@ -30,6 +31,7 @@ impl InternalId {
             Self::RepositoryItem => "host-repository",
             Self::AgentItem => "host-agent",
             Self::SessionItem => "host-session",
+            Self::StatusBucketItem => "host-status-bucket",
         }
     }
 }

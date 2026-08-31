@@ -101,6 +101,17 @@ impl StatusBucket {
             Self::Stale => 3,
         }
     }
+
+    /// The operator-facing label the STATUS rail prints for this bucket.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::NeedsYou => "Needs you",
+            Self::Working => "Working",
+            Self::Ready => "Ready",
+            Self::Stale => "Stale",
+        }
+    }
 }
 
 /// One windowed todo line, already clipped to the card interior.
@@ -113,6 +124,27 @@ pub struct TodoLine {
     pub is_current: bool,
     /// Whether this line is a real item versus blank padding.
     pub is_blank: bool,
+}
+
+/// The order the STATUS rail lists the buckets in, top to bottom.
+///
+/// One order shared by the reducers' filter cursor and every projection of
+/// the block, so the cursor and the rendered rows cannot drift apart.
+pub const STATUS_BLOCK_ORDER: [StatusBucket; 4] = [
+    StatusBucket::NeedsYou,
+    StatusBucket::Working,
+    StatusBucket::Ready,
+    StatusBucket::Stale,
+];
+
+/// Live per-bucket counts over every agent, computed before any filtering.
+///
+/// The STATUS block keeps counting hidden buckets, so a toggled-off bucket
+/// still shows how many agents sit in it.
+#[must_use]
+pub fn status_bucket_counts(agents: &[AgentInput<'_>]) -> [usize; 4] {
+    let (counts, _) = bucket_agents(agents);
+    counts
 }
 
 /// The windowed slice of a full todo list.

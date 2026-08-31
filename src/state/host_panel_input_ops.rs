@@ -118,7 +118,10 @@ impl AppState {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
             HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => return false,
+            // The STATUS block is four fixed rows: it never scrolls.
+            HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentPreview => return false,
         };
         let changed = *offset != next;
         *offset = next;
@@ -152,6 +155,16 @@ impl AppState {
                         .selected_agent()
                         .map(|agent| AppEvent::OpenEditAgent(agent.id.clone())),
                     HostPanelModelSource::SessionList => self.session_activation_event(),
+                    // Enter on a bucket row toggles its filter, the legacy
+                    // `split.toggle-status-filter` behavior.
+                    HostPanelModelSource::WorkbenchStatus => {
+                        let bucket = crate::workbench_view::STATUS_BLOCK_ORDER[self
+                            .workbench
+                            .filter_cursor
+                            .min(crate::workbench_view::STATUS_BLOCK_ORDER.len() - 1)];
+                        self.apply_workbench_status_toggle(bucket);
+                        None
+                    }
                     HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
                 };
                 if let Some(event) = event {
@@ -199,7 +212,10 @@ impl AppState {
             HostPanelModelSource::RepositoryList => self.selected_repository_visible_index(),
             HostPanelModelSource::AgentList => self.selected_agent_local_index(),
             HostPanelModelSource::SessionList => self.terminal_manager.selected_index,
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
+            // All four bucket rows are always on screen.
+            HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentPreview => None,
         };
         let Some(selected) = selected.and_then(|index| u32::try_from(index).ok()) else {
             return;
@@ -209,7 +225,9 @@ impl AppState {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
             HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => return,
+            HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentPreview => return,
         };
         if selected < *offset {
             *offset = selected;
@@ -256,6 +274,17 @@ impl AppState {
                     return false;
                 };
                 self.terminal_manager.selected_index = Some(index);
+                true
+            }
+            HostPanelModelSource::WorkbenchStatus => {
+                let count = crate::workbench_view::STATUS_BLOCK_ORDER.len();
+                let Some(index) = (0..count).find(|index| {
+                    Id::internal_indexed(InternalId::StatusBucketItem, *index) == *id
+                }) else {
+                    return false;
+                };
+                // Cursor moves never reset the page; only toggles do.
+                self.workbench.filter_cursor = index;
                 true
             }
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => false,

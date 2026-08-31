@@ -447,8 +447,11 @@ fn every_panel_the_application_hides_is_declared_by_its_screen() {
             }
         }
         // Guard the assertion against becoming vacuous: the screens that carry
-        // conditional panels must actually produce some.
-        if matches!(screen, ScreenId::Repositories | ScreenId::Errors) {
+        // conditional panels must actually produce some. The split view's
+        // STATUS block became a host control in the cutover, so it follows the
+        // shared rule and collapses under a shell overlay like the dashboard's
+        // auxiliary panels; Errors still renders no conditional panel.
+        if matches!(screen, ScreenId::Errors) {
             assert_eq!(named, 0, "screen {screen} hides nothing conditionally");
         } else {
             assert!(named > 0, "screen {screen} must exercise its hiding rules");

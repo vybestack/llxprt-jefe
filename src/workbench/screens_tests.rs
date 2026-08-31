@@ -535,3 +535,29 @@ fn terminals_shell_list_is_a_declared_host_control() {
         crate::host_controls::ControlKind::List
     );
 }
+
+#[test]
+fn repositories_status_block_is_a_declared_host_control() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::ScreenIdentity::Compiled(
+            crate::state::ScreenId::Repositories,
+        ))
+        .unwrap_or_else(|| panic!("repositories descriptor must be published"));
+    let status_block = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "status")
+        .unwrap_or_else(|| panic!("status panel must be declared"));
+    let capability = status_block
+        .host_capability()
+        .unwrap_or_else(|| unreachable!("status must be a declared host control"));
+    assert_eq!(
+        capability.model_source(),
+        super::descriptor::HostPanelModelSource::WorkbenchStatus
+    );
+    assert_eq!(
+        capability.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
+}

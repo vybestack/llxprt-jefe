@@ -57,8 +57,8 @@ fn split_override(axis: &str, panels: &[&str]) -> TypedMap {
     map
 }
 
-/// The Repositories screen, which declares exactly two panels.
-fn two_panel_screen(
+/// The Repositories screen, which declares exactly three panels.
+fn repositories_screen_fixture(
     compiled: &crate::workbench::screens::ScreenRegistry,
 ) -> &crate::workbench::descriptor::ScreenDescriptor {
     compiled
@@ -78,11 +78,11 @@ fn settings(workbench: PublishedWorkbenchSettings) -> PublishedSettings {
 #[test]
 fn a_saved_layout_override_is_the_layout_the_registry_publishes() {
     let compiled = builtin_screens().unwrap_or_else(|error| panic!("compiled table: {error}"));
-    let screen = two_panel_screen(&compiled);
+    let screen = repositories_screen_fixture(&compiled);
     let mut overrides = BTreeMap::new();
     overrides.insert(
         id(screen.id.as_str()),
-        split_override("horizontal", &["repositories", "filter"]),
+        split_override("horizontal", &["repositories", "status", "filter"]),
     );
 
     let composed = compose_screens(
@@ -115,7 +115,7 @@ fn a_saved_layout_override_is_the_layout_the_registry_publishes() {
                 LayoutNode::Split { .. } => panic!("the fixture places leaves"),
             })
             .collect::<Vec<_>>(),
-        vec!["repositories", "filter"],
+        vec!["repositories", "status", "filter"],
         "in the order the user saved"
     );
 }
@@ -147,7 +147,7 @@ fn an_override_the_validator_refuses_warns_and_leaves_the_compiled_layout() {
     // from inside the program. The compiled layout stands, the reason is
     // reported, and the Settings editor shows the row as invalid.
     let compiled = builtin_screens().unwrap_or_else(|error| panic!("compiled table: {error}"));
-    let screen = two_panel_screen(&compiled);
+    let screen = repositories_screen_fixture(&compiled);
     let expected = screen.layout.clone();
     let mut overrides = BTreeMap::new();
     overrides.insert(id(screen.id.as_str()), leaf_override("nothing-declares-me"));

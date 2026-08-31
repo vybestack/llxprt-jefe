@@ -26,6 +26,61 @@ pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> Hos
         HostPanelModelSource::AgentList => agent_list(state),
         HostPanelModelSource::AgentPreview => agent_preview(state),
         HostPanelModelSource::SessionList => session_list(state),
+        HostPanelModelSource::WorkbenchStatus => workbench_status(state),
+    }
+}
+
+/// The STATUS block of the cards screen, projected as a list control.
+///
+/// Retained by the cutover (maintainer decision on #706). The legacy keymap
+/// already treated the rail as "the navigable list", so it pairs with the
+/// List control: one checkable row per bucket, checkbox from the active
+/// filter mask, count over every agent before filtering so toggled-off
+/// buckets stay visible.
+fn workbench_status(state: &AppState) -> HostPanelModel {
+    let inputs: Vec<crate::workbench_view::AgentInput<'_>> = state
+        .agents
+        .iter()
+        .map(|agent| crate::workbench_view::AgentInput {
+            agent,
+            git_info: None,
+            observation: state.observations.get(&agent.id),
+        })
+        .collect();
+    let counts = crate::workbench_view::status_bucket_counts(&inputs);
+    let filter = state.workbench.status_filter.mask();
+    let buckets = crate::workbench_view::STATUS_BLOCK_ORDER;
+    let items = buckets
+        .iter()
+        .enumerate()
+        .map(
+            |(index, bucket)| crate::runtime::provider::protocol::ListItem {
+                id: Id::internal_indexed(InternalId::StatusBucketItem, index),
+                label: format!(
+                    "{} {}",
+                    if filter.allows(*bucket) { "[x]" } else { "[ ]" },
+                    bucket.label()
+                ),
+                description: None,
+                status: Some(counts[bucket.as_index()].to_string()),
+                actions: Vec::new(),
+            },
+        )
+        .collect();
+    let selected_id = Some(Id::internal_indexed(
+        InternalId::StatusBucketItem,
+        state.workbench.filter_cursor.min(buckets.len() - 1),
+    ));
+    HostPanelModel {
+        title: "STATUS".to_owned(),
+        body: PanelBody::List(crate::runtime::provider::protocol::ListBody {
+            items,
+            selected_id: selected_id.clone(),
+            next_page_token: None,
+        }),
+        action_affordances: Vec::new(),
+        selected_id,
+        scroll_offset: 0,
     }
 }
 

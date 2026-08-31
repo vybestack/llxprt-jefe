@@ -132,6 +132,10 @@ pub mod workbench_view;
 #[path = "workbench_view_tests.rs"]
 mod workbench_view_tests;
 
+#[cfg(test)]
+#[path = "host_panel_models_status_tests.rs"]
+mod host_panel_models_status_tests;
+
 /// Cached git repository info (origin shortform + branch) for agent display.
 pub mod git_info;
 /// @plan PLAN-20260329-ISSUES-MODE.P03

@@ -96,6 +96,9 @@ const SETTINGS_SECTIONS_COLUMNS: u16 = 20;
 const SEARCH_ROW_ROWS: u16 = 1;
 /// Rows the split-screen filter band occupies.
 const SPLIT_FILTER_ROWS: u16 = 3;
+
+/// The STATUS block: one header row plus one row per bucket.
+const STATUS_BLOCK_ROWS: u16 = 5;
 /// Rows a workspace error/notice banner occupies when shown.
 const BANNER_ROWS: u16 = 1;
 /// Rows the workspace filter-controls band occupies when open.
@@ -594,8 +597,8 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     })
 }
 
-/// `core.repositories` — the split view: the repository list under its filter
-/// band, occupying the full width.
+/// `core.repositories` — the split view: the repository list over its STATUS
+/// block in the left rail, under the filter band, occupying the full width.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
         id: ScreenIdentity::Compiled(ScreenId::Repositories),
@@ -603,10 +606,18 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         route: RouteId::parse("repositories")?,
         panels: vec![
             sidebar_panel()?,
+            host_panel(
+                "status",
+                "status-block",
+                HostPanelModelSource::WorkbenchStatus,
+                ControlKind::List,
+                (true, false),
+                LIST_PANE_CHROME,
+            )?,
             panel("filter", "filter-band", false, false, BAND_CHROME)?,
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
-        focus_order: focus_order(&[REPOSITORIES_PANEL])?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL, "status"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
         overlays: HOST_OVERLAYS.to_vec(),
@@ -614,7 +625,14 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         bindings: Vec::new(),
         layout: column(vec![
             band_child(leaf("filter")?, SPLIT_FILTER_ROWS, -100),
-            required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
+            required_child(
+                column(vec![
+                    required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
+                    fixed_child(leaf("status")?, STATUS_BLOCK_ROWS),
+                ]),
+                weight(1),
+                LIST_MIN_ROWS,
+            ),
         ]),
     })
 }
