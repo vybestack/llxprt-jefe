@@ -99,7 +99,7 @@
     },
     {
       "path": "src/app_init.rs",
-      "sha256": "a8ab1c2a186fe817115eff08459bb0cc855ec513a29085a230b84d07ab7bdca5",
+      "sha256": "7e913e859fd228e2121b7fbadab3ef918fcd6259661c0ce15d69f100b1480e76",
       "mode": "100644",
       "criteria": [
         "CWR1-06",
