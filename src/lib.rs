@@ -55,6 +55,9 @@ pub mod markdown_render;
 pub mod messages;
 pub(crate) mod overlay_controls;
 #[cfg(test)]
+#[path = "overlay_controls_repository_form_tests.rs"]
+mod overlay_controls_repository_form_tests;
+#[cfg(test)]
 #[path = "overlay_controls_tests.rs"]
 mod overlay_controls_tests;
 /// Boundary-owned display data for mouse-selection content projection.

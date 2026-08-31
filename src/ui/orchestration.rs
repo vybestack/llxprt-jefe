@@ -8,6 +8,7 @@ use iocraft::prelude::*;
 use crate::host_controls::PanelHitTarget;
 use crate::overlay_controls::{
     ConfirmationContent, OverlayControlProjection, project_confirmation, project_help,
+    project_repository_form,
 };
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenId};
 use crate::theme::ThemeColors;
@@ -15,10 +16,7 @@ use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
 };
-use crate::ui::{
-    AuthModal, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
-    WorkflowDispatchForm,
-};
+use crate::ui::{AuthModal, GeneratedAgentForm, NewAgentForm, SplitScreen, WorkflowDispatchForm};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -375,7 +373,14 @@ pub fn build_modal_element(
     }
     match modal {
         ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
-            Some(form_modal!(NewRepositoryForm, snapshot, colors))
+            let layout =
+                crate::overlay_controls::HostOverlayLayout::form(viewport.cols, viewport.rows);
+            Some(host_overlay_element(
+                project_repository_form(snapshot, layout.content_width)?,
+                layout,
+                colors,
+                crate::overlay_controls::REPOSITORY_FORM_FOOTER,
+            ))
         }
         ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => {
             Some(form_modal!(NewAgentForm, snapshot, colors))

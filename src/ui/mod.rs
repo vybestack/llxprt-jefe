@@ -19,7 +19,6 @@ pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, Te
 pub use dashboard_filter_indicator::dashboard_filter_indicator;
 pub use modals::AuthModal;
 pub use screens::{
-    ActionsScreen, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
-    WorkflowDispatchForm,
+    ActionsScreen, GeneratedAgentForm, NewAgentForm, SplitScreen, WorkflowDispatchForm,
 };
 pub use util::{CARET_CHAR, ELLIPSIS, text_with_caret, truncate_with_ellipsis};

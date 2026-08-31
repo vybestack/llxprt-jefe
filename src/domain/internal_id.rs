@@ -15,6 +15,27 @@ pub enum InternalId {
     SessionItem,
     StatusBucketItem,
     WorkbenchCardItem,
+    RepositoryFormName,
+    RepositoryFormBaseDir,
+    RepositoryFormDefaultProfile,
+    RepositoryFormDefaultModel,
+    RepositoryFormDefaultYolo,
+    RepositoryFormDefaultAgentType,
+    RepositoryFormDefaultVersion,
+    RepositoryFormDefaultMode,
+    RepositoryFormDefaultLlxprtVersion,
+    RepositoryFormGithubRepo,
+    RepositoryFormIssuePrRepo,
+    RepositoryFormRemoteEnabled,
+    RepositoryFormLoginUser,
+    RepositoryFormHost,
+    RepositoryFormSshPort,
+    RepositoryFormIdentityFile,
+    RepositoryFormSshOptions,
+    RepositoryFormRunAsUser,
+    RepositoryFormSetupEnvDefault,
+    RepositoryFormTransientAgentDir,
+    RepositoryFormTransientMaxConcurrent,
 }
 
 impl InternalId {
@@ -34,6 +55,29 @@ impl InternalId {
             Self::SessionItem => "host-session",
             Self::StatusBucketItem => "host-status-bucket",
             Self::WorkbenchCardItem => "host-workbench-card",
+            Self::RepositoryFormName => "repository-form-name",
+            Self::RepositoryFormBaseDir => "repository-form-base-dir",
+            Self::RepositoryFormDefaultProfile => "repository-form-default-profile",
+            Self::RepositoryFormDefaultModel => "repository-form-default-model",
+            Self::RepositoryFormDefaultYolo => "repository-form-default-yolo",
+            Self::RepositoryFormDefaultAgentType => "repository-form-default-agent-type",
+            Self::RepositoryFormDefaultVersion => "repository-form-default-version",
+            Self::RepositoryFormDefaultMode => "repository-form-default-mode",
+            Self::RepositoryFormDefaultLlxprtVersion => "repository-form-default-llxprt-version",
+            Self::RepositoryFormGithubRepo => "repository-form-github-repo",
+            Self::RepositoryFormIssuePrRepo => "repository-form-issue-pr-repo",
+            Self::RepositoryFormRemoteEnabled => "repository-form-remote-enabled",
+            Self::RepositoryFormLoginUser => "repository-form-login-user",
+            Self::RepositoryFormHost => "repository-form-host",
+            Self::RepositoryFormSshPort => "repository-form-ssh-port",
+            Self::RepositoryFormIdentityFile => "repository-form-identity-file",
+            Self::RepositoryFormSshOptions => "repository-form-ssh-options",
+            Self::RepositoryFormRunAsUser => "repository-form-run-as-user",
+            Self::RepositoryFormSetupEnvDefault => "repository-form-setup-env-default",
+            Self::RepositoryFormTransientAgentDir => "repository-form-transient-agent-dir",
+            Self::RepositoryFormTransientMaxConcurrent => {
+                "repository-form-transient-max-concurrent"
+            }
         }
     }
 }

@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "c528debc08576128b4e755c8194011d46817f43c53c8d83ab89f9c9e6938a3d4"
+    "artifact_set_sha256": "942d60dfb1e2b16f96fbaeed7f0ead5d55e12447d1bd82cc73c13b3dbdf363b4"
   },
   "artifacts": [
     {
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "7e46e1618b6ad4ccc8a2ba08538edba2b149453c6fa7e3b0c211e49ea3c6b18e",
+      "sha256": "1c46495b24ee7454d5d55453baf80d0d158c615642f02f448f92e96cb8e59241",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -631,7 +631,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "sha256": "03caf2884268235b990460ac795c64fab9a30e04ce934ab6cb582b11d66edd5f",
+      "sha256": "6f8bf352213b66626eafc9a7c78b79ac60f024fbc9f1fd43cb7b3fa520e913a3",
       "mode": "100644",
       "criteria": [
         "CWR2-06",
