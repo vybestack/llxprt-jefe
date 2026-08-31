@@ -16,7 +16,7 @@ use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
 };
-use crate::ui::{AuthModal, GeneratedAgentForm, NewAgentForm, SplitScreen, WorkflowDispatchForm};
+use crate::ui::{AuthModal, GeneratedAgentForm, SplitScreen, WorkflowDispatchForm};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -372,19 +372,20 @@ pub fn build_modal_element(
         ));
     }
     match modal {
-        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
-            let layout =
-                crate::overlay_controls::HostOverlayLayout::form(viewport.cols, viewport.rows);
-            Some(host_overlay_element(
-                project_repository_form(snapshot, layout.content_width)?,
-                layout,
-                colors,
-                crate::overlay_controls::REPOSITORY_FORM_FOOTER,
-            ))
-        }
-        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => {
-            Some(form_modal!(NewAgentForm, snapshot, colors))
-        }
+        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            project_repository_form,
+            crate::overlay_controls::REPOSITORY_FORM_FOOTER,
+        ),
+        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            crate::overlay_controls_agent_form::project_agent_form,
+            crate::overlay_controls_agent_form::AGENT_FORM_FOOTER,
+        ),
         ModalState::GeneratedAgent { .. } => {
             Some(generated_agent_modal(snapshot, colors, viewport.rows))
         }
@@ -413,6 +414,19 @@ pub fn build_provider_overlay_element(
         colors,
         footer,
     )
+}
+
+/// Route a definition-backed form modal through the shared overlay shell.
+fn form_overlay(
+    snapshot: &AppState,
+    viewport: ModalViewport,
+    colors: &ThemeColors,
+    project: fn(&AppState, usize) -> Option<OverlayControlProjection>,
+    footer: &str,
+) -> Option<AnyElement<'static>> {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(viewport.cols, viewport.rows);
+    let projection = project(snapshot, layout.content_width)?;
+    Some(host_overlay_element(projection, layout, colors, footer))
 }
 
 fn host_overlay_element(

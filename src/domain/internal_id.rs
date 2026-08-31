@@ -36,6 +36,23 @@ pub enum InternalId {
     RepositoryFormSetupEnvDefault,
     RepositoryFormTransientAgentDir,
     RepositoryFormTransientMaxConcurrent,
+    AgentFormShortcut,
+    AgentFormName,
+    AgentFormDescription,
+    AgentFormWorkDir,
+    AgentFormProfile,
+    AgentFormAgentType,
+    AgentFormModel,
+    AgentFormVersion,
+    AgentFormYolo,
+    AgentFormQuickResume,
+    AgentFormMode,
+    AgentFormLlxprtVersion,
+    AgentFormLlxprtDebug,
+    AgentFormPassContinue,
+    AgentFormSandbox,
+    AgentFormSandboxEngine,
+    AgentFormSandboxFlags,
 }
 
 impl InternalId {
@@ -78,6 +95,23 @@ impl InternalId {
             Self::RepositoryFormTransientMaxConcurrent => {
                 "repository-form-transient-max-concurrent"
             }
+            Self::AgentFormShortcut => "agent-form-shortcut",
+            Self::AgentFormName => "agent-form-name",
+            Self::AgentFormDescription => "agent-form-description",
+            Self::AgentFormWorkDir => "agent-form-work-dir",
+            Self::AgentFormProfile => "agent-form-profile",
+            Self::AgentFormAgentType => "agent-form-agent-type",
+            Self::AgentFormModel => "agent-form-model",
+            Self::AgentFormVersion => "agent-form-version",
+            Self::AgentFormYolo => "agent-form-yolo",
+            Self::AgentFormQuickResume => "agent-form-quick-resume",
+            Self::AgentFormMode => "agent-form-mode",
+            Self::AgentFormLlxprtVersion => "agent-form-llxprt-version",
+            Self::AgentFormLlxprtDebug => "agent-form-llxprt-debug",
+            Self::AgentFormPassContinue => "agent-form-pass-continue",
+            Self::AgentFormSandbox => "agent-form-sandbox",
+            Self::AgentFormSandboxEngine => "agent-form-sandbox-engine",
+            Self::AgentFormSandboxFlags => "agent-form-sandbox-flags",
         }
     }
 }

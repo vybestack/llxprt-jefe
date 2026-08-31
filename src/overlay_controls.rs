@@ -560,7 +560,7 @@ pub fn provider_surface_footer(projection: &ProviderViewProjection) -> &'static 
         _ => "Enter Retry   Esc Close",
     }
 }
-fn prepend_detail_rows(rows: &mut Vec<HostControlRow>, message: &str, width: usize) {
+pub fn prepend_detail_rows(rows: &mut Vec<HostControlRow>, message: &str, width: usize) {
     let detail = PanelBody::Detail(DetailBody {
         document: message.to_owned(),
         metadata: Vec::new(),
@@ -813,7 +813,7 @@ pub fn project_repository_form(state: &AppState, width: usize) -> Option<Overlay
     Some(projection)
 }
 
-fn project_form(
+pub fn project_form(
     title: &str,
     fields: Vec<Field>,
     values: TypedMap,

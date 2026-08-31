@@ -7,7 +7,6 @@ mod actions;
 mod errors;
 mod generated_agent;
 mod issues;
-mod new_agent;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-001
 mod pull_requests;
@@ -20,7 +19,6 @@ pub use actions::{ActionsScreen, ActionsScreenProps};
 pub use errors::{ErrorsScreen, ErrorsScreenProps};
 pub use generated_agent::{GeneratedAgentForm, GeneratedAgentFormProps};
 pub use issues::{IssuesScreen, IssuesScreenProps};
-pub use new_agent::{NewAgentForm, NewAgentFormProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-NFR-003

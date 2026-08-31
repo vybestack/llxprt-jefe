@@ -54,6 +54,10 @@ pub mod markdown_html_strip;
 pub mod markdown_render;
 pub mod messages;
 pub(crate) mod overlay_controls;
+pub(crate) mod overlay_controls_agent_form;
+#[cfg(test)]
+#[path = "overlay_controls_agent_form_tests.rs"]
+mod overlay_controls_agent_form_tests;
 #[cfg(test)]
 #[path = "overlay_controls_repository_form_tests.rs"]
 mod overlay_controls_repository_form_tests;

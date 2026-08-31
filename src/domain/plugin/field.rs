@@ -284,6 +284,23 @@ pub(crate) enum InternalField {
     RepositoryFormSetupEnvDefault,
     RepositoryFormTransientAgentDir,
     RepositoryFormTransientMaxConcurrent,
+    AgentFormShortcut,
+    AgentFormName,
+    AgentFormDescription,
+    AgentFormWorkDir,
+    AgentFormProfile,
+    AgentFormAgentType,
+    AgentFormModel,
+    AgentFormVersion,
+    AgentFormYolo,
+    AgentFormQuickResume,
+    AgentFormMode,
+    AgentFormLlxprtVersion,
+    AgentFormLlxprtDebug,
+    AgentFormPassContinue,
+    AgentFormSandbox,
+    AgentFormSandboxEngine,
+    AgentFormSandboxFlags,
 }
 
 /// A validated field declaration.
@@ -323,6 +340,23 @@ impl InternalField {
             Self::RepositoryFormTransientMaxConcurrent => {
                 InternalId::RepositoryFormTransientMaxConcurrent
             }
+            Self::AgentFormShortcut => InternalId::AgentFormShortcut,
+            Self::AgentFormName => InternalId::AgentFormName,
+            Self::AgentFormDescription => InternalId::AgentFormDescription,
+            Self::AgentFormWorkDir => InternalId::AgentFormWorkDir,
+            Self::AgentFormProfile => InternalId::AgentFormProfile,
+            Self::AgentFormAgentType => InternalId::AgentFormAgentType,
+            Self::AgentFormModel => InternalId::AgentFormModel,
+            Self::AgentFormVersion => InternalId::AgentFormVersion,
+            Self::AgentFormYolo => InternalId::AgentFormYolo,
+            Self::AgentFormQuickResume => InternalId::AgentFormQuickResume,
+            Self::AgentFormMode => InternalId::AgentFormMode,
+            Self::AgentFormLlxprtVersion => InternalId::AgentFormLlxprtVersion,
+            Self::AgentFormLlxprtDebug => InternalId::AgentFormLlxprtDebug,
+            Self::AgentFormPassContinue => InternalId::AgentFormPassContinue,
+            Self::AgentFormSandbox => InternalId::AgentFormSandbox,
+            Self::AgentFormSandboxEngine => InternalId::AgentFormSandboxEngine,
+            Self::AgentFormSandboxFlags => InternalId::AgentFormSandboxFlags,
         }
     }
 
@@ -331,7 +365,7 @@ impl InternalField {
             Self::SearchQuery => "Filter",
             Self::ConfirmationDecision => "Decision",
             Self::DeleteWorkDir => "Delete work directory",
-            Self::RepositoryFormName => "Name",
+            Self::RepositoryFormName | Self::AgentFormName => "Name",
             Self::RepositoryFormBaseDir => "Base Dir",
             Self::RepositoryFormDefaultProfile => "Default Profile",
             Self::RepositoryFormDefaultModel => "Default Model",
@@ -352,6 +386,22 @@ impl InternalField {
             Self::RepositoryFormSetupEnvDefault => "Setup Env Default",
             Self::RepositoryFormTransientAgentDir => "Transient Dir",
             Self::RepositoryFormTransientMaxConcurrent => "Max Transient",
+            Self::AgentFormShortcut => "Shortcut (1-9)",
+            Self::AgentFormDescription => "Description",
+            Self::AgentFormWorkDir => "Work Dir",
+            Self::AgentFormProfile => "Profile",
+            Self::AgentFormAgentType => "Agent Runtime",
+            Self::AgentFormModel => "Model",
+            Self::AgentFormVersion => "CP Version",
+            Self::AgentFormYolo => "YOLO",
+            Self::AgentFormQuickResume => "Quick resume",
+            Self::AgentFormMode => "Mode Flags",
+            Self::AgentFormLlxprtVersion => "LLxprt Version",
+            Self::AgentFormLlxprtDebug => "LLXPRT_DEBUG",
+            Self::AgentFormPassContinue => "Pass --continue",
+            Self::AgentFormSandbox => "Sandbox",
+            Self::AgentFormSandboxEngine => "Sandbox Engine",
+            Self::AgentFormSandboxFlags => "Sandbox Flags",
         }
     }
 
@@ -360,7 +410,11 @@ impl InternalField {
             Self::DeleteWorkDir
             | Self::RepositoryFormDefaultYolo
             | Self::RepositoryFormRemoteEnabled
-            | Self::RepositoryFormSetupEnvDefault => FieldKind::Boolean,
+            | Self::RepositoryFormSetupEnvDefault
+            | Self::AgentFormYolo
+            | Self::AgentFormQuickResume
+            | Self::AgentFormPassContinue
+            | Self::AgentFormSandbox => FieldKind::Boolean,
             _ => FieldKind::String,
         }
     }
@@ -368,7 +422,10 @@ impl InternalField {
     fn required(self) -> bool {
         matches!(
             self,
-            Self::SearchQuery | Self::ConfirmationDecision | Self::RepositoryFormName
+            Self::SearchQuery
+                | Self::ConfirmationDecision
+                | Self::RepositoryFormName
+                | Self::AgentFormName
         )
     }
 }
