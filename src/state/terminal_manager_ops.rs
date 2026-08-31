@@ -6,9 +6,12 @@
 //! persisted). Side effects (capture, attach, close) happen at the runtime
 //! boundary BEFORE these reducers run.
 
+use super::navigation::{Activation, NavIntent, NavMessage};
+use super::navigation_dirty::DraftAction;
 use super::{AppState, ManagedShellRow, ShellFocusOrigin, ShellReturnTarget, status_label_for};
 use crate::domain::{AgentId, AgentStatus};
 use crate::messages::{NavDir, TerminalManagerMessage};
+use crate::workbench::{ActivationValues, RouteId};
 
 /// Build the deterministic list of managed-shell rows from current state.
 ///
@@ -53,6 +56,24 @@ pub fn project_managed_shell_rows(state: &AppState) -> Vec<ManagedShellRow> {
 }
 
 impl AppState {
+    /// Ensure the session is on the Terminal Manager, without stacking a
+    /// second copy of it.
+    ///
+    /// The manager is a descriptor screen (`core.terminals`), so navigation
+    /// goes through its route rather than a compiled variant; stating the
+    /// destination idempotently keeps shell-return transitions from stacking
+    /// a second manager instance the user is already looking at.
+    pub(crate) fn show_terminal_manager(&mut self) -> DraftAction {
+        if self.nav.screen() == crate::workbench::TERMINALS_IDENTITY {
+            return DraftAction::None;
+        }
+        let route = RouteId::parse("terminals")
+            .unwrap_or_else(|error| unreachable!("the core.terminals route must parse: {error}"));
+        let activation =
+            Activation::from_source(route, ActivationValues::empty(), self.nav.current());
+        self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
+    }
+
     /// Enter terminal-manager mode in a fresh exact screen instance (issue #364 PR A).
     fn enter_terminal_manager_mode(&mut self) -> bool {
         let _ = self.show_terminal_manager();

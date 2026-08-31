@@ -85,24 +85,6 @@ impl AppState {
         self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
     }
 
-    /// Ensure the session is on the Terminal Manager, without stacking a
-    /// second copy of it.
-    ///
-    /// The manager is a descriptor screen (`core.terminals`), so navigation
-    /// goes through its route rather than a compiled variant; stating the
-    /// destination idempotently keeps shell-return transitions from stacking
-    /// a second manager instance the user is already looking at.
-    pub(crate) fn show_terminal_manager(&mut self) -> DraftAction {
-        if self.nav.screen() == crate::workbench::TERMINALS_IDENTITY {
-            return DraftAction::None;
-        }
-        let route = RouteId::parse("terminals")
-            .unwrap_or_else(|error| unreachable!("the core.terminals route must parse: {error}"));
-        let activation =
-            Activation::from_source(route, ActivationValues::empty(), self.nav.current());
-        self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
-    }
-
     fn switch_to_composition_root(&mut self) -> DraftAction {
         let activation = Activation::from_source(
             self.composition_root_route(),
@@ -205,7 +187,7 @@ impl AppState {
 
     /// Commit one navigation message, surfacing any refusal and reporting what
     /// the draft's owner must now do.
-    fn navigate(&mut self, message: NavMessage) -> DraftAction {
+    pub(super) fn navigate(&mut self, message: NavMessage) -> DraftAction {
         let prior = self.clone();
         let workbench = std::sync::Arc::clone(self.published_workbench());
         let registry = workbench.screen_registry();
