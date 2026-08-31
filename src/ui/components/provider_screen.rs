@@ -12,6 +12,7 @@ use crate::provider_panel_view::{
 use crate::state::AppState;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::TerminalView;
+use crate::ui::components::WorkbenchCard;
 use crate::workbench::Rect;
 
 /// Props for a descriptor-driven provider screen.
@@ -199,6 +200,10 @@ fn render_panel(
         render_embedded_terminal(panel, state, props, children);
         return;
     }
+    if panel.render == PanelRender::WorkbenchCards {
+        render_workbench_cards(panel, state, props, rc, children);
+        return;
+    }
     let border_color = match panel.status {
         PanelStatus::Failed => rc.error,
         _ if panel.focused => rc.border_focused,
@@ -291,6 +296,108 @@ fn panel_title(panel: &PanelProjection) -> String {
     } else {
         format!(" {} ", panel.title)
     }
+}
+
+/// Render the retained workbench card grid inside its panel content rect.
+///
+/// Mirrors the retired split-screen composition: card rows of
+/// [`WorkbenchCard`] components, a dim "Page X of Y" line when paging, or
+/// the empty-state reason. The viewport is the panel's own content
+/// rectangle, so the grid lays out for the space it actually gets.
+fn render_workbench_cards(
+    panel: &PanelProjection,
+    state: &AppState,
+    props: &ProviderScreenProps,
+    rc: &ResolvedColors,
+    children: &mut Vec<AnyElement<'static>>,
+) {
+    let content = panel.content;
+    let view =
+        crate::provider_panel_view::workbench_view_from_state(state, content.width, content.height);
+
+    if let Some(reason) = &view.empty_reason {
+        children.push(absolute_text(content, reason.clone(), rc.dim));
+        return;
+    }
+
+    let columns = view.layout.columns.max(1);
+    let selected = state.selected_agent().map(|agent| agent.id.clone());
+    let mut grid: Vec<_> = view
+        .cards
+        .chunks(columns)
+        .map(|chunk| {
+            workbench_card_row(
+                chunk,
+                view.layout.card_width,
+                view.layout.todo_window,
+                selected.as_ref(),
+                &props.colors,
+            )
+        })
+        .collect();
+    if view.layout.page_count > 1 {
+        grid.push(absolute_text(
+            content,
+            format!(
+                " Page {} of {}",
+                view.layout.page + 1,
+                view.layout.page_count
+            ),
+            rc.dim,
+        ));
+    }
+    children.push(
+        element! {
+            Box(
+                position: Position::Absolute,
+                left: u32::from(content.col),
+                top: u32::from(content.row),
+                width: u32::from(content.width),
+                height: u32::from(content.height),
+                flex_direction: FlexDirection::Column,
+                background_color: rc.bg,
+            ) {
+                #(grid)
+            }
+        }
+        .into_any(),
+    );
+}
+
+/// One row-major grid row of [`WorkbenchCard`] components.
+fn workbench_card_row(
+    chunk: &[crate::workbench_view::WorkbenchCard],
+    card_width: usize,
+    todo_window: usize,
+    selected: Option<&crate::domain::AgentId>,
+    colors: &ThemeColors,
+) -> AnyElement<'static> {
+    let cards: Vec<_> = chunk
+        .iter()
+        .map(|card| {
+            let is_selected = selected.is_some_and(|id| *id == card.agent_id);
+            element! {
+                WorkbenchCard(
+                    card: Some(card.clone()),
+                    card_width: card_width,
+                    todo_window: todo_window,
+                    selected: is_selected,
+                    colors: colors.clone(),
+                )
+            }
+            .into_any()
+        })
+        .collect();
+    element! {
+        Box(
+            flex_direction: FlexDirection::Row,
+            width: 100pct,
+            background_color: ResolvedColors::from_theme(Some(colors)).bg,
+        ) {
+            #(cards)
+        }
+    }
+    .into_any()
 }
 
 fn fitted_panel_title(panel: &PanelProjection, chrome: Rect) -> String {

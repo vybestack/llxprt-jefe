@@ -7,14 +7,20 @@
 //! snapshot: the renderer, mouse router, and projection all read the same
 //! rectangles.
 
+use crate::git_info::GitRepoInfo;
 pub use crate::host_controls::PanelHitTarget;
 use crate::host_controls::project_control_body;
 use crate::runtime::provider::protocol::{Affordance, PanelBody};
 use crate::state::AppState;
 use crate::state::provider_panels::{PanelLifecycle, ProviderPanelState};
+use crate::workbench::descriptor::HostPanelModelSource;
 use crate::workbench::{
     PTY_PANEL_TYPE, PanelId, Rect, ResolvedLayout, ScreenDescriptor, ScreenInstanceId,
 };
+use crate::workbench_view::{WorkbenchRequest, WorkbenchView, build_workbench_view};
+
+/// Panel type of the Repositories screen's filter band.
+const FILTER_BAND_PANEL_TYPE: &str = "filter-band";
 
 // ---------------------------------------------------------------------------
 // View structures consumed by the iocraft component
@@ -64,6 +70,9 @@ pub enum PanelRender {
     Control,
     /// The private host PTY rendered through `TerminalView`.
     EmbeddedTerminal,
+    /// The retained workbench card grid, rendered by the bespoke grid
+    /// renderer from the [`WorkbenchView`] (#706 maintainer decision).
+    WorkbenchCards,
 }
 
 /// Distinct lifecycle-derived rendering status for a provider panel.
@@ -193,36 +202,109 @@ pub fn project_current_screen(
         {
             continue;
         }
-        if panel_descriptor.panel_type.as_str() == PTY_PANEL_TYPE {
-            // The Terminal Manager's preview pane carries the single live
-            // viewer only while the shell overlay runs; the rest of the time
-            // it is the throttled read-only preview captured from the
-            // manager channel — never a second live viewer.
-            if descriptor.id == crate::workbench::TERMINALS_IDENTITY
-                && !state.shell_overlay_active()
-            {
-                project_shell_preview(projection, state);
-                continue;
-            }
-            "Terminal".clone_into(&mut projection.title);
-            projection.status = PanelStatus::Active;
-            projection.lines.clear();
-            projection.hit_targets.clear();
-            projection.max_scroll_offset = 0;
-            projection.render = PanelRender::EmbeddedTerminal;
-            continue;
-        }
-        if let Some(capability) = panel_descriptor.host_capability {
-            let model =
-                crate::host_panel_models::project_host_panel(state, capability.model_source());
-            if crate::host_controls::ControlKind::from(model.body.kind())
-                == capability.control_kind()
-            {
-                project_host_model(projection, model);
-            }
-        }
+        project_declared_content(&descriptor.id, panel_descriptor, projection, state);
     }
     Ok(view)
+}
+
+/// Fill one unbound panel from the content its declaration implies: the
+/// private host PTY, the Repositories filter band, or a host control.
+fn project_declared_content(
+    screen: &crate::workbench::ScreenIdentity,
+    panel_descriptor: &crate::workbench::PanelDescriptor,
+    projection: &mut PanelProjection,
+    state: &AppState,
+) {
+    if panel_descriptor.panel_type.as_str() == PTY_PANEL_TYPE {
+        // The Terminal Manager's preview pane carries the single live
+        // viewer only while the shell overlay runs; the rest of the time
+        // it is the throttled read-only preview captured from the
+        // manager channel — never a second live viewer.
+        if screen == &crate::workbench::TERMINALS_IDENTITY && !state.shell_overlay_active() {
+            project_shell_preview(projection, state);
+            return;
+        }
+        "Terminal".clone_into(&mut projection.title);
+        projection.status = PanelStatus::Active;
+        projection.lines.clear();
+        projection.hit_targets.clear();
+        projection.max_scroll_offset = 0;
+        projection.render = PanelRender::EmbeddedTerminal;
+        return;
+    }
+    if panel_descriptor.panel_type.as_str() == FILTER_BAND_PANEL_TYPE {
+        project_filter_band(projection, state);
+        return;
+    }
+    let Some(capability) = panel_descriptor.host_capability else {
+        return;
+    };
+    if capability.model_source() == HostPanelModelSource::WorkbenchCards {
+        // The grid survives the Repositories cutover with its own
+        // renderer; the host capability still owns the input
+        // contract (selection, attach, paging) declared in #706.
+        let model = crate::host_panel_models::project_host_panel(state, capability.model_source());
+        projection.title = model.title;
+        projection.status = PanelStatus::Active;
+        projection.lines.clear();
+        projection.hit_targets.clear();
+        projection.max_scroll_offset = 0;
+        projection.render = PanelRender::WorkbenchCards;
+        return;
+    }
+    let model = crate::host_panel_models::project_host_panel(state, capability.model_source());
+    if crate::host_controls::ControlKind::from(model.body.kind()) == capability.control_kind() {
+        project_host_model(projection, model);
+    }
+}
+
+/// Build the retained workbench card-grid view from app state.
+///
+/// Keeps the legacy wiring the grid depends on: configured origins feed the
+/// card headers, the split filter scopes the grid, and the retained page
+/// counter selects the window. The bespoke renderer owns geometry, so the
+/// viewport here is the panel's content rectangle, not the terminal.
+#[must_use]
+pub fn workbench_view_from_state(state: &AppState, cols: u16, rows: u16) -> WorkbenchView {
+    let agents: Vec<_> = state
+        .agents
+        .iter()
+        .map(|agent| {
+            let git_info = state
+                .repository_by_id(&agent.repository_id)
+                .map(|repository| GitRepoInfo::from_configured_origin(&repository.github_repo));
+            let observation = state.observations.get(&agent.id).cloned();
+            (agent.clone(), git_info, observation)
+        })
+        .collect();
+    let repository_filter = state.split_filter.as_ref().map(|id| id.0.clone());
+    build_workbench_view(&WorkbenchRequest {
+        agents,
+        status_filter: state.workbench.status_filter.mask(),
+        repository_filter,
+        terminal_width: usize::from(cols),
+        terminal_height: usize::from(rows),
+        page: state.workbench.page,
+    })
+}
+
+/// Project the Repositories screen's filter band.
+///
+/// The legacy rail showed the search row plus a terminal-style cursor; the
+/// band carries the same line at full width.
+fn project_filter_band(projection: &mut PanelProjection, state: &AppState) {
+    let line =
+        crate::overlay_controls::project_search(state, usize::from(crate::layout::LEFT_COL_WIDTH))
+            .rows
+            .into_iter()
+            .next()
+            .map_or_else(|| "Filter: ".to_owned(), |row| row.text);
+    projection.title.clear();
+    projection.status = PanelStatus::Active;
+    projection.lines = vec![format!("{line}_")];
+    projection.hit_targets = vec![None];
+    projection.max_scroll_offset = 0;
+    projection.render = PanelRender::Control;
 }
 
 /// Fill one host-owned panel from its projected model, clamping the retained
