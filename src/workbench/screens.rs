@@ -597,7 +597,8 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
 }
 
 /// `core.repositories` — the split view: the repository list over its STATUS
-/// block in the left rail, under the filter band, occupying the full width.
+/// block in the fixed left rail, the agent card grid beside them under the
+/// filter band.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
         id: ScreenIdentity::Compiled(ScreenId::Repositories),
@@ -613,10 +614,18 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
                 (true, false),
                 LIST_PANE_CHROME,
             )?,
+            host_panel(
+                "cards",
+                "workbench-cards",
+                HostPanelModelSource::WorkbenchCards,
+                ControlKind::List,
+                (true, false),
+                LIST_PANE_CHROME,
+            )?,
             panel("filter", "filter-band", false, false, BAND_CHROME)?,
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
-        focus_order: focus_order(&[REPOSITORIES_PANEL, "status"])?,
+        focus_order: focus_order(&[REPOSITORIES_PANEL, "status", "cards"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
         overlays: HOST_OVERLAYS.to_vec(),
@@ -625,9 +634,15 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
         layout: column(vec![
             band_child(leaf("filter")?, SPLIT_FILTER_ROWS, -100),
             required_child(
-                column(vec![
-                    required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
-                    fixed_child(leaf("status")?, STATUS_BLOCK_ROWS),
+                row(vec![
+                    fixed_child(
+                        column(vec![
+                            required_child(leaf(REPOSITORIES_PANEL)?, weight(1), LIST_MIN_ROWS),
+                            fixed_child(leaf("status")?, STATUS_BLOCK_ROWS),
+                        ]),
+                        SIDEBAR_COLUMNS,
+                    ),
+                    required_child(leaf("cards")?, weight(1), FLEX_MIN_COLUMNS),
                 ]),
                 weight(1),
                 LIST_MIN_ROWS,

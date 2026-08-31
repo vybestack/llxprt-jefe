@@ -490,30 +490,47 @@ fn filter_agents<'a>(
         .collect()
 }
 
-/// The agent ids the workbench would render, in the order it renders them.
+/// The filtered agents the workbench walks, each with its bucket, in the
+/// order it renders them: bucket first, then stable by incoming order.
 ///
 /// Layout-independent on purpose: selection has to move in the same order the
 /// cards appear, but it must not depend on terminal size or paging, or moving
 /// the selection would mean something different on a narrow terminal.
+#[must_use]
+pub fn ordered_agent_inputs<'a>(
+    agents: &'a [AgentInput<'a>],
+    status_filter: StatusFilterMask,
+    repository_filter: Option<&str>,
+) -> Vec<(StatusBucket, &'a AgentInput<'a>)> {
+    let mut visible: Vec<(u8, usize, StatusBucket, &AgentInput<'a>)> = agents
+        .iter()
+        .enumerate()
+        .filter_map(|(index, input)| {
+            let bucket = bucket_for(resolve_status(input.agent.status, input.observation));
+            (status_filter.allows(bucket) && repository_matches(input.agent, repository_filter))
+                .then(|| (bucket_sort_key(bucket), index, bucket, input))
+        })
+        .collect();
+    // Same ordering rule as the rendered grid: bucket first, then stable by
+    // incoming order.
+    visible.sort_by_key(|(bucket_key, index, _, _)| (*bucket_key, *index));
+    visible
+        .into_iter()
+        .map(|(_, _, bucket, input)| (bucket, input))
+        .collect()
+}
+
+/// The agent ids the workbench would render, in the order it renders them.
 #[must_use]
 pub fn ordered_agent_ids<'a>(
     agents: &'a [AgentInput<'a>],
     status_filter: StatusFilterMask,
     repository_filter: Option<&str>,
 ) -> Vec<&'a AgentId> {
-    let mut visible: Vec<(u8, usize, &AgentId)> = agents
-        .iter()
-        .enumerate()
-        .filter_map(|(index, input)| {
-            let bucket = bucket_for(resolve_status(input.agent.status, input.observation));
-            (status_filter.allows(bucket) && repository_matches(input.agent, repository_filter))
-                .then(|| (bucket_sort_key(bucket), index, &input.agent.id))
-        })
-        .collect();
-    // Same ordering rule as the rendered grid: bucket first, then stable by
-    // incoming order.
-    visible.sort_by_key(|(bucket_key, index, _)| (*bucket_key, *index));
-    visible.into_iter().map(|(_, _, id)| id).collect()
+    ordered_agent_inputs(agents, status_filter, repository_filter)
+        .into_iter()
+        .map(|(_, input)| &input.agent.id)
+        .collect()
 }
 
 /// Reason string when no agents pass the filters.

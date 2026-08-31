@@ -57,7 +57,7 @@ fn split_override(axis: &str, panels: &[&str]) -> TypedMap {
     map
 }
 
-/// The Repositories screen, which declares exactly three panels.
+/// The Repositories screen, which declares exactly four panels.
 fn repositories_screen_fixture(
     compiled: &crate::workbench::screens::ScreenRegistry,
 ) -> &crate::workbench::descriptor::ScreenDescriptor {
@@ -82,7 +82,7 @@ fn a_saved_layout_override_is_the_layout_the_registry_publishes() {
     let mut overrides = BTreeMap::new();
     overrides.insert(
         id(screen.id.as_str()),
-        split_override("horizontal", &["repositories", "status", "filter"]),
+        split_override("horizontal", &["repositories", "status", "cards", "filter"]),
     );
 
     let composed = compose_screens(
@@ -115,7 +115,7 @@ fn a_saved_layout_override_is_the_layout_the_registry_publishes() {
                 LayoutNode::Split { .. } => panic!("the fixture places leaves"),
             })
             .collect::<Vec<_>>(),
-        vec!["repositories", "status", "filter"],
+        vec!["repositories", "status", "cards", "filter"],
         "in the order the user saved"
     );
 }

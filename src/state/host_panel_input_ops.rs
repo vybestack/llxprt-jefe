@@ -119,7 +119,10 @@ impl AppState {
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
             HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
             // The STATUS block is four fixed rows: it never scrolls.
+            // The card grid pages rather than scrolls; the page index is
+            // owned by the workbench state and clamped at render time.
             HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::WorkbenchCards
             | HostPanelModelSource::SearchInput
             | HostPanelModelSource::AgentPreview => return false,
         };
@@ -165,6 +168,14 @@ impl AppState {
                         self.apply_workbench_status_toggle(bucket);
                         None
                     }
+                    // Enter on a card attaches to its agent, the legacy
+                    // `split.activate-selection` behavior.
+                    HostPanelModelSource::WorkbenchCards => {
+                        self.apply_workbench(
+                            super::workbench_reducers::WorkbenchNavigation::Attach,
+                        );
+                        None
+                    }
                     HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
                 };
                 if let Some(event) = event {
@@ -175,6 +186,13 @@ impl AppState {
             PanelEvent::Submit { .. } if kind == HostPanelModelSource::SearchInput => {
                 self.reduce_message_body(AppMessage::from(AppEvent::OpenSearch));
                 self.active_overlay_kind() == Some(crate::workbench::OverlayKind::Search)
+            }
+            // PageDown on the grid pages the cards, the legacy
+            // `split.page-down` behavior. The page count is a render-time
+            // fact, so the reducer increments and the projection clamps.
+            PanelEvent::PageRequested { .. } if kind == HostPanelModelSource::WorkbenchCards => {
+                self.apply_workbench(super::workbench_reducers::WorkbenchNavigation::NextPage);
+                true
             }
             PanelEvent::Action { .. }
             | PanelEvent::FieldChanged { .. }
@@ -213,7 +231,9 @@ impl AppState {
             HostPanelModelSource::AgentList => self.selected_agent_local_index(),
             HostPanelModelSource::SessionList => self.terminal_manager.selected_index,
             // All four bucket rows are always on screen.
+            // Card selection never scrolls the grid: paging is explicit.
             HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::WorkbenchCards
             | HostPanelModelSource::SearchInput
             | HostPanelModelSource::AgentPreview => None,
         };
@@ -226,6 +246,7 @@ impl AppState {
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
             HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
             HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::WorkbenchCards
             | HostPanelModelSource::SearchInput
             | HostPanelModelSource::AgentPreview => return,
         };
@@ -287,7 +308,39 @@ impl AppState {
                 self.workbench.filter_cursor = index;
                 true
             }
+            HostPanelModelSource::WorkbenchCards => self.select_workbench_card(id),
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => false,
         }
+    }
+
+    /// Resolve a card id back to the agent it names and make it the app's
+    /// single selection, so the grid and every pane stay on one agent.
+    fn select_workbench_card(&mut self, id: &Id) -> bool {
+        let inputs: Vec<crate::workbench_view::AgentInput<'_>> = self
+            .agents
+            .iter()
+            .map(|agent| crate::workbench_view::AgentInput {
+                agent,
+                git_info: None,
+                observation: self.observations.get(&agent.id),
+            })
+            .collect();
+        let repository_filter = self
+            .split_filter
+            .as_ref()
+            .map(|repository| repository.0.as_str());
+        let order = crate::workbench_view::ordered_agent_ids(
+            &inputs,
+            self.workbench.status_filter.mask(),
+            repository_filter,
+        );
+        let Some(target) = (0..order.len())
+            .find(|index| Id::internal_indexed(InternalId::WorkbenchCardItem, *index) == *id)
+            .map(|index| order[index].clone())
+        else {
+            return false;
+        };
+        self.select_workbench_agent(&target);
+        true
     }
 }

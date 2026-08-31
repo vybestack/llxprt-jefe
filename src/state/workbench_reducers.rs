@@ -79,7 +79,7 @@ impl AppState {
     /// The workbench spans repositories but `selected_agent` is repository
     /// scoped, so the repository has to move with the agent or the selection
     /// silently fails to resolve.
-    fn select_workbench_agent(&mut self, target: &crate::domain::AgentId) {
+    pub(super) fn select_workbench_agent(&mut self, target: &crate::domain::AgentId) {
         let Some(agent_index) = self.agents.iter().position(|agent| agent.id == *target) else {
             return;
         };

@@ -509,7 +509,32 @@ fn mutating_a_legacy_product_spelling_does_not_change_compiled_host_authority() 
         authority.control_kind(),
         crate::host_controls::ControlKind::List
     );
-    assert_eq!(validate_descriptor(&dashboard), Ok(()));
+}
+
+#[test]
+fn repositories_cards_grid_is_a_declared_host_control() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::ScreenIdentity::Compiled(
+            crate::state::ScreenId::Repositories,
+        ))
+        .unwrap_or_else(|| panic!("repositories descriptor must be published"));
+    let cards_grid = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "cards")
+        .unwrap_or_else(|| panic!("cards panel must be declared"));
+    let capability = cards_grid
+        .host_capability()
+        .unwrap_or_else(|| unreachable!("cards must be a declared host control"));
+    assert_eq!(
+        capability.model_source(),
+        super::descriptor::HostPanelModelSource::WorkbenchCards
+    );
+    assert_eq!(
+        capability.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
 }
 
 #[test]

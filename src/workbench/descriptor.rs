@@ -181,6 +181,7 @@ pub enum HostPanelModelSource {
     AgentPreview,
     SessionList,
     WorkbenchStatus,
+    WorkbenchCards,
 }
 
 /// Authenticated host authority carried by a compiled panel declaration.
@@ -228,7 +229,7 @@ impl HostPanelModelSource {
             }
             Self::SearchInput => crate::host_controls::ControlKind::Form,
             Self::AgentPreview => crate::host_controls::ControlKind::Detail,
-            Self::WorkbenchStatus => crate::host_controls::ControlKind::List,
+            Self::WorkbenchStatus | Self::WorkbenchCards => crate::host_controls::ControlKind::List,
         }
     }
 }

@@ -14,6 +14,7 @@ pub enum InternalId {
     AgentItem,
     SessionItem,
     StatusBucketItem,
+    WorkbenchCardItem,
 }
 
 impl InternalId {
@@ -32,6 +33,7 @@ impl InternalId {
             Self::AgentItem => "host-agent",
             Self::SessionItem => "host-session",
             Self::StatusBucketItem => "host-status-bucket",
+            Self::WorkbenchCardItem => "host-workbench-card",
         }
     }
 }

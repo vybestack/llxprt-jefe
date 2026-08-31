@@ -27,6 +27,7 @@ pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> Hos
         HostPanelModelSource::AgentPreview => agent_preview(state),
         HostPanelModelSource::SessionList => session_list(state),
         HostPanelModelSource::WorkbenchStatus => workbench_status(state),
+        HostPanelModelSource::WorkbenchCards => workbench_cards(state),
     }
 }
 
@@ -80,6 +81,69 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        scroll_offset: 0,
+    }
+}
+
+/// The workbench card grid, projected as a list control over the grid's own
+/// order.
+///
+/// Retained by the cutover (maintainer decision on #706): the rendered cards
+/// keep coming from the workbench projection, while selection, paging, and
+/// attach route through the host-panel input path exactly like every other
+/// declared list. One item per visible agent; the page token stays live while
+/// any agent is visible because the real page count is a render-time fact
+/// only the projection can clamp.
+fn workbench_cards(state: &AppState) -> HostPanelModel {
+    let inputs: Vec<crate::workbench_view::AgentInput<'_>> = state
+        .agents
+        .iter()
+        .map(|agent| crate::workbench_view::AgentInput {
+            agent,
+            git_info: None,
+            observation: state.observations.get(&agent.id),
+        })
+        .collect();
+    let repository_filter = state
+        .split_filter
+        .as_ref()
+        .map(|repository| repository.0.as_str());
+    let ordered = crate::workbench_view::ordered_agent_inputs(
+        &inputs,
+        state.workbench.status_filter.mask(),
+        repository_filter,
+    );
+    let items = ordered
+        .iter()
+        .enumerate()
+        .map(|(position, (bucket, input))| ListItem {
+            id: Id::internal_indexed(InternalId::WorkbenchCardItem, position),
+            label: input.agent.name.clone(),
+            description: None,
+            status: Some(bucket.label().to_owned()),
+            actions: Vec::new(),
+        })
+        .collect();
+    let selected_id = state
+        .selected_agent()
+        .and_then(|agent| {
+            ordered
+                .iter()
+                .position(|(_, input)| input.agent.id == agent.id)
+        })
+        .map(|position| Id::internal_indexed(InternalId::WorkbenchCardItem, position));
+    let next_page_token = (!ordered.is_empty()).then(|| "workbench-next-page".to_owned());
+    HostPanelModel {
+        title: "Workbench".to_owned(),
+        body: PanelBody::List(ListBody {
+            items,
+            selected_id: selected_id.clone(),
+            next_page_token,
+        }),
+        action_affordances: Vec::new(),
+        selected_id,
+        // The grid pages rather than scrolls; the page index lives in the
+        // workbench state and the projection clamps it at render time.
         scroll_offset: 0,
     }
 }
