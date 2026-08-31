@@ -55,8 +55,18 @@ fn restore_keeps_the_selection_the_document_carried() {
         "the restored root must keep the repository the document selected"
     );
     assert_eq!(
+        state.repositories[1].id,
+        RepositoryId("repo-second".to_owned()),
+        "the restored selection must still resolve to the second repository"
+    );
+    assert_eq!(
         state.selected_agent_index,
         Some(1),
         "the restored root must keep the agent the document selected"
+    );
+    assert_eq!(
+        state.agents[1].id,
+        AgentId("agent-second".to_owned()),
+        "the restored selection must still resolve to the second agent"
     );
 }
