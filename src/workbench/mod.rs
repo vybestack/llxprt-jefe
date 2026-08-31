@@ -41,6 +41,7 @@ pub mod screen_lowering;
 pub mod screen_lowering_layout;
 pub mod screen_lowering_values;
 pub mod screens;
+pub mod screens_github;
 pub mod screens_ports;
 pub mod validate;
 

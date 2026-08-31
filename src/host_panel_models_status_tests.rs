@@ -108,8 +108,12 @@ fn state_with_one_agent_per_bucket() -> AppState {
     state
         .observations
         .insert(working.id.clone(), working_observation());
-    state.observations.insert(ready.id.clone(), ready_observation());
-    state.observations.insert(dead.id.clone(), stale_observation());
+    state
+        .observations
+        .insert(ready.id.clone(), ready_observation());
+    state
+        .observations
+        .insert(dead.id.clone(), stale_observation());
     state.agents = vec![waiting, working, ready, dead];
     state
 }

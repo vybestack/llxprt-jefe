@@ -40,11 +40,10 @@ use super::activation::ScreenBinding;
 use super::config::insets_config;
 use super::descriptor::{
     Axis, HostPanelCapability, HostPanelModelSource, LayoutChild, LayoutNode, OverlayKind,
-    PanelDescriptor, PortDirection, ScreenDescriptor, Size,
+    PanelDescriptor, ScreenDescriptor, Size,
 };
 use super::geometry::Insets;
 use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
-use super::screens_ports::{selection_port, subject_port, workspace_relationships};
 
 pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT};
 use super::validate::{DescriptorError, validate_descriptor};
@@ -70,7 +69,7 @@ fn dashboard_bindings() -> Result<Vec<ScreenBinding>, RegistryError> {
     }])
 }
 
-const HOST_OVERLAYS: [OverlayKind; 3] = OverlayKind::ALL;
+pub(super) const HOST_OVERLAYS: [OverlayKind; 3] = OverlayKind::ALL;
 
 /// Panel type whose visible content rectangle drives a live PTY.
 ///
@@ -87,7 +86,7 @@ pub const REPOSITORIES_PANEL: &str = "repositories";
 // These mirror the widths and proportions the screens render today.
 
 /// Columns reserved for the repository sidebar.
-const SIDEBAR_COLUMNS: u16 = 22;
+pub(super) const SIDEBAR_COLUMNS: u16 = 22;
 /// Columns reserved for the dashboard preview pane.
 const PREVIEW_COLUMNS: u16 = 36;
 /// Columns reserved for the Settings section list.
@@ -100,13 +99,13 @@ const SPLIT_FILTER_ROWS: u16 = 3;
 /// The STATUS block: one header row plus one row per bucket.
 const STATUS_BLOCK_ROWS: u16 = 5;
 /// Rows a workspace error/notice banner occupies when shown.
-const BANNER_ROWS: u16 = 1;
+pub(super) const BANNER_ROWS: u16 = 1;
 /// Rows the workspace filter-controls band occupies when open.
-const FILTER_CONTROLS_ROWS: u16 = 6;
+pub(super) const FILTER_CONTROLS_ROWS: u16 = 6;
 /// Weight of the workspace list pane; the list takes three tenths.
-const LIST_WEIGHT: u16 = 3;
+pub(super) const LIST_WEIGHT: u16 = 3;
 /// Weight of the workspace detail pane; the detail takes seven tenths.
-const DETAIL_WEIGHT: u16 = 7;
+pub(super) const DETAIL_WEIGHT: u16 = 7;
 /// Weight of the dashboard agent pane; the agent list takes a quarter.
 const AGENT_WEIGHT: u16 = 1;
 /// Weight of the dashboard terminal pane; the terminal takes three quarters.
@@ -124,18 +123,18 @@ const AGENT_MIN_ROWS: u16 = 0;
 /// The terminal pane reserves nothing; it is a pure three-quarter share.
 const TERMINAL_MIN_ROWS: u16 = 0;
 /// The workspace list reserves nothing; it is a pure three-tenths share.
-const LIST_MIN_ROWS: u16 = 0;
+pub(super) const LIST_MIN_ROWS: u16 = 0;
 /// The workspace detail reserves nothing; it is a pure seven-tenths share.
-const DETAIL_MIN_ROWS: u16 = 0;
+pub(super) const DETAIL_MIN_ROWS: u16 = 0;
 /// A flexible column reserves nothing; it takes what the fixed columns leave.
-const FLEX_MIN_COLUMNS: u16 = 0;
+pub(super) const FLEX_MIN_COLUMNS: u16 = 0;
 
 // ── Shipped chrome ─────────────────────────────────────────────────────────
 
 /// Bordered list pane: top border + title row, side borders, bottom border.
-const LIST_PANE_CHROME: Insets = Insets::new(2, 1, 1, 1);
+pub(super) const LIST_PANE_CHROME: Insets = Insets::new(2, 1, 1, 1);
 /// Detail pane: border plus one column of content padding per side.
-const DETAIL_PANE_CHROME: Insets = Insets::new(1, 1, 2, 2);
+pub(super) const DETAIL_PANE_CHROME: Insets = Insets::new(1, 1, 2, 2);
 /// Repository sidebar: border, title, and one column of content padding.
 const SIDEBAR_CHROME: Insets = Insets::new(3, 1, 2, 2);
 /// Preview pane: border, title, and one column of content padding.
@@ -143,9 +142,9 @@ const PREVIEW_CHROME: Insets = Insets::new(3, 1, 2, 2);
 /// Embedded terminal view: border plus header row.
 const TERMINAL_CHROME: Insets = Insets::new(2, 1, 1, 1);
 /// Unbordered single-row band (search input, error banner).
-const BAND_CHROME: Insets = Insets::new(0, 0, 1, 0);
+pub(super) const BAND_CHROME: Insets = Insets::new(0, 0, 1, 0);
 /// Bordered band (filter controls).
-const BORDERED_BAND_CHROME: Insets = Insets::new(1, 1, 1, 1);
+pub(super) const BORDERED_BAND_CHROME: Insets = Insets::new(1, 1, 1, 1);
 
 /// Why a compiled screen table could not be built.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,9 +352,9 @@ pub fn builtin_screens() -> Result<ScreenRegistry, RegistryError> {
     ScreenRegistry::new(vec![
         dashboard_screen()?,
         repositories_screen()?,
-        issues_screen()?,
-        pull_requests_screen()?,
-        actions_screen()?,
+        super::screens_github::issues_screen()?,
+        super::screens_github::pull_requests_screen()?,
+        super::screens_github::actions_screen()?,
         errors_screen()?,
         terminals_screen()?,
         settings_screen()?,
@@ -373,7 +372,7 @@ pub const SHIPPED_BUILTIN_SCREENS: usize = 2;
 ///
 /// Zero is coerced to one because a weight of zero would silently mean "claim
 /// nothing", which is expressed by visibility rather than by sizing.
-fn weight(value: u16) -> Size {
+pub(super) fn weight(value: u16) -> Size {
     Size::Weight(NonZeroU16::new(value).unwrap_or(NonZeroU16::MIN))
 }
 
@@ -384,7 +383,7 @@ fn fixed(value: u16) -> Size {
     Size::Fixed(NonZeroU16::new(value).unwrap_or(NonZeroU16::MIN))
 }
 
-fn panel(
+pub(super) fn panel(
     id: &'static str,
     panel_type: &'static str,
     focusable: bool,
@@ -416,7 +415,7 @@ fn host_panel(
 }
 
 /// The repository sidebar, which every workspace screen shares.
-fn sidebar_panel() -> Result<PanelDescriptor, IdError> {
+pub(super) fn sidebar_panel() -> Result<PanelDescriptor, IdError> {
     host_panel(
         REPOSITORIES_PANEL,
         "repository-list",
@@ -427,14 +426,14 @@ fn sidebar_panel() -> Result<PanelDescriptor, IdError> {
     )
 }
 
-fn leaf(id: &'static str) -> Result<LayoutNode, IdError> {
+pub(super) fn leaf(id: &'static str) -> Result<LayoutNode, IdError> {
     Ok(LayoutNode::Leaf {
         panel: PanelId::parse(id)?,
     })
 }
 
 /// A child that is never hidden by the resolver.
-fn required_child(node: LayoutNode, size: Size, min: u16) -> LayoutChild {
+pub(super) fn required_child(node: LayoutNode, size: Size, min: u16) -> LayoutChild {
     LayoutChild {
         node,
         size,
@@ -446,7 +445,7 @@ fn required_child(node: LayoutNode, size: Size, min: u16) -> LayoutChild {
 }
 
 /// A child pinned to an exact cell count.
-fn fixed_child(node: LayoutNode, cells: u16) -> LayoutChild {
+pub(super) fn fixed_child(node: LayoutNode, cells: u16) -> LayoutChild {
     LayoutChild {
         node,
         size: fixed(cells),
@@ -458,7 +457,7 @@ fn fixed_child(node: LayoutNode, cells: u16) -> LayoutChild {
 }
 
 /// A child the resolver may hide to fit its siblings.
-fn collapsible_child(
+pub(super) fn collapsible_child(
     node: LayoutNode,
     size: Size,
     min: u16,
@@ -475,7 +474,7 @@ fn collapsible_child(
 }
 
 /// A fixed-height band the resolver may hide before anything else.
-fn band_child(node: LayoutNode, rows: u16, collapse_priority: i32) -> LayoutChild {
+pub(super) fn band_child(node: LayoutNode, rows: u16, collapse_priority: i32) -> LayoutChild {
     LayoutChild {
         node,
         size: fixed(rows),
@@ -490,7 +489,7 @@ fn band_child(node: LayoutNode, rows: u16, collapse_priority: i32) -> LayoutChil
 /// no gap between children.
 const NO_GAP: u16 = 0;
 
-fn column(children: Vec<LayoutChild>) -> LayoutNode {
+pub(super) fn column(children: Vec<LayoutChild>) -> LayoutNode {
     LayoutNode::Split {
         axis: Axis::Vertical,
         gap: NO_GAP,
@@ -498,7 +497,7 @@ fn column(children: Vec<LayoutChild>) -> LayoutNode {
     }
 }
 
-fn row(children: Vec<LayoutChild>) -> LayoutNode {
+pub(super) fn row(children: Vec<LayoutChild>) -> LayoutNode {
     LayoutNode::Split {
         axis: Axis::Horizontal,
         gap: NO_GAP,
@@ -506,7 +505,7 @@ fn row(children: Vec<LayoutChild>) -> LayoutNode {
     }
 }
 
-fn focus_order(ids: &[&'static str]) -> Result<Vec<PanelId>, IdError> {
+pub(super) fn focus_order(ids: &[&'static str]) -> Result<Vec<PanelId>, IdError> {
     ids.iter().copied().map(PanelId::parse).collect()
 }
 
@@ -637,61 +636,6 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     })
 }
 
-/// The workspace column shared by the issues, pull-request, and actions
-/// screens: an optional banner, an optional filter band, then a list over a
-/// detail pane in a three-to-seven split.
-fn workspace_column(
-    banner: &'static str,
-    filter: &'static str,
-    list: &'static str,
-    detail: &'static str,
-) -> Result<LayoutNode, IdError> {
-    Ok(column(vec![
-        band_child(leaf(banner)?, BANNER_ROWS, -100),
-        band_child(leaf(filter)?, FILTER_CONTROLS_ROWS, -99),
-        required_child(leaf(list)?, weight(LIST_WEIGHT), LIST_MIN_ROWS),
-        collapsible_child(leaf(detail)?, weight(DETAIL_WEIGHT), DETAIL_MIN_ROWS, 0),
-    ]))
-}
-
-/// The values that distinguish one workspace screen from another.
-///
-/// The three GitHub-backed screens differ only in their identity and their two
-/// content panels, so they are described rather than duplicated.
-struct WorkspaceSpec {
-    /// Stable screen identity.
-    id: ScreenId,
-    /// Screen title.
-    title: &'static str,
-    /// Navigation route.
-    route: &'static str,
-    /// Identity of the list panel; also its panel type.
-    list: &'static str,
-    /// Identity of the detail panel; also its panel type.
-    detail: &'static str,
-    /// Identity of the conditional notice banner.
-    banner: &'static str,
-    /// Identity of the conditional filter-controls band.
-    filter: &'static str,
-    /// Immutable owner of the subject resource schema.
-    subject_owner: Option<&'static str>,
-    /// Versioned type the list publishes and the detail consumes, when the
-    /// screen couples them.
-    ///
-    /// `None` means the screen's detail pane is not driven by its list
-    /// selection, so it declares no ports and no relationship.
-    subject_type: Option<&'static str>,
-}
-
-/// Attach an optional port to a panel.
-fn ported(
-    mut panel: PanelDescriptor,
-    port: Option<super::descriptor::PortDescriptor>,
-) -> PanelDescriptor {
-    panel.ports.extend(port);
-    panel
-}
-
 /// The route a screen is reached through.
 ///
 /// Compiled as a total function for the same reason as [`initial_focus`]:
@@ -754,97 +698,6 @@ pub const SETTINGS_KEYS_PANEL: &str = "settings-keys";
 pub const SETTINGS_PLUGINS_PANEL: &str = "settings-plugins";
 /// Identity of the Settings Diagnostics panel.
 pub const SETTINGS_DIAGNOSTICS_PANEL: &str = "settings-diagnostics";
-
-/// A workspace screen: the repository sidebar beside the shared column.
-fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryError> {
-    Ok(ScreenDescriptor {
-        id: ScreenIdentity::Compiled(spec.id),
-        title: spec.title.to_owned(),
-        route: RouteId::parse(spec.route)?,
-        panels: vec![
-            sidebar_panel()?,
-            panel(spec.banner, "notice-band", false, false, BAND_CHROME)?,
-            panel(
-                spec.filter,
-                "filter-band",
-                false,
-                false,
-                BORDERED_BAND_CHROME,
-            )?,
-            ported(
-                panel(spec.list, spec.list, true, true, LIST_PANE_CHROME)?,
-                selection_port(spec.subject_owner, spec.subject_type, PortDirection::Output)?,
-            ),
-            ported(
-                panel(spec.detail, spec.detail, true, false, DETAIL_PANE_CHROME)?,
-                subject_port(spec.subject_owner, spec.subject_type, PortDirection::Input)?,
-            ),
-        ],
-        initial_focus: PanelId::parse(spec.list)?,
-        focus_order: focus_order(&[REPOSITORIES_PANEL, spec.list, spec.detail])?,
-        relationships: workspace_relationships(spec.list, spec.detail, spec.subject_type)?,
-        activation: Vec::new(),
-        overlays: HOST_OVERLAYS.to_vec(),
-        host_capabilities: Vec::new(),
-        bindings: Vec::new(),
-        layout: row(vec![
-            fixed_child(leaf(REPOSITORIES_PANEL)?, SIDEBAR_COLUMNS),
-            required_child(
-                workspace_column(spec.banner, spec.filter, spec.list, spec.detail)?,
-                weight(1),
-                FLEX_MIN_COLUMNS,
-            ),
-        ]),
-    })
-}
-
-/// `github.issues` — issue list over issue detail.
-fn issues_screen() -> Result<ScreenDescriptor, RegistryError> {
-    workspace_screen(&WorkspaceSpec {
-        id: ScreenId::Issues,
-        title: "Issues",
-        route: "issues",
-        list: ISSUES_LIST_PANEL,
-        detail: "issue-detail",
-        banner: "issue-list-banner",
-        filter: "issue-list-filter",
-        subject_owner: Some("github.issues"),
-        subject_type: Some("github.issue@1"),
-    })
-}
-
-/// `github.pull-requests` — PR list over PR detail, which also hosts the
-/// review threads, actions, and merge affordances.
-fn pull_requests_screen() -> Result<ScreenDescriptor, RegistryError> {
-    workspace_screen(&WorkspaceSpec {
-        id: ScreenId::PullRequests,
-        title: "Pull Requests",
-        route: "pull-requests",
-        list: PULL_REQUESTS_LIST_PANEL,
-        detail: "pr-detail",
-        banner: "pr-list-banner",
-        filter: "pr-list-filter",
-        subject_owner: Some("github.pull-requests"),
-        subject_type: Some("github.pull-request@1"),
-    })
-}
-
-/// `github.actions` — workflow-run list over run detail.
-fn actions_screen() -> Result<ScreenDescriptor, RegistryError> {
-    workspace_screen(&WorkspaceSpec {
-        id: ScreenId::Actions,
-        title: "Actions",
-        route: "actions",
-        list: ACTIONS_LIST_PANEL,
-        detail: "action-detail",
-        banner: "action-list-banner",
-        filter: "action-list-filter",
-        // The actions screen loads its run detail on demand rather than
-        // following the list selection, so it declares no coupling.
-        subject_owner: None,
-        subject_type: None,
-    })
-}
 
 /// `core.errors` — the error ring buffer beside the repository sidebar.
 ///
