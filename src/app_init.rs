@@ -913,3 +913,7 @@ fn apply_restored_state(
 #[cfg(test)]
 #[path = "app_init_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "app_init_restore_tests.rs"]
+mod restore_tests;
