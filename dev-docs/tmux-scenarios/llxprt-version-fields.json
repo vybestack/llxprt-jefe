@@ -79,7 +79,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Mode     [--yolo]",
+      "literal": "Default Mode: --yolo",
       "timeout_ms": 15000
     },
     {
@@ -270,7 +270,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [core.llxprt]",
+      "literal": "Default Agent: core.llxprt",
       "timeout_ms": 15000
     },
     {
@@ -286,7 +286,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [▏]",
+      "literal": "Default LLxprt Version: ▏",
       "timeout_ms": 15000
     },
     {
@@ -317,7 +317,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [0.9.0▏]",
+      "literal": "Default LLxprt Version: 0.9.0▏",
       "timeout_ms": 15000
     },
     {
@@ -345,7 +345,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0]",
+      "literal": "LLxprt Version: 0.9.0",
       "timeout_ms": 15000
     },
     {
@@ -436,7 +436,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0▏]",
+      "literal": "LLxprt Version: 0.9.0▏",
       "timeout_ms": 15000
     },
     {
@@ -462,7 +462,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0-rc1▏]",
+      "literal": "LLxprt Version: 0.9.0-rc1▏",
       "timeout_ms": 15000
     },
     {
@@ -478,7 +478,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.llxprt]",
+      "literal": "Agent Runtime: core.llxprt",
       "timeout_ms": 15000
     },
     {
@@ -489,14 +489,14 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.code-puppy]",
+      "literal": "Agent Runtime: core.code-puppy",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [],
       "absent": [
-        "Version          [0.9.0-rc1"
+        "CP Version: 0.9.0-rc1"
       ]
     },
     {
@@ -513,31 +513,31 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Model            [▏]"
+        "Model: ▏"
       ],
       "absent": []
     },
     {
       "op": "assert-frame",
       "contains": [
-        "YOLO             [x]  (space toggles)"
+        "YOLO: true"
       ],
       "absent": []
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Quick resume     [ ]  (space toggles)"
+        "Quick resume: false"
       ],
       "absent": []
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Version          []"
+        "CP Version: "
       ],
       "absent": [
-        "Version          [0.9.0-rc1"
+        "CP Version: 0.9.0-rc1"
       ]
     },
     {
@@ -553,7 +553,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.llxprt]",
+      "literal": "Agent Runtime: core.llxprt",
       "timeout_ms": 15000
     },
     {
@@ -569,13 +569,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Version          [0.9.0-rc1▏]",
+      "literal": "LLxprt Version: 0.9.0-rc1▏",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Version          [0.9.0-rc1▏]"
+        "LLxprt Version: 0.9.0-rc1▏"
       ],
       "absent": []
     },
@@ -624,7 +624,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [core.llxprt]",
+      "literal": "Default Agent: core.llxprt",
       "timeout_ms": 15000
     },
     {
@@ -635,13 +635,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [core.code-puppy]",
+      "literal": "Default Agent: core.code-puppy",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Default Version  [0.9.0]"
+        "Default CP Version: 0.9.0"
       ],
       "absent": []
     },
@@ -669,7 +669,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [core.llxprt]",
+      "literal": "Default Agent: core.llxprt",
       "timeout_ms": 15000
     },
     {
@@ -685,7 +685,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Version  [0.9.0▏]",
+      "literal": "Default LLxprt Version: 0.9.0▏",
       "timeout_ms": 15000
     },
     {

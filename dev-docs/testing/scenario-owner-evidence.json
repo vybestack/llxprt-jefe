@@ -64,7 +64,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/code-puppy-chord-passthrough.json",
-      "sha256": "e92417cd0374299fab62fa0d21175a1d57b9c98d9467379afb9e1e45773a67c1",
+      "sha256": "d71ec70166d0694e1b5b70ed672363c9cf02e01e183f1146f769ee9bd1fe18b5",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -76,7 +76,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/code-puppy-version-fields.json",
-      "sha256": "497ea5c2b9f3470aceccfa19eba49038faf0400cb646db198ab14bc5a3c4e608",
+      "sha256": "dc3b3a5bc01f723a76feaa3f1afb7ed5998af7774b12672af581260cf44654b9",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -159,7 +159,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/first-agent-tutorial.json",
-      "sha256": "be1cf5feba96ddc7e3c0b3a4648af4940a05b74dd55d1d2d97c2dc537f85cd0d",
+      "sha256": "f5f06a395ecb9c41c8557e5ad9c97c6e7415e19a858eb1c78e9d777303738b16",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -171,7 +171,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/fork-issue-pr-repository.json",
-      "sha256": "c662ffb9be0421c86450d318dcdc54217669d578410a151bf82a5d53bba69f91",
+      "sha256": "e539b3571be4ffa2d134064b8ae7397849086bfae8061b1e27b0f66ac4f755a3",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -839,7 +839,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/kennel-terminal-select.json",
-      "sha256": "e5540464d854654668ece7d5e71caf15812ef89676b5f0d7fbe1d7b2f70d6da9",
+      "sha256": "f486a5e18e4994496c31bd72fa82d0e40a4059a14b320ee18b299d56c0343f3c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -863,7 +863,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/latest-version-fields.json",
-      "sha256": "9377ea6fc639f0822a99f9b7bad6e77fde18cbbc1430831133b41f15eb076d91",
+      "sha256": "7c7c5d7833069dc1bdcaa9e3c418ff977fbdc45560db166bd10780b4d80b719f",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -899,7 +899,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/llxprt-version-fields.json",
-      "sha256": "a67a4f285b044f8af394422a3573a7ec29102c80651e144fec20dc41375f8e88",
+      "sha256": "d7ffcf87ff8d88ccbf1b5af16b0686a9a0f2b91165827c1d151cf1f24863d068",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1175,7 +1175,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/repo-github-field-focus.json",
-      "sha256": "f52face6244e8becc663497fd539133df227b95bae701c55afe056353e9c5145",
+      "sha256": "f4f6a34b7108c65d32e43e48e1e95703232dedac327ca8e96705f6fdc9543736",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1499,7 +1499,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/terminal-scrollback.json",
-      "sha256": "a025babbe9c007f695cb82d31486de2843dee71f3dce973b5baf6a88038ff39c",
+      "sha256": "2ebc6d2b5948d7e4af2b0250518e73000759cc6dbc7fe47af0c8ed9622e9856b",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1523,7 +1523,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/transient-agent-options.json",
-      "sha256": "dd031f6d5c9d96ec992c5f97cdca2ba52b75a58216742b4f59f8e28f40084ddd",
+      "sha256": "c665b38172d9fc8e8f23d143518b9403513c196fe1ee6350270b9ccc15687e85",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

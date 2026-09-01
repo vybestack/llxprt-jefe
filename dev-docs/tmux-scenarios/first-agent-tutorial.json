@@ -195,7 +195,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent    [core.llxprt]",
+      "literal": "Default Agent: core.llxprt",
       "timeout_ms": 15000
     },
     {
@@ -210,7 +210,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Profile  [tutorial",
+      "literal": "Default Profile: tutorial",
       "timeout_ms": 15000
     },
     {
@@ -333,7 +333,7 @@
       "contains": [
         "~/projects/llxprt-jefe",
         "vybestack/llxprt-jefe",
-        "Default Agent    [core.llxprt]"
+        "Default Agent: core.llxprt"
       ],
       "absent": []
     },
@@ -1909,7 +1909,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Agent Runtime    [core.llxprt]"
+        "Agent Runtime: core.llxprt"
       ],
       "absent": []
     },
@@ -3558,14 +3558,14 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Agent Runtime    [core.code-puppy]"
+        "Agent Runtime: core.code-puppy"
       ],
       "absent": []
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Model            [gpt-5.6-sol]"
+        "Model: gpt-5.6-sol"
       ],
       "absent": []
     },

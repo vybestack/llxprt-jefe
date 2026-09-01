@@ -169,7 +169,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.code-puppy]",
+      "literal": "Agent Runtime: core.code-puppy",
       "timeout_ms": 12000
     },
     {
@@ -180,7 +180,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.code-puppy]",
+      "literal": "Agent Runtime: core.code-puppy",
       "timeout_ms": 12000
     },
     {
@@ -191,7 +191,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.code-puppy]",
+      "literal": "Agent Runtime: core.code-puppy",
       "timeout_ms": 12000
     },
     {
@@ -202,7 +202,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime    [core.code-puppy]",
+      "literal": "Agent Runtime: core.code-puppy",
       "timeout_ms": 12000
     },
     {
