@@ -10,7 +10,14 @@ use crate::workbench::{LayoutGeneration, RuntimeViewport};
 #[test]
 fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
     let mut manager = TmuxRuntimeManager::pending();
+    pending_runtime_rejects_every_effect_before_geometry(&mut manager);
+    pending_runtime_rejects_zero_first_frame(&mut manager);
+    first_frame_configures_geometry_exactly_once(&mut manager);
+}
 
+/// Before the first committed frame supplies geometry, every effectful
+/// runtime entry point must fail fast with `InitialGeometryUnavailable`.
+fn pending_runtime_rejects_every_effect_before_geometry(manager: &mut TmuxRuntimeManager) {
     assert!(!manager.initial_geometry_configured());
     assert!(matches!(
         manager.resize(24, 80),
@@ -36,6 +43,11 @@ fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
         ),
         Err(RuntimeError::InitialGeometryUnavailable)
     ));
+}
+
+/// The first frame must be nonzero: zero rows are rejected without
+/// configuring the runtime.
+fn pending_runtime_rejects_zero_first_frame(manager: &mut TmuxRuntimeManager) {
     assert!(matches!(
         manager.configure_initial_geometry(RuntimeViewport {
             rows: 0,
@@ -44,7 +56,11 @@ fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
         }),
         Err(RuntimeError::InvalidInitialGeometry { rows: 0, cols: 80 })
     ));
+}
 
+/// The first valid frame configures geometry exactly once: its generation
+/// becomes the create effect's, and a later frame cannot reconfigure it.
+fn first_frame_configures_geometry_exactly_once(manager: &mut TmuxRuntimeManager) {
     let first = LayoutGeneration::next();
     manager
         .configure_initial_geometry(RuntimeViewport {

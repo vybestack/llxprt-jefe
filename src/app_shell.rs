@@ -12,7 +12,7 @@ use crate::app_shell_provider_projection::provider_projection;
 use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
-use jefe::input::{InputMode, input_mode_for_state};
+use jefe::input::input_mode_for_state;
 use jefe::jsp_host::JspHostRuntime;
 use jefe::layout::effective_render_size;
 use jefe::messages::AppMessage;
@@ -29,6 +29,9 @@ use jefe::ui::orchestration::{
 use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
 use std::time::Instant;
+
+#[path = "app_shell_paste.rs"]
+mod app_shell_paste;
 
 fn drain_jsp_messages(
     app_state: &mut crate::app_input::AppStateHandle,
@@ -652,7 +655,7 @@ fn handle_terminal_event(
         TerminalEvent::Paste(pasted_text) => {
             mouse_click.write().clear();
             crate::mouse_routing::clear_selection(app_state);
-            handle_paste(ctx, app_state, suppress_next_enter, pasted_text);
+            app_shell_paste::handle_paste(ctx, app_state, suppress_next_enter, pasted_text);
         }
         TerminalEvent::Key(key_event) => {
             mouse_click.write().clear();
@@ -689,123 +692,6 @@ fn handle_terminal_event(
         }
         _ => {}
     }
-}
-
-fn handle_paste(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let input_mode = {
-        let state = app_state.read();
-        input_mode_for_state(&state)
-    };
-
-    match input_mode {
-        InputMode::TerminalCapture => paste_to_terminal(ctx, suppress_next_enter, pasted_text),
-        InputMode::Form | InputMode::Search => {
-            paste_to_form(ctx, app_state, suppress_next_enter, pasted_text);
-        }
-        InputMode::IssuesInline => {
-            paste_to_issues_inline(ctx, app_state, suppress_next_enter, pasted_text);
-        }
-        InputMode::IssuesSearch => {
-            paste_to_issues_search(app_state, suppress_next_enter, pasted_text);
-        }
-        _ => {
-            suppress_next_enter.set(PasteEnterSuppression::new());
-        }
-    }
-}
-
-fn paste_to_terminal(
-    ctx: Option<&CtxArc>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let Some(ctx_arc) = ctx else {
-        return;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return;
-    };
-
-    let bytes = if ctx_guard.runtime.bracketed_paste_active() {
-        let mut payload = Vec::with_capacity(pasted_text.len() + 12);
-        payload.extend_from_slice(b"\x1b[200~");
-        payload.extend_from_slice(pasted_text.as_bytes());
-        payload.extend_from_slice(b"\x1b[201~");
-        payload
-    } else {
-        pasted_text.into_bytes()
-    };
-
-    if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
-        warn!(error = %e, "runtime.write_input failed for paste");
-    }
-    suppress_next_enter.set(PasteEnterSuppression::new());
-}
-
-fn paste_to_form(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let mut state = app_state.write();
-    for ch in pasted_text.chars().filter(|ch| *ch != '\r' && *ch != '\n') {
-        jefe::state::transition::commit_pure_site(&mut state, (AppEvent::FormChar(ch)).into());
-    }
-    let persisted = durable_save_request(&mut state);
-    drop(state);
-    schedule_durable_save(&ctx.cloned(), persisted);
-    suppress_next_enter.set(PasteEnterSuppression::new());
-}
-
-fn paste_to_issues_inline(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let mut state = app_state.write();
-    for ch in pasted_text.chars().filter(|ch| *ch != '\r') {
-        if ch == '\n' {
-            jefe::state::transition::commit_pure_site(&mut state, (AppEvent::InlineNewline).into());
-        } else {
-            jefe::state::transition::commit_pure_site(
-                &mut state,
-                (AppEvent::InlineChar(ch)).into(),
-            );
-        }
-    }
-    let persisted = durable_save_request(&mut state);
-    drop(state);
-    schedule_durable_save(&ctx.cloned(), persisted);
-    suppress_next_enter.set(PasteEnterSuppression::new());
-}
-
-fn paste_to_issues_search(
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let mut state = app_state.write();
-    let filtered: String = pasted_text
-        .chars()
-        .filter(|ch| *ch != '\r' && *ch != '\n')
-        .collect();
-    if !filtered.is_empty() {
-        let mut query = state.issues_state.search_query.clone();
-        query.push_str(&filtered);
-        jefe::state::transition::commit_pure_site(
-            &mut state,
-            (AppEvent::SetSearchQuery { query }).into(),
-        );
-    }
-    drop(state);
-    suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
 fn normalize_terminal_focus(app_state: &mut HookState<AppState>, ctx: Option<&CtxArc>) {
