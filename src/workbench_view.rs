@@ -47,6 +47,11 @@ pub const TODO_WINDOW_MAX: usize = 8;
 /// progress header, blank, last-message line, bottom border.
 pub const CARD_CHROME_LINES: usize = 7;
 
+/// Columns the bordered box adds around the interior `card_width`: left +
+/// right border. Used by hit-target geometry so the stride matches the
+/// painted footprint (issue #706).
+pub const CARD_BORDER_COLS: usize = 2;
+
 /// Fixed chrome lines consumed outside the card grid by the screen itself
 /// (status bar, filter lines, footer). The vertical rule subtracts this from
 /// the terminal height before dividing among card rows.
@@ -584,17 +589,21 @@ fn pages_for(visible_count: usize, cards_per_page: usize) -> usize {
     div_ceil(visible_count, cards_per_page.max(1)).max(1)
 }
 
-/// The grid's page count for a content rectangle.
+/// The grid's page count for a display-basis viewport.
 ///
-/// Uses the same layout resolution `resolve_paging` clamps with, exposed so
-/// input-time paging bounds `workbench.page` with the exact arithmetic the
-/// display uses (issue #706).
+/// Uses the same layout resolution `resolve_paging` clamps with, so callers
+/// must pass the same basis the display path feeds `build_workbench_view`:
+/// the full render size, which [`resolve_horizontal`] and [`resolve_vertical`]
+/// subtract terminal chrome from. Passing a smaller rectangle (a panel's
+/// content rect) subtracts that chrome twice and over-counts pages, letting
+/// the retained page counter drift past what the display clamps to (issue
+/// #706).
 #[must_use]
-pub fn grid_page_count(content_width: usize, content_height: usize, visible_count: usize) -> usize {
-    let columns = resolve_horizontal(content_width).columns;
+pub fn grid_page_count(display_width: usize, display_height: usize, visible_count: usize) -> usize {
+    let columns = resolve_horizontal(display_width).columns;
     // The longest todo list only grows the per-card window, never the
     // visible row count, so the projection's zero is layout-neutral here.
-    let rows_visible = resolve_vertical(content_height, visible_count, columns, 0).rows_visible;
+    let rows_visible = resolve_vertical(display_height, visible_count, columns, 0).rows_visible;
     pages_for(visible_count, rows_visible.saturating_mul(columns))
 }
 

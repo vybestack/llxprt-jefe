@@ -490,12 +490,17 @@ impl AttachedViewer {
     /// mechanism the seam induces, not a failure.
     #[cfg(all(test, unix))]
     pub fn poison_resize_for_tests(&self) {
-        // Panic while holding the master lock so the mutex poisons during
-        // unwind; the captured panic is expected, not a failure.
+        // Suppress the default panic hook (which prints panic + backtrace to
+        // stderr) for the duration of the deliberate panic, then restore it.
+        // The panic is the mechanism the seam induces, not a failure, so its
+        // noise must not pollute test output (issue #706).
+        let prior_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_info| {}));
         let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = self.master.lock();
             panic!("poison the master lock for tests");
         }));
+        std::panic::set_hook(prior_hook);
         assert!(
             poisoned.is_err(),
             "holding-panics must poison the master lock"

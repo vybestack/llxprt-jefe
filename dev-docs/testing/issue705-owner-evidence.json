@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "89bc035c40cf4d18668d9cb23bb63ab8d421fac0623504a852b1cc38b39c9fbe"
+    "artifact_set_sha256": "1628a13832abdc9ca880e4a635c564619921ba8a8156f42e9b9d835192276c14"
   },
   "artifacts": [
     {
@@ -191,7 +191,7 @@
     },
     {
       "path": "src/app_input/provider_panel_input.rs",
-      "sha256": "450eb726b952542b93368ed917dd982c3ec9ad232d17944175e37e36a0ca17ba",
+      "sha256": "a13bbdf0b08416a52c69df29dacbe39202ff5d69852e4baa70afc18e9ac8c25f",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "df4da41d65e7705466ca315be21ecae938e6925cf780fe4f3fccbcfeeba06766",
+      "sha256": "2d390920fd0751c6059e28e484beb62b88bba5f0254c132a06ba81635adb3279",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -304,7 +304,7 @@
     },
     {
       "path": "src/provider_panel_view.rs",
-      "sha256": "be2e6dae91cf59391d8a006d872fa1f15277d6eeddd2f3dd859dc31f39dd7091",
+      "sha256": "038a9983f8d93579aaedeb201b33fcbdbd493b6d21bce1f0282da58c5a3fad98",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -404,7 +404,7 @@
     },
     {
       "path": "src/screen_layout.rs",
-      "sha256": "0abeb7acec016dbd6da6313ef48e00fbe10ce7cb89675b0fff809a403feac2f3",
+      "sha256": "399984dda3cbc7c08fa4957315feca949b9a30969c9660ca7915e46b063b0388",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -413,7 +413,7 @@
     },
     {
       "path": "src/state/host_panel_input_ops.rs",
-      "sha256": "603985a45041276fd88ade9cf40c9decf9c38804d983673f268b1c8698cf5c60",
+      "sha256": "c2b67e0ffab072173394ee1dd144a245452bd30f1d6bc357c422bb7144e08015",
       "mode": "100644",
       "criteria": [
         "CWR2-00",

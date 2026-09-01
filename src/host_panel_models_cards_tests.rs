@@ -227,10 +227,20 @@ fn workbench_cards_activate_attaches_to_the_selected_agent() {
 #[test]
 fn workbench_cards_page_next_advances_the_workbench_page() {
     let mut state = state_with_agents_across_buckets();
+    // Commit a frame whose effective render size is (80, 12): in windowed
+    // mode `effective_render_size` subtracts 2 per axis, so resolve at
+    // (82, 14). The display-basis page count then matches the geometry
+    // the test exercises (issue #706).
+    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Repositories);
+    state.resolved_layout = crate::screen_layout::resolve_screen(&state, 82, 14);
+    assert!(
+        state.resolved_layout.is_some(),
+        "fixture must resolve a layout at 82x14"
+    );
     let capability = cards_capability();
     assert_eq!(state.workbench.page, 0);
 
-    // 12 rows x 80 cols: one visible row of one column, so three pages.
+    // Three agents at 80x12: one column, one row per page → three pages.
     assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 80, 12));
     assert_eq!(state.workbench.page, 1);
     assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 80, 12));
@@ -248,6 +258,12 @@ fn workbench_cards_page_next_clamps_on_a_single_page_grid() {
     // last page the grid can show, or PreviousPage looks unresponsive until
     // the display clamp saturates back.
     let mut state = state_with_agents_across_buckets();
+    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Repositories);
+    state.resolved_layout = crate::screen_layout::resolve_screen(&state, 82, 42);
+    assert!(
+        state.resolved_layout.is_some(),
+        "fixture must resolve a layout at 82x42"
+    );
     let capability = cards_capability();
     assert_eq!(state.workbench.page, 0);
 

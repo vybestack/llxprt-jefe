@@ -80,7 +80,10 @@ impl AppState {
 
     /// Enter terminal-manager mode in a fresh exact screen instance (issue #364 PR A).
     fn enter_terminal_manager_mode(&mut self) -> bool {
-        let _ = self.show_terminal_manager();
+        if let Err(error) = self.show_terminal_manager() {
+            tracing::error!(%error, "failed to enter terminal manager mode");
+            return false;
+        }
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
         let rows = project_managed_shell_rows(self);
@@ -180,7 +183,9 @@ impl AppState {
             }
             ShellFocusOrigin::ManagerEnter => {
                 self.terminal_manager.active = true;
-                let _ = self.show_terminal_manager();
+                if let Err(error) = self.show_terminal_manager() {
+                    tracing::error!(%error, "failed to show terminal manager after shell focus");
+                }
                 self.shell_return_target = ShellReturnTarget::TerminalManager;
             }
         }

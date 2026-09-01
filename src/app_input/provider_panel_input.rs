@@ -35,11 +35,16 @@ pub(super) fn apply(
             let Some(control_action) = boundary_control_action(action) else {
                 return;
             };
+            let (viewport_cols, viewport_rows) =
+                jefe::screen_layout::committed_render_size_or_content(
+                    state.resolved_layout.as_ref(),
+                    &projection.content,
+                );
             let _ = state.apply_host_panel_action(
                 capability,
                 control_action,
-                usize::from(projection.content.width),
-                usize::from(projection.content.height),
+                usize::from(viewport_cols),
+                usize::from(viewport_rows),
             );
             return;
         };
@@ -143,28 +148,40 @@ fn apply_mouse_to_state(
             if host_owned
                 && let Some(capability) = current_host_panel_capability(state, &projection.id)
             {
-                // Host-owned panels share the provider target→action
-                // semantics: an unselected item selects, a selected item
-                // activates; Submit/Action/paging/retry/cancel target the same
-                // affordances. Failures return unconsumed so the terminal never
-                // treats a host click as its own.
-                let action = match target {
-                    Some(t) => shared_host_target_action(t),
-                    None => None,
-                };
-                let consumed = action.is_some_and(|action| {
-                    state.apply_host_panel_action(
-                        capability,
-                        action,
-                        usize::from(projection.content.width),
-                        usize::from(projection.content.height),
-                    )
-                });
+                let consumed = apply_host_owned_click(state, capability, &projection, target);
                 return (consumed, None);
             }
             apply_mouse_target(state, panel, projection.id, target)
         }
     }
+}
+
+/// Apply a click on a host-owned panel through the shared target→action
+/// semantics, sizing the control from the committed render viewport.
+fn apply_host_owned_click(
+    state: &mut jefe::state::AppState,
+    capability: jefe::workbench::HostPanelCapability,
+    projection: &jefe::provider_panel_view::PanelProjection,
+    target: Option<jefe::provider_panel_view::PanelHitTarget>,
+) -> bool {
+    // Host-owned panels share the provider target→action
+    // semantics: an unselected item selects, a selected item
+    // activates; Submit/Action/paging/retry/cancel target the same
+    // affordances. Failures return unconsumed so the terminal never
+    // treats a host click as its own.
+    let action = target.and_then(shared_host_target_action);
+    action.is_some_and(|action| {
+        let (viewport_cols, viewport_rows) = jefe::screen_layout::committed_render_size_or_content(
+            state.resolved_layout.as_ref(),
+            &projection.content,
+        );
+        state.apply_host_panel_action(
+            capability,
+            action,
+            usize::from(viewport_cols),
+            usize::from(viewport_rows),
+        )
+    })
 }
 
 fn apply_mouse_target(

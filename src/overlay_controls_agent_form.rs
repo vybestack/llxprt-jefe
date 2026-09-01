@@ -227,12 +227,12 @@ pub fn project_agent_form(state: &AppState, width: usize) -> Option<OverlayContr
     let mut projection = project_form(title, declared, values, 0, width);
     if let Some((id, label, Some((text, offset)))) = &focused {
         let caret = crate::ui::util::text_with_caret(text, *offset);
+        let mut rewritten = false;
         for row in &mut projection.rows {
-            if row.target.as_ref() == Some(&PanelHitTarget::Field(id.clone())) {
-                // The rewritten focused row must obey the same content width
-                // as every other row (issue #706).
+            if !rewritten && row.target.as_ref() == Some(&PanelHitTarget::Field(id.clone())) {
                 row.text =
                     crate::ui::util::truncate_with_ellipsis(&format!("{label}: {caret}"), width);
+                rewritten = true;
             }
         }
     }

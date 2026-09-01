@@ -160,6 +160,44 @@ pub fn screen_rect(term_cols: u16, term_rows: u16) -> Rect {
     )
 }
 
+/// The effective render size a committed frame was resolved from.
+///
+/// [`screen_rect`] removes the outer bars when it derives a frame's outer
+/// rectangle, so a committed layout carries the render size only in that
+/// subtracted form. This inverts the subtraction once, beside the authority
+/// that made it: consumers that must reproduce a display-basis viewport from
+/// a committed frame (the workbench grid's page count, whose layout helpers
+/// subtract terminal chrome themselves) read the render size through here
+/// instead of re-deriving it or mistaking a panel rectangle for it (issue
+/// #706).
+#[must_use]
+pub fn committed_render_size(layout: &ResolvedLayout) -> (u16, u16) {
+    (
+        layout.outer.width,
+        layout.outer.height.saturating_add(OUTER_BARS_HEIGHT),
+    )
+}
+
+/// The display-basis viewport for a committed frame, or the panel content
+/// rectangle when no frame is committed.
+///
+/// The workbench grid's page-count helpers subtract terminal chrome
+/// themselves, so callers must feed the **full render size**, not a panel's
+/// content rect. [`committed_render_size`] inverts the outer-bar subtraction
+/// from the committed frame. When no frame is committed there is no display
+/// geometry to reproduce, so the panel content rect is the best available
+/// approximation — but the grid's page-clamp is inert in that state anyway
+/// (a committed frame is required for the display to page) (issue #706).
+#[must_use]
+pub fn committed_render_size_or_content(
+    layout: Option<&ResolvedLayout>,
+    content: &Rect,
+) -> (u16, u16) {
+    layout.map_or((content.width, content.height), |layout| {
+        committed_render_size(layout)
+    })
+}
+
 /// Which panels the application is currently hiding.
 ///
 /// These are the conditions the descriptor deliberately does not model: a band

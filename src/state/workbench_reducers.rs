@@ -20,6 +20,34 @@ pub(super) enum WorkbenchNavigation {
 }
 
 impl AppState {
+    /// The grid's page count on the committed frame's display basis.
+    ///
+    /// When no frame is committed there is no display geometry, so the page
+    /// count is zero: the retained page counter must not advance because no
+    /// grid can show anything (issue #706).
+    pub(super) fn display_page_count(&self) -> usize {
+        let Some(layout) = self.resolved_layout.as_ref() else {
+            return 0;
+        };
+        let (render_cols, render_rows) = crate::screen_layout::committed_render_size(layout);
+        let inputs = crate::host_panel_models::workbench_agent_inputs(self);
+        let repository_filter = self
+            .split_filter
+            .as_ref()
+            .map(|repository| repository.0.as_str());
+        let visible = crate::workbench_view::ordered_agent_ids(
+            &inputs,
+            self.workbench.status_filter.mask(),
+            repository_filter,
+        )
+        .len();
+        crate::workbench_view::grid_page_count(
+            usize::from(render_cols),
+            usize::from(render_rows),
+            visible,
+        )
+    }
+
     /// Move the agent selection one card along the workbench's own order.
     ///
     /// The workbench does not keep a second selection: it moves the app's
@@ -97,17 +125,23 @@ impl AppState {
 
     /// Handle multi-agent workbench navigation messages.
     ///
-    /// Paging deliberately has no upper bound here. The number of pages depends
-    /// on terminal size, which is a render-time fact and is not part of
-    /// `AppState`, so the projection clamps the requested page against the real
-    /// page count when it builds the view.
+    /// `NextPage` is bounded by the display page count computed from the
+    /// committed frame's render size (the same basis the display path uses),
+    /// so the retained page counter never advances past the last page the
+    /// grid can show. Without a committed frame the page count is zero and
+    /// the counter is inert (issue #706).
     pub(super) fn apply_workbench(&mut self, navigation: WorkbenchNavigation) {
         match navigation {
             WorkbenchNavigation::ToggleStatusBucket(bucket) => {
                 self.apply_workbench_status_toggle(bucket);
             }
             WorkbenchNavigation::NextPage => {
-                self.workbench.page = self.workbench.page.saturating_add(1);
+                let page_count = self.display_page_count();
+                self.workbench.page = self
+                    .workbench
+                    .page
+                    .saturating_add(1)
+                    .min(page_count.saturating_sub(1));
             }
             WorkbenchNavigation::PreviousPage => {
                 self.workbench.page = self.workbench.page.saturating_sub(1);

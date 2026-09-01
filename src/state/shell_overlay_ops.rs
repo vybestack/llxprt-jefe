@@ -75,9 +75,15 @@ impl AppState {
         self.dashboard_grab = None;
         let previous_pane_focus = self.shell_overlay.previous_pane_focus.take();
         if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
-            let _ = self.show_terminal_manager();
-            self.terminal_manager.active = true;
-            self.pane_focus = crate::state::PaneFocus::Agents;
+            self.show_terminal_manager()
+                .map(|_| {
+                    self.terminal_manager.active = true;
+                    self.pane_focus = crate::state::PaneFocus::Agents;
+                })
+                .map_err(|error| {
+                    tracing::error!(%error, "failed to show terminal manager after shell overlay");
+                })
+                .ok();
         } else {
             self.pane_focus = previous_pane_focus.unwrap_or(crate::state::PaneFocus::Agents);
         }

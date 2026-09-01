@@ -301,10 +301,16 @@ pub fn workbench_view_from_state(state: &AppState, cols: u16, rows: u16) -> Work
 pub fn workbench_card_hit_targets(state: &AppState, content: Rect) -> Vec<(Rect, PanelHitTarget)> {
     let view = workbench_view_from_state(state, content.width, content.height);
     let columns = view.layout.columns.max(1);
+    // The painted card is an interior `card_width` wrapped in a bordered Box:
+    // left + right borders add 2 columns, so the footprint width is
+    // `card_width + 2`. The flex-row places cards side by side with no
+    // explicit gap, so the column stride equals the footprint width (issue
+    // #706). Using `card_width + CARD_GAP` here (as before) under-counted
+    // by 1 because `CARD_GAP` is 1 but the borders add 2.
     let column_stride = view
         .layout
         .card_width
-        .saturating_add(crate::workbench_view::CARD_GAP);
+        .saturating_add(crate::workbench_view::CARD_BORDER_COLS);
     // The painted card is its interior lines plus the bordered box: the
     // same per-row budget `resolve_vertical` divides by.
     let card_height = view

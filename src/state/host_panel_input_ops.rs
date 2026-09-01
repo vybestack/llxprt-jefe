@@ -139,7 +139,7 @@ impl AppState {
         &mut self,
         kind: HostPanelModelSource,
         event: PanelEvent,
-        viewport_cols: usize,
+        _viewport_cols: usize,
         viewport_rows: usize,
     ) -> bool {
         match event {
@@ -189,12 +189,13 @@ impl AppState {
                 self.active_overlay_kind() == Some(crate::workbench::OverlayKind::Search)
             }
             // PageDown on the grid pages the cards, the legacy
-            // `split.page-down` behavior. The clamp uses the same page-count
-            // arithmetic the display path resolves with, so the retained
-            // page counter never advances past the last real page (issue
-            // #706).
+            // `split.page-down` behavior. The page count comes from the
+            // committed frame's display basis (the same basis the render
+            // loop uses), not the caller's viewport rectangle, so the
+            // retained page counter never advances past the last real
+            // page (issue #706).
             PanelEvent::PageRequested { .. } if kind == HostPanelModelSource::WorkbenchCards => {
-                let page_count = self.workbench_grid_page_count(viewport_cols, viewport_rows);
+                let page_count = self.display_page_count();
                 self.apply_workbench_page_next_within(page_count);
                 true
             }
@@ -316,26 +317,6 @@ impl AppState {
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => false,
         }
     }
-
-    /// The grid's page count at the panel's own content geometry, computed
-    /// by the shared layout helper the display clamp uses (issue #706).
-    fn workbench_grid_page_count(&self, viewport_cols: usize, viewport_rows: usize) -> usize {
-        let inputs = crate::host_panel_models::workbench_agent_inputs(self);
-        let repository_filter = self
-            .split_filter
-            .as_ref()
-            .map(|repository| repository.0.as_str());
-        let visible = crate::workbench_view::ordered_agent_ids(
-            &inputs,
-            self.workbench.status_filter.mask(),
-            repository_filter,
-        )
-        .len();
-        crate::workbench_view::grid_page_count(viewport_cols, viewport_rows, visible)
-    }
-
-    /// Resolve a card id back to the agent it names and make it the app's
-    /// single selection, so the grid and every pane stay on one agent.
     fn select_workbench_card(&mut self, id: &Id) -> bool {
         let inputs = crate::host_panel_models::workbench_agent_inputs(self);
         let repository_filter = self
