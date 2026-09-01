@@ -8,7 +8,7 @@ use jefe::domain::{
     Agent, AgentId, AgentTypeId, LlxprtNpmPackageSelector, RemoteRepositorySettings, Repository,
     RepositoryId, TypedMap, TypedValue,
 };
-use jefe::selection::agent_form_content_lines;
+use jefe::selection::{SelectablePane, pane_content_lines};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState};
 
@@ -291,19 +291,20 @@ fn projection_state(type_id: AgentTypeId) -> AppState {
 #[test]
 fn code_puppy_selection_content_projection_shows_puppy_version_without_llxprt_version() {
     let state = projection_state(jefe::domain::shipped_agent_type(1));
-    let lines = agent_form_content_lines(&state)
-        .unwrap_or_else(|| panic!("new-agent selection content should project"));
+    let lines = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40).lines;
 
-    assert_eq!(
-        &lines[6..11],
-        [
-            "  Agent Runtime    [core.code-puppy]  (space cycles: LLxprt / Code Puppy / Claude Code / Codex CLI)",
-            "  Model            [sonnet]",
-            "  Version          [puppy-nightly]",
-            "  YOLO             [x]  (space toggles)",
-            "  Quick resume     [x]  (space toggles)",
-        ]
-    );
+    let row = |label: &str| {
+        lines
+            .iter()
+            .find(|line| line.starts_with(&format!("{label}: ")))
+            .unwrap_or_else(|| panic!("missing {label} row, lines={lines:?}"))
+            .clone()
+    };
+    assert_eq!(row("Agent Runtime"), "Agent Runtime: core.code-puppy");
+    assert_eq!(row("Model"), "Model: sonnet");
+    assert_eq!(row("CP Version"), "CP Version: puppy-nightly");
+    assert_eq!(row("YOLO"), "YOLO: true");
+    assert_eq!(row("Quick resume"), "Quick resume: true");
     assert!(
         lines.iter().all(|line| !line.contains(NIGHTLY_SELECTOR)),
         "Code Puppy projection must omit the dormant LLxprt Version value"
@@ -313,21 +314,29 @@ fn code_puppy_selection_content_projection_shows_puppy_version_without_llxprt_ve
 #[test]
 fn llxprt_selection_content_projection_retains_version_and_omits_code_puppy_rows() {
     let state = projection_state(jefe::domain::shipped_agent_type(3));
-    let lines = agent_form_content_lines(&state)
-        .unwrap_or_else(|| panic!("new-agent selection content should project"));
+    let lines = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40).lines;
 
+    let row = |label: &str| {
+        lines
+            .iter()
+            .find(|line| line.starts_with(&format!("{label}: ")))
+            .unwrap_or_else(|| panic!("missing {label} row, lines={lines:?}"))
+            .clone()
+    };
+    assert_eq!(row("Agent Runtime"), "Agent Runtime: core.llxprt");
+    assert_eq!(row("Mode Flags"), "Mode Flags: --yolo");
     assert_eq!(
-        &lines[7..11],
-        [
-            "  Agent Runtime    [core.llxprt]  (space cycles: LLxprt / Code Puppy / Claude Code / Codex CLI)",
-            "  Mode Flags       [--yolo]",
-            "  Version          [0.10.0-nightly.260712.21cb698b6]",
-            "  LLXPRT_DEBUG     [trace]",
-        ]
+        row("LLxprt Version"),
+        format!("LLxprt Version: {NIGHTLY_SELECTOR}")
     );
-    assert!(lines.iter().all(|line| {
-        !line.starts_with("  Model")
-            && !line.starts_with("  YOLO")
-            && !line.starts_with("  Quick resume")
-    }));
+    assert_eq!(row("LLXPRT_DEBUG"), "LLXPRT_DEBUG: trace");
+    assert!(
+        lines.iter().all(|line| {
+            !line.starts_with("Model:")
+                && !line.starts_with("YOLO")
+                && !line.starts_with("CP Version")
+                && !line.starts_with("Quick resume")
+        }),
+        "LLxprt projection must omit dormant code-puppy rows, lines={lines:?}"
+    );
 }

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use jefe::domain::canonical_values::{required_id, typed_field};
 use jefe::domain::{Agent, AgentId, AgentTypeId, Repository, RepositoryId, TypedMap, TypedValue};
-use jefe::selection::{agent_form_content_lines, repository_form_content_lines};
+use jefe::selection::{SelectablePane, pane_content_lines};
 use jefe::services::{CreateAgentParams, create_agent, prospective_agent_launch};
 use jefe::state::transition::TransitionExt;
 use jefe::state::{
@@ -22,6 +22,10 @@ impl<T> OptionTestExt<T> for Option<T> {
     fn value_or_panic(self, message: &str) -> T {
         self.unwrap_or_else(|| panic!("{message}"))
     }
+}
+
+fn modal_lines(pane: SelectablePane, state: &AppState) -> Vec<String> {
+    pane_content_lines(pane, state, None, &[], 120, 40).lines
 }
 
 fn repository(kind: AgentTypeId) -> Repository {
@@ -114,10 +118,10 @@ fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switc
     fields.code_puppy_version = "0.0.361-rc1".to_owned();
     fields.agent_type_id = "core.llxprt".to_owned();
     assert!(
-        !agent_form_content_lines(&state)
-            .value_or_panic("agent form content")
+        !modal_lines(SelectablePane::AgentForm, &state)
             .iter()
-            .any(|line| line.contains("0.0.361-rc1"))
+            .any(|line| line.contains("0.0.361-rc1")),
+        "the dormant code-puppy version must stay hidden for llxprt"
     );
 
     let ModalState::NewAgent { fields, .. } = &mut state.modal else {
@@ -125,10 +129,10 @@ fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switc
     };
     fields.agent_type_id = "core.code-puppy".to_owned();
     assert!(
-        agent_form_content_lines(&state)
-            .value_or_panic("agent form content")
+        modal_lines(SelectablePane::AgentForm, &state)
             .iter()
-            .any(|line| line.contains("Version") && line.contains("0.0.361-rc1"))
+            .any(|line| line.starts_with("CP Version:") && line.contains("0.0.361-rc1")),
+        "the drafted code-puppy version must ride the projection for code-puppy"
     );
 }
 
@@ -164,10 +168,10 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
     fields.default_code_puppy_version = "0.0.361".to_owned();
     fields.default_type_id = "core.llxprt".to_owned();
     assert!(
-        !repository_form_content_lines(&state)
-            .value_or_panic("repository form content")
+        !modal_lines(SelectablePane::RepositoryForm, &state)
             .iter()
-            .any(|line| line.contains("0.0.361"))
+            .any(|line| line.contains("0.0.361")),
+        "the dormant code-puppy version must stay hidden for llxprt"
     );
 
     let ModalState::EditRepository { fields, .. } = &mut state.modal else {
@@ -176,10 +180,10 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
     fields.default_type_id = "core.code-puppy".to_owned();
     fields.default_code_puppy_version = "  0.0.361  ".to_owned();
     assert!(
-        repository_form_content_lines(&state)
-            .value_or_panic("repository form content")
+        modal_lines(SelectablePane::RepositoryForm, &state)
             .iter()
-            .any(|line| line.contains("Default Version") && line.contains("0.0.361"))
+            .any(|line| line.starts_with("Default CP Version:") && line.contains("0.0.361")),
+        "the drafted code-puppy version must ride the projection"
     );
     state = state.apply(AppEvent::SubmitForm).committed_pure();
     assert_eq!(
