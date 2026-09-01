@@ -16,7 +16,7 @@ use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
 };
-use crate::ui::{AuthModal, GeneratedAgentForm, SplitScreen, WorkflowDispatchForm};
+use crate::ui::{AuthModal, SplitScreen, WorkflowDispatchForm};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -318,21 +318,6 @@ macro_rules! form_modal {
     };
 }
 
-fn generated_agent_modal(
-    snapshot: &AppState,
-    colors: &ThemeColors,
-    available_rows: u16,
-) -> AnyElement<'static> {
-    element! {
-        GeneratedAgentForm(
-            state: snapshot.clone(),
-            colors: colors.clone(),
-            available_rows: available_rows,
-        )
-    }
-    .into_any()
-}
-
 /// Build the modal element for the current modal state, if any.
 #[must_use]
 pub fn build_modal_element(
@@ -386,9 +371,13 @@ pub fn build_modal_element(
             crate::overlay_controls_agent_form::project_agent_form,
             crate::overlay_controls_agent_form::AGENT_FORM_FOOTER,
         ),
-        ModalState::GeneratedAgent { .. } => {
-            Some(generated_agent_modal(snapshot, colors, viewport.rows))
-        }
+        ModalState::GeneratedAgent { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            crate::overlay_controls_generated_form::project_generated_agent_form,
+            crate::overlay_controls_generated_form::GENERATED_FORM_FOOTER,
+        ),
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
         }

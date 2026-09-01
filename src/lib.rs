@@ -58,6 +58,10 @@ pub(crate) mod overlay_controls_agent_form;
 #[cfg(test)]
 #[path = "overlay_controls_agent_form_tests.rs"]
 mod overlay_controls_agent_form_tests;
+pub(crate) mod overlay_controls_generated_form;
+#[cfg(test)]
+#[path = "overlay_controls_generated_form_tests.rs"]
+mod overlay_controls_generated_form_tests;
 #[cfg(test)]
 #[path = "overlay_controls_repository_form_tests.rs"]
 mod overlay_controls_repository_form_tests;

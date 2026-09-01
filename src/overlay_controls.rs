@@ -848,6 +848,36 @@ pub fn project_form(
     }
 }
 
+/// Assemble a Form projection from pre-built rows.
+///
+/// Definition-generated forms lay out their own sections, support rows, and
+/// action rows; this constructor keeps that freedom while producing the same
+/// typed body and affordance contract as [`project_form`].
+pub fn bespoke_form_projection(
+    title: &str,
+    rows: Vec<HostControlRow>,
+    fields: Vec<Field>,
+    values: TypedMap,
+    affordances: Vec<Affordance>,
+    focus_target: Option<Id>,
+) -> OverlayControlProjection {
+    OverlayControlProjection {
+        kind: ControlKind::Form,
+        title: title.to_owned(),
+        rows,
+        viewport: 0,
+        body: PanelBody::Form(FormBody {
+            fields,
+            values,
+            field_errors: Vec::new(),
+            submit_action: ActionId::internal(InternalActionId::OverlaySubmit),
+        }),
+        action_affordances: affordances,
+        focus_target,
+        form_draft: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

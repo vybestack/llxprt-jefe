@@ -139,7 +139,7 @@ pub(crate) struct HostControlRow {
 }
 
 impl HostControlRow {
-    fn plain(text: impl Into<String>) -> Self {
+    pub fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             target: None,

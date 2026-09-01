@@ -5,7 +5,6 @@
 
 mod actions;
 mod errors;
-mod generated_agent;
 mod issues;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-001
@@ -17,7 +16,6 @@ mod workflow_dispatch;
 
 pub use actions::{ActionsScreen, ActionsScreenProps};
 pub use errors::{ErrorsScreen, ErrorsScreenProps};
-pub use generated_agent::{GeneratedAgentForm, GeneratedAgentFormProps};
 pub use issues::{IssuesScreen, IssuesScreenProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-001
