@@ -35,6 +35,7 @@
         assert!(state.apply_host_panel_action(
             repository_capability,
             ControlAction::Next,
+            80,
             1,
         ));
         assert_eq!(
@@ -46,6 +47,7 @@
         assert!(state.apply_host_panel_action(
             repository_capability,
             ControlAction::Next,
+            80,
             1,
         ));
         assert_eq!(
@@ -68,6 +70,7 @@
         assert!(state.apply_host_panel_action(
             search_capability,
             ControlAction::Submit,
+            80,
             4,
         ));
 

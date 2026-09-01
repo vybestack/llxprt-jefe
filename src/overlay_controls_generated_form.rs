@@ -196,10 +196,12 @@ fn field_rows(form: &GeneratedAgentForm, width: usize) -> LoweredFields {
         );
         let lowered = lowered_field(field);
         if let Some(declaration) = &lowered {
-            values.insert(
-                declaration.id().clone(),
-                typed_value(field.value()).unwrap_or(TypedValue::String(String::new())),
-            );
+            // An unset optional boolean carries no entry: the lowered field
+            // kind is Boolean, so an empty String would lie about the type
+            // (issue #706).
+            if let Some(value) = typed_value(field.value()) {
+                values.insert(declaration.id().clone(), value);
+            }
             if focused {
                 focus_target = Some(declaration.id().clone());
             }
@@ -274,4 +276,49 @@ pub fn project_generated_agent_form(
         affordances,
         lowered.focus_target,
     ))
+}
+
+#[cfg(test)]
+mod values_tests {
+    use super::*;
+
+    /// Issue #706: an unset optional boolean must carry no `values` entry.
+    /// The lowered field kind is Boolean, so the old fallback inserted an
+    /// empty String that lied about the field's type.
+    #[test]
+    fn unset_optional_boolean_carries_no_values_entry() {
+        let definition = crate::domain::agent_definition::AgentDefinition::shipped()
+            .into_iter()
+            .find(|definition| definition.id.as_str() == "core.code-puppy")
+            .unwrap_or_else(|| panic!("the code-puppy definition must be shipped"));
+        let availability = crate::domain::agent_definition::Availability::InstalledCompatible {
+            identity: "0.10.0".to_owned(),
+            generation: 1,
+        };
+        let form = GeneratedAgentForm::from_definition(&definition, &availability)
+            .unwrap_or_else(|error| panic!("the fixture definition must build a form: {error}"));
+
+        let unset: Vec<_> = form
+            .draft()
+            .fields()
+            .iter()
+            .filter(|field| matches!(field.value(), FieldValue::OptionalBoolean(None)))
+            .collect();
+        assert!(
+            !unset.is_empty(),
+            "the fixture must include an unset optional boolean"
+        );
+
+        let lowered = field_rows(&form, 100);
+        for field in unset {
+            let Some(declaration) = lowered_field(field) else {
+                continue;
+            };
+            assert!(
+                !lowered.values.contains_key(declaration.id()),
+                "unset optional boolean {:?} must carry no values entry",
+                declaration.id()
+            );
+        }
+    }
 }

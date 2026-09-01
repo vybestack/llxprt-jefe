@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "fb9781b14908a56860888d5c911edac26f0347aedd9b59d6795f7f89e0b47174"
+    "artifact_set_sha256": "89bc035c40cf4d18668d9cb23bb63ab8d421fac0623504a852b1cc38b39c9fbe"
   },
   "artifacts": [
     {
@@ -191,7 +191,7 @@
     },
     {
       "path": "src/app_input/provider_panel_input.rs",
-      "sha256": "5001c9fc066abc3e4675ef373dfd702952b46727fc05c0613004bc82b30733ac",
+      "sha256": "450eb726b952542b93368ed917dd982c3ec9ad232d17944175e37e36a0ca17ba",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -201,7 +201,7 @@
     },
     {
       "path": "src/app_input/provider_panel_input_tests_live.rs",
-      "sha256": "b7313328b71e8bec72afbd66c4433899dd2f122298b41b36fc170276c2d9d6d0",
+      "sha256": "a02104b318c2d42efd2fae0182409355dc216a1e9ecfd96a267d792fd68842f9",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -254,7 +254,7 @@
     },
     {
       "path": "src/host_panel_models.rs",
-      "sha256": "c93c90d8e34d54f720bdf2ceffb062d3527de46457cd19514057642186a618bd",
+      "sha256": "1cc1cebb8e9810005a4b18c9003ded47c767b03e00461acbfc9a2bf21d3c340b",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "653617ec647b713607c345ae4916b7d9e3cda807add69fd8aaccf2d9b6d21716",
+      "sha256": "df4da41d65e7705466ca315be21ecae938e6925cf780fe4f3fccbcfeeba06766",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -304,7 +304,7 @@
     },
     {
       "path": "src/provider_panel_view.rs",
-      "sha256": "e30852c4f526bced0b636803476a131a4be51ae3eec1bd5a2b3554450c91fd29",
+      "sha256": "be2e6dae91cf59391d8a006d872fa1f15277d6eeddd2f3dd859dc31f39dd7091",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -413,7 +413,7 @@
     },
     {
       "path": "src/state/host_panel_input_ops.rs",
-      "sha256": "1f056a28b26d499ebfe9a88ef1341c7cf9c7c1a7fdfbb96007dfdee0c5aca62c",
+      "sha256": "603985a45041276fd88ade9cf40c9decf9c38804d983673f268b1c8698cf5c60",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -715,7 +715,7 @@
     },
     {
       "path": "src/workbench/screens.rs",
-      "sha256": "954ded792db67d420a1be2f1d3b548b642ba1994360ea11a307782b1ff37f37c",
+      "sha256": "e9901821aa203519be5668574148bb20f684e77297dc546b26aad0dd8898c095",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -728,7 +728,7 @@
     },
     {
       "path": "src/workbench/screens_tests.rs",
-      "sha256": "42a2ba919065fa1ea09e75885f76e4e283e2f80836d3de1d05966fd56b112995",
+      "sha256": "dcb4e8d08c8c34f27dd6d1e95472dd5bed67ef4d525931e19948a14f7e1b73df",
       "mode": "100644",
       "criteria": [
         "CWR2-01",

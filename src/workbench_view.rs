@@ -562,7 +562,7 @@ fn resolve_paging(
 ) -> (WorkbenchLayout, usize, usize) {
     let rows_visible = vertical.rows_visible;
     let cards_per_page = rows_visible.saturating_mul(columns).max(1);
-    let page_count = div_ceil(visible_count, cards_per_page).max(1);
+    let page_count = pages_for(visible_count, cards_per_page);
     let clamped_page = page.min(page_count.saturating_sub(1));
     let start = clamped_page.saturating_mul(cards_per_page);
     let end = (start.saturating_add(cards_per_page)).min(visible_count);
@@ -575,6 +575,27 @@ fn resolve_paging(
         page_count,
     };
     (layout, start, end)
+}
+
+/// Pages needed to show `visible_count` cards at `cards_per_page` per page,
+/// always at least one. Shared by the display clamp and the input-time
+/// clamp so the two can never disagree (issue #706).
+fn pages_for(visible_count: usize, cards_per_page: usize) -> usize {
+    div_ceil(visible_count, cards_per_page.max(1)).max(1)
+}
+
+/// The grid's page count for a content rectangle.
+///
+/// Uses the same layout resolution `resolve_paging` clamps with, exposed so
+/// input-time paging bounds `workbench.page` with the exact arithmetic the
+/// display uses (issue #706).
+#[must_use]
+pub fn grid_page_count(content_width: usize, content_height: usize, visible_count: usize) -> usize {
+    let columns = resolve_horizontal(content_width).columns;
+    // The longest todo list only grows the per-card window, never the
+    // visible row count, so the projection's zero is layout-neutral here.
+    let rows_visible = resolve_vertical(content_height, visible_count, columns, 0).rows_visible;
+    pages_for(visible_count, rows_visible.saturating_mul(columns))
 }
 
 /// Horizontal resolution result.

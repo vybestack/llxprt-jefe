@@ -159,7 +159,7 @@ fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
 }
 
 #[test]
-fn the_compiled_residual_set_is_exactly_seven_and_excludes_dashboard() {
+fn the_compiled_residual_set_is_exactly_six_and_excludes_dashboard_and_terminals() {
     let registry = registry();
     let expected = [
         ScreenId::Repositories,

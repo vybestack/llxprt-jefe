@@ -466,6 +466,7 @@ mod tests {
             lines: vec!["content".to_owned()],
             max_scroll_offset: 0,
             hit_targets: vec![None::<PanelHitTarget>],
+            rect_hit_targets: Vec::new(),
             render: crate::provider_panel_view::PanelRender::Control,
         }
     }

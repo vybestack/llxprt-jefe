@@ -8,84 +8,18 @@
 //! the active mask, live counts computed before filtering, one row per
 //! bucket.
 
-use crate::domain::observation::{
-    AgentObservation, FieldState, NativeActivityState, NativeActivityValue, ObservationHealth,
-    Provenance, Wait, WaitReason,
-};
-use crate::domain::{Agent, AgentId, AgentStatus, AgentTypeId, Repository, RepositoryId, TypedMap};
+use crate::domain::AgentStatus;
+use crate::domain::observation::{AgentObservation, ObservationHealth};
 use crate::host_controls::ControlAction;
 use crate::host_panel_models::project_host_panel;
 use crate::runtime::provider::protocol::{ListItem, PanelBody};
 use crate::state::AppState;
+use crate::test_support::{
+    host_panel_agent, host_panel_repository, ready_observation, waiting_observation,
+    working_observation,
+};
 use crate::workbench::HostPanelModelSource;
 use crate::workbench_view::StatusBucket;
-use std::path::PathBuf;
-
-fn repository(id: &str) -> Repository {
-    Repository::new(
-        RepositoryId(format!("repo-{id}")),
-        AgentTypeId::default(),
-        TypedMap::default(),
-        format!("Repo {id}"),
-        format!("repo-{id}"),
-        PathBuf::from("/tmp"),
-    )
-}
-
-fn agent(name: &str, repository_id: &str, status: AgentStatus) -> Agent {
-    let mut agent = Agent::new(
-        AgentId(name.to_owned()),
-        RepositoryId(repository_id.to_owned()),
-        AgentTypeId::default(),
-        TypedMap::default(),
-        name.to_owned(),
-        PathBuf::from("/tmp"),
-    );
-    agent.status = status;
-    agent
-}
-
-fn working_observation() -> AgentObservation {
-    AgentObservation {
-        health: ObservationHealth::Live,
-        activity: FieldState::known(
-            Provenance::Authoritative,
-            NativeActivityValue {
-                state: NativeActivityState::Acting,
-            },
-        ),
-        ..AgentObservation::default()
-    }
-}
-
-fn ready_observation() -> AgentObservation {
-    AgentObservation {
-        health: ObservationHealth::Live,
-        activity: FieldState::known(
-            Provenance::Authoritative,
-            NativeActivityValue {
-                state: NativeActivityState::Idle,
-            },
-        ),
-        wait: FieldState::known(Provenance::Authoritative, None),
-        turn: FieldState::known(Provenance::Authoritative, None),
-        terminal: FieldState::known(Provenance::Authoritative, None),
-        ..AgentObservation::default()
-    }
-}
-
-fn waiting_observation() -> AgentObservation {
-    AgentObservation {
-        health: ObservationHealth::Live,
-        wait: FieldState::known(
-            Provenance::Authoritative,
-            Some(Wait {
-                reason: WaitReason::Permission,
-            }),
-        ),
-        ..AgentObservation::default()
-    }
-}
 
 fn stale_observation() -> AgentObservation {
     AgentObservation {
@@ -97,11 +31,11 @@ fn stale_observation() -> AgentObservation {
 /// One agent per bucket, the way the legacy STATUS rail counted them.
 fn state_with_one_agent_per_bucket() -> AppState {
     let mut state = AppState::new(crate::test_support::published_workbench());
-    state.repositories = vec![repository("one")];
-    let waiting = agent("waiting", "repo-one", AgentStatus::Running);
-    let working = agent("working", "repo-one", AgentStatus::Running);
-    let ready = agent("ready", "repo-one", AgentStatus::Running);
-    let dead = agent("stale", "repo-one", AgentStatus::Dead);
+    state.repositories = vec![host_panel_repository("one")];
+    let waiting = host_panel_agent("waiting", "repo-one", AgentStatus::Running);
+    let working = host_panel_agent("working", "repo-one", AgentStatus::Running);
+    let ready = host_panel_agent("ready", "repo-one", AgentStatus::Running);
+    let dead = host_panel_agent("stale", "repo-one", AgentStatus::Dead);
     state
         .observations
         .insert(waiting.id.clone(), waiting_observation());
@@ -219,15 +153,15 @@ fn status_block_cursor_moves_through_the_host_panel_input_path() {
     state.workbench.page = 2;
 
     let capability = status_block_capability();
-    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 5));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 80, 5));
     assert_eq!(state.workbench.filter_cursor, 1);
     assert_eq!(state.workbench.page, 2, "cursor moves never reset the page");
-    assert!(state.apply_host_panel_action(capability, ControlAction::Previous, 5));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Previous, 80, 5));
     assert_eq!(state.workbench.filter_cursor, 0);
     // The shared list contract cycles, where the legacy rail clamped at the
     // ends: through the host runtime the block behaves like every other
     // list control.
-    assert!(state.apply_host_panel_action(capability, ControlAction::Previous, 5));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Previous, 80, 5));
     assert_eq!(state.workbench.filter_cursor, 3);
 }
 
@@ -238,7 +172,7 @@ fn status_block_activation_toggles_the_bucket_under_the_cursor() {
     state.workbench.page = 3;
 
     let capability = status_block_capability();
-    assert!(state.apply_host_panel_action(capability, ControlAction::Activate, 5));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Activate, 80, 5));
 
     let mask = state.workbench.status_filter.mask();
     assert!(

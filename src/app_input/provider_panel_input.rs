@@ -38,6 +38,7 @@ pub(super) fn apply(
             let _ = state.apply_host_panel_action(
                 capability,
                 control_action,
+                usize::from(projection.content.width),
                 usize::from(projection.content.height),
             );
             return;
@@ -155,6 +156,7 @@ fn apply_mouse_to_state(
                     state.apply_host_panel_action(
                         capability,
                         action,
+                        usize::from(projection.content.width),
                         usize::from(projection.content.height),
                     )
                 });
@@ -231,6 +233,16 @@ fn hit_target(
 ) -> Option<jefe::provider_panel_view::PanelHitTarget> {
     if !projection.content.contains(col, row) {
         return None;
+    }
+    // Rectangle-keyed targets (the card grid) win before the row-indexed
+    // fallback: a grid packs several targets onto one row (issue #706).
+    if let Some(target) = projection
+        .rect_hit_targets
+        .iter()
+        .find(|(rect, _)| rect.contains(col, row))
+        .map(|(_, target)| target.clone())
+    {
+        return Some(target);
     }
     let index = usize::from(row.saturating_sub(projection.content.row));
     projection.hit_targets.get(index).cloned().flatten()

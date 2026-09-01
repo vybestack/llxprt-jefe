@@ -4,9 +4,7 @@
 //! field edits.
 
 use crate::domain::TypedValue;
-use crate::domain::agent_definition::{
-    AgentDefinition, AgentTypeId, Availability, FieldValue, Operation,
-};
+use crate::domain::agent_definition::{AgentDefinition, AgentTypeId, Availability, Operation};
 use crate::host_controls::{ControlAction, ControlIntent, PanelHitTarget};
 use crate::overlay_controls::overlay_intent;
 use crate::overlay_controls_generated_form::project_generated_agent_form;
@@ -202,5 +200,4 @@ fn generated_form_marks_the_focused_operation_row_and_lists_targets() {
             "the {label} target row rides the projection, rows={rows:?}"
         );
     }
-    let _ = FieldValue::Boolean(true);
 }

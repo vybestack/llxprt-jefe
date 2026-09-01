@@ -15,12 +15,10 @@ use crate::state::AppState;
 use crate::state::provider_panels::{PanelLifecycle, ProviderPanelState};
 use crate::workbench::descriptor::HostPanelModelSource;
 use crate::workbench::{
-    PTY_PANEL_TYPE, PanelId, Rect, ResolvedLayout, ScreenDescriptor, ScreenInstanceId,
+    FILTER_BAND_PANEL_TYPE, PTY_PANEL_TYPE, PanelId, Rect, ResolvedLayout, ScreenDescriptor,
+    ScreenInstanceId,
 };
 use crate::workbench_view::{WorkbenchRequest, WorkbenchView, build_workbench_view};
-
-/// Panel type of the Repositories screen's filter band.
-const FILTER_BAND_PANEL_TYPE: &str = "filter-band";
 
 // ---------------------------------------------------------------------------
 // View structures consumed by the iocraft component
@@ -62,6 +60,10 @@ pub struct PanelProjection {
     /// Which shared renderer consumes this panel's projected content.
     pub render: PanelRender,
     pub hit_targets: Vec<Option<PanelHitTarget>>,
+    /// Rectangle-keyed targets for content a row index cannot address: the
+    /// card grid packs several cards onto one row, so each visible card
+    /// carries its own rectangle (issue #706).
+    pub rect_hit_targets: Vec<(Rect, PanelHitTarget)>,
 }
 /// Shared content renderer selected by the descriptor panel type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -250,6 +252,7 @@ fn project_declared_content(
         projection.hit_targets.clear();
         projection.max_scroll_offset = 0;
         projection.render = PanelRender::WorkbenchCards;
+        projection.rect_hit_targets = workbench_card_hit_targets(state, projection.content);
         return;
     }
     let model = crate::host_panel_models::project_host_panel(state, capability.model_source());
@@ -288,6 +291,66 @@ pub fn workbench_view_from_state(state: &AppState, cols: u16, rows: u16) -> Work
     })
 }
 
+/// One rectangle per visible card, in the grid's row-major paint order.
+///
+/// The bespoke grid renderer paints card `i` at row `i / columns`, column
+/// `i % columns`, on the same column/row strides the layout resolves
+/// (#706). Sharing the strides through [`WorkbenchView`]'s own layout keeps
+/// the renderer and the hit targets in lockstep.
+#[must_use]
+pub fn workbench_card_hit_targets(state: &AppState, content: Rect) -> Vec<(Rect, PanelHitTarget)> {
+    let view = workbench_view_from_state(state, content.width, content.height);
+    let columns = view.layout.columns.max(1);
+    let column_stride = view
+        .layout
+        .card_width
+        .saturating_add(crate::workbench_view::CARD_GAP);
+    // The painted card is its interior lines plus the bordered box: the
+    // same per-row budget `resolve_vertical` divides by.
+    let card_height = view
+        .layout
+        .todo_window
+        .saturating_add(crate::workbench_view::CARD_CHROME_LINES)
+        .saturating_add(1);
+    // Model ids index the full ordered agent list; `view.cards` is the
+    // current page's slice of it.
+    let cards_per_page = view.layout.rows_visible.saturating_mul(columns).max(1);
+    let page_start = view.layout.page.saturating_mul(cards_per_page);
+    let content_col = usize::from(content.col);
+    let content_row = usize::from(content.row);
+    let content_width = usize::from(content.width);
+    view.cards
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _card)| {
+            let row = index / columns;
+            let column = index % columns;
+            let col_offset = column.saturating_mul(column_stride);
+            let width = column_stride.min(content_width.saturating_sub(col_offset));
+            let (Ok(col), Ok(row), Ok(width), Ok(height)) = (
+                u16::try_from(content_col.saturating_add(col_offset)),
+                u16::try_from(content_row.saturating_add(row.saturating_mul(card_height))),
+                u16::try_from(width),
+                u16::try_from(card_height),
+            ) else {
+                return None;
+            };
+            Some((
+                Rect {
+                    col,
+                    row,
+                    width,
+                    height,
+                },
+                PanelHitTarget::ListItem(crate::domain::Id::internal_indexed(
+                    crate::domain::InternalId::WorkbenchCardItem,
+                    page_start + index,
+                )),
+            ))
+        })
+        .collect()
+}
+
 /// Project the Repositories screen's filter band.
 ///
 /// The legacy rail showed the search row plus a terminal-style cursor; the
@@ -307,8 +370,6 @@ fn project_filter_band(projection: &mut PanelProjection, state: &AppState) {
     projection.render = PanelRender::Control;
 }
 
-/// Fill one host-owned panel from its projected model, clamping the retained
-/// scroll offset to the visible row window after any source shrink.
 /// Project the Terminal Manager's throttled shell preview into a PTY panel.
 ///
 /// Mirrors the retired compiled renderer: a header identifying the selected
@@ -361,6 +422,8 @@ fn project_shell_preview(projection: &mut PanelProjection, state: &AppState) {
     projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
 }
 
+/// Fill one host-owned panel from its projected model, clamping the retained
+/// scroll offset to the visible row window after any source shrink.
 fn project_host_model(
     projection: &mut PanelProjection,
     model: crate::host_panel_models::HostPanelModel,
@@ -511,6 +574,7 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
         max_scroll_offset,
         hit_targets,
         render: PanelRender::Control,
+        rect_hit_targets: Vec::new(),
     }
 }
 
@@ -528,6 +592,7 @@ fn hidden_panel(id: PanelId) -> PanelProjection {
         max_scroll_offset: 0,
         hit_targets: Vec::new(),
         render: PanelRender::Control,
+        rect_hit_targets: Vec::new(),
     }
 }
 
@@ -545,6 +610,7 @@ fn unavailable_panel(id: PanelId, focused: bool, chrome: Rect, content: Rect) ->
         max_scroll_offset: 0,
         hit_targets: vec![None],
         render: PanelRender::Control,
+        rect_hit_targets: Vec::new(),
     }
 }
 

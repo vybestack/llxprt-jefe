@@ -155,6 +155,66 @@ fn filter_band_carries_the_legacy_search_line() {
 }
 
 #[test]
+fn cards_grid_carries_card_hit_targets_over_their_rectangles() {
+    // Issue #706: the host capability advertises card selection through
+    // the shared input contract, so the projection must offer one hit
+    // target per visible card, keyed to the same ids the model carries.
+    let mut state = repositories_state();
+    state.repositories = vec![workbench_repository("one", "acoliver/jefe")];
+    seed_workbench_agent(&mut state, "alpha", "repo-one");
+    seed_workbench_agent(&mut state, "beta", "repo-one");
+    seed_workbench_agent(&mut state, "gamma", "repo-one");
+
+    let view = project_repositories(&state);
+    let cards = panel_of(&view, "cards");
+
+    let model = crate::host_panel_models::project_host_panel(
+        &state,
+        crate::workbench::HostPanelModelSource::WorkbenchCards,
+    );
+    let PanelBody::List(body) = &model.body else {
+        panic!("the cards model is a list body");
+    };
+    let expected: Vec<_> = body.items.iter().map(|item| item.id.clone()).collect();
+    assert!(expected.len() >= 3, "the fixture must page its cards");
+
+    // The grid paints its page window of the model, not the whole list, so
+    // derive the window the same way the bespoke renderer does.
+    let view = workbench_view_from_state(&state, cards.content.width, cards.content.height);
+    let columns = view.layout.columns.max(1);
+    let cards_per_page = view.layout.rows_visible.saturating_mul(columns).max(1);
+    let page_start = view.layout.page.saturating_mul(cards_per_page);
+    let painted = view.cards.len();
+    assert!(
+        page_start + painted < expected.len(),
+        "the fixture must exercise the page offset into the model ids"
+    );
+
+    let projected: Vec<_> = cards
+        .rect_hit_targets
+        .iter()
+        .map(|(_, target)| match target {
+            crate::provider_panel_view::PanelHitTarget::ListItem(id) => id.clone(),
+            other => panic!("card targets are list items, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        projected.len(),
+        painted,
+        "every painted card carries a hit target"
+    );
+    assert!(
+        projected
+            .iter()
+            .zip(&expected[page_start..page_start + painted])
+            .all(|(a, b)| a == b),
+        "projected ids {projected:?} must equal the model's page window {}..{} of {expected:?}",
+        page_start,
+        page_start + painted
+    );
+}
+
+#[test]
 fn workbench_view_from_state_wires_origin_filter_and_page() {
     let mut state = repositories_state();
     state.repositories = vec![

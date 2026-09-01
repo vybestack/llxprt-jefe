@@ -31,6 +31,24 @@ pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> Hos
     }
 }
 
+/// Borrow every agent as a workbench view input: no git info, with its live
+/// observation when one has arrived.
+///
+/// The status block, the card grid, and the grid's input handlers all order
+/// the same agents, so they share this projection instead of re-deriving it.
+#[must_use]
+pub fn workbench_agent_inputs(state: &AppState) -> Vec<crate::workbench_view::AgentInput<'_>> {
+    state
+        .agents
+        .iter()
+        .map(|agent| crate::workbench_view::AgentInput {
+            agent,
+            git_info: None,
+            observation: state.observations.get(&agent.id),
+        })
+        .collect()
+}
+
 /// The STATUS block of the cards screen, projected as a list control.
 ///
 /// Retained by the cutover (maintainer decision on #706). The legacy keymap
@@ -39,15 +57,7 @@ pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> Hos
 /// filter mask, count over every agent before filtering so toggled-off
 /// buckets stay visible.
 fn workbench_status(state: &AppState) -> HostPanelModel {
-    let inputs: Vec<crate::workbench_view::AgentInput<'_>> = state
-        .agents
-        .iter()
-        .map(|agent| crate::workbench_view::AgentInput {
-            agent,
-            git_info: None,
-            observation: state.observations.get(&agent.id),
-        })
-        .collect();
+    let inputs = workbench_agent_inputs(state);
     let counts = crate::workbench_view::status_bucket_counts(&inputs);
     let filter = state.workbench.status_filter.mask();
     let buckets = crate::workbench_view::STATUS_BLOCK_ORDER;
@@ -95,15 +105,7 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
 /// any agent is visible because the real page count is a render-time fact
 /// only the projection can clamp.
 fn workbench_cards(state: &AppState) -> HostPanelModel {
-    let inputs: Vec<crate::workbench_view::AgentInput<'_>> = state
-        .agents
-        .iter()
-        .map(|agent| crate::workbench_view::AgentInput {
-            agent,
-            git_info: None,
-            observation: state.observations.get(&agent.id),
-        })
-        .collect();
+    let inputs = workbench_agent_inputs(state);
     let repository_filter = state
         .split_filter
         .as_ref()
@@ -315,10 +317,13 @@ fn session_list(state: &AppState) -> HostPanelModel {
             }
         })
         .collect();
-    let selected_id = state
-        .terminal_manager
-        .selected_index
-        .map(|index| Id::internal_indexed(InternalId::SessionItem, index));
+    // A stale selected index must resolve to a row that still exists, the
+    // same clamp `workbench_status` applies to the filter cursor.
+    let selected_id = state.terminal_manager.selected_index.and_then(|index| {
+        rows.len()
+            .checked_sub(1)
+            .map(|last| Id::internal_indexed(InternalId::SessionItem, index.min(last)))
+    });
     HostPanelModel {
         title: "Terminal Manager".to_owned(),
         body: PanelBody::List(ListBody {

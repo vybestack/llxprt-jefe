@@ -62,6 +62,7 @@ impl AppState {
         &mut self,
         capability: HostPanelCapability,
         action: ControlAction,
+        viewport_cols: usize,
         viewport_rows: usize,
     ) -> bool {
         let model = project_host_panel(self, capability.model_source());
@@ -77,9 +78,12 @@ impl AppState {
             action,
         );
         match intent {
-            ControlIntent::Event(event) => {
-                self.apply_host_panel_event(capability.model_source(), event, viewport_rows)
-            }
+            ControlIntent::Event(event) => self.apply_host_panel_event(
+                capability.model_source(),
+                event,
+                viewport_cols,
+                viewport_rows,
+            ),
             ControlIntent::Scroll(delta) => {
                 self.scroll_host_panel_kind(capability.model_source(), delta, viewport_rows)
             }
@@ -135,6 +139,7 @@ impl AppState {
         &mut self,
         kind: HostPanelModelSource,
         event: PanelEvent,
+        viewport_cols: usize,
         viewport_rows: usize,
     ) -> bool {
         match event {
@@ -161,11 +166,7 @@ impl AppState {
                     // Enter on a bucket row toggles its filter, the legacy
                     // `split.toggle-status-filter` behavior.
                     HostPanelModelSource::WorkbenchStatus => {
-                        let bucket = crate::workbench_view::STATUS_BLOCK_ORDER[self
-                            .workbench
-                            .filter_cursor
-                            .min(crate::workbench_view::STATUS_BLOCK_ORDER.len() - 1)];
-                        self.apply_workbench_status_toggle(bucket);
+                        self.apply_workbench_status_toggle(self.workbench_filter_cursor_bucket());
                         None
                     }
                     // Enter on a card attaches to its agent, the legacy
@@ -188,10 +189,13 @@ impl AppState {
                 self.active_overlay_kind() == Some(crate::workbench::OverlayKind::Search)
             }
             // PageDown on the grid pages the cards, the legacy
-            // `split.page-down` behavior. The page count is a render-time
-            // fact, so the reducer increments and the projection clamps.
+            // `split.page-down` behavior. The clamp uses the same page-count
+            // arithmetic the display path resolves with, so the retained
+            // page counter never advances past the last real page (issue
+            // #706).
             PanelEvent::PageRequested { .. } if kind == HostPanelModelSource::WorkbenchCards => {
-                self.apply_workbench(super::workbench_reducers::WorkbenchNavigation::NextPage);
+                let page_count = self.workbench_grid_page_count(viewport_cols, viewport_rows);
+                self.apply_workbench_page_next_within(page_count);
                 true
             }
             PanelEvent::Action { .. }
@@ -313,18 +317,27 @@ impl AppState {
         }
     }
 
+    /// The grid's page count at the panel's own content geometry, computed
+    /// by the shared layout helper the display clamp uses (issue #706).
+    fn workbench_grid_page_count(&self, viewport_cols: usize, viewport_rows: usize) -> usize {
+        let inputs = crate::host_panel_models::workbench_agent_inputs(self);
+        let repository_filter = self
+            .split_filter
+            .as_ref()
+            .map(|repository| repository.0.as_str());
+        let visible = crate::workbench_view::ordered_agent_ids(
+            &inputs,
+            self.workbench.status_filter.mask(),
+            repository_filter,
+        )
+        .len();
+        crate::workbench_view::grid_page_count(viewport_cols, viewport_rows, visible)
+    }
+
     /// Resolve a card id back to the agent it names and make it the app's
     /// single selection, so the grid and every pane stay on one agent.
     fn select_workbench_card(&mut self, id: &Id) -> bool {
-        let inputs: Vec<crate::workbench_view::AgentInput<'_>> = self
-            .agents
-            .iter()
-            .map(|agent| crate::workbench_view::AgentInput {
-                agent,
-                git_info: None,
-                observation: self.observations.get(&agent.id),
-            })
-            .collect();
+        let inputs = crate::host_panel_models::workbench_agent_inputs(self);
         let repository_filter = self
             .split_filter
             .as_ref()

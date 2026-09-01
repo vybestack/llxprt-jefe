@@ -11,7 +11,7 @@ use super::navigation_dirty::DraftAction;
 use super::{AppState, ManagedShellRow, ShellFocusOrigin, ShellReturnTarget, status_label_for};
 use crate::domain::{AgentId, AgentStatus};
 use crate::messages::{NavDir, TerminalManagerMessage};
-use crate::workbench::{ActivationValues, RouteId};
+use crate::workbench::{ActivationValues, IdError, RouteId};
 
 /// Build the deterministic list of managed-shell rows from current state.
 ///
@@ -63,15 +63,19 @@ impl AppState {
     /// goes through its route rather than a compiled variant; stating the
     /// destination idempotently keeps shell-return transitions from stacking
     /// a second manager instance the user is already looking at.
-    pub(crate) fn show_terminal_manager(&mut self) -> DraftAction {
+    ///
+    /// # Errors
+    ///
+    /// Returns the identifier error when the compiled-in route literal
+    /// fails the shared route grammar.
+    pub(crate) fn show_terminal_manager(&mut self) -> Result<DraftAction, IdError> {
         if self.nav.screen() == crate::workbench::TERMINALS_IDENTITY {
-            return DraftAction::None;
+            return Ok(DraftAction::None);
         }
-        let route = RouteId::parse("terminals")
-            .unwrap_or_else(|error| unreachable!("the core.terminals route must parse: {error}"));
+        let route = RouteId::parse(crate::workbench::TERMINALS_ROUTE)?;
         let activation =
             Activation::from_source(route, ActivationValues::empty(), self.nav.current());
-        self.navigate(NavMessage::Navigate(NavIntent::Push(activation)))
+        Ok(self.navigate(NavMessage::Navigate(NavIntent::Push(activation))))
     }
 
     /// Enter terminal-manager mode in a fresh exact screen instance (issue #364 PR A).

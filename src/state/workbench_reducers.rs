@@ -27,15 +27,7 @@ impl AppState {
     /// agent is current. Ordering comes from the projection, so the selection
     /// walks the cards exactly as they are rendered.
     pub(super) fn move_workbench_selection(&mut self, forward: bool) {
-        let inputs: Vec<_> = self
-            .agents
-            .iter()
-            .map(|agent| crate::workbench_view::AgentInput {
-                agent,
-                git_info: None,
-                observation: self.observations.get(&agent.id),
-            })
-            .collect();
+        let inputs = crate::host_panel_models::workbench_agent_inputs(self);
         let order = crate::workbench_view::ordered_agent_ids(
             &inputs,
             self.workbench.status_filter.mask(),
@@ -131,6 +123,20 @@ impl AppState {
             WorkbenchNavigation::NextSelection => self.move_workbench_selection(true),
             WorkbenchNavigation::Attach => self.attach_workbench_selection(),
         }
+    }
+
+    /// Advance the workbench page, clamped to the grid's real `page_count`.
+    ///
+    /// The host-panel input path knows the panel geometry, so unlike
+    /// [`WorkbenchNavigation::NextPage`] it never lets the retained page
+    /// counter advance past the last page the grid can show (issue #706);
+    /// otherwise `PreviousPage` appears unresponsive until it walks back.
+    pub(super) fn apply_workbench_page_next_within(&mut self, page_count: usize) {
+        self.workbench.page = self
+            .workbench
+            .page
+            .saturating_add(1)
+            .min(page_count.saturating_sub(1));
     }
 
     /// Toggle one status bucket in the workbench filter mask and reset the page

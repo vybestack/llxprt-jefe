@@ -11,6 +11,7 @@ use super::descriptor::{
     LayoutNode, PanelDescriptor, PortDescriptor, PortDirection, ScreenDescriptor,
 };
 use super::ids::{IdError, PanelId, RouteId, ScreenId, ScreenIdentity};
+use super::panel_types::FILTER_BAND_PANEL_TYPE;
 use super::screens::{
     ACTIONS_LIST_PANEL, BAND_CHROME, BANNER_ROWS, BORDERED_BAND_CHROME, DETAIL_MIN_ROWS,
     DETAIL_PANE_CHROME, DETAIL_WEIGHT, FILTER_CONTROLS_ROWS, FLEX_MIN_COLUMNS, HOST_OVERLAYS,
@@ -83,7 +84,7 @@ fn workspace_screen(spec: &WorkspaceSpec) -> Result<ScreenDescriptor, RegistryEr
             panel(spec.banner, "notice-band", false, false, BAND_CHROME)?,
             panel(
                 spec.filter,
-                "filter-band",
+                FILTER_BAND_PANEL_TYPE,
                 false,
                 false,
                 BORDERED_BAND_CHROME,

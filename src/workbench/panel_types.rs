@@ -14,13 +14,16 @@
 use super::ids::{IdError, PanelTypeId, check_identifier};
 use super::screens::PTY_PANEL_TYPE;
 
+/// Panel type of a screen's shared filter band.
+pub const FILTER_BAND_PANEL_TYPE: &str = "filter-band";
+
 /// Every panel type a screen definition may name, in registry order.
 pub const DEFINABLE_PANEL_TYPES: [&str; 12] = [
     "action-detail",
     "action-list",
     "error-detail",
     "error-list",
-    "filter-band",
+    FILTER_BAND_PANEL_TYPE,
     "issue-detail",
     "issue-list",
     "notice-band",

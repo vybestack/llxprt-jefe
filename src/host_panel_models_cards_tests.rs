@@ -8,92 +8,25 @@
 //! the app's selected agent, Enter attaching, and paging advancing the
 //! workbench page.
 
-use crate::domain::observation::{
-    AgentObservation, FieldState, NativeActivityState, NativeActivityValue, ObservationHealth,
-    Provenance, Wait, WaitReason,
-};
-use crate::domain::{Agent, AgentId, AgentStatus, AgentTypeId, Repository, RepositoryId, TypedMap};
+use crate::domain::AgentStatus;
 use crate::host_controls::{ControlAction, ControlKind};
 use crate::host_panel_models::project_host_panel;
 use crate::runtime::provider::protocol::PanelBody;
 use crate::state::AppState;
+use crate::test_support::{
+    host_panel_agent, host_panel_repository, ready_observation, waiting_observation,
+    working_observation,
+};
 use crate::workbench::HostPanelModelSource;
 use crate::workbench_view::StatusBucket;
-use std::path::PathBuf;
-
-fn repository(id: &str) -> Repository {
-    Repository::new(
-        RepositoryId(format!("repo-{id}")),
-        AgentTypeId::default(),
-        TypedMap::default(),
-        format!("Repo {id}"),
-        format!("repo-{id}"),
-        PathBuf::from("/tmp"),
-    )
-}
-
-fn agent(name: &str, repository_id: &str, status: AgentStatus) -> Agent {
-    let mut agent = Agent::new(
-        AgentId(name.to_owned()),
-        RepositoryId(repository_id.to_owned()),
-        AgentTypeId::default(),
-        TypedMap::default(),
-        name.to_owned(),
-        PathBuf::from("/tmp"),
-    );
-    agent.status = status;
-    agent
-}
-
-fn working_observation() -> AgentObservation {
-    AgentObservation {
-        health: ObservationHealth::Live,
-        activity: FieldState::known(
-            Provenance::Authoritative,
-            NativeActivityValue {
-                state: NativeActivityState::Acting,
-            },
-        ),
-        ..AgentObservation::default()
-    }
-}
-
-fn ready_observation() -> AgentObservation {
-    AgentObservation {
-        health: ObservationHealth::Live,
-        activity: FieldState::known(
-            Provenance::Authoritative,
-            NativeActivityValue {
-                state: NativeActivityState::Idle,
-            },
-        ),
-        wait: FieldState::known(Provenance::Authoritative, None),
-        turn: FieldState::known(Provenance::Authoritative, None),
-        terminal: FieldState::known(Provenance::Authoritative, None),
-        ..AgentObservation::default()
-    }
-}
-
-fn waiting_observation() -> AgentObservation {
-    AgentObservation {
-        health: ObservationHealth::Live,
-        wait: FieldState::known(
-            Provenance::Authoritative,
-            Some(Wait {
-                reason: WaitReason::Permission,
-            }),
-        ),
-        ..AgentObservation::default()
-    }
-}
 
 /// Three agents spanning three buckets, the way the legacy grid sorted them.
 fn state_with_agents_across_buckets() -> AppState {
     let mut state = AppState::new(crate::test_support::published_workbench());
-    state.repositories = vec![repository("one")];
-    let working = agent("working", "repo-one", AgentStatus::Running);
-    let ready = agent("ready", "repo-one", AgentStatus::Running);
-    let waiting = agent("waiting", "repo-one", AgentStatus::Running);
+    state.repositories = vec![host_panel_repository("one")];
+    let working = host_panel_agent("working", "repo-one", AgentStatus::Running);
+    let ready = host_panel_agent("ready", "repo-one", AgentStatus::Running);
+    let waiting = host_panel_agent("waiting", "repo-one", AgentStatus::Running);
     state
         .observations
         .insert(working.id.clone(), working_observation());
@@ -239,13 +172,13 @@ fn workbench_cards_selection_moves_through_the_grid_order() {
 
     // No selection yet: the shared list contract implicitly selects the first
     // card, so Next moves to the second.
-    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 40));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 80, 40));
     assert_eq!(
         state.selected_agent().map(|agent| agent.name.as_str()),
         Some("working")
     );
 
-    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 40));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 80, 40));
     assert_eq!(
         state.selected_agent().map(|agent| agent.name.as_str()),
         Some("ready")
@@ -253,13 +186,13 @@ fn workbench_cards_selection_moves_through_the_grid_order() {
 
     // Host list semantics wrap at the ends; the legacy grid clamped. The
     // wrap is the shared control contract, so it is pinned here deliberately.
-    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 40));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Next, 80, 40));
     assert_eq!(
         state.selected_agent().map(|agent| agent.name.as_str()),
         Some("waiting")
     );
 
-    assert!(state.apply_host_panel_action(capability, ControlAction::Previous, 40));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Previous, 80, 40));
     assert_eq!(
         state.selected_agent().map(|agent| agent.name.as_str()),
         Some("ready")
@@ -270,10 +203,10 @@ fn workbench_cards_selection_moves_through_the_grid_order() {
 fn workbench_cards_activate_attaches_to_the_selected_agent() {
     let mut state = state_with_agents_across_buckets();
     let capability = cards_capability();
-    state.apply_host_panel_action(capability, ControlAction::Next, 40);
+    state.apply_host_panel_action(capability, ControlAction::Next, 80, 40);
     state.split_grab_index = Some(3);
 
-    assert!(state.apply_host_panel_action(capability, ControlAction::Activate, 40));
+    assert!(state.apply_host_panel_action(capability, ControlAction::Activate, 80, 40));
 
     assert_eq!(
         state.pane_focus,
@@ -297,8 +230,75 @@ fn workbench_cards_page_next_advances_the_workbench_page() {
     let capability = cards_capability();
     assert_eq!(state.workbench.page, 0);
 
-    assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 40));
+    // 12 rows x 80 cols: one visible row of one column, so three pages.
+    assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 80, 12));
     assert_eq!(state.workbench.page, 1);
+    assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 80, 12));
+    assert_eq!(state.workbench.page, 2, "the last page is reachable");
+    assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 80, 12));
+    assert_eq!(
+        state.workbench.page, 2,
+        "paging never advances past the real page count"
+    );
+}
+
+#[test]
+fn workbench_cards_page_next_clamps_on_a_single_page_grid() {
+    // Issue #706: the retained page counter must never advance past the
+    // last page the grid can show, or PreviousPage looks unresponsive until
+    // the display clamp saturates back.
+    let mut state = state_with_agents_across_buckets();
+    let capability = cards_capability();
+    assert_eq!(state.workbench.page, 0);
+
+    for _ in 0..3 {
+        assert!(state.apply_host_panel_action(capability, ControlAction::PageNext, 80, 40));
+    }
+    assert_eq!(
+        state.workbench.page, 0,
+        "a single-page grid never advances the page"
+    );
+}
+
+#[test]
+fn workbench_cards_select_routes_the_card_id_to_the_agent() {
+    // Issue #706: the advertised input contract routes a card item id
+    // through the host-panel path to the workbench selection.
+    let mut state = state_with_agents_across_buckets();
+    let capability = cards_capability();
+    let inputs = state
+        .agents
+        .iter()
+        .map(|agent| crate::workbench_view::AgentInput {
+            agent,
+            git_info: None,
+            observation: state.observations.get(&agent.id),
+        })
+        .collect::<Vec<_>>();
+    let ordered = crate::workbench_view::ordered_agent_ids(
+        &inputs,
+        state.workbench.status_filter.mask(),
+        state
+            .split_filter
+            .as_ref()
+            .map(|repository| repository.0.as_str()),
+    );
+    let target_index = 1;
+    let Some(target_card) = ordered.get(target_index) else {
+        panic!("fixture must order a card at {target_index}");
+    };
+    let expected = target_card.0.clone();
+
+    let id = crate::domain::Id::internal_indexed(
+        crate::domain::InternalId::WorkbenchCardItem,
+        target_index,
+    );
+    assert!(state.apply_host_panel_action(capability, ControlAction::Select(id), 80, 40));
+    assert_eq!(
+        state.selected_agent().map(|agent| agent.id.0.as_str()),
+        Some(expected.as_str()),
+        "selecting the card id selects that agent"
+    );
 }
 
 fn body_of(

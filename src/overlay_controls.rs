@@ -801,7 +801,10 @@ pub fn project_repository_form(state: &AppState, width: usize) -> Option<Overlay
         let caret = crate::ui::util::text_with_caret(text, *offset);
         for row in &mut projection.rows {
             if row.target.as_ref() == Some(&PanelHitTarget::Field(id.clone())) {
-                row.text = format!("{label}: {caret}");
+                // The rewritten focused row must obey the same content width
+                // as every other row (issue #706).
+                row.text =
+                    crate::ui::util::truncate_with_ellipsis(&format!("{label}: {caret}"), width);
             }
         }
     }

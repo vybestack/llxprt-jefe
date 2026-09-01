@@ -768,16 +768,20 @@ impl RuntimeManager for TmuxRuntimeManager {
         if viewport.generation <= self.frame_generation {
             return Ok(());
         }
-        self.frame_generation = viewport.generation;
+        // Commit the frame only after the viewer accepts the rectangle: a
+        // failed resize must leave the tracked geometry and generation
+        // untouched so the same frame can be retried instead of being
+        // swallowed as stale (issue #706).
         if viewport.rows == self.rows && viewport.cols == self.cols {
+            self.frame_generation = viewport.generation;
             return Ok(());
         }
-        self.rows = viewport.rows;
-        self.cols = viewport.cols;
-
         if let Some(viewer) = &self.viewer {
             viewer.resize(viewport.rows, viewport.cols)?;
         }
+        self.rows = viewport.rows;
+        self.cols = viewport.cols;
+        self.frame_generation = viewport.generation;
 
         Ok(())
     }

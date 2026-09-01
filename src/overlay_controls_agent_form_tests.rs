@@ -195,3 +195,25 @@ fn agent_form_carries_the_shared_submit_affordance() {
         projection.text_rows().collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn agent_form_truncates_the_focused_row_to_the_content_width() {
+    // Issue #706: the rewritten focused row must obey the same width every
+    // other row is truncated to, or a long value overflows the overlay.
+    let mut state = agent_state("core.llxprt", AgentFormFocus::Name);
+    let long_value = "x".repeat(200);
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("fixture must open the agent form");
+    };
+    fields.name = long_value;
+
+    let projection =
+        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
+
+    for row in projection.text_rows() {
+        assert!(
+            unicode_width::UnicodeWidthStr::width(row) <= WIDTH,
+            "row exceeds the overlay width: {row:?}"
+        );
+    }
+}

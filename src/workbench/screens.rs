@@ -44,6 +44,7 @@ use super::descriptor::{
 };
 use super::geometry::Insets;
 use super::ids::{IdError, MAX_SCREENS, PanelId, PanelTypeId, RouteId, ScreenId, ScreenIdentity};
+use super::panel_types::FILTER_BAND_PANEL_TYPE;
 
 pub use super::screens_ports::{SELECTION_PORT, SUBJECT_PORT};
 use super::validate::{DescriptorError, validate_descriptor};
@@ -622,7 +623,7 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
                 (true, false),
                 LIST_PANE_CHROME,
             )?,
-            panel("filter", "filter-band", false, false, BAND_CHROME)?,
+            panel("filter", FILTER_BAND_PANEL_TYPE, false, false, BAND_CHROME)?,
         ],
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
         focus_order: focus_order(&[REPOSITORIES_PANEL, "status", "cards"])?,
@@ -697,6 +698,8 @@ pub const ACTIONS_LIST_PANEL: &str = "action-list";
 pub const ERRORS_LIST_PANEL: &str = "error-list";
 /// Identity of the terminal-manager list panel.
 pub const TERMINALS_LIST_PANEL: &str = "shell-list";
+/// Route literal the Terminal Manager screen is reachable through.
+pub const TERMINALS_ROUTE: &str = "terminals";
 /// Identity of the Settings section list.
 pub const SETTINGS_SECTIONS_PANEL: &str = "settings-sections";
 /// Identity of the Settings General panel.
@@ -848,7 +851,7 @@ fn terminals_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
         id: crate::workbench::TERMINALS_IDENTITY,
         title: "Terminals".to_owned(),
-        route: RouteId::parse("terminals")?,
+        route: RouteId::parse(TERMINALS_ROUTE)?,
         panels: vec![
             sidebar_panel()?,
             host_panel(

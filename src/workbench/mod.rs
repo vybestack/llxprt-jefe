@@ -156,7 +156,10 @@ pub use ids::{
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use lowering_error::LoweringError;
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
-pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, find_panel_type, resolve_panel_type};
+pub use panel_types::{
+    DEFINABLE_PANEL_TYPES, FILTER_BAND_PANEL_TYPE, PanelTypeError, find_panel_type,
+    resolve_panel_type,
+};
 pub use relationship_propagation::{
     PortInstanceKey, PortUpdate, PortValue, PropagationAbort, RelationshipInstance,
     RelationshipInstanceError, RelationshipState, RelationshipTransition, SourceIntent, propagate,
@@ -186,6 +189,7 @@ pub use screens::{
     SELECTION_PORT, SETTINGS_AGENT_TYPES_PANEL, SETTINGS_APPEARANCE_PANEL,
     SETTINGS_DIAGNOSTICS_PANEL, SETTINGS_GENERAL_PANEL, SETTINGS_KEYS_PANEL,
     SETTINGS_PLUGINS_PANEL, SETTINGS_SCREENS_PANEL, SETTINGS_SECTIONS_PANEL, SUBJECT_PORT,
-    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, route_of,
+    ScreenRegistry, TERMINALS_LIST_PANEL, TERMINALS_ROUTE, builtin_screens, initial_focus,
+    route_of,
 };
 pub use validate::{DescriptorError, validate_descriptor};

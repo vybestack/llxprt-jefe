@@ -198,6 +198,65 @@ fn generation_bound_resizes_apply_once_and_stale_completions_change_nothing() {
     );
 }
 
+/// A viewer resize that fails must not commit the frame: the tracked
+/// geometry and generation stay behind so retrying the same frame applies
+/// instead of being swallowed as stale (issue #706).
+#[test]
+#[cfg(unix)]
+fn failed_viewer_resize_leaves_tracked_frame_retryable() {
+    let mut manager = TmuxRuntimeManager::pending();
+    let first = LayoutGeneration::next();
+    manager
+        .configure_initial_geometry(RuntimeViewport {
+            rows: 24,
+            cols: 80,
+            generation: first,
+        })
+        .unwrap_or_else(|error| panic!("first frame must configure runtime: {error}"));
+
+    let failing = AttachedViewer::idle_for_tests(24, 80)
+        .unwrap_or_else(|error| panic!("test viewer must spawn: {error}"));
+    failing.poison_resize_for_tests();
+    manager.viewer = Some(failing);
+
+    let second = LayoutGeneration::next();
+    assert!(
+        manager
+            .resize_to_frame(RuntimeViewport {
+                rows: 40,
+                cols: 120,
+                generation: second,
+            })
+            .is_err(),
+        "the poisoned viewer must fail the resize"
+    );
+    assert_eq!(
+        (manager.rows, manager.cols),
+        (24, 80),
+        "a failed resize must not commit the rectangle"
+    );
+    assert_eq!(
+        manager.frame_generation(),
+        first,
+        "a failed resize must not acknowledge the frame"
+    );
+
+    // The same generation retries onto a healthy viewer and applies.
+    manager.viewer = Some(
+        AttachedViewer::idle_for_tests(24, 80)
+            .unwrap_or_else(|error| panic!("test viewer must spawn: {error}")),
+    );
+    manager
+        .resize_to_frame(RuntimeViewport {
+            rows: 40,
+            cols: 120,
+            generation: second,
+        })
+        .unwrap_or_else(|error| panic!("the retried frame must apply: {error}"));
+    assert_eq!((manager.rows, manager.cols), (40, 120));
+    assert_eq!(manager.frame_generation(), second);
+}
+
 fn dead_signature_retains_selector_for_relaunch() {
     let agent_id = AgentId("selector-agent".to_owned());
     let mut manager = TmuxRuntimeManager::new(24, 80);
