@@ -50,7 +50,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Capture Repo",
+      "literal": "Capture Re",
       "timeout_ms": 15000
     },
     {

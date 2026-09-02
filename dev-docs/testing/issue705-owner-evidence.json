@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "622b01ed35d93c1b8ca93ac0ca8e0b0be4a453a3f5c08c033c33afcbdfc1fb3e"
+    "artifact_set_sha256": "05930f4dd523debe2001c169fb8ed042ea82b82af8b094f7d271410de9f82fca"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "7c73009694fbe0f00ee15f551a17b9c0687c9283630cdad60f763b6c42239a26",
+      "sha256": "38a4c56ad24a2d818ea4fcc04f7904a76d83a9762df272adf2a129c01af7865d",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "8c930a11f361282588f77525e41b7cad75e78169a0a7e1cdb0281114f2dd92bc",
+      "sha256": "ec2cd6d44b253d0b44a780e1c4401b3b5c11122200268a5148b042cdf602d86e",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -229,7 +229,7 @@
     },
     {
       "path": "src/host_controls.rs",
-      "sha256": "3da4a82eb72edb37050034fe13e4c91d60cc3f717ef6d28c0a062c3f6e9648cd",
+      "sha256": "7f84277273b88ac398d696fcaf8d08fcceba747c6f2483fac1924f63bfe5594f",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -242,7 +242,7 @@
     },
     {
       "path": "src/host_controls_tests.rs",
-      "sha256": "cf9c5571521b385e68c548afd1f849e66877e152d84d0a8d72f8ec75f4e99f40",
+      "sha256": "5757c983413da88750cf61decf1bf2cd7440ed061ef3c0e3df7204e8a44f4d95",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -254,7 +254,7 @@
     },
     {
       "path": "src/host_panel_models.rs",
-      "sha256": "4a3fb6f4c86bc0300a69d1ceb7b08487b340ddf056b973d03d3733d7fb9190d9",
+      "sha256": "7dc1c9127386d236f235efae6cd9bc3d6ea8d78bc500ff33748b1c7400b9c84a",
       "mode": "100644",
       "criteria": [
         "CWR2-00",

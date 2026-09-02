@@ -1559,7 +1559,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/v1/action-capture-evidence.json",
-      "sha256": "9f57149d29203b1bfa21e3435e14f74c92a9b63d2b61369a26fc6fee7acb1427",
+      "sha256": "9f6b93f635982ff6f94f09f456ce0fbdbc0f68d62697ca44d5ff761f2ab4a591",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

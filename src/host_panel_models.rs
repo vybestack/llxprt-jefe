@@ -95,6 +95,22 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
     }
 }
 
+/// The agent's sidebar display name.
+///
+/// A restored schema-2 agent with no `name` value must not render as a
+/// blank row: the id it was restored under is the only identity the host
+/// still knows (#723).
+fn agent_display_name(agent: &crate::domain::Agent) -> String {
+    if agent.name.trim().is_empty() {
+        agent.id.0.clone()
+    } else {
+        agent.name.clone()
+    }
+}
+
+/// Wrap budget for the dashboard preview's fixed pane width.
+const AGENT_PREVIEW_WIDTH: usize = 30;
+
 /// The workbench card grid, projected as a list control over the grid's own
 /// order.
 ///
@@ -231,7 +247,7 @@ fn agent_list(state: &AppState) -> HostPanelModel {
         .filter_map(|(local_index, agent_index)| {
             state.agents.get(*agent_index).map(|agent| ListItem {
                 id: Id::internal_indexed(InternalId::AgentItem, local_index),
-                label: agent.name.clone(),
+                label: agent_display_name(agent),
                 // The dashboard sidebar is one row per agent; a description
                 // would project as a second row.
                 description: None,
@@ -260,28 +276,46 @@ fn agent_list(state: &AppState) -> HostPanelModel {
 }
 
 fn agent_preview(state: &AppState) -> HostPanelModel {
-    let (document, metadata) = state.selected_agent().map_or_else(
-        || ("No agent selected".to_owned(), Vec::new()),
-        |agent| {
-            (
-                agent.description.clone(),
-                vec![
-                    DetailMetadata {
-                        label: "Status".to_owned(),
-                        value: format!("{:?}", agent.status),
-                    },
-                    DetailMetadata {
-                        label: "Work directory".to_owned(),
-                        value: agent.work_dir.display().to_string(),
-                    },
-                ],
-            )
-        },
+    let Some(agent) = state.selected_agent() else {
+        return HostPanelModel {
+            title: "Agent preview".to_owned(),
+            body: PanelBody::Detail(DetailBody {
+                document: "No agent selected".to_owned(),
+                metadata: Vec::new(),
+                actions: Vec::new(),
+            }),
+            action_affordances: Vec::new(),
+            selected_id: None,
+            scroll_offset: 0,
+        };
+    };
+    let repository = state.repository_by_id(&agent.repository_id);
+    let git_info = repository
+        .map(|repo| crate::git_info::GitRepoInfo::from_configured_origin(&repo.github_repo));
+    let observation = state.observations.get(&agent.id);
+    // Retained preview_view owns the accepted field set (Name/Status/Repo/
+    // Branch/Dir); the panel projection re-projects its wrapped lines as
+    // metadata rows so the dashboard preview keeps its pre-#715 content.
+    let preview = crate::preview_view::build_preview_view(
+        Some(agent),
+        git_info.as_ref(),
+        observation,
+        AGENT_PREVIEW_WIDTH,
     );
+    let metadata = preview
+        .lines
+        .iter()
+        .take_while(|line| !line.trim().is_empty())
+        .filter_map(|line| line.split_once(": "))
+        .map(|(label, value)| DetailMetadata {
+            label: label.to_owned(),
+            value: value.to_owned(),
+        })
+        .collect();
     HostPanelModel {
         title: "Agent preview".to_owned(),
         body: PanelBody::Detail(DetailBody {
-            document,
+            document: agent.description.clone(),
             metadata,
             actions: Vec::new(),
         }),
