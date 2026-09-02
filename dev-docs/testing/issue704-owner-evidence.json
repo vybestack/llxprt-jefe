@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "bce3d4a3c16620b56eaad25b02fa8e146c3773aef17802d80cc0e91cb651ca95",
+      "sha256": "5100199e9ed89bb639a6921d1d0c3734392274a23deb6cff164ccfbf9565a08d",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -91,7 +91,7 @@
     },
     {
       "path": "src/action_projection.rs",
-      "sha256": "92164ae375a3504c26e8684d22ff372c329cf59f39bf25f51c0d576a43a20124",
+      "sha256": "45321bf2a4d9caadce727ddb12f003e768d8ea30c7fbbe21080b3ff835f6f435",
       "mode": "100644",
       "criteria": [
         "CWR1-08"
@@ -124,7 +124,7 @@
     },
     {
       "path": "src/main.rs",
-      "sha256": "f8f0ec58c8206e2cc21b736995c87aa13d428df105e5edc1e7e06cf4529d0f9e",
+      "sha256": "b3aafaaeea15933f09137a20c701376a7b3b55bdbe014672bb2ed4352db42dd9",
       "mode": "100644",
       "criteria": [
         "CWR1-01",
@@ -143,7 +143,7 @@
     },
     {
       "path": "src/runtime/manager_geometry.rs",
-      "sha256": "f9b7dc4379ebfc097f57b5eff81f9aa0cda9ff81140fd3437623c570c819d415",
+      "sha256": "95797f4bf42a992eb258fbfc5ef5409af81a3901340e1f5fc1b48f2d83ba9a52",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -190,7 +190,7 @@
     },
     {
       "path": "src/state/action_availability.rs",
-      "sha256": "f3dd75e4b6263c9ec6c39e8a1dcb1cf8af41e8309462c24354db46edf9fd3c09",
+      "sha256": "3917be86577e858eb86289a99a5f8b7a1ee9e8a105efe55af79d27863d5ac3e3",
       "mode": "100644",
       "criteria": [
         "CWR1-09"

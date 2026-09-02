@@ -5,14 +5,30 @@ use super::existing::ExistingLocalSessionObservation;
 use super::*;
 use crate::domain::agent_definition::AgentLaunchPlan;
 use crate::runtime::stub_manager::StubRuntimeManager;
+use crate::workbench::{LayoutGeneration, RuntimeViewport};
 
 #[test]
 fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
     let mut manager = TmuxRuntimeManager::pending();
+    pending_runtime_rejects_every_effect_before_geometry(&mut manager);
+    pending_runtime_rejects_zero_first_frame(&mut manager);
+    first_frame_configures_geometry_exactly_once(&mut manager);
+}
 
+/// Before the first committed frame supplies geometry, every effectful
+/// runtime entry point must fail fast with `InitialGeometryUnavailable`.
+fn pending_runtime_rejects_every_effect_before_geometry(manager: &mut TmuxRuntimeManager) {
     assert!(!manager.initial_geometry_configured());
     assert!(matches!(
         manager.resize(24, 80),
+        Err(RuntimeError::InitialGeometryUnavailable)
+    ));
+    assert!(matches!(
+        manager.resize_to_frame(RuntimeViewport {
+            rows: 24,
+            cols: 80,
+            generation: LayoutGeneration::next(),
+        }),
         Err(RuntimeError::InitialGeometryUnavailable)
     ));
     assert!(matches!(
@@ -27,19 +43,46 @@ fn pending_runtime_requires_one_nonzero_first_frame_geometry() {
         ),
         Err(RuntimeError::InitialGeometryUnavailable)
     ));
+}
+
+/// The first frame must be nonzero: zero rows are rejected without
+/// configuring the runtime.
+fn pending_runtime_rejects_zero_first_frame(manager: &mut TmuxRuntimeManager) {
     assert!(matches!(
-        manager.configure_initial_geometry(0, 80),
+        manager.configure_initial_geometry(RuntimeViewport {
+            rows: 0,
+            cols: 80,
+            generation: LayoutGeneration::next(),
+        }),
         Err(RuntimeError::InvalidInitialGeometry { rows: 0, cols: 80 })
     ));
+}
 
+/// The first valid frame configures geometry exactly once: its generation
+/// becomes the create effect's, and a later frame cannot reconfigure it.
+fn first_frame_configures_geometry_exactly_once(manager: &mut TmuxRuntimeManager) {
+    let first = LayoutGeneration::next();
     manager
-        .configure_initial_geometry(24, 80)
+        .configure_initial_geometry(RuntimeViewport {
+            rows: 24,
+            cols: 80,
+            generation: first,
+        })
         .unwrap_or_else(|error| panic!("first frame must configure runtime: {error}"));
 
     assert!(manager.initial_geometry_configured());
     assert_eq!((manager.rows, manager.cols), (24, 80));
+    assert_eq!(
+        manager.frame_generation(),
+        first,
+        "the create effect carries the committed frame's generation"
+    );
     assert!(matches!(
-        manager.configure_initial_geometry(40, 120),
+        manager.configure_initial_geometry(RuntimeViewport {
+            rows: 40,
+            cols: 120,
+            generation: LayoutGeneration::next(),
+        }),
         Err(RuntimeError::InitialGeometryAlreadyConfigured)
     ));
 }
@@ -76,6 +119,142 @@ fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
     );
     dead_signature_retains_selector_for_relaunch();
     failed_relaunch_retains_dead_marker_for_successful_retry();
+}
+
+#[test]
+fn generation_bound_resizes_apply_once_and_stale_completions_change_nothing() {
+    // Issue #706 CWR3-04: a layout commit may order one resize carrying its
+    // exact generation and rectangle. A completion whose generation the
+    // runtime has already superseded must leave geometry untouched, even when
+    // its rectangle differs, so out-of-order arrivals cannot resurrect an old
+    // frame's rectangle.
+    let mut manager = TmuxRuntimeManager::pending();
+    let first = LayoutGeneration::next();
+    manager
+        .configure_initial_geometry(RuntimeViewport {
+            rows: 24,
+            cols: 80,
+            generation: first,
+        })
+        .unwrap_or_else(|error| panic!("first frame must configure runtime: {error}"));
+
+    // Same generation, different rectangle: superseded by the create itself.
+    manager
+        .resize_to_frame(RuntimeViewport {
+            rows: 40,
+            cols: 120,
+            generation: first,
+        })
+        .unwrap_or_else(|error| panic!("stale resize must still succeed: {error}"));
+    assert_eq!(
+        (manager.rows, manager.cols),
+        (24, 80),
+        "a resize from the configuring frame changes nothing"
+    );
+    assert_eq!(manager.frame_generation(), first);
+
+    // Strictly older generation: the zero generation predates every frame.
+    manager
+        .resize_to_frame(RuntimeViewport {
+            rows: 50,
+            cols: 200,
+            generation: LayoutGeneration::zero(),
+        })
+        .unwrap_or_else(|error| panic!("stale resize must still succeed: {error}"));
+    assert_eq!(
+        (manager.rows, manager.cols),
+        (24, 80),
+        "a stale completion changes nothing"
+    );
+    assert_eq!(manager.frame_generation(), first);
+
+    // Newer generation with a changed rectangle: exactly one ordered resize.
+    let second = LayoutGeneration::next();
+    manager
+        .resize_to_frame(RuntimeViewport {
+            rows: 40,
+            cols: 120,
+            generation: second,
+        })
+        .unwrap_or_else(|error| panic!("current resize must apply: {error}"));
+    assert_eq!((manager.rows, manager.cols), (40, 120));
+    assert_eq!(manager.frame_generation(), second);
+
+    // Newer generation with the same rectangle: the frame is acknowledged
+    // without churning the attached viewer.
+    let third = LayoutGeneration::next();
+    manager
+        .resize_to_frame(RuntimeViewport {
+            rows: 40,
+            cols: 120,
+            generation: third,
+        })
+        .unwrap_or_else(|error| panic!("unchanged resize must succeed: {error}"));
+    assert_eq!((manager.rows, manager.cols), (40, 120));
+    assert_eq!(
+        manager.frame_generation(),
+        third,
+        "an unchanged rectangle still acknowledges the newer frame"
+    );
+}
+
+/// A viewer resize that fails must not commit the frame: the tracked
+/// geometry and generation stay behind so retrying the same frame applies
+/// instead of being swallowed as stale (issue #706).
+#[test]
+#[cfg(unix)]
+fn failed_viewer_resize_leaves_tracked_frame_retryable() {
+    let mut manager = TmuxRuntimeManager::pending();
+    let first = LayoutGeneration::next();
+    manager
+        .configure_initial_geometry(RuntimeViewport {
+            rows: 24,
+            cols: 80,
+            generation: first,
+        })
+        .unwrap_or_else(|error| panic!("first frame must configure runtime: {error}"));
+
+    let failing = AttachedViewer::idle_for_tests(24, 80)
+        .unwrap_or_else(|error| panic!("test viewer must spawn: {error}"));
+    failing.poison_resize_for_tests();
+    manager.viewer = Some(failing);
+
+    let second = LayoutGeneration::next();
+    assert!(
+        manager
+            .resize_to_frame(RuntimeViewport {
+                rows: 40,
+                cols: 120,
+                generation: second,
+            })
+            .is_err(),
+        "the poisoned viewer must fail the resize"
+    );
+    assert_eq!(
+        (manager.rows, manager.cols),
+        (24, 80),
+        "a failed resize must not commit the rectangle"
+    );
+    assert_eq!(
+        manager.frame_generation(),
+        first,
+        "a failed resize must not acknowledge the frame"
+    );
+
+    // The same generation retries onto a healthy viewer and applies.
+    manager.viewer = Some(
+        AttachedViewer::idle_for_tests(24, 80)
+            .unwrap_or_else(|error| panic!("test viewer must spawn: {error}")),
+    );
+    manager
+        .resize_to_frame(RuntimeViewport {
+            rows: 40,
+            cols: 120,
+            generation: second,
+        })
+        .unwrap_or_else(|error| panic!("the retried frame must apply: {error}"));
+    assert_eq!((manager.rows, manager.cols), (40, 120));
+    assert_eq!(manager.frame_generation(), second);
 }
 
 fn dead_signature_retains_selector_for_relaunch() {

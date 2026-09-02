@@ -71,21 +71,21 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Mode Flags       [--yolo]",
+      "literal": "Mode Flags: --yolo",
       "timeout_ms": 15000
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Pass --continue  [x]",
+      "literal": "Pass --continue: true",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Agent Runtime    [core.llxprt]",
-        "Mode Flags       [--yolo]",
-        "Pass --continue  [x]"
+        "Agent Runtime: core.llxprt",
+        "Mode Flags: --yolo",
+        "Pass --continue: true"
       ],
       "absent": []
     },

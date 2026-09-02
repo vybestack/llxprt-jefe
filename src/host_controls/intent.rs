@@ -16,6 +16,7 @@ pub(super) fn public_control_intent(kind: ControlKind, input: IntentInput<'_>) -
         ControlAction::Action(id) => exact_action_intent(input.action_affordances, &id),
         ControlAction::FocusedAction => action_intent(input.action_affordances, input.focus_target),
         ControlAction::Submit => submit_intent(kind, input),
+        ControlAction::PagePrevious => page_previous_intent(kind, input.body),
         ControlAction::PageNext => page_next_intent(kind, input.body),
         ControlAction::Retry => match (kind, input.body) {
             (ControlKind::Error, PanelBody::Error(body))
@@ -130,6 +131,18 @@ fn page_next_intent(kind: ControlKind, body: &PanelBody) -> ControlIntent {
                         token: token.clone(),
                     })
                 })
+        }
+        _ => ControlIntent::None,
+    }
+}
+
+/// The List protocol pages forward by token; it cannot name a previous page,
+/// so paging back is host-local state the factory defers to the host layer —
+/// the same split of authority [`ControlIntent::Scroll`] uses for rows.
+fn page_previous_intent(kind: ControlKind, body: &PanelBody) -> ControlIntent {
+    match (kind, body) {
+        (ControlKind::List, PanelBody::List(body)) if !body.items.is_empty() => {
+            ControlIntent::PagePrevious
         }
         _ => ControlIntent::None,
     }

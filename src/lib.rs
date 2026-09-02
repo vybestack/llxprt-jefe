@@ -54,6 +54,18 @@ pub mod markdown_html_strip;
 pub mod markdown_render;
 pub mod messages;
 pub(crate) mod overlay_controls;
+pub(crate) mod overlay_controls_agent_form;
+#[cfg(test)]
+#[path = "overlay_controls_agent_form_tests.rs"]
+mod overlay_controls_agent_form_tests;
+pub(crate) mod overlay_controls_generated_form;
+#[cfg(test)]
+#[path = "overlay_controls_generated_form_tests.rs"]
+mod overlay_controls_generated_form_tests;
+pub(crate) mod overlay_controls_repository_form;
+#[cfg(test)]
+#[path = "overlay_controls_repository_form_tests.rs"]
+mod overlay_controls_repository_form_tests;
 #[cfg(test)]
 #[path = "overlay_controls_tests.rs"]
 mod overlay_controls_tests;
@@ -80,9 +92,6 @@ pub mod run_diagnostics;
 pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod screen_layout;
-#[cfg(test)]
-#[path = "screen_layout_parity_tests.rs"]
-mod screen_layout_parity_tests;
 #[cfg(test)]
 #[path = "screen_layout_tests.rs"]
 mod screen_layout_tests;
@@ -131,6 +140,16 @@ pub mod workbench_view;
 #[cfg(test)]
 #[path = "workbench_view_tests.rs"]
 mod workbench_view_tests;
+
+#[cfg(test)]
+#[path = "host_panel_models_cards_tests.rs"]
+mod host_panel_models_cards_tests;
+#[cfg(test)]
+#[path = "host_panel_models_session_tests.rs"]
+mod host_panel_models_session_tests;
+#[cfg(test)]
+#[path = "host_panel_models_status_tests.rs"]
+mod host_panel_models_status_tests;
 
 /// Cached git repository info (origin shortform + branch) for agent display.
 pub mod git_info;

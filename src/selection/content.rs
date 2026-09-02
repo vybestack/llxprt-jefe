@@ -31,7 +31,6 @@ use crate::ui::components::selectable_list::{ProjectedContentLine, projected_con
 use crate::ui::components::{SidebarProps, sidebar_list_props, terminal_empty_message};
 
 use super::projection_context::PaneContentContext;
-use crate::selection::form_content;
 use crate::selection::overlay_content;
 
 /// The copyable text content of a pane, as a flat list of lines.
@@ -138,8 +137,8 @@ pub fn pane_content_lines_with_context(
         SelectablePane::HelpModal => help_lines(state, render_cols, render_rows),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
-        SelectablePane::AgentForm => agent_form_lines(state),
-        SelectablePane::RepositoryForm => repository_form_lines(state),
+        SelectablePane::AgentForm => agent_form_lines(state, render_cols, render_rows),
+        SelectablePane::RepositoryForm => repository_form_lines(state, render_cols, render_rows),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
         SelectablePane::PropertyEditor => overlay_content::property_editor_lines(state),
@@ -296,7 +295,7 @@ fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneCo
         .iter()
         .map(|repo| state.visible_agent_count_for_repository(&repo.id))
         .collect();
-    let (pane_rows, content_width) = if state.screen() == crate::state::ScreenId::Repositories {
+    let (pane_rows, content_width) = if state.screen() == crate::workbench::REPOSITORIES_IDENTITY {
         let layout = crate::layout::split_layout_for_render_size(render_cols, render_rows);
         (layout.sidebar_rows, layout.sidebar_content_cols)
     } else {
@@ -309,7 +308,7 @@ fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneCo
         repositories,
         agent_counts: counts,
         selected: state.selected_repository_visible_index().unwrap_or(0),
-        grabbed: if state.screen() == crate::state::ScreenId::Repositories {
+        grabbed: if state.screen() == crate::workbench::REPOSITORIES_IDENTITY {
             state.split_grab_index
         } else {
             state.dashboard_grab.as_ref().and_then(|grab| match grab {
@@ -432,17 +431,27 @@ fn keybind_bar_lines(state: &AppState) -> PaneContent {
 // ── Issue #178: overlay content providers (delegated to submodules) ──────
 
 /// Agent-definition form lines that match the rendered field layout.
-fn agent_form_lines(state: &AppState) -> PaneContent {
-    match form_content::agent_form_content_lines(state) {
-        Some(lines) => PaneContent::new(SelectablePane::AgentForm, lines),
+fn agent_form_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneContent {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(render_cols, render_rows);
+    match crate::overlay_controls_agent_form::project_agent_form(state, layout.content_width) {
+        Some(projection) => {
+            let mut lines = vec![projection.title.clone()];
+            lines.extend(projection.text_rows().map(str::to_owned));
+            PaneContent::new(SelectablePane::AgentForm, lines)
+        }
         None => PaneContent::empty(SelectablePane::AgentForm),
     }
 }
 
 /// Repository-definition form lines that match the rendered field layout.
-fn repository_form_lines(state: &AppState) -> PaneContent {
-    match form_content::repository_form_content_lines(state) {
-        Some(lines) => PaneContent::new(SelectablePane::RepositoryForm, lines),
+fn repository_form_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneContent {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(render_cols, render_rows);
+    match crate::overlay_controls::project_repository_form(state, layout.content_width) {
+        Some(projection) => {
+            let mut lines = vec![projection.title.clone()];
+            lines.extend(projection.text_rows().map(str::to_owned));
+            PaneContent::new(SelectablePane::RepositoryForm, lines)
+        }
         None => PaneContent::empty(SelectablePane::RepositoryForm),
     }
 }

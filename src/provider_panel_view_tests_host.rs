@@ -140,3 +140,127 @@ fn assert_search_projection(state: &crate::state::AppState, expected: &str, abse
         assert!(!text.contains(absent), "{text:?}");
     }
 }
+
+fn repository_fixture() -> crate::domain::Repository {
+    crate::domain::Repository::new(
+        crate::domain::RepositoryId("repo-t1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "widgets".to_owned(),
+        "widgets-slug".to_owned(),
+        std::path::PathBuf::from("/work/widgets"),
+    )
+}
+
+fn agent_fixture() -> crate::domain::Agent {
+    let mut agent = crate::domain::Agent::new(
+        crate::domain::AgentId("agent-t1".to_owned()),
+        crate::domain::RepositoryId("repo-t1".to_owned()),
+        crate::domain::shipped_agent_type(3),
+        crate::domain::TypedMap::new(),
+        "runner".to_owned(),
+        std::path::PathBuf::from("/work/widgets/wt1"),
+    );
+    agent.status = crate::domain::AgentStatus::Running;
+    agent
+}
+
+#[test]
+fn terminals_shell_list_projects_managed_sessions_through_the_declared_host_control() {
+
+    let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
+    state.repositories = vec![repository_fixture()];
+    let agent = agent_fixture();
+    state.agents = vec![agent.clone()];
+    state.shell_inventory.record(agent.id.clone());
+    state.terminal_manager.selected_index = Some(0);
+    let _ = state.show_terminal_manager();
+
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(crate::workbench::TERMINALS_IDENTITY)
+        .unwrap_or_else(|| panic!("terminals descriptor must be published"));
+    let layout = crate::screen_layout::resolve_screen(&state, 120, 40)
+        .unwrap_or_else(|| panic!("terminals layout must resolve"));
+    let view = crate::provider_panel_view::project_current_screen(&state, descriptor, &layout)
+        .unwrap_or_else(|error| panic!("terminals projection: {error}"));
+
+    let shell_list = view
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "shell-list")
+        .unwrap_or_else(|| panic!("shell-list projection must exist"));
+    assert_eq!(shell_list.status, PanelStatus::Active);
+    assert_eq!(
+        shell_list.render,
+        crate::provider_panel_view::PanelRender::Control
+    );
+    assert!(
+        shell_list.lines.iter().any(|line| line.contains("runner")),
+        "the managed shell row must project through the host control, got {:?}",
+        shell_list.lines
+    );
+}
+
+#[test]
+fn terminals_preview_projects_placeholders_not_a_second_viewer() {
+    // The retired compiled renderer showed the throttled preview, with
+    // explicit placeholders when the owner is dead or the capture has not
+    // landed. The descriptor projection must keep those words, and must not
+    // turn the pane into a live viewer while no shell overlay is running.
+    fn state_with_owner(status: crate::domain::AgentStatus) -> crate::state::AppState {
+        let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
+        state.repositories = vec![repository_fixture()];
+        let mut agent = agent_fixture();
+        agent.status = status;
+        state.agents = vec![agent.clone()];
+        state.shell_inventory.record(agent.id.clone());
+        state.terminal_manager.selected_index = Some(0);
+        let _ = state.show_terminal_manager();
+        state
+    }
+
+    fn preview_lines(
+        state: &crate::state::AppState,
+    ) -> (Vec<String>, crate::provider_panel_view::PanelRender) {
+        let descriptor = state
+            .published_workbench()
+            .screen_registry()
+            .get_identity(crate::workbench::TERMINALS_IDENTITY)
+            .unwrap_or_else(|| panic!("terminals descriptor must be published"));
+        let layout = crate::screen_layout::resolve_screen(state, 120, 40)
+            .unwrap_or_else(|| panic!("terminals layout must resolve"));
+        let view = crate::provider_panel_view::project_current_screen(state, descriptor, &layout)
+            .unwrap_or_else(|error| panic!("terminals projection: {error}"));
+        let preview = view
+            .panels
+            .iter()
+            .find(|panel| panel.id.as_str() == "shell-preview")
+            .unwrap_or_else(|| panic!("shell-preview projection must exist"));
+        (preview.lines.clone(), preview.render)
+    }
+
+    let (lines, render) = preview_lines(&state_with_owner(crate::domain::AgentStatus::Dead));
+    assert_ne!(
+        render,
+        crate::provider_panel_view::PanelRender::EmbeddedTerminal,
+        "a dead owner must not open a second live viewer"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("close-only")),
+        "the dead-owner placeholder must be projected, got {lines:?}"
+    );
+
+    let (lines, _) = preview_lines(&state_with_owner(crate::domain::AgentStatus::Running));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("(capturing preview")),
+        "a live owner with no capture yet must show the capturing placeholder, got {lines:?}"
+    );
+    assert!(
+        lines.first().is_some_and(|line| line.starts_with("Agent: ")),
+        "the preview must lead with the owner header, got {lines:?}"
+    );
+}

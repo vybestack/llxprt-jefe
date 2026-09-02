@@ -123,7 +123,7 @@ pub fn selectable_to_panel(
         SelectablePane::Sidebar => "repositories",
         SelectablePane::AgentList => "agents",
         SelectablePane::TerminalView => {
-            if screen.compiled() == Some(ScreenId::Terminals) {
+            if screen == crate::workbench::TERMINALS_IDENTITY {
                 "shell-preview"
             } else {
                 "terminal"

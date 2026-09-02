@@ -55,6 +55,10 @@ pub enum BoundaryAction {
     ProviderPanelSubmit,
     ProviderPanelPageNext,
     ProviderPanelLinkSelect,
+    /// Page the workbench card grid back through the shared control path.
+    WorkbenchPagePrevious,
+    /// Page the workbench card grid forward through the shared control path.
+    WorkbenchPageNext,
 }
 
 use super::settings::SettingsAction;
@@ -85,10 +89,8 @@ pub fn pre_mode_owned(
         HandlerKey::JumpAgent(_) => true,
         HandlerKey::ToggleTerminalFocus | HandlerKey::LeaveTerminal => {
             has_declared_pty(state)
-                || matches!(
-                    state.compiled_screen(),
-                    Some(ScreenId::Repositories | ScreenId::Actions)
-                )
+                || state.screen() == jefe::workbench::REPOSITORIES_IDENTITY
+                || matches!(state.compiled_screen(), Some(ScreenId::Actions))
         }
         HandlerKey::OpenEmbeddedShell | HandlerKey::OpenExternalTerminal => {
             input_mode == jefe::input::InputMode::Normal
@@ -179,17 +181,11 @@ fn apply_boundary(
         BoundaryAction::ForwardToPty => {
             super::forward_key_to_pty(ctx.as_ref(), suppress_next_enter, key_event);
         }
-        BoundaryAction::HideShellOverlay => {
-            super::shell_overlay::hide_shell_overlay(app_state, ctx);
-        }
-        BoundaryAction::CloseShellOverlay => {
-            super::shell_overlay::close_shell_overlay(app_state, ctx);
-        }
-        BoundaryAction::OpenEmbeddedShell => {
-            super::shell_overlay::open_embedded_shell(app_state, ctx);
-        }
-        BoundaryAction::OpenExternalTerminal => {
-            super::shell_overlay::open_external_terminal(app_state, ctx);
+        BoundaryAction::HideShellOverlay
+        | BoundaryAction::CloseShellOverlay
+        | BoundaryAction::OpenEmbeddedShell
+        | BoundaryAction::OpenExternalTerminal => {
+            apply_shell_overlay_boundary(boundary, app_state, ctx);
         }
         BoundaryAction::NewAgentOrRepository => new_agent_or_repository(app_state, ctx),
         BoundaryAction::ProviderPanelPrevious
@@ -202,6 +198,9 @@ fn apply_boundary(
         | BoundaryAction::ProviderPanelPageNext
         | BoundaryAction::ProviderPanelLinkSelect => {
             super::provider_panel_input::apply(boundary, app_state, ctx);
+        }
+        BoundaryAction::WorkbenchPagePrevious | BoundaryAction::WorkbenchPageNext => {
+            apply_workbench_paging_boundary(boundary, app_state, ctx);
         }
         BoundaryAction::FocusRepositories => {
             super::normal::set_pane_focus(app_state, ctx, PaneFocus::Repositories);
@@ -227,6 +226,45 @@ fn apply_boundary(
         | BoundaryAction::HelpHome
         | BoundaryAction::HelpEnd => apply_help_scroll(boundary, app_state),
     }
+}
+
+fn apply_shell_overlay_boundary(
+    boundary: BoundaryAction,
+    app_state: &mut super::AppStateHandle,
+    ctx: &super::SharedContext,
+) {
+    match boundary {
+        BoundaryAction::HideShellOverlay => {
+            super::shell_overlay::hide_shell_overlay(app_state, ctx);
+        }
+        BoundaryAction::CloseShellOverlay => {
+            super::shell_overlay::close_shell_overlay(app_state, ctx);
+        }
+        BoundaryAction::OpenEmbeddedShell => {
+            super::shell_overlay::open_embedded_shell(app_state, ctx);
+        }
+        BoundaryAction::OpenExternalTerminal => {
+            super::shell_overlay::open_external_terminal(app_state, ctx);
+        }
+        _ => {}
+    }
+}
+
+// The workbench paging keys keep the legacy grid-owns-paging behavior, but
+// the dispatch itself moves onto the shared control path: the boundary
+// applies a ControlAction against the declared cards control instead of
+// emitting a Workbench AppEvent (issue #706).
+fn apply_workbench_paging_boundary(
+    boundary: BoundaryAction,
+    app_state: &mut super::AppStateHandle,
+    ctx: &super::SharedContext,
+) {
+    let action = match boundary {
+        BoundaryAction::WorkbenchPagePrevious => jefe::host_controls::ControlAction::PagePrevious,
+        BoundaryAction::WorkbenchPageNext => jefe::host_controls::ControlAction::PageNext,
+        _ => return,
+    };
+    super::provider_panel_input::apply_workbench_paging(action, app_state, ctx);
 }
 
 fn apply_terminal_manager_boundary(
@@ -406,8 +444,8 @@ macro_rules! handler_execution {
             )),
             H::WorkbenchFilterPrev => E::Event(AppEvent::WorkbenchFilterCursorPrev),
             H::WorkbenchFilterNext => E::Event(AppEvent::WorkbenchFilterCursorNext),
-            H::WorkbenchPrevPage => E::Event(AppEvent::WorkbenchPrevPage),
-            H::WorkbenchNextPage => E::Event(AppEvent::WorkbenchNextPage),
+            H::WorkbenchPrevPage => E::Boundary(B::WorkbenchPagePrevious),
+            H::WorkbenchNextPage => E::Boundary(B::WorkbenchPageNext),
             H::WorkbenchSelectPrev => E::Event(AppEvent::WorkbenchSelectPrev),
             H::WorkbenchSelectNext => E::Event(AppEvent::WorkbenchSelectNext),
             H::WorkbenchAttach => E::Event(AppEvent::WorkbenchAttach),

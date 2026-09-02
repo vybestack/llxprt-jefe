@@ -23,7 +23,7 @@ fn snapshot(screen: impl Into<ScreenIdentity>, cols: u16, rows: u16) -> Resolved
         .unwrap_or_else(|| unreachable!("the shipped registry always resolves"))
 }
 
-fn legacy(screen: ScreenId, cols: u16, rows: u16) -> ScreenLayout {
+fn legacy(screen: impl Into<ScreenIdentity>, cols: u16, rows: u16) -> ScreenLayout {
     ScreenLayout::new(cols, rows, screen.into(), false, false)
 }
 
@@ -66,7 +66,10 @@ fn the_terminal_pane_names_the_right_panel_on_each_screen() {
         Some(PanelId::from_static("terminal"))
     );
     assert_eq!(
-        selectable_to_panel(SelectablePane::TerminalView, ScreenId::Terminals),
+        selectable_to_panel(
+            SelectablePane::TerminalView,
+            crate::workbench::TERMINALS_IDENTITY
+        ),
         Some(PanelId::from_static("shell-preview"))
     );
 }
@@ -134,7 +137,7 @@ fn a_band_is_not_selectable() {
 #[test]
 fn a_focused_terminal_is_not_selectable_through_the_resolved_path() {
     let resolved = snapshot(crate::workbench::DASHBOARD_IDENTITY, 120, 40);
-    let legacy_layout = legacy(ScreenId::Repositories, 120, 40);
+    let legacy_layout = legacy(crate::workbench::REPOSITORIES_IDENTITY, 120, 40);
     let Some(terminal) = resolved.panel(&PanelId::from_static("terminal")) else {
         unreachable!("the dashboard always declares a terminal panel");
     };

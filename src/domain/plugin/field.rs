@@ -263,6 +263,44 @@ pub(crate) enum InternalField {
     SearchQuery,
     ConfirmationDecision,
     DeleteWorkDir,
+    RepositoryFormName,
+    RepositoryFormBaseDir,
+    RepositoryFormDefaultProfile,
+    RepositoryFormDefaultModel,
+    RepositoryFormDefaultYolo,
+    RepositoryFormDefaultAgentType,
+    RepositoryFormDefaultVersion,
+    RepositoryFormDefaultMode,
+    RepositoryFormDefaultLlxprtVersion,
+    RepositoryFormGithubRepo,
+    RepositoryFormIssuePrRepo,
+    RepositoryFormRemoteEnabled,
+    RepositoryFormLoginUser,
+    RepositoryFormHost,
+    RepositoryFormSshPort,
+    RepositoryFormIdentityFile,
+    RepositoryFormSshOptions,
+    RepositoryFormRunAsUser,
+    RepositoryFormSetupEnvDefault,
+    RepositoryFormTransientAgentDir,
+    RepositoryFormTransientMaxConcurrent,
+    AgentFormShortcut,
+    AgentFormName,
+    AgentFormDescription,
+    AgentFormWorkDir,
+    AgentFormProfile,
+    AgentFormAgentType,
+    AgentFormModel,
+    AgentFormVersion,
+    AgentFormYolo,
+    AgentFormQuickResume,
+    AgentFormMode,
+    AgentFormLlxprtVersion,
+    AgentFormLlxprtDebug,
+    AgentFormPassContinue,
+    AgentFormSandbox,
+    AgentFormSandboxEngine,
+    AgentFormSandboxFlags,
 }
 
 /// A validated field declaration.
@@ -271,33 +309,137 @@ pub struct Field {
     draft: FieldDraft,
 }
 
+impl InternalField {
+    fn id(self) -> InternalId {
+        match self {
+            Self::SearchQuery => InternalId::OverlayQuery,
+            Self::ConfirmationDecision => InternalId::OverlayDecision,
+            Self::DeleteWorkDir => InternalId::OverlayDeleteWorkDir,
+            Self::RepositoryFormName => InternalId::RepositoryFormName,
+            Self::RepositoryFormBaseDir => InternalId::RepositoryFormBaseDir,
+            Self::RepositoryFormDefaultProfile => InternalId::RepositoryFormDefaultProfile,
+            Self::RepositoryFormDefaultModel => InternalId::RepositoryFormDefaultModel,
+            Self::RepositoryFormDefaultYolo => InternalId::RepositoryFormDefaultYolo,
+            Self::RepositoryFormDefaultAgentType => InternalId::RepositoryFormDefaultAgentType,
+            Self::RepositoryFormDefaultVersion => InternalId::RepositoryFormDefaultVersion,
+            Self::RepositoryFormDefaultMode => InternalId::RepositoryFormDefaultMode,
+            Self::RepositoryFormDefaultLlxprtVersion => {
+                InternalId::RepositoryFormDefaultLlxprtVersion
+            }
+            Self::RepositoryFormGithubRepo => InternalId::RepositoryFormGithubRepo,
+            Self::RepositoryFormIssuePrRepo => InternalId::RepositoryFormIssuePrRepo,
+            Self::RepositoryFormRemoteEnabled => InternalId::RepositoryFormRemoteEnabled,
+            Self::RepositoryFormLoginUser => InternalId::RepositoryFormLoginUser,
+            Self::RepositoryFormHost => InternalId::RepositoryFormHost,
+            Self::RepositoryFormSshPort => InternalId::RepositoryFormSshPort,
+            Self::RepositoryFormIdentityFile => InternalId::RepositoryFormIdentityFile,
+            Self::RepositoryFormSshOptions => InternalId::RepositoryFormSshOptions,
+            Self::RepositoryFormRunAsUser => InternalId::RepositoryFormRunAsUser,
+            Self::RepositoryFormSetupEnvDefault => InternalId::RepositoryFormSetupEnvDefault,
+            Self::RepositoryFormTransientAgentDir => InternalId::RepositoryFormTransientAgentDir,
+            Self::RepositoryFormTransientMaxConcurrent => {
+                InternalId::RepositoryFormTransientMaxConcurrent
+            }
+            Self::AgentFormShortcut => InternalId::AgentFormShortcut,
+            Self::AgentFormName => InternalId::AgentFormName,
+            Self::AgentFormDescription => InternalId::AgentFormDescription,
+            Self::AgentFormWorkDir => InternalId::AgentFormWorkDir,
+            Self::AgentFormProfile => InternalId::AgentFormProfile,
+            Self::AgentFormAgentType => InternalId::AgentFormAgentType,
+            Self::AgentFormModel => InternalId::AgentFormModel,
+            Self::AgentFormVersion => InternalId::AgentFormVersion,
+            Self::AgentFormYolo => InternalId::AgentFormYolo,
+            Self::AgentFormQuickResume => InternalId::AgentFormQuickResume,
+            Self::AgentFormMode => InternalId::AgentFormMode,
+            Self::AgentFormLlxprtVersion => InternalId::AgentFormLlxprtVersion,
+            Self::AgentFormLlxprtDebug => InternalId::AgentFormLlxprtDebug,
+            Self::AgentFormPassContinue => InternalId::AgentFormPassContinue,
+            Self::AgentFormSandbox => InternalId::AgentFormSandbox,
+            Self::AgentFormSandboxEngine => InternalId::AgentFormSandboxEngine,
+            Self::AgentFormSandboxFlags => InternalId::AgentFormSandboxFlags,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::SearchQuery => "Filter",
+            Self::ConfirmationDecision => "Decision",
+            Self::DeleteWorkDir => "Delete work directory",
+            Self::RepositoryFormName | Self::AgentFormName => "Name",
+            Self::RepositoryFormBaseDir => "Base Dir",
+            Self::RepositoryFormDefaultProfile => "Default Profile",
+            Self::RepositoryFormDefaultModel => "Default Model",
+            Self::RepositoryFormDefaultYolo => "Default YOLO",
+            Self::RepositoryFormDefaultAgentType => "Default Agent",
+            Self::RepositoryFormDefaultVersion => "Default CP Version",
+            Self::RepositoryFormDefaultMode => "Default Mode",
+            Self::RepositoryFormDefaultLlxprtVersion => "Default LLxprt Version",
+            Self::RepositoryFormGithubRepo => "GitHub Repo",
+            Self::RepositoryFormIssuePrRepo => "Issues / PRs Repo",
+            Self::RepositoryFormRemoteEnabled => "Remote Repository",
+            Self::RepositoryFormLoginUser => "Login User",
+            Self::RepositoryFormHost => "Host / IP",
+            Self::RepositoryFormSshPort => "SSH Port",
+            Self::RepositoryFormIdentityFile => "Identity File",
+            Self::RepositoryFormSshOptions => "SSH Options",
+            Self::RepositoryFormRunAsUser => "Run As User",
+            Self::RepositoryFormSetupEnvDefault => "Setup Env Default",
+            Self::RepositoryFormTransientAgentDir => "Transient Dir",
+            Self::RepositoryFormTransientMaxConcurrent => "Max Transient",
+            Self::AgentFormShortcut => "Shortcut (1-9)",
+            Self::AgentFormDescription => "Description",
+            Self::AgentFormWorkDir => "Work Dir",
+            Self::AgentFormProfile => "Profile",
+            Self::AgentFormAgentType => "Agent Runtime",
+            Self::AgentFormModel => "Model",
+            Self::AgentFormVersion => "CP Version",
+            Self::AgentFormYolo => "YOLO",
+            Self::AgentFormQuickResume => "Quick resume",
+            Self::AgentFormMode => "Mode Flags",
+            Self::AgentFormLlxprtVersion => "LLxprt Version",
+            Self::AgentFormLlxprtDebug => "LLXPRT_DEBUG",
+            Self::AgentFormPassContinue => "Pass --continue",
+            Self::AgentFormSandbox => "Sandbox",
+            Self::AgentFormSandboxEngine => "Sandbox Engine",
+            Self::AgentFormSandboxFlags => "Sandbox Flags",
+        }
+    }
+
+    fn kind(self) -> FieldKind {
+        match self {
+            Self::DeleteWorkDir
+            | Self::RepositoryFormDefaultYolo
+            | Self::RepositoryFormRemoteEnabled
+            | Self::RepositoryFormSetupEnvDefault
+            | Self::AgentFormYolo
+            | Self::AgentFormQuickResume
+            | Self::AgentFormPassContinue
+            | Self::AgentFormSandbox => FieldKind::Boolean,
+            _ => FieldKind::String,
+        }
+    }
+
+    fn required(self) -> bool {
+        matches!(
+            self,
+            Self::SearchQuery
+                | Self::ConfirmationDecision
+                | Self::RepositoryFormName
+                | Self::AgentFormName
+        )
+    }
+}
+
 impl Field {
     /// Construct one closed host-internal field declaration.
     pub(crate) fn internal(field: InternalField) -> Self {
-        let (id, label, kind, required) = match field {
-            InternalField::SearchQuery => {
-                (InternalId::OverlayQuery, "Filter", FieldKind::String, true)
-            }
-            InternalField::ConfirmationDecision => (
-                InternalId::OverlayDecision,
-                "Decision",
-                FieldKind::String,
-                true,
-            ),
-            InternalField::DeleteWorkDir => (
-                InternalId::OverlayDeleteWorkDir,
-                "Delete work directory",
-                FieldKind::Boolean,
-                false,
-            ),
-        };
         Self {
             draft: FieldDraft {
-                id: Id::internal(id),
-                label: label.to_owned(),
+                id: Id::internal(field.id()),
+                label: field.label().to_owned(),
                 description: None,
-                kind,
-                required,
+                kind: field.kind(),
+                required: field.required(),
                 default: None,
                 min: None,
                 max: None,

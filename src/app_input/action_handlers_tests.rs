@@ -18,7 +18,7 @@ fn chord(text: &str) -> Chord {
 #[test]
 fn page_navigation_produces_typed_page_event() {
     let mut state = crate::test_app_state();
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+    state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
     let execution = execution_for(
         HandlerKey::NavigatePageDown,
         chord("PageDown"),

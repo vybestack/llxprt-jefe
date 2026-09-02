@@ -12,14 +12,14 @@ use crate::app_shell_provider_projection::provider_projection;
 use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
-use jefe::input::{InputMode, input_mode_for_state};
+use jefe::input::input_mode_for_state;
 use jefe::jsp_host::JspHostRuntime;
 use jefe::layout::effective_render_size;
 use jefe::messages::AppMessage;
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
     ModalViewport, TerminalRenderData, build_modal_element, build_provider_overlay_element,
@@ -29,6 +29,9 @@ use jefe::ui::orchestration::{
 use crate::app_input::{durable_save_request, schedule_durable_save};
 use std::sync::Arc;
 use std::time::Instant;
+
+#[path = "app_shell_paste.rs"]
+mod app_shell_paste;
 
 fn drain_jsp_messages(
     app_state: &mut crate::app_input::AppStateHandle,
@@ -462,9 +465,17 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let mut snapshot = snapshot;
     let resolved_layout = jefe::screen_layout::resolve_screen(&snapshot, term_cols, term_rows);
     let rendered_instance = snapshot.nav.current().id;
+    // Publication keys on geometry identity, not frame identity: each render
+    // mints a fresh LayoutGeneration, and a gate comparing whole snapshots
+    // would republish (and re-render) every frame, starving input handling.
     let should_publish_layout = {
         let state = app_state.read();
-        state.nav.current().id == rendered_instance && state.resolved_layout != resolved_layout
+        let geometry_unchanged = match (&state.resolved_layout, &resolved_layout) {
+            (Some(published), Some(next)) => published.same_geometry(next),
+            (None, None) => true,
+            _ => false,
+        };
+        state.nav.current().id == rendered_instance && !geometry_unchanged
     };
     if should_publish_layout {
         app_state
@@ -474,24 +485,41 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     snapshot.resolved_layout = resolved_layout;
     let snapshot = snapshot;
 
-    if terminal_size.is_some()
-        && !startup_sessions_restored.get()
-        && let Some((rows, cols)) = jefe::screen_layout::initial_runtime_geometry(&snapshot)
-    {
-        let context = ctx
-            .as_ref()
-            .unwrap_or_else(|| panic!("application context is required for runtime restoration"));
-        {
-            let Ok(mut context) = context.lock() else {
-                panic!("application context lock poisoned during runtime configuration");
-            };
-            context
-                .runtime
-                .configure_initial_geometry(rows, cols)
-                .unwrap_or_else(|error| panic!("initial runtime geometry failed: {error}"));
+    if terminal_size.is_some() && !startup_sessions_restored.get() {
+        if let Some(viewport) = jefe::screen_layout::initial_runtime_geometry(&snapshot) {
+            let context = ctx.as_ref().unwrap_or_else(|| {
+                panic!("application context is required for runtime restoration")
+            });
+            {
+                let Ok(mut context) = context.lock() else {
+                    panic!("application context lock poisoned during runtime configuration");
+                };
+                context
+                    .runtime
+                    .configure_initial_geometry(viewport)
+                    .unwrap_or_else(|error| panic!("initial runtime geometry failed: {error}"));
+            }
+            crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
+            startup_sessions_restored.set(true);
         }
-        crate::app_init::restore_runtime_sessions(&mut app_state, &ctx);
-        startup_sessions_restored.set(true);
+    } else if terminal_size.is_some()
+        && startup_sessions_restored.get()
+        && should_publish_layout
+        && !snapshot.shell_overlay_active()
+        && let Some(viewport) = jefe::screen_layout::committed_runtime_viewport(&snapshot)
+    {
+        // On layout commit, offer the runtime one ordered resize carrying the
+        // committed frame's exact rectangle and generation. The manager drops
+        // offers whose generation it has already superseded and no-ops an
+        // unchanged rectangle, so only changed visible PTY panels resize and a
+        // stale completion changes nothing (issue #706 CWR3-04). While the
+        // shell overlay owns the PTY, its own resize path is the authority.
+        if let Some(context) = ctx.as_ref()
+            && let Ok(mut context) = context.lock()
+            && let Err(error) = context.runtime.resize_to_frame(viewport)
+        {
+            tracing::warn!(error = %error, "failed to resize terminal to the committed frame");
+        }
     }
 
     // Capture scrollback only when the current descriptor declares the private
@@ -508,7 +536,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 .any(|panel| panel.panel_type.as_str() == jefe::workbench::PTY_PANEL_TYPE)
         });
     let history_lines: Vec<String> = if has_embedded_terminal
-        || (snapshot.screen() == ScreenId::Terminals && snapshot.shell_overlay_active())
+        || (snapshot.screen() == jefe::workbench::TERMINALS_IDENTITY
+            && snapshot.shell_overlay_active())
     {
         crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
@@ -572,8 +601,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         None
     };
 
-    // Search is an in-band mode used by SplitScreen's filter bar, not a blocking
-    // overlay modal. Keep rendering the underlying screen in search mode.
+    // Search is an in-band mode used by the repositories screen's filter bar,
+    // not a blocking overlay modal. Keep rendering the underlying screen in
+    // search mode.
     let content_el: AnyElement<'static> =
         if active_overlay == Some(jefe::workbench::OverlayKind::Search) {
             screen_el
@@ -626,7 +656,7 @@ fn handle_terminal_event(
         TerminalEvent::Paste(pasted_text) => {
             mouse_click.write().clear();
             crate::mouse_routing::clear_selection(app_state);
-            handle_paste(ctx, app_state, suppress_next_enter, pasted_text);
+            app_shell_paste::handle_paste(ctx, app_state, suppress_next_enter, pasted_text);
         }
         TerminalEvent::Key(key_event) => {
             mouse_click.write().clear();
@@ -663,123 +693,6 @@ fn handle_terminal_event(
         }
         _ => {}
     }
-}
-
-fn handle_paste(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let input_mode = {
-        let state = app_state.read();
-        input_mode_for_state(&state)
-    };
-
-    match input_mode {
-        InputMode::TerminalCapture => paste_to_terminal(ctx, suppress_next_enter, pasted_text),
-        InputMode::Form | InputMode::Search => {
-            paste_to_form(ctx, app_state, suppress_next_enter, pasted_text);
-        }
-        InputMode::IssuesInline => {
-            paste_to_issues_inline(ctx, app_state, suppress_next_enter, pasted_text);
-        }
-        InputMode::IssuesSearch => {
-            paste_to_issues_search(app_state, suppress_next_enter, pasted_text);
-        }
-        _ => {
-            suppress_next_enter.set(PasteEnterSuppression::new());
-        }
-    }
-}
-
-fn paste_to_terminal(
-    ctx: Option<&CtxArc>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let Some(ctx_arc) = ctx else {
-        return;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return;
-    };
-
-    let bytes = if ctx_guard.runtime.bracketed_paste_active() {
-        let mut payload = Vec::with_capacity(pasted_text.len() + 12);
-        payload.extend_from_slice(b"\x1b[200~");
-        payload.extend_from_slice(pasted_text.as_bytes());
-        payload.extend_from_slice(b"\x1b[201~");
-        payload
-    } else {
-        pasted_text.into_bytes()
-    };
-
-    if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
-        warn!(error = %e, "runtime.write_input failed for paste");
-    }
-    suppress_next_enter.set(PasteEnterSuppression::new());
-}
-
-fn paste_to_form(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let mut state = app_state.write();
-    for ch in pasted_text.chars().filter(|ch| *ch != '\r' && *ch != '\n') {
-        jefe::state::transition::commit_pure_site(&mut state, (AppEvent::FormChar(ch)).into());
-    }
-    let persisted = durable_save_request(&mut state);
-    drop(state);
-    schedule_durable_save(&ctx.cloned(), persisted);
-    suppress_next_enter.set(PasteEnterSuppression::new());
-}
-
-fn paste_to_issues_inline(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let mut state = app_state.write();
-    for ch in pasted_text.chars().filter(|ch| *ch != '\r') {
-        if ch == '\n' {
-            jefe::state::transition::commit_pure_site(&mut state, (AppEvent::InlineNewline).into());
-        } else {
-            jefe::state::transition::commit_pure_site(
-                &mut state,
-                (AppEvent::InlineChar(ch)).into(),
-            );
-        }
-    }
-    let persisted = durable_save_request(&mut state);
-    drop(state);
-    schedule_durable_save(&ctx.cloned(), persisted);
-    suppress_next_enter.set(PasteEnterSuppression::new());
-}
-
-fn paste_to_issues_search(
-    app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
-    pasted_text: String,
-) {
-    let mut state = app_state.write();
-    let filtered: String = pasted_text
-        .chars()
-        .filter(|ch| *ch != '\r' && *ch != '\n')
-        .collect();
-    if !filtered.is_empty() {
-        let mut query = state.issues_state.search_query.clone();
-        query.push_str(&filtered);
-        jefe::state::transition::commit_pure_site(
-            &mut state,
-            (AppEvent::SetSearchQuery { query }).into(),
-        );
-    }
-    drop(state);
-    suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
 fn normalize_terminal_focus(app_state: &mut HookState<AppState>, ctx: Option<&CtxArc>) {

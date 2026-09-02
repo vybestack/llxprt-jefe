@@ -116,10 +116,6 @@ pub enum UiNavigationMessage {
     ResumeShellOverlay(crate::domain::AgentId),
     /// Toggle one status bucket in the workbench filter mask (issue #626).
     ToggleWorkbenchStatusBucket(crate::workbench_view::StatusBucket),
-    /// Advance to the next workbench page (clamped, issue #626).
-    WorkbenchNextPage,
-    /// Return to the previous workbench page (clamped, issue #626).
-    WorkbenchPrevPage,
     WorkbenchFilterCursorPrev,
     WorkbenchFilterCursorNext,
     WorkbenchSelectPrev,

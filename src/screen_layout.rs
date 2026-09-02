@@ -15,8 +15,8 @@ use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
 use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
 use crate::workbench::{
-    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, ScreenId, pty_content_rect,
-    resolve_layout,
+    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, RuntimeViewport, ScreenDescriptor,
+    ScreenId, pty_content_rect, resolve_layout,
 };
 
 /// Resolve the active screen's geometry for a terminal size.
@@ -48,25 +48,101 @@ pub fn resolve_screen(state: &AppState, term_cols: u16, term_rows: u16) -> Optio
 /// A visible PTY panel is authoritative when the committed screen declares one.
 /// Screens without a visible PTY still commit their resolved outer frame so
 /// restored sessions can start without consulting ambient terminal dimensions.
+/// The returned viewport carries the committed frame's generation so the
+/// create effect can be proven current (issue #706 CWR3-02).
 #[must_use]
-pub fn initial_runtime_geometry(state: &AppState) -> Option<(u16, u16)> {
+pub fn initial_runtime_geometry(state: &AppState) -> Option<RuntimeViewport> {
     let layout = state.resolved_layout.as_ref()?;
     let descriptor = state
         .published_workbench()
         .screen_registry()
         .get_identity(state.screen())?;
-    let panel_geometry = descriptor
+    committed_viewport_from(descriptor, layout).or_else(|| {
+        (layout.outer.width > 0 && layout.outer.height > 0).then_some(RuntimeViewport {
+            rows: layout.outer.height,
+            cols: layout.outer.width,
+            generation: layout.generation,
+        })
+    })
+}
+
+/// The visible PTY panel's exact content rectangle in the committed frame.
+///
+/// Mouse hit-testing and scroll geometry need the on-screen rectangle the
+/// renderer actually drew, so they read the committed frame rather than
+/// re-deriving dimensions from the terminal size. `None` means this frame
+/// shows no visible nonzero PTY panel — there is no rectangle to hit-test
+/// against and no fabricated fallback.
+#[must_use]
+pub fn committed_pty_content_rect(state: &AppState) -> Option<Rect> {
+    let layout = state.resolved_layout.as_ref()?;
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    pty_content_rect_from(descriptor, layout)
+}
+
+/// The runtime viewport the committed frame offers on layout commit.
+///
+/// On layout commit the runtime may be offered at most one ordered resize
+/// carrying this exact rectangle and generation; the manager drops offers
+/// whose generation it has already superseded, so a stale completion changes
+/// nothing (issue #706 CWR3-04). `None` means the frame shows no visible
+/// nonzero PTY panel — a hidden or zero-size panel defers and no resize is
+/// offered.
+#[must_use]
+pub fn committed_runtime_viewport(state: &AppState) -> Option<RuntimeViewport> {
+    let layout = state.resolved_layout.as_ref()?;
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    committed_viewport_from(descriptor, layout)
+}
+
+/// The visible PTY panel's viewport in one committed frame, with its identity.
+fn committed_viewport_from(
+    descriptor: &ScreenDescriptor,
+    layout: &ResolvedLayout,
+) -> Option<RuntimeViewport> {
+    pty_content_rect_from(descriptor, layout).map(|rect| RuntimeViewport {
+        rows: rect.height,
+        cols: rect.width,
+        generation: layout.generation,
+    })
+}
+
+/// The visible PTY panel's exact content rectangle in one resolved frame.
+fn pty_content_rect_from(descriptor: &ScreenDescriptor, layout: &ResolvedLayout) -> Option<Rect> {
+    descriptor
         .panels
         .iter()
         .filter(|panel| panel.panel_type.as_str() == PTY_PANEL_TYPE)
         .find_map(|panel| pty_content_rect(descriptor, layout, &panel.id))
         .filter(|rect| rect.width > 0 && rect.height > 0)
-        .map(|rect| (rect.height, rect.width));
+}
 
-    panel_geometry.or_else(|| {
-        (layout.outer.width > 0 && layout.outer.height > 0)
-            .then_some((layout.outer.height, layout.outer.width))
-    })
+/// The PTY viewport a resize must send for the active screen.
+///
+/// Resolved through the same single authority the renderer commits, so the
+/// dimensions a child receives are the rectangle it occupies on screen; the
+/// answer carries the generation its own resolve minted, which is the frame
+/// that would commit for these inputs. `None` means this frame shows no
+/// visible nonzero PTY panel and no resize may be sent — there is no
+/// fabricated fallback.
+#[must_use]
+pub fn pty_resize_viewport(
+    state: &AppState,
+    term_cols: u16,
+    term_rows: u16,
+) -> Option<RuntimeViewport> {
+    let layout = resolve_screen(state, term_cols, term_rows)?;
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?;
+    committed_viewport_from(descriptor, &layout)
 }
 
 /// The rectangle a screen may use, after the status bar and keybind bar.
@@ -82,6 +158,44 @@ pub fn screen_rect(term_cols: u16, term_rows: u16) -> Rect {
         render_cols,
         render_rows.saturating_sub(OUTER_BARS_HEIGHT),
     )
+}
+
+/// The effective render size a committed frame was resolved from.
+///
+/// [`screen_rect`] removes the outer bars when it derives a frame's outer
+/// rectangle, so a committed layout carries the render size only in that
+/// subtracted form. This inverts the subtraction once, beside the authority
+/// that made it: consumers that must reproduce a display-basis viewport from
+/// a committed frame (the workbench grid's page count, whose layout helpers
+/// subtract terminal chrome themselves) read the render size through here
+/// instead of re-deriving it or mistaking a panel rectangle for it (issue
+/// #706).
+#[must_use]
+pub fn committed_render_size(layout: &ResolvedLayout) -> (u16, u16) {
+    (
+        layout.outer.width,
+        layout.outer.height.saturating_add(OUTER_BARS_HEIGHT),
+    )
+}
+
+/// The display-basis viewport for a committed frame, or the panel content
+/// rectangle when no frame is committed.
+///
+/// The workbench grid's page-count helpers subtract terminal chrome
+/// themselves, so callers must feed the **full render size**, not a panel's
+/// content rect. [`committed_render_size`] inverts the outer-bar subtraction
+/// from the committed frame. When no frame is committed there is no display
+/// geometry to reproduce, so the panel content rect is the best available
+/// approximation — but the grid's page-clamp is inert in that state anyway
+/// (a committed frame is required for the display to page) (issue #706).
+#[must_use]
+pub fn committed_render_size_or_content(
+    layout: Option<&ResolvedLayout>,
+    content: &Rect,
+) -> (u16, u16) {
+    layout.map_or((content.width, content.height), |layout| {
+        committed_render_size(layout)
+    })
 }
 
 /// Which panels the application is currently hiding.
@@ -137,9 +251,10 @@ pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         return hidden;
     };
     match screen {
-        // The split view, the errors screen, and the Terminal Manager render
-        // no conditional band, so nothing is ever hidden on them.
-        ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals => {}
+        // The errors screen renders no conditional band, so nothing is ever
+        // hidden on it. The Terminal Manager and the split view are
+        // descriptor screens and return before this match.
+        ScreenId::Errors => {}
         ScreenId::Settings => push_unfocused_settings_sections(&mut hidden, state),
         ScreenId::Issues => {
             push_band_state(

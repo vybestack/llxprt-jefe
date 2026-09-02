@@ -177,7 +177,6 @@ Structured logging is opt-in via `JEFE_LOG_FILE` (output path) and `JEFE_LOG`
 - `JEFE_GIT_BIN` — explicit path to `git`.
 - `JEFE_GH_BIN` — explicit path to `gh`.
 - `JEFE_SSH_BIN` — explicit path to `ssh`.
-- `JEFE_WINDOWED=1` — disable fullscreen mode.
 - `JEFE_LOG_FILE` / `JEFE_LOG` — structured logging.
 
 ## Diagnostics (`jefe doctor`)

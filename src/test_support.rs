@@ -1,7 +1,15 @@
-//! Shared panic diagnostics for unit tests that exercise fallible contracts.
+//! Shared panic diagnostics and domain fixtures for unit tests that exercise
+//! fallible contracts.
 
 use std::fmt::Debug;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+use crate::domain::observation::{
+    AgentObservation, FieldState, NativeActivityState, NativeActivityValue, ObservationHealth,
+    Provenance, Wait, WaitReason,
+};
+use crate::domain::{Agent, AgentId, AgentStatus, AgentTypeId, Repository, RepositoryId, TypedMap};
 
 /// Build one explicit, process-free declaration fixture for state unit tests.
 #[must_use]
@@ -46,6 +54,82 @@ pub fn published_workbench() -> Arc<crate::published_workbench::PublishedWorkben
     })
     .unwrap_or_else(|error| panic!("unit workbench fixture must compose: {error}"));
     Arc::new(candidate)
+}
+
+/// One repository fixture shared by the host-panel model tests.
+#[must_use]
+pub fn host_panel_repository(id: &str) -> Repository {
+    Repository::new(
+        RepositoryId(format!("repo-{id}")),
+        AgentTypeId::default(),
+        TypedMap::default(),
+        format!("Repo {id}"),
+        format!("repo-{id}"),
+        PathBuf::from("/tmp"),
+    )
+}
+
+/// One agent fixture owned by `repository_id`, with `status` set.
+#[must_use]
+pub fn host_panel_agent(name: &str, repository_id: &str, status: AgentStatus) -> Agent {
+    let mut agent = Agent::new(
+        AgentId(name.to_owned()),
+        RepositoryId(repository_id.to_owned()),
+        AgentTypeId::default(),
+        TypedMap::default(),
+        name.to_owned(),
+        PathBuf::from("/tmp"),
+    );
+    agent.status = status;
+    agent
+}
+
+/// A live observation whose native activity is `Acting`.
+#[must_use]
+pub fn working_observation() -> AgentObservation {
+    AgentObservation {
+        health: ObservationHealth::Live,
+        activity: FieldState::known(
+            Provenance::Authoritative,
+            NativeActivityValue {
+                state: NativeActivityState::Acting,
+            },
+        ),
+        ..AgentObservation::default()
+    }
+}
+
+/// A live observation whose native activity is `Idle`, every field known.
+#[must_use]
+pub fn ready_observation() -> AgentObservation {
+    AgentObservation {
+        health: ObservationHealth::Live,
+        activity: FieldState::known(
+            Provenance::Authoritative,
+            NativeActivityValue {
+                state: NativeActivityState::Idle,
+            },
+        ),
+        wait: FieldState::known(Provenance::Authoritative, None),
+        turn: FieldState::known(Provenance::Authoritative, None),
+        terminal: FieldState::known(Provenance::Authoritative, None),
+        ..AgentObservation::default()
+    }
+}
+
+/// A live observation waiting on a permission prompt.
+#[must_use]
+pub fn waiting_observation() -> AgentObservation {
+    AgentObservation {
+        health: ObservationHealth::Live,
+        wait: FieldState::known(
+            Provenance::Authoritative,
+            Some(Wait {
+                reason: WaitReason::Permission,
+            }),
+        ),
+        ..AgentObservation::default()
+    }
 }
 
 pub trait Must<T> {

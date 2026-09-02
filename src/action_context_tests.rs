@@ -193,12 +193,12 @@ fn pr_changes_and_actions_focus_are_full_s4_contexts() {
 fn a_modal_context_keeps_the_protected_exit_reachable() {
     for screen in [
         jefe::workbench::DASHBOARD_IDENTITY,
-        ScreenId::Repositories.into(),
+        jefe::workbench::REPOSITORIES_IDENTITY,
         ScreenId::Actions.into(),
         ScreenId::Issues.into(),
         ScreenId::PullRequests.into(),
         ScreenId::Errors.into(),
-        ScreenId::Terminals.into(),
+        jefe::workbench::TERMINALS_IDENTITY,
     ] {
         let mut state = crate::test_app_state();
         state.restore_navigation_root(screen);
@@ -250,12 +250,10 @@ fn graph_with_host_list_screen_does_not_acquire_dashboard_action_authority() {
     // Dashboard authority, despite sharing a host List sidebar. Exact
     // `BuiltinScreenId` values are the descriptor identities the runtime realizes.
     for screen in [
-        ScreenId::Repositories,
         ScreenId::Actions,
         ScreenId::Issues,
         ScreenId::PullRequests,
         ScreenId::Errors,
-        ScreenId::Terminals,
     ] {
         let mut state = crate::test_app_state();
         state.restore_navigation_root(jefe::state::ScreenIdentity::Compiled(screen));
@@ -268,6 +266,23 @@ fn graph_with_host_list_screen_does_not_acquire_dashboard_action_authority() {
                 .iter()
                 .any(|value| value == "dashboard" || value == "dashboard.reorder"),
             "{screen:?} must not acquire Dashboard action authority, got {names:?}"
+        );
+    }
+
+    // The split view is now a builtin definition rather than a compiled
+    // adapter (issue #706); it still owns its private split context.
+    {
+        let mut state = crate::test_app_state();
+        state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
+        state.nav.current_mut().panel_focus = jefe::workbench::PanelId::parse("repositories")
+            .unwrap_or_else(|error| panic!("repository list panel: {error}"));
+        let names = context_names(&state);
+        assert!(
+            !names
+                .1
+                .iter()
+                .any(|value| value == "dashboard" || value == "dashboard.reorder"),
+            "the split definition must not acquire Dashboard action authority, got {names:?}"
         );
     }
 }

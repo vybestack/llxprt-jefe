@@ -15,7 +15,7 @@
       "title": "Repositories",
       "route": "repositories",
       "initial_focus": "repositories",
-      "focus_order": ["repositories"],
+      "focus_order": ["repositories", "status", "cards"],
       "required_panels": ["repositories"],
       "collapse_order": ["filter"]
     },

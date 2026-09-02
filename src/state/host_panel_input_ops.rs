@@ -62,6 +62,7 @@ impl AppState {
         &mut self,
         capability: HostPanelCapability,
         action: ControlAction,
+        viewport_cols: usize,
         viewport_rows: usize,
     ) -> bool {
         let model = project_host_panel(self, capability.model_source());
@@ -77,12 +78,30 @@ impl AppState {
             action,
         );
         match intent {
-            ControlIntent::Event(event) => {
-                self.apply_host_panel_event(capability.model_source(), event, viewport_rows)
-            }
+            ControlIntent::Event(event) => self.apply_host_panel_event(
+                capability.model_source(),
+                event,
+                viewport_cols,
+                viewport_rows,
+            ),
             ControlIntent::Scroll(delta) => {
                 self.scroll_host_panel_kind(capability.model_source(), delta, viewport_rows)
             }
+            // PageUp on the grid pages the cards back, the legacy
+            // `split.page-up` behavior. Only the card grid pages; every other
+            // List control has pages the token protocol owns, so the action is
+            // unconsumed there. The reducer bounds the step by the committed
+            // frame's display basis and keeps it inert without one (issue
+            // #706).
+            ControlIntent::PagePrevious => match capability.model_source() {
+                HostPanelModelSource::WorkbenchCards => {
+                    self.apply_workbench(
+                        super::workbench_reducers::WorkbenchNavigation::PreviousPage,
+                    );
+                    true
+                }
+                _ => false,
+            },
             ControlIntent::None => false,
         }
     }
@@ -117,7 +136,14 @@ impl AppState {
         let offset = match kind {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => return false,
+            HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
+            // The STATUS block is four fixed rows: it never scrolls.
+            // The card grid pages rather than scrolls; the page index is
+            // owned by the workbench state and clamped at render time.
+            HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::WorkbenchCards
+            | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentPreview => return false,
         };
         let changed = *offset != next;
         *offset = next;
@@ -128,6 +154,7 @@ impl AppState {
         &mut self,
         kind: HostPanelModelSource,
         event: PanelEvent,
+        _viewport_cols: usize,
         viewport_rows: usize,
     ) -> bool {
         match event {
@@ -150,6 +177,21 @@ impl AppState {
                     HostPanelModelSource::AgentList => self
                         .selected_agent()
                         .map(|agent| AppEvent::OpenEditAgent(agent.id.clone())),
+                    HostPanelModelSource::SessionList => self.session_activation_event(),
+                    // Enter on a bucket row toggles its filter, the legacy
+                    // `split.toggle-status-filter` behavior.
+                    HostPanelModelSource::WorkbenchStatus => {
+                        self.apply_workbench_status_toggle(self.workbench_filter_cursor_bucket());
+                        None
+                    }
+                    // Enter on a card attaches to its agent, the legacy
+                    // `split.activate-selection` behavior.
+                    HostPanelModelSource::WorkbenchCards => {
+                        self.apply_workbench(
+                            super::workbench_reducers::WorkbenchNavigation::Attach,
+                        );
+                        None
+                    }
                     HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
                 };
                 if let Some(event) = event {
@@ -160,6 +202,17 @@ impl AppState {
             PanelEvent::Submit { .. } if kind == HostPanelModelSource::SearchInput => {
                 self.reduce_message_body(AppMessage::from(AppEvent::OpenSearch));
                 self.active_overlay_kind() == Some(crate::workbench::OverlayKind::Search)
+            }
+            // PageDown on the grid pages the cards, the legacy
+            // `split.page-down` behavior. The page count comes from the
+            // committed frame's display basis (the same basis the render
+            // loop uses), not the caller's viewport rectangle, so the
+            // retained page counter never advances past the last real
+            // page (issue #706).
+            PanelEvent::PageRequested { .. } if kind == HostPanelModelSource::WorkbenchCards => {
+                let page_count = self.display_page_count();
+                self.apply_workbench_page_next_within(page_count);
+                true
             }
             PanelEvent::Action { .. }
             | PanelEvent::FieldChanged { .. }
@@ -172,11 +225,37 @@ impl AppState {
         }
     }
 
+    /// Resolve Enter on the focused shell row: a close-only row warns, a
+    /// running row requests the generation-guarded shell focus that the
+    /// attach scheduler completes after its owner attaches.
+    fn session_activation_event(&mut self) -> Option<AppEvent> {
+        let row = self.terminal_manager.selected_index.and_then(|index| {
+            crate::state::project_managed_shell_rows(self)
+                .into_iter()
+                .nth(index)
+        })?;
+        if row.close_only {
+            self.warning_message =
+                Some("Cannot focus a non-running agent's shell (close-only).".to_string());
+            return None;
+        }
+        Some(AppEvent::RequestShellFocus {
+            agent_id: row.agent_id.clone(),
+            origin: crate::state::ShellFocusOrigin::ManagerEnter,
+        })
+    }
+
     fn reveal_host_panel_selection(&mut self, kind: HostPanelModelSource, viewport_rows: usize) {
         let selected = match kind {
             HostPanelModelSource::RepositoryList => self.selected_repository_visible_index(),
             HostPanelModelSource::AgentList => self.selected_agent_local_index(),
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
+            HostPanelModelSource::SessionList => self.terminal_manager.selected_index,
+            // All four bucket rows are always on screen.
+            // Card selection never scrolls the grid: paging is explicit.
+            HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::WorkbenchCards
+            | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentPreview => None,
         };
         let Some(selected) = selected.and_then(|index| u32::try_from(index).ok()) else {
             return;
@@ -185,7 +264,11 @@ impl AppState {
         let offset = match kind {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => return,
+            HostPanelModelSource::SessionList => &mut self.session_scroll_offset,
+            HostPanelModelSource::WorkbenchStatus
+            | HostPanelModelSource::WorkbenchCards
+            | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentPreview => return,
         };
         if selected < *offset {
             *offset = selected;
@@ -224,7 +307,49 @@ impl AppState {
                 self.select_agent_by_local_index(local_index);
                 true
             }
+            HostPanelModelSource::SessionList => {
+                let count = crate::state::project_managed_shell_rows(self).len();
+                let Some(index) = (0..count)
+                    .find(|index| Id::internal_indexed(InternalId::SessionItem, *index) == *id)
+                else {
+                    return false;
+                };
+                self.terminal_manager.selected_index = Some(index);
+                true
+            }
+            HostPanelModelSource::WorkbenchStatus => {
+                let count = crate::workbench_view::STATUS_BLOCK_ORDER.len();
+                let Some(index) = (0..count).find(|index| {
+                    Id::internal_indexed(InternalId::StatusBucketItem, *index) == *id
+                }) else {
+                    return false;
+                };
+                // Cursor moves never reset the page; only toggles do.
+                self.workbench.filter_cursor = index;
+                true
+            }
+            HostPanelModelSource::WorkbenchCards => self.select_workbench_card(id),
             HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => false,
         }
+    }
+    fn select_workbench_card(&mut self, id: &Id) -> bool {
+        let inputs = crate::host_panel_models::workbench_agent_inputs(self);
+        let repository_filter = self
+            .split_filter
+            .as_ref()
+            .map(|repository| repository.0.as_str());
+        let order = crate::workbench_view::ordered_agent_ids(
+            &inputs,
+            self.workbench.status_filter.mask(),
+            repository_filter,
+        );
+        let Some(target) = (0..order.len())
+            .find(|index| Id::internal_indexed(InternalId::WorkbenchCardItem, *index) == *id)
+            .map(|index| order[index].clone())
+        else {
+            return false;
+        };
+        self.select_workbench_agent(&target);
+        true
     }
 }

@@ -6,9 +6,28 @@
 //! - Next/prev page are clamped at both ends (no wrap).
 
 use super::workbench_filter::WorkbenchUiState;
+use super::workbench_reducers::WorkbenchNavigation;
 use super::{AppEvent, AppState};
 use crate::state::transition::TransitionExt;
+use crate::test_support::Must;
 use crate::workbench_view::{StatusBucket, StatusFilterMask};
+
+/// Drive the production previous-page path: PageUp on the cards control
+/// reduces `WorkbenchNavigation::PreviousPage` (issue #706).
+fn apply_previous_page(mut state: AppState) -> AppState {
+    state.apply_workbench(WorkbenchNavigation::PreviousPage);
+    state
+}
+
+/// Drive the production next-page path: PageDown on the cards control
+/// requests the panel's next page and the host clamps the step to the
+/// committed frame's display page count (issue #706). The legacy
+/// direct-dispatch paging AppEvents were deleted with the split screen.
+fn apply_next_page(mut state: AppState) -> AppState {
+    let page_count = state.display_page_count();
+    state.apply_workbench_page_next_within(page_count);
+    state
+}
 
 #[test]
 fn default_status_filter_is_all_on() {
@@ -57,31 +76,248 @@ fn toggling_a_bucket_resets_page_to_zero() {
     );
 }
 
+/// A workbench state rooted on the split screen with `count` visible agents.
+fn workbench_state_with_agents(count: usize) -> AppState {
+    let mut state = AppState::test_fixture();
+    state.nav = crate::state::navigation::NavState::rooted_definition(
+        crate::workbench::REPOSITORIES_IDENTITY,
+        crate::workbench::RouteId::from_static("repositories"),
+        crate::workbench::PanelId::from_static("repositories"),
+    );
+    state.repositories = vec![crate::test_support::host_panel_repository("one")];
+    for index in 0..count {
+        let agent = crate::test_support::host_panel_agent(
+            &format!("agent{index:02}"),
+            "repo-one",
+            crate::domain::AgentStatus::Running,
+        );
+        state
+            .observations
+            .insert(agent.id.clone(), crate::test_support::ready_observation());
+        state.agents.push(agent);
+    }
+    state
+}
+
+/// The same state with a committed frame for one terminal size, the way the
+/// render loop publishes one before any input is reduced.
+fn committed_workbench_state(count: usize, cols: u16, rows: u16) -> AppState {
+    let mut state = workbench_state_with_agents(count);
+    state.resolved_layout = crate::screen_layout::resolve_screen(&state, cols, rows);
+    state
+}
+
+/// The page count the painted split-screen grid shows for a render size.
+///
+/// The legacy screen builds its view from the effective render size, so this
+/// is the display clamp every input path has to agree with.
+fn display_page_count(state: &AppState, render_cols: usize, render_rows: usize) -> usize {
+    let inputs = crate::host_panel_models::workbench_agent_inputs(state);
+    crate::workbench_view::build_workbench_view_ref(
+        &inputs,
+        state.workbench.status_filter.mask(),
+        None,
+        render_cols,
+        render_rows,
+        0,
+    )
+    .layout
+    .page_count
+}
+
+/// The declared host capability of the split screen's card grid.
+fn cards_capability(state: &AppState) -> crate::workbench::HostPanelCapability {
+    state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .and_then(|descriptor| {
+            descriptor.panels.iter().find(|panel| {
+                panel.host_capability.is_some_and(|capability| {
+                    capability.model_source() == crate::workbench::HostPanelModelSource::WorkbenchCards
+                })
+            })
+        })
+        .and_then(|panel| panel.host_capability)
+        .must("the split screen declares the cards host control")
+}
+
+/// The committed content rectangle of the card grid panel.
+fn cards_content_rect(state: &AppState) -> (usize, usize) {
+    let layout = state
+        .resolved_layout
+        .as_ref()
+        .must("the fixture commits a frame");
+    let panel = layout
+        .panel(&crate::workbench::PanelId::from_static("cards"))
+        .must("the cards panel must place");
+    (
+        usize::from(panel.content.width),
+        usize::from(panel.content.height),
+    )
+}
+
 #[test]
 fn next_page_advances_page() {
-    let state = AppState::test_fixture();
-    let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
+    let state = committed_workbench_state(30, 120, 40);
+    let page_count = display_page_count(&state, 120, 40);
+    assert!(page_count >= 2, "30 agents must page at 120x40");
+    let after = apply_next_page(state);
     assert_eq!(after.workbench.page, 1);
 }
 
-/// The reducer deliberately does not know the page count. It cannot: the number
-/// of pages depends on terminal size, which is a render-time fact and is not
-/// part of `AppState`. So `WorkbenchNextPage` only ever increments (saturating
-/// at the integer bound), and the projection clamps the requested page against
-/// the real page count when it builds the view. This test pins that split so a
-/// future reader does not mistake the missing upper bound for an oversight.
+/// The next-page step backs the live keyboard path (`split.page-down` through
+/// the cards control). The retained page counter must hold at the last page the
+/// display can show: the painted grid clamps its own page index, so a counter
+/// past that makes `PreviousPage` walk back through pages nothing can display.
 #[test]
-fn next_page_increments_without_an_upper_bound_and_saturates() {
-    let mut state = AppState::test_fixture();
-    state.workbench = WorkbenchUiState {
-            page: usize::MAX,
-            ..WorkbenchUiState::default()
-        };
-    let after = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
+fn next_page_holds_at_the_last_page_the_display_shows() {
+    let state = committed_workbench_state(30, 120, 40);
+    let page_count = display_page_count(&state, 120, 40);
+    assert!(page_count >= 2, "30 agents must page at 120x40");
+
+    let mut after = state;
+    for _ in 0..(page_count + 3) {
+        after = apply_next_page(after);
+    }
     assert_eq!(
         after.workbench.page,
-        usize::MAX,
-        "next page must saturate rather than overflow"
+        page_count - 1,
+        "next page must hold at the display's last page (display page_count {page_count})"
+    );
+}
+
+/// Without a committed frame there is no grid geometry to page within, so
+/// the counter must not drift ahead of what any display can show.
+#[test]
+fn next_page_is_inert_without_a_committed_frame() {
+    let state = workbench_state_with_agents(30);
+    let after = apply_next_page(state);
+    assert_eq!(
+        after.workbench.page, 0,
+        "no committed frame means there is no page to advance to"
+    );
+}
+
+/// `PreviousPage` must hold at the first page: paging back from page 0
+/// stays at 0 rather than wrapping to the last page.
+#[test]
+fn prev_page_holds_at_the_first_page() {
+    let state = committed_workbench_state(30, 120, 40);
+    let after = apply_previous_page(state);
+    assert_eq!(
+        after.workbench.page, 0,
+        "paging back from the first page must stay at the first page"
+    );
+}
+
+/// `PreviousPage` steps down exactly one page, mirroring the bounded
+/// `NextPage` step up.
+#[test]
+fn prev_page_walks_back_one_page_at_a_time() {
+    let state = committed_workbench_state(30, 120, 40);
+    let mut paged = state;
+    for _ in 0..2 {
+        paged = apply_next_page(paged);
+    }
+    assert_eq!(paged.workbench.page, 2, "the fixture must page forward first");
+    let after = apply_previous_page(paged);
+    assert_eq!(after.workbench.page, 1, "paging back steps down one page");
+}
+
+/// Without a committed frame `PreviousPage` is inert: no display basis
+/// exists, so a stale counter must not move. Next already behaves this way;
+/// prev decremented unboundedly.
+#[test]
+fn prev_page_is_inert_without_a_committed_frame() {
+    let mut state = workbench_state_with_agents(30);
+    state.workbench.page = 2;
+    let after = apply_previous_page(state);
+    assert_eq!(
+        after.workbench.page, 2,
+        "no committed frame means there is no page to step back to"
+    );
+}
+
+/// The host-panel input clamp (boundary or mouse PageNext on the cards
+/// control) must bound the retained page counter by the page count the
+/// display path computes. The display builds its view from the full render
+/// size; the clamp used to be handed the panel's content rectangle and the
+/// shared helpers subtract full-terminal chrome themselves, so it counted
+/// more pages than the display can show and paged past the last real page
+/// (issue #706).
+#[test]
+fn host_panel_page_next_holds_at_the_display_page_count() {
+    let mut state = committed_workbench_state(30, 120, 40);
+    let (content_width, content_height) = cards_content_rect(&state);
+    let page_count = display_page_count(&state, 120, 40);
+    assert!(page_count >= 2, "30 agents must page at 120x40");
+    // The fixture must expose the disagreement: the content rectangle,
+    // fed through chrome-subtracting helpers, yields a different page
+    // count than the display's render-size basis.
+    let content_basis =
+        crate::workbench_view::grid_page_count(content_width, content_height, 30);
+    assert_ne!(
+        content_basis, page_count,
+        "the fixture must distinguish the two geometry bases"
+    );
+
+    let capability = cards_capability(&state);
+    for _ in 0..(page_count + 3) {
+        assert!(state.apply_host_panel_action(
+            capability,
+            crate::host_controls::ControlAction::PageNext,
+            content_width,
+            content_height,
+        ));
+    }
+    assert_eq!(
+        state.workbench.page,
+        page_count - 1,
+        "the input clamp must agree with the display's page count (display {page_count}, content-basis {content_basis})"
+    );
+}
+
+/// `ControlAction::PagePrevious` against the cards control walks the page
+/// back one page at a time and holds at the first, mirroring the bounded
+/// PageNext the boundary path already applies (issue #706).
+#[test]
+fn host_panel_page_previous_walks_back_within_the_display_page_count() {
+    let mut state = committed_workbench_state(30, 120, 40);
+    let (content_width, content_height) = cards_content_rect(&state);
+    let page_count = display_page_count(&state, 120, 40);
+    let capability = cards_capability(&state);
+    for _ in 0..(page_count + 3) {
+        let _ = state.apply_host_panel_action(
+            capability,
+            crate::host_controls::ControlAction::PageNext,
+            content_width,
+            content_height,
+        );
+    }
+    assert_eq!(state.workbench.page, page_count - 1);
+    let _ = state.apply_host_panel_action(
+        capability,
+        crate::host_controls::ControlAction::PagePrevious,
+        content_width,
+        content_height,
+    );
+    assert_eq!(
+        state.workbench.page,
+        page_count - 2,
+        "paging back steps down one page from the last page"
+    );
+    for _ in 0..page_count {
+        let _ = state.apply_host_panel_action(
+            capability,
+            crate::host_controls::ControlAction::PagePrevious,
+            content_width,
+            content_height,
+        );
+    }
+    assert_eq!(
+        state.workbench.page, 0,
+        "paging back past the first page holds at the first page"
     );
 }
 
@@ -217,7 +453,7 @@ fn attach_without_a_selection_is_inert() {
 #[test]
 fn prev_page_clamps_at_zero() {
     let state = AppState::test_fixture();
-    let after = state.apply(AppEvent::WorkbenchPrevPage).committed_pure();
+    let after = apply_previous_page(state);
     assert_eq!(
         after.workbench.page, 0,
         "prev page at 0 must clamp, not wrap"
@@ -226,20 +462,20 @@ fn prev_page_clamps_at_zero() {
 
 #[test]
 fn prev_page_decrements_from_positive() {
-    let mut state = AppState::test_fixture();
-    state.workbench = WorkbenchUiState {
-            page: 3,
-            ..WorkbenchUiState::default()
-        };
-    let after = state.apply(AppEvent::WorkbenchPrevPage).committed_pure();
+    // The decrement needs a committed frame: without one the display basis is
+    // zero and prev is inert (issue #706), so the legacy frame-less pin moved
+    // with the cutover NextPage already made.
+    let mut state = committed_workbench_state(30, 120, 40);
+    state.workbench.page = 3;
+    let after = apply_previous_page(state);
     assert_eq!(after.workbench.page, 2);
 }
 
 #[test]
 fn next_page_then_prev_returns_to_start() {
-    let state = AppState::test_fixture();
-    let mid = state.apply(AppEvent::WorkbenchNextPage).committed_pure();
-    let after = mid.apply(AppEvent::WorkbenchPrevPage).committed_pure();
+    let state = committed_workbench_state(30, 120, 40);
+    let mid = apply_next_page(state);
+    let after = apply_previous_page(mid);
     assert_eq!(after.workbench.page, 0);
 }
 

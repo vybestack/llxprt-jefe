@@ -1,6 +1,7 @@
 use super::*;
 use jefe::workbench::{
-    PanelId, PluginScreenId, Rect, ResolvedLayout, ResolvedPanel, ScreenIdentity, ScreenInstanceId,
+    LayoutGeneration, PanelId, PluginScreenId, Rect, ResolvedLayout, ResolvedPanel, ScreenIdentity,
+    ScreenInstanceId,
 };
 
 fn panel(id: &'static str, chrome: Rect) -> ResolvedPanel {
@@ -17,6 +18,7 @@ fn panel(id: &'static str, chrome: Rect) -> ResolvedPanel {
 fn provider_layout() -> ResolvedLayout {
     ResolvedLayout {
         screen_instance: ScreenInstanceId::preview(),
+        generation: LayoutGeneration::next(),
         outer: Rect::new(0, 0, 80, 24),
         panels: vec![
             panel("left", Rect::new(0, 1, 40, 22)),

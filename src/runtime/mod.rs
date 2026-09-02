@@ -29,6 +29,9 @@ mod attach;
 mod attach_listener;
 mod attach_mode_recovery;
 mod attach_scheduler;
+/// Pure color/style resolution helpers for the attached-viewer snapshot,
+/// split out of `attach.rs` to keep it under the source-file-size limit.
+mod attach_style;
 mod capabilities;
 mod capture_ops;
 mod command_capture;

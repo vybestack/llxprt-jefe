@@ -54,6 +54,7 @@ pub struct InstancePresentationState {
     pub resolved_layout: Option<crate::workbench::ResolvedLayout>,
     pub repository_scroll_offset: u32,
     pub agent_scroll_offset: u32,
+    pub session_scroll_offset: u32,
     pub terminal_history_offset: Option<usize>,
     pub terminal_viewport_rows: usize,
     pub terminal_total_lines: usize,

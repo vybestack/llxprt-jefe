@@ -8,7 +8,7 @@
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, DashboardGrabPane, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, AppState, DashboardGrabPane, PaneFocus};
 use std::path::PathBuf;
 
 /// Build a dashboard state with three repositories, each with one running
@@ -509,7 +509,7 @@ fn enter_split_mode_clears_dashboard_grab() {
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen(), ScreenId::Repositories);
+    assert_eq!(state.screen(), jefe::workbench::REPOSITORIES_IDENTITY);
     assert_eq!(state.dashboard_grab, None);
 }
 

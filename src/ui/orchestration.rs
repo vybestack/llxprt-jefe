@@ -8,18 +8,15 @@ use iocraft::prelude::*;
 use crate::host_controls::PanelHitTarget;
 use crate::overlay_controls::{
     ConfirmationContent, OverlayControlProjection, project_confirmation, project_help,
+    project_repository_form,
 };
 use crate::state::{AppState, ConfirmFocus, ModalState, ScreenId};
 use crate::theme::ThemeColors;
 use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
-    TerminalManagerScreen,
 };
-use crate::ui::{
-    AuthModal, GeneratedAgentForm, NewAgentForm, NewRepositoryForm, SplitScreen,
-    WorkflowDispatchForm,
-};
+use crate::ui::{AuthModal, WorkflowDispatchForm};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -243,26 +240,6 @@ fn repo_display_name(snapshot: &AppState, id: &crate::domain::RepositoryId) -> S
         .map_or_else(|| String::from("selected repository"), |r| r.name.clone())
 }
 
-fn terminal_manager_element(
-    snapshot: &AppState,
-    colors: &ThemeColors,
-    theme_name: &str,
-    terminal: TerminalRenderData,
-) -> AnyElement<'static> {
-    element! {
-        TerminalManagerScreen(
-            state: Some(snapshot.clone()),
-            colors: Some(colors.clone()),
-            theme_name: theme_name.to_owned(),
-            terminal_snapshot: terminal.snapshot,
-            history_lines: terminal.history_lines,
-            terminal_pane_rows: u16::try_from(terminal.pane_rows).unwrap_or(u16::MAX),
-            terminal_pane_cols: u16::try_from(terminal.pane_cols).unwrap_or(u16::MAX),
-        )
-    }
-    .into_any()
-}
-
 /// Build a screen element for a component taking the shared screen props.
 ///
 /// Every screen except the dashboard and the Terminal Manager renders from the
@@ -300,7 +277,6 @@ pub fn build_screen_element(
 ) -> AnyElement<'static> {
     match snapshot.compiled_screen() {
         Some(ScreenId::Issues) => screen_element!(IssuesScreen, snapshot, colors, theme_name),
-        Some(ScreenId::Repositories) => screen_element!(SplitScreen, snapshot, colors, theme_name),
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
         Some(ScreenId::PullRequests) => {
@@ -308,10 +284,9 @@ pub fn build_screen_element(
         }
         Some(ScreenId::Actions) => screen_element!(ActionsScreen, snapshot, colors, theme_name),
         Some(ScreenId::Errors) => screen_element!(ErrorsScreen, snapshot, colors, theme_name),
-        Some(ScreenId::Terminals) => {
-            terminal_manager_element(snapshot, colors, theme_name, terminal)
-        }
         Some(ScreenId::Settings) => screen_element!(SettingsScreen, snapshot, colors, theme_name),
+        // The dashboard, the Terminal Manager, and the split view render from
+        // their published descriptors through the shared screen runtime.
         None => element! {
             ProviderScreen(
                 state: Some(snapshot.clone()),
@@ -342,21 +317,6 @@ macro_rules! form_modal {
         }
         .into_any()
     };
-}
-
-fn generated_agent_modal(
-    snapshot: &AppState,
-    colors: &ThemeColors,
-    available_rows: u16,
-) -> AnyElement<'static> {
-    element! {
-        GeneratedAgentForm(
-            state: snapshot.clone(),
-            colors: colors.clone(),
-            available_rows: available_rows,
-        )
-    }
-    .into_any()
 }
 
 /// Build the modal element for the current modal state, if any.
@@ -398,15 +358,27 @@ pub fn build_modal_element(
         ));
     }
     match modal {
-        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
-            Some(form_modal!(NewRepositoryForm, snapshot, colors))
-        }
-        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => {
-            Some(form_modal!(NewAgentForm, snapshot, colors))
-        }
-        ModalState::GeneratedAgent { .. } => {
-            Some(generated_agent_modal(snapshot, colors, viewport.rows))
-        }
+        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            project_repository_form,
+            crate::overlay_controls::REPOSITORY_FORM_FOOTER,
+        ),
+        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            crate::overlay_controls_agent_form::project_agent_form,
+            crate::overlay_controls_agent_form::AGENT_FORM_FOOTER,
+        ),
+        ModalState::GeneratedAgent { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            crate::overlay_controls_generated_form::project_generated_agent_form,
+            crate::overlay_controls_generated_form::GENERATED_FORM_FOOTER,
+        ),
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
         }
@@ -432,6 +404,19 @@ pub fn build_provider_overlay_element(
         colors,
         footer,
     )
+}
+
+/// Route a definition-backed form modal through the shared overlay shell.
+fn form_overlay(
+    snapshot: &AppState,
+    viewport: ModalViewport,
+    colors: &ThemeColors,
+    project: fn(&AppState, usize) -> Option<OverlayControlProjection>,
+    footer: &str,
+) -> Option<AnyElement<'static>> {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(viewport.cols, viewport.rows);
+    let projection = project(snapshot, layout.content_width)?;
+    Some(host_overlay_element(projection, layout, colors, footer))
 }
 
 fn host_overlay_element(

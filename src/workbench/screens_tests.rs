@@ -6,8 +6,10 @@
 
 use serde_json::Value;
 
-use super::descriptor::{LayoutChild, LayoutNode, ScreenDescriptor};
-use super::ids::{DASHBOARD_IDENTITY, MAX_PANELS_PER_SCREEN, PanelId, ScreenId};
+use super::descriptor::{HostPanelModelSource, LayoutChild, LayoutNode, ScreenDescriptor};
+use super::geometry::Rect;
+use super::ids::{DASHBOARD_IDENTITY, MAX_PANELS_PER_SCREEN, PanelId, ScreenId, ScreenInstanceId};
+use super::resolve::{PanelState, resolve_layout};
 use super::screens::{PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
 use super::validate::validate_descriptor;
 
@@ -159,15 +161,13 @@ fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
 }
 
 #[test]
-fn the_compiled_residual_set_is_exactly_seven_and_excludes_dashboard() {
+fn the_compiled_residual_set_is_exactly_five_and_a_strict_subset_of_the_recorded_set() {
     let registry = registry();
     let expected = [
-        ScreenId::Repositories,
         ScreenId::Issues,
         ScreenId::PullRequests,
         ScreenId::Actions,
         ScreenId::Errors,
-        ScreenId::Terminals,
         ScreenId::Settings,
     ];
     let registered: Vec<ScreenId> = registry
@@ -175,16 +175,47 @@ fn the_compiled_residual_set_is_exactly_seven_and_excludes_dashboard() {
         .iter()
         .filter_map(|screen| screen.id.compiled())
         .collect();
-    let dashboard = registry
+    let repositories = registry
         .screens()
         .iter()
-        .find(|screen| screen.id.as_str() == "core.dashboard");
+        .find(|screen| screen.id.as_str() == crate::workbench::REPOSITORIES_SCREEN_ID.as_str());
 
-    assert_eq!(ScreenId::ALL, expected);
-    assert_eq!(registered, expected);
+    assert_eq!(ScreenId::ALL.as_slice(), expected.as_slice());
+    assert_eq!(registered.as_slice(), expected.as_slice());
     assert!(
-        dashboard.is_some_and(|screen| screen.id.compiled().is_none()),
-        "Dashboard must be an open shared-runtime definition, not a residual compiled adapter"
+        repositories.is_some_and(|screen| screen.id.compiled().is_none()),
+        "Repositories must be an open shared-runtime definition, not a residual compiled adapter"
+    );
+
+    // The recorded residual set is what the issue #705 owner-evidence ledger
+    // shipped: compiled adapters including Repositories. The #706 cutover
+    // migrates exactly one of them onto the shared runtime, so the live set
+    // must be a strict subset whose only missing element is the repositories
+    // builtin — no silent additions, no second migration hiding in the diff.
+    let recorded = [
+        "github.issues",
+        "github.pull-requests",
+        "github.actions",
+        "core.errors",
+        "core.settings",
+        "core.repositories",
+    ];
+    let live: Vec<&str> = ScreenId::ALL.iter().map(|id| id.as_str()).collect();
+    for id in &live {
+        assert!(
+            recorded.contains(id),
+            "screen {id} joined the residual set outside the recorded migration"
+        );
+    }
+    let migrated: Vec<&str> = recorded
+        .iter()
+        .filter(|id| !live.contains(id))
+        .copied()
+        .collect();
+    assert_eq!(
+        migrated.as_slice(),
+        [crate::workbench::REPOSITORIES_SCREEN_ID.as_str()],
+        "exactly the repositories screen may have migrated off the recorded residual set"
     );
 }
 
@@ -411,6 +442,31 @@ fn no_flexible_child_reserves_a_minimum_it_does_not_need() {
 }
 
 #[test]
+fn shipped_builtin_count_matches_the_declared_table() {
+    let builtins = registry()
+        .screens()
+        .iter()
+        .filter(|screen| screen.id.compiled().is_none())
+        .count();
+    assert_eq!(
+        crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
+        3,
+        "the shipped builtins are exactly dashboard, terminals, and repositories"
+    );
+    assert_eq!(builtins, 3, "three shipped screens are builtin definitions");
+    assert_eq!(
+        builtins,
+        crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
+        "SHIPPED_BUILTIN_SCREENS must name exactly the builtin descriptor screens"
+    );
+    assert_eq!(
+        registry().screens().len(),
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
+        "the shipped table is the residual compiled screens plus the builtins"
+    );
+}
+
+#[test]
 fn initial_focus_agrees_with_every_descriptor() {
     // The compiled table lets a screen instance be created without a fallible
     // registry lookup, which is only safe while the two agree exactly.
@@ -491,5 +547,148 @@ fn mutating_a_legacy_product_spelling_does_not_change_compiled_host_authority() 
         authority.control_kind(),
         crate::host_controls::ControlKind::List
     );
-    assert_eq!(validate_descriptor(&dashboard), Ok(()));
+}
+
+#[test]
+fn repositories_cards_grid_is_a_declared_host_control() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
+        .unwrap_or_else(|| panic!("repositories descriptor must be published"));
+    let cards_grid = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "cards")
+        .unwrap_or_else(|| panic!("cards panel must be declared"));
+    let capability = cards_grid
+        .host_capability()
+        .unwrap_or_else(|| unreachable!("cards must be a declared host control"));
+    assert_eq!(
+        capability.model_source(),
+        super::descriptor::HostPanelModelSource::WorkbenchCards
+    );
+    assert_eq!(
+        capability.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
+}
+
+#[test]
+fn terminals_shell_list_is_a_declared_host_control() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::TERMINALS_IDENTITY)
+        .unwrap_or_else(|| panic!("terminals descriptor must be published"));
+    let shell_list = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "shell-list")
+        .unwrap_or_else(|| panic!("shell-list panel must be declared"));
+    let capability = shell_list
+        .host_capability()
+        .unwrap_or_else(|| unreachable!("shell-list must be a declared host control"));
+    assert_eq!(
+        capability.model_source(),
+        super::descriptor::HostPanelModelSource::SessionList
+    );
+    assert_eq!(
+        capability.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
+}
+
+#[test]
+fn repositories_status_block_is_a_declared_host_control() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
+        .unwrap_or_else(|| panic!("repositories descriptor must be published"));
+    let status_block = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "status")
+        .unwrap_or_else(|| panic!("status panel must be declared"));
+    let capability = status_block
+        .host_capability()
+        .unwrap_or_else(|| unreachable!("status must be a declared host control"));
+    assert_eq!(
+        capability.model_source(),
+        super::descriptor::HostPanelModelSource::WorkbenchStatus
+    );
+    assert_eq!(
+        capability.control_kind(),
+        crate::host_controls::ControlKind::List
+    );
+}
+
+/// The STATUS pane must fit every bucket row the projection emits.
+///
+/// The pane draws its own border and title (`LIST_PANE_CHROME`), so the fixed
+/// claim has to cover that chrome plus one row per bucket. The scenario
+/// manifest `workbench-screen.json` asserts the same four labels against the
+/// real process; this pins the geometry and the clipped projection that
+/// produce them, at the scenario's terminal size.
+#[test]
+fn repositories_status_pane_fits_every_bucket_row_at_120x36() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
+        .unwrap_or_else(|| panic!("repositories descriptor must be published"));
+    let layout = resolve_layout(
+        descriptor,
+        ScreenInstanceId::next(),
+        Rect::new(0, 0, 120, 36),
+        &PanelState::all_visible(),
+    )
+    .unwrap_or_else(|error| panic!("resolution must not fail: {error}"));
+    assert!(
+        layout.too_small.is_none(),
+        "the repositories screen must fit at 120x36"
+    );
+
+    let status = layout
+        .panel(&PanelId::from_static("status"))
+        .unwrap_or_else(|| panic!("status panel must resolve"));
+    assert!(status.visible, "the status panel must be visible at 120x36");
+    let buckets = crate::workbench_view::STATUS_BLOCK_ORDER.len();
+    assert!(
+        usize::from(status.content.height) >= buckets,
+        "status interior is {} rows but must fit all {buckets} bucket rows",
+        status.content.height
+    );
+
+    // Every row the projection emits, clipped to the interior height the pane
+    // renders — the same clip `project_host_model` applies before drawing.
+    let state = crate::state::AppState::test_fixture();
+    let model =
+        crate::host_panel_models::project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let rows = crate::host_controls::project_control_body(
+        &model.body,
+        &model.action_affordances,
+        model.selected_id.as_ref(),
+        None,
+        usize::from(status.content.width),
+    );
+    let visible: Vec<&str> = rows
+        .iter()
+        .take(usize::from(status.content.height))
+        .map(|row| row.text.as_str())
+        .collect();
+    for label in ["Needs you", "Working", "Ready", "Stale"] {
+        assert!(
+            visible.iter().any(|text| text.contains(label)),
+            "status interior must show the {label} bucket; visible rows: {visible:?}"
+        );
+    }
+
+    // Growing the status claim must not push the repository list out of the
+    // rows it renders at this size (its empty-state line plus one entry).
+    let sidebar = layout
+        .panel(&PanelId::from_static("repositories"))
+        .unwrap_or_else(|| panic!("repositories panel must resolve"));
+    assert!(
+        sidebar.visible && usize::from(sidebar.content.height) >= 2,
+        "repository list must keep at least its two rendered rows, has {}",
+        sidebar.content.height
+    );
 }

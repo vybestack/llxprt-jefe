@@ -1,7 +1,7 @@
 use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
 use crate::mouse_overlay_routing::consume_blocking_overlay_mouse;
 use crate::mouse_terminal_geometry::{
-    active_pty_layout, refresh_terminal_scroll_geometry_from_ctx, terminal_size,
+    active_pty_content_rect, refresh_terminal_scroll_geometry_from_ctx, terminal_size,
 };
 #[path = "mouse_action_execution.rs"]
 mod mouse_action_execution;
@@ -229,10 +229,10 @@ fn route_terminal_gesture(
     // forwards them to the PTY (issue #245). Shift+wheel is host passthrough.
     // Clicks/drags always flow through the gesture machine so reporting
     // children stay interactive.
-    if wheel_intercept_active_for_agent(kennel_mode, shift_held)
-        && is_wheel_event(mouse_event)
-        && is_event_over_terminal_pane(mouse_event, overlay_active)
-    {
+    if wheel_intercept_active_for_agent(kennel_mode, shift_held) && is_wheel_event(mouse_event) && {
+        let state = app_state.read();
+        is_event_over_terminal_pane(&state, mouse_event, overlay_active)
+    } {
         // Refresh scroll geometry from runtime + layout BEFORE applying so
         // the reducer's clamp bounds match the rendered content (mirrors the
         // keyboard dispatch path). Runs at event time, never at render time.
@@ -352,12 +352,15 @@ fn execute_gesture_action(
             finalize_terminal_selection(ctx, app_state, clipboard::write_osc52);
         }
         GestureAction::ForwardToPty(replays) => {
-            forward_replays(
-                ctx,
-                &replays,
-                mouse_event,
-                app_state.read().shell_overlay_active(),
-            );
+            let pane = {
+                let state = app_state.read();
+                active_pty_content_rect(&state, state.shell_overlay_active())
+            };
+            if let Some(pane) = pane {
+                forward_replays(ctx, &replays, mouse_event, pane);
+            }
+            // No visible PTY panel means there is no pane to translate
+            // replay coordinates into; the replay is dropped.
         }
         GestureAction::Composite { first, second } => {
             execute_gesture_action(ctx, app_state, *first, mouse_event);
@@ -408,22 +411,23 @@ fn is_wheel_event(mouse_event: &iocraft::FullscreenMouseEvent) -> bool {
 }
 /// Whether the mouse event coordinates land inside the terminal pane bounds
 /// (issue #198).
+///
+/// Reads the committed frame's PTY content rectangle (issue #706), so the
+/// hit test matches the rectangle the renderer drew. `false` when no PTY
+/// panel is visible: there is no pane to be over.
 fn is_event_over_terminal_pane(
+    state: &AppState,
     mouse_event: &iocraft::FullscreenMouseEvent,
     overlay_active: bool,
 ) -> bool {
-    let (cols, rows) = terminal_size();
-    let layout = active_pty_layout(cols, rows, overlay_active);
-    let row_end = layout
-        .pane_row0
-        .saturating_add(layout.pty_rows.saturating_sub(1));
-    let col_end = layout
-        .pane_col0
-        .saturating_add(layout.pty_cols.saturating_sub(1));
-    mouse_event.column >= layout.pane_col0
-        && mouse_event.column <= col_end
-        && mouse_event.row >= layout.pane_row0
-        && mouse_event.row <= row_end
+    let Some(rect) = active_pty_content_rect(state, overlay_active) else {
+        return false;
+    };
+    let row_end = rect.row.saturating_add(rect.height.saturating_sub(1));
+    let col_end = rect.col.saturating_add(rect.width.saturating_sub(1));
+    let within_columns = mouse_event.column >= rect.col && mouse_event.column <= col_end;
+    let within_rows = mouse_event.row >= rect.row && mouse_event.row <= row_end;
+    within_columns && within_rows
 }
 /// Whether Jefe's scrollback viewport should own wheel events for the focused
 /// terminal agent (issue #198 + #245).
@@ -456,11 +460,15 @@ fn wheel_to_terminal_scroll_event(
     }
 }
 /// Forward a list of PTY replay events, encoding each as SGR mouse bytes.
+///
+/// Coordinates are translated into the committed frame's PTY content
+/// rectangle (issue #706), so replayed gestures land where the renderer
+/// drew the pane.
 fn forward_replays(
     ctx: Option<&CtxArc>,
     replays: &[PtyReplay],
     mouse_event: &iocraft::FullscreenMouseEvent,
-    overlay_active: bool,
+    pane: jefe::workbench::Rect,
 ) {
     let Some(ctx_arc) = ctx else {
         return;
@@ -468,12 +476,10 @@ fn forward_replays(
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
         return;
     };
-    let (cols, rows) = terminal_size();
-    let layout = active_pty_layout(cols, rows, overlay_active);
     for replay in replays {
         let (screen_col, screen_row) = (replay.col, replay.row);
-        let local_row = screen_row.saturating_sub(layout.pane_row0);
-        let local_col = screen_col.saturating_sub(layout.pane_col0);
+        let local_row = screen_row.saturating_sub(pane.row);
+        let local_col = screen_col.saturating_sub(pane.col);
         // Left-button replays may be buffered/replayed (e.g. a pending click
         // replays its buffered down + the up), so they are reconstructed from
         // the gesture kind. Non-left replays (wheel/right/middle) are always
@@ -780,10 +786,7 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        Some(
-            ScreenId::Errors | ScreenId::Repositories | ScreenId::Terminals | ScreenId::Settings,
-        )
-        | None => (false, false),
+        Some(ScreenId::Errors | ScreenId::Settings) | None => (false, false),
     };
     let error_visible =
         (state.error_message.is_some() && compiled != Some(ScreenId::Errors)) || mode_error;

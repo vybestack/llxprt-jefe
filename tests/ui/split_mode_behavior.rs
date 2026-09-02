@@ -8,7 +8,7 @@
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ScreenId};
+use jefe::state::{AppEvent, AppState};
 use std::path::PathBuf;
 
 /// Create a test state with multiple repositories.
@@ -40,7 +40,7 @@ fn create_split_test_state() -> AppState {
 
     {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
         state.repositories = vec![repo1, repo2, repo3];
         state.selected_repository_index = Some(0);
         state
@@ -61,7 +61,7 @@ fn s_key_enters_split_mode() {
 
     let state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen(), ScreenId::Repositories);
+    assert_eq!(state.screen(), jefe::workbench::REPOSITORIES_IDENTITY);
 }
 
 #[test]

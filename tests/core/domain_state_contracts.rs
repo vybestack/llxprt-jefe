@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, ModalState, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, ModalState, PaneFocus};
 
 // =============================================================================
 // Domain Invariants (REQ-FUNC-003, REQ-FUNC-004)
@@ -493,7 +493,7 @@ fn enter_split_mode_changes_active_screen() {
 
     assert_eq!(
         next.screen(),
-        ScreenId::Repositories,
+        jefe::workbench::REPOSITORIES_IDENTITY,
         "EnterSplitMode should change to Split"
     );
 }
@@ -502,7 +502,7 @@ fn enter_split_mode_changes_active_screen() {
 fn exit_split_mode_returns_to_dashboard() {
     let state = {
         let mut state = crate::common_app_state::app_state();
-        state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
         state
     };
 

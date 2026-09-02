@@ -17,6 +17,7 @@
 //!   panel in descriptor focus order is visible, with a [`TooSmall`] notice.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::allocate::{AxisChild, LayoutError, allocate_axis};
 use super::config::panel_insets;
@@ -24,6 +25,66 @@ use super::descriptor::{Axis, LayoutChild, LayoutNode, ScreenDescriptor};
 use super::geometry::{Extent, Rect};
 use super::ids::{PanelId, ScreenInstanceId};
 use super::screens::PTY_PANEL_TYPE;
+
+/// Identity of one committed resolved frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutGeneration(u64);
+
+impl LayoutGeneration {
+    /// Issue one unique frame generation. Real frames mint from one upward so
+    /// [`LayoutGeneration::zero`] remains strictly "no frame has committed",
+    /// which runtime consumers use as their pre-commit sentinel.
+    #[must_use]
+    pub fn next() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// The zero generation, used where no frame has committed yet.
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self(0)
+    }
+
+    /// The raw monotonic value, for exact ordering proof.
+    #[must_use]
+    pub fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+/// The frame identity one consumer below the resolver carries for a panel.
+///
+/// The pair (`screen_instance`, `panel`) names one instantiated panel and is
+/// stable while that screen instance lives; `generation` advances on every
+/// committed frame. Render, mouse, focus, selection, wrap, scroll, viewport,
+/// and PTY consumers annotate their inputs and effects with this value so a
+/// stale completion can be proven to change nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PanelFrame {
+    /// The committed frame the panel's geometry came from.
+    pub generation: LayoutGeneration,
+    /// Which instantiated screen owns the panel.
+    pub screen_instance: ScreenInstanceId,
+    /// Which declared panel of that screen instance this is.
+    pub panel: PanelId,
+}
+
+/// The PTY viewport one frame hands the runtime manager.
+///
+/// Carries the frame identity alongside the rectangle so create and resize
+/// effects can be proven current: the manager applies an ordered resize only
+/// when its generation advances past the last one it applied, which makes a
+/// stale completion provably change nothing (issue #706 CWR3-02/CWR3-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeViewport {
+    /// Content-rectangle height in rows sent to the child.
+    pub rows: u16,
+    /// Content-rectangle width in columns sent to the child.
+    pub cols: u16,
+    /// The frame this rectangle came from.
+    pub generation: LayoutGeneration,
+}
 
 /// Panels the application has hidden for reasons the descriptor does not model
 /// (no selection, a closed detail pane, an unavailable data source).
@@ -85,6 +146,13 @@ pub struct ResolvedLayout {
     /// Identity of the snapshot. Consumers compare this to prove they read the
     /// same geometry the renderer used.
     pub screen_instance: ScreenInstanceId,
+    /// Monotonic identity of this committed frame (issue #706).
+    ///
+    /// Every size, visibility, layer, or layout-state change that produced this
+    /// snapshot is assigned a fresh, strictly increasing generation. Any consumer
+    /// below the resolver annotates its output with the same generation so a stale
+    /// completion can be proven to change nothing.
+    pub generation: LayoutGeneration,
     /// The rectangle the screen was resolved into, after global chrome.
     pub outer: Rect,
     /// Every declared panel, in descriptor declaration order.
@@ -115,6 +183,35 @@ impl ResolvedLayout {
                 .hit_region
                 .is_some_and(|region| region.contains(col, row))
         })
+    }
+
+    /// The frame identity a consumer below the resolver carries for `id`.
+    ///
+    /// Returns `None` only for a panel this snapshot never declared. A hidden
+    /// panel still carries a frame, so deferred work such as PTY creation stays
+    /// bound to the committed frame that hid it.
+    #[must_use]
+    pub fn panel_frame(&self, id: &PanelId) -> Option<PanelFrame> {
+        self.panel(id).map(|panel| PanelFrame {
+            generation: self.generation,
+            screen_instance: self.screen_instance,
+            panel: panel.id,
+        })
+    }
+
+    /// Whether two snapshots describe the same geometry.
+    ///
+    /// Every frame mints a fresh [`LayoutGeneration`], so derived equality is
+    /// never a usable change signal: a publication or PTY-resize gate keyed on
+    /// it would fire every render. This comparison deliberately ignores the
+    /// generation and answers whether any rectangle, visibility, or screen
+    /// identity actually changed.
+    #[must_use]
+    pub fn same_geometry(&self, other: &Self) -> bool {
+        self.screen_instance == other.screen_instance
+            && self.outer == other.outer
+            && self.panels == other.panels
+            && self.too_small == other.too_small
     }
 }
 
@@ -371,6 +468,7 @@ fn build_layout(
         .collect();
     ResolvedLayout {
         screen_instance,
+        generation: LayoutGeneration::next(),
         outer,
         panels,
         too_small: None,
@@ -484,6 +582,7 @@ fn too_small_layout(
         .collect();
     ResolvedLayout {
         screen_instance,
+        generation: LayoutGeneration::next(),
         outer,
         panels,
         too_small: Some(TooSmall {

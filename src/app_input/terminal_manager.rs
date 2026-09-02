@@ -396,7 +396,7 @@ mod pending_focus_tests {
     fn pending_focus_match_is_evaluated_from_executor_snapshot() {
         let agent_id = AgentId("agent-496".to_owned());
         let mut state = crate::test_app_state();
-        let _ = state.enter_screen(jefe::state::ScreenId::Repositories);
+        let _ = state.enter_split_definition();
         let screen = state.nav.current().screen;
         let screen_instance = state.nav.current().id;
         state.terminal_manager.pending_focus = Some(PendingShellFocus {
@@ -413,7 +413,7 @@ mod pending_focus_tests {
             &AgentId("other-agent".to_owned()),
             7
         ));
-        let _ = state.enter_screen(jefe::state::ScreenId::Repositories);
+        let _ = state.enter_split_definition();
         assert_eq!(state.nav.current().screen, screen);
         assert_ne!(state.nav.current().id, screen_instance);
         assert!(state.terminal_manager.pending_focus.is_some());

@@ -34,7 +34,6 @@ use std::sync::Arc;
 use iocraft::prelude::*;
 use tracing::error;
 
-use jefe::layout::is_fullscreen_enabled;
 use jefe::runtime::TmuxRuntimeManager;
 use jefe::theme::FileThemeManager;
 
@@ -390,13 +389,10 @@ fn run_app(context: Arc<std::sync::Mutex<AppContext>>) -> jefe::domain::RunEndRe
             key: iocraft::ElementKey::new(()),
             props: app_shell::AppProps { context },
         };
-        if is_fullscreen_enabled() {
-            if let Err(error) = app.fullscreen().await {
-                error!(%error, "fullscreen mode failed");
-                return jefe::domain::RunEndReason::RenderFailed;
-            }
-        } else if let Err(error) = app.render_loop().await {
-            error!(%error, "render loop failed");
+        // Fullscreen is the only render mode: the windowed fork below the
+        // resolver was deleted with the split-screen cutover (issue #706).
+        if let Err(error) = app.fullscreen().await {
+            error!(%error, "fullscreen mode failed");
             return jefe::domain::RunEndReason::RenderFailed;
         }
         jefe::domain::RunEndReason::UserQuit

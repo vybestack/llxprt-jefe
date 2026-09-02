@@ -279,10 +279,10 @@ fn unavailable_action_on_other_screens_only_warns() {
     // showing — a notice written there would appear later, out of context.
     for screen in [
         crate::workbench::DASHBOARD_IDENTITY,
-        crate::workbench::ScreenId::Repositories.into(),
+        crate::workbench::REPOSITORIES_IDENTITY,
         crate::workbench::ScreenId::Actions.into(),
         crate::workbench::ScreenId::Errors.into(),
-        crate::workbench::ScreenId::Terminals.into(),
+        crate::workbench::TERMINALS_IDENTITY,
     ] {
         let mut state = state_with_unprobed_agent();
         state.restore_navigation_root(screen);

@@ -270,7 +270,7 @@ fn dirty_interception_does_not_finalize_a_compiled_screen() {
 fn repositories_back_preserves_one_transition_exit_while_grabbing() {
     use crate::state::transition::TransitionExt;
 
-    let mut state = on(ScreenId::Repositories);
+    let mut state = on(crate::workbench::REPOSITORIES_IDENTITY);
     state.split_grab_index = Some(0);
 
     let state = state.apply(super::AppEvent::Back).committed_pure();

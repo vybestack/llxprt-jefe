@@ -41,6 +41,7 @@ pub mod screen_lowering;
 pub mod screen_lowering_layout;
 pub mod screen_lowering_values;
 pub mod screens;
+pub mod screens_github;
 pub mod screens_ports;
 pub mod validate;
 
@@ -149,13 +150,17 @@ pub use ids::{
     MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
     MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_RESOURCES_PER_SCREEN, MAX_SCREENS,
     MAX_SPLIT_CHILDREN, OpenScreenId, PanelId, PanelInstanceId, PanelTypeId, PluginScreenId,
-    PortId, RouteId, ScreenId, ScreenIdentity, ScreenInstanceId, ScreenInstanceIdExhausted,
+    PortId, REPOSITORIES_IDENTITY, REPOSITORIES_SCREEN_ID, RouteId, ScreenId, ScreenIdentity,
+    ScreenInstanceId, ScreenInstanceIdExhausted, TERMINALS_IDENTITY, TERMINALS_SCREEN_ID,
     VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use lowering_error::LoweringError;
 pub use migration::{LEGACY_SCREEN_VALUES, MigrationOutcome, migrate_persisted_screen_value};
-pub use panel_types::{DEFINABLE_PANEL_TYPES, PanelTypeError, find_panel_type, resolve_panel_type};
+pub use panel_types::{
+    DEFINABLE_PANEL_TYPES, FILTER_BAND_PANEL_TYPE, PanelTypeError, find_panel_type,
+    resolve_panel_type,
+};
 pub use relationship_propagation::{
     PortInstanceKey, PortUpdate, PortValue, PropagationAbort, RelationshipInstance,
     RelationshipInstanceError, RelationshipState, RelationshipTransition, SourceIntent, propagate,
@@ -165,8 +170,8 @@ pub use relationships::{
     SessionEmptyPolicy, validate_relationships,
 };
 pub use resolve::{
-    PanelState, ResolvedLayout, ResolvedPanel, TooSmall, pty_content_rect, repair_focus,
-    resolve_layout,
+    LayoutGeneration, PanelFrame, PanelState, ResolvedLayout, ResolvedPanel, RuntimeViewport,
+    TooSmall, pty_content_rect, repair_focus, resolve_layout,
 };
 pub use resource_schemas::{
     BuiltinResourceSchemaError, ResourceSchema, ResourceSchemaError, ResourceSchemaRegistry,
@@ -185,6 +190,7 @@ pub use screens::{
     SELECTION_PORT, SETTINGS_AGENT_TYPES_PANEL, SETTINGS_APPEARANCE_PANEL,
     SETTINGS_DIAGNOSTICS_PANEL, SETTINGS_GENERAL_PANEL, SETTINGS_KEYS_PANEL,
     SETTINGS_PLUGINS_PANEL, SETTINGS_SCREENS_PANEL, SETTINGS_SECTIONS_PANEL, SUBJECT_PORT,
-    ScreenRegistry, TERMINALS_LIST_PANEL, builtin_screens, initial_focus, route_of,
+    ScreenRegistry, TERMINALS_LIST_PANEL, TERMINALS_ROUTE, builtin_screens, initial_focus,
+    route_of,
 };
 pub use validate::{DescriptorError, validate_descriptor};

@@ -28,16 +28,36 @@ impl TmuxRuntimeManager {
         self.initial_geometry_configured
     }
 
+    /// The frame whose PTY viewport the runtime last adopted.
+    ///
+    /// `zero` until the first committed frame configures the runtime; every
+    /// applied `resize_to_frame` advances it (issue #706 CWR3-02/CWR3-04).
+    #[must_use]
+    pub fn frame_generation(&self) -> crate::workbench::LayoutGeneration {
+        self.frame_generation
+    }
+
     /// Commit the first frame's nonzero PTY viewport exactly once.
-    pub fn configure_initial_geometry(&mut self, rows: u16, cols: u16) -> Result<(), RuntimeError> {
-        if rows == 0 || cols == 0 {
-            return Err(RuntimeError::InvalidInitialGeometry { rows, cols });
+    ///
+    /// The viewport carries the creating frame's generation so the create
+    /// effect can be proven current, exactly like a resize (issue #706
+    /// CWR3-02).
+    pub fn configure_initial_geometry(
+        &mut self,
+        viewport: crate::workbench::RuntimeViewport,
+    ) -> Result<(), RuntimeError> {
+        if viewport.rows == 0 || viewport.cols == 0 {
+            return Err(RuntimeError::InvalidInitialGeometry {
+                rows: viewport.rows,
+                cols: viewport.cols,
+            });
         }
         if self.initial_geometry_configured {
             return Err(RuntimeError::InitialGeometryAlreadyConfigured);
         }
-        self.rows = rows;
-        self.cols = cols;
+        self.rows = viewport.rows;
+        self.cols = viewport.cols;
+        self.frame_generation = viewport.generation;
         self.initial_geometry_configured = true;
         Ok(())
     }

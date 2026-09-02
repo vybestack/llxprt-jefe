@@ -75,13 +75,13 @@ const REQUIRED_DELETED_SYMBOLS: [(&str, &str); 6] = [
     ("src", "detail_target_for"),
     ("src", "master_detail_edge"),
 ];
-const REQUIRED_RESIDUAL_ADAPTERS: [(&str, &str); 7] = [
-    ("Repositories", "src/workbench/screens.rs"),
+/// The residual compiled adapters after the #706 workbench cutover moved
+/// Repositories onto the shared screen runtime as a builtin.
+const REQUIRED_RESIDUAL_ADAPTERS: [(&str, &str); 5] = [
     ("Issues", "src/workbench/screens.rs"),
     ("PullRequests", "src/workbench/screens.rs"),
     ("Actions", "src/workbench/screens.rs"),
     ("Errors", "src/workbench/screens.rs"),
-    ("Terminals", "src/workbench/screens.rs"),
     ("Settings", "src/workbench/screens.rs"),
 ];
 const REQUIRED_PRODUCTION_SYMBOLS: [(&str, &str); 22] = [
@@ -837,7 +837,7 @@ fn validate_residual_adapters(evidence: &Evidence, errors: &mut Vec<String>) {
         .map(|adapter| (adapter.screen.as_str(), adapter.path.as_str()))
         .collect();
     if actual != REQUIRED_RESIDUAL_ADAPTERS {
-        errors.push("residual adapter ledger differs from the exact residual seven".into());
+        errors.push("residual adapter ledger differs from the exact residual set".into());
     }
     for adapter in &evidence.residual_adapters {
         validate_criteria_list(&adapter.criteria, &adapter.screen, errors);

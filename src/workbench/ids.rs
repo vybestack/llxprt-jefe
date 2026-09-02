@@ -606,10 +606,8 @@ impl fmt::Display for ScreenIdentity {
 /// screen a compile error at each of those places instead of a silent fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum ScreenId {
-    /// The split repository view.
-    #[default]
-    Repositories,
     /// The GitHub issues screen.
+    #[default]
     Issues,
     /// The GitHub pull-requests screen.
     PullRequests,
@@ -617,21 +615,17 @@ pub enum ScreenId {
     Actions,
     /// The errors screen.
     Errors,
-    /// The Terminal Manager screen.
-    Terminals,
     /// The Settings screen.
     Settings,
 }
 
 impl ScreenId {
     /// Every residual compiled adapter, in registry order.
-    pub const ALL: [Self; 7] = [
-        Self::Repositories,
+    pub const ALL: [Self; 5] = [
         Self::Issues,
         Self::PullRequests,
         Self::Actions,
         Self::Errors,
-        Self::Terminals,
         Self::Settings,
     ];
 
@@ -640,12 +634,10 @@ impl ScreenId {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Repositories => "core.repositories",
             Self::Issues => "github.issues",
             Self::PullRequests => "github.pull-requests",
             Self::Actions => "github.actions",
             Self::Errors => "core.errors",
-            Self::Terminals => "core.terminals",
             Self::Settings => "core.settings",
         }
     }
@@ -684,6 +676,19 @@ pub const DASHBOARD_SCREEN_ID: BuiltinScreenId = BuiltinScreenId::from_static("c
 
 /// Open Dashboard definition identity used by navigation and persistence.
 pub const DASHBOARD_IDENTITY: ScreenIdentity = ScreenIdentity::Builtin(DASHBOARD_SCREEN_ID);
+
+/// Canonical identity of the built-in Terminal Manager definition.
+pub const TERMINALS_SCREEN_ID: BuiltinScreenId = BuiltinScreenId::from_static("core.terminals");
+
+/// Open Terminal Manager definition identity used by navigation and overlays.
+pub const TERMINALS_IDENTITY: ScreenIdentity = ScreenIdentity::Builtin(TERMINALS_SCREEN_ID);
+
+/// Canonical identity of the built-in Repositories (split) definition.
+pub const REPOSITORIES_SCREEN_ID: BuiltinScreenId =
+    BuiltinScreenId::from_static("core.repositories");
+
+/// Open Repositories definition identity used by navigation and persistence.
+pub const REPOSITORIES_IDENTITY: ScreenIdentity = ScreenIdentity::Builtin(REPOSITORIES_SCREEN_ID);
 
 impl fmt::Display for ScreenId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

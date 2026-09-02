@@ -24,10 +24,7 @@ pub(super) fn execution_for(
         Some(ScreenId::Issues) => issues_execution(handler, chord, state, page),
         Some(ScreenId::PullRequests) => prs_execution(handler, chord, state, page),
         Some(ScreenId::Actions) => actions_execution(handler, chord, state, page),
-        Some(
-            ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals | ScreenId::Settings,
-        )
-        | None => None,
+        Some(ScreenId::Errors | ScreenId::Settings) | None => None,
     }
 }
 

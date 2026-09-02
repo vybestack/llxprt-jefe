@@ -189,6 +189,17 @@ impl RuntimeManager for StubRuntimeManager {
         }
     }
 
+    fn resize_to_frame(
+        &mut self,
+        _viewport: crate::workbench::RuntimeViewport,
+    ) -> Result<(), RuntimeError> {
+        if self.attached_index.is_some() {
+            Ok(())
+        } else {
+            Err(RuntimeError::NoAttachedViewer)
+        }
+    }
+
     fn attached_agent(&self) -> Option<&AgentId> {
         self.attached_index
             .and_then(|idx| self.sessions.get(idx).map(|s| &s.agent_id))

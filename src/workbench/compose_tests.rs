@@ -58,7 +58,10 @@ fn an_enabled_definition_joins_the_registry_after_the_compiled_screens() {
         .map(|screen| screen.id.as_str())
         .collect();
     assert_eq!(identities.last(), Some(&"local.review"));
-    assert_eq!(identities.len(), ScreenId::ALL.len() + 2);
+    assert_eq!(
+        identities.len(),
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS + 1
+    );
     assert!(composition.warnings.is_empty());
 }
 
@@ -219,7 +222,7 @@ fn an_invalid_dormant_definition_is_omitted_with_a_warning() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
     assert_eq!(composition.warnings.len(), 1);
     assert_eq!(composition.warnings[0].code, CfgCode::W004);
@@ -237,7 +240,7 @@ fn a_valid_dormant_definition_is_omitted_without_a_warning() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
     assert!(composition.warnings.is_empty());
 }
@@ -411,7 +414,7 @@ fn an_enabled_member_with_no_file_is_simply_absent() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
 }
 
@@ -447,7 +450,7 @@ fn a_definition_is_left_out_when_the_enabled_set_is_empty() {
 
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
 }
 
@@ -473,7 +476,7 @@ fn a_dormant_definition_is_parsed_but_never_lowered() {
     );
     assert_eq!(
         composition.registry.screens().len(),
-        ScreenId::ALL.len() + 1
+        ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
 }
 

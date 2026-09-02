@@ -478,13 +478,19 @@ pub fn project_footer_effective(
 }
 
 fn footer_mode(screen: ScreenIdentity) -> Option<FooterMode> {
+    // The Terminal Manager and the split view are descriptor screens whose
+    // footers are still keyed by identity rather than a variant.
+    if screen == crate::workbench::TERMINALS_IDENTITY {
+        return Some(FooterMode::Terminals);
+    }
+    if screen == crate::workbench::REPOSITORIES_IDENTITY {
+        return Some(FooterMode::Split);
+    }
     Some(match screen.compiled()? {
-        ScreenId::Repositories => FooterMode::Split,
         ScreenId::Issues => FooterMode::Issues,
         ScreenId::PullRequests => FooterMode::PullRequests,
         ScreenId::Actions => FooterMode::Actions,
         ScreenId::Errors => FooterMode::Errors,
-        ScreenId::Terminals => FooterMode::Terminals,
         ScreenId::Settings => FooterMode::Settings,
     })
 }

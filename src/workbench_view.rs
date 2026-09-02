@@ -47,6 +47,11 @@ pub const TODO_WINDOW_MAX: usize = 8;
 /// progress header, blank, last-message line, bottom border.
 pub const CARD_CHROME_LINES: usize = 7;
 
+/// Columns the bordered box adds around the interior `card_width`: left +
+/// right border. Used by hit-target geometry so the stride matches the
+/// painted footprint (issue #706).
+pub const CARD_BORDER_COLS: usize = 2;
+
 /// Fixed chrome lines consumed outside the card grid by the screen itself
 /// (status bar, filter lines, footer). The vertical rule subtracts this from
 /// the terminal height before dividing among card rows.
@@ -101,6 +106,17 @@ impl StatusBucket {
             Self::Stale => 3,
         }
     }
+
+    /// The operator-facing label the STATUS rail prints for this bucket.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::NeedsYou => "Needs you",
+            Self::Working => "Working",
+            Self::Ready => "Ready",
+            Self::Stale => "Stale",
+        }
+    }
 }
 
 /// One windowed todo line, already clipped to the card interior.
@@ -113,6 +129,27 @@ pub struct TodoLine {
     pub is_current: bool,
     /// Whether this line is a real item versus blank padding.
     pub is_blank: bool,
+}
+
+/// The order the STATUS rail lists the buckets in, top to bottom.
+///
+/// One order shared by the reducers' filter cursor and every projection of
+/// the block, so the cursor and the rendered rows cannot drift apart.
+pub const STATUS_BLOCK_ORDER: [StatusBucket; 4] = [
+    StatusBucket::NeedsYou,
+    StatusBucket::Working,
+    StatusBucket::Ready,
+    StatusBucket::Stale,
+];
+
+/// Live per-bucket counts over every agent, computed before any filtering.
+///
+/// The STATUS block keeps counting hidden buckets, so a toggled-off bucket
+/// still shows how many agents sit in it.
+#[must_use]
+pub fn status_bucket_counts(agents: &[AgentInput<'_>]) -> [usize; 4] {
+    let (counts, _) = bucket_agents(agents);
+    counts
 }
 
 /// The windowed slice of a full todo list.
@@ -458,30 +495,47 @@ fn filter_agents<'a>(
         .collect()
 }
 
-/// The agent ids the workbench would render, in the order it renders them.
+/// The filtered agents the workbench walks, each with its bucket, in the
+/// order it renders them: bucket first, then stable by incoming order.
 ///
 /// Layout-independent on purpose: selection has to move in the same order the
 /// cards appear, but it must not depend on terminal size or paging, or moving
 /// the selection would mean something different on a narrow terminal.
+#[must_use]
+pub fn ordered_agent_inputs<'a>(
+    agents: &'a [AgentInput<'a>],
+    status_filter: StatusFilterMask,
+    repository_filter: Option<&str>,
+) -> Vec<(StatusBucket, &'a AgentInput<'a>)> {
+    let mut visible: Vec<(u8, usize, StatusBucket, &AgentInput<'a>)> = agents
+        .iter()
+        .enumerate()
+        .filter_map(|(index, input)| {
+            let bucket = bucket_for(resolve_status(input.agent.status, input.observation));
+            (status_filter.allows(bucket) && repository_matches(input.agent, repository_filter))
+                .then(|| (bucket_sort_key(bucket), index, bucket, input))
+        })
+        .collect();
+    // Same ordering rule as the rendered grid: bucket first, then stable by
+    // incoming order.
+    visible.sort_by_key(|(bucket_key, index, _, _)| (*bucket_key, *index));
+    visible
+        .into_iter()
+        .map(|(_, _, bucket, input)| (bucket, input))
+        .collect()
+}
+
+/// The agent ids the workbench would render, in the order it renders them.
 #[must_use]
 pub fn ordered_agent_ids<'a>(
     agents: &'a [AgentInput<'a>],
     status_filter: StatusFilterMask,
     repository_filter: Option<&str>,
 ) -> Vec<&'a AgentId> {
-    let mut visible: Vec<(u8, usize, &AgentId)> = agents
-        .iter()
-        .enumerate()
-        .filter_map(|(index, input)| {
-            let bucket = bucket_for(resolve_status(input.agent.status, input.observation));
-            (status_filter.allows(bucket) && repository_matches(input.agent, repository_filter))
-                .then(|| (bucket_sort_key(bucket), index, &input.agent.id))
-        })
-        .collect();
-    // Same ordering rule as the rendered grid: bucket first, then stable by
-    // incoming order.
-    visible.sort_by_key(|(bucket_key, index, _)| (*bucket_key, *index));
-    visible.into_iter().map(|(_, _, id)| id).collect()
+    ordered_agent_inputs(agents, status_filter, repository_filter)
+        .into_iter()
+        .map(|(_, input)| &input.agent.id)
+        .collect()
 }
 
 /// Reason string when no agents pass the filters.
@@ -513,7 +567,7 @@ fn resolve_paging(
 ) -> (WorkbenchLayout, usize, usize) {
     let rows_visible = vertical.rows_visible;
     let cards_per_page = rows_visible.saturating_mul(columns).max(1);
-    let page_count = div_ceil(visible_count, cards_per_page).max(1);
+    let page_count = pages_for(visible_count, cards_per_page);
     let clamped_page = page.min(page_count.saturating_sub(1));
     let start = clamped_page.saturating_mul(cards_per_page);
     let end = (start.saturating_add(cards_per_page)).min(visible_count);
@@ -526,6 +580,31 @@ fn resolve_paging(
         page_count,
     };
     (layout, start, end)
+}
+
+/// Pages needed to show `visible_count` cards at `cards_per_page` per page,
+/// always at least one. Shared by the display clamp and the input-time
+/// clamp so the two can never disagree (issue #706).
+fn pages_for(visible_count: usize, cards_per_page: usize) -> usize {
+    div_ceil(visible_count, cards_per_page.max(1)).max(1)
+}
+
+/// The grid's page count for a display-basis viewport.
+///
+/// Uses the same layout resolution `resolve_paging` clamps with, so callers
+/// must pass the same basis the display path feeds `build_workbench_view`:
+/// the full render size, which [`resolve_horizontal`] and [`resolve_vertical`]
+/// subtract terminal chrome from. Passing a smaller rectangle (a panel's
+/// content rect) subtracts that chrome twice and over-counts pages, letting
+/// the retained page counter drift past what the display clamps to (issue
+/// #706).
+#[must_use]
+pub fn grid_page_count(display_width: usize, display_height: usize, visible_count: usize) -> usize {
+    let columns = resolve_horizontal(display_width).columns;
+    // The longest todo list only grows the per-card window, never the
+    // visible row count, so the projection's zero is layout-neutral here.
+    let rows_visible = resolve_vertical(display_height, visible_count, columns, 0).rows_visible;
+    pages_for(visible_count, rows_visible.saturating_mul(columns))
 }
 
 /// Horizontal resolution result.

@@ -4,9 +4,9 @@ use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use jefe::domain::action_registry::Resolution;
 use jefe::list_viewport::PageItemCount;
-use jefe::state::{AppEvent, AppState, ScreenId};
+use jefe::state::{AppEvent, AppState};
 
-use super::action_handlers::{HandlerExecution, execution_for};
+use super::action_handlers::{BoundaryAction, HandlerExecution, execution_for};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(KeyEventKind::Press, code)
@@ -37,11 +37,41 @@ fn dashboard_s_emits_enter_split_mode_via_registry() {
 #[test]
 fn split_esc_enters_the_shared_back_reducer() {
     let mut state = crate::test_app_state();
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+    state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
     assert!(matches!(
         resolved_execution(&state, &key(KeyCode::Esc)),
         HandlerExecution::Event(AppEvent::Back)
     ));
+}
+
+/// The split paging keys must dispatch through the shared control path
+/// (boundary → control action against the declared cards control); the legacy
+/// direct AppEvent dispatch was deleted with the split screen (issue #706).
+#[test]
+fn split_page_keys_dispatch_through_the_shared_control_path() {
+    let mut state = crate::test_app_state();
+    state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
+    for event in [key(KeyCode::PageUp), key(KeyCode::PageDown)] {
+        let execution = resolved_execution(&state, &event);
+        assert!(
+            matches!(execution, HandlerExecution::Boundary(_)),
+            "the split paging keys must dispatch a boundary control action, got {execution:?}"
+        );
+    }
+    assert!(
+        matches!(
+            resolved_execution(&state, &key(KeyCode::PageUp)),
+            HandlerExecution::Boundary(BoundaryAction::WorkbenchPagePrevious)
+        ),
+        "PageUp must dispatch the previous-page control action"
+    );
+    assert!(
+        matches!(
+            resolved_execution(&state, &key(KeyCode::PageDown)),
+            HandlerExecution::Boundary(BoundaryAction::WorkbenchPageNext)
+        ),
+        "PageDown must dispatch the next-page control action"
+    );
 }
 
 fn modified(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {

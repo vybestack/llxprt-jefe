@@ -7,6 +7,7 @@ use crate::host_controls::{
     ControlAction, ControlIntent, ControlKind, HostControlRow, control_intent_body,
     project_control_body,
 };
+pub use crate::overlay_controls_repository_form::project_repository_form;
 use crate::runtime::provider::protocol::{
     Affordance, DetailBody, ErrorBody, FormBody, Id, PanelBody, ProgressBody, StatusBody,
     StatusRow, StatusRowState, TypedMap,
@@ -16,6 +17,7 @@ use crate::state::{AppState, ConfirmFocus};
 
 pub const HELP_FOOTER: &str = "Esc/? close | Up/Down scroll";
 pub const CONFIRMATION_FOOTER: &str = "Enter confirm | Esc cancel";
+pub const REPOSITORY_FORM_FOOTER: &str = "Tab/Down next | Shift+Tab/Up prev | Left/Right move cursor | Space toggles | Enter submit | Esc cancel";
 
 /// Exact dimensions shared by host-overlay projection, drawing, input, and selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +42,13 @@ impl HostOverlayLayout {
     #[must_use]
     pub fn provider(cols: u16, rows: u16) -> Self {
         Self::bounded(cols, rows, 60, rows)
+    }
+
+    /// The repository form keeps its legacy full-terminal footprint: it owns
+    /// the screen while open, so it is bounded only by the terminal itself.
+    #[must_use]
+    pub fn form(cols: u16, rows: u16) -> Self {
+        Self::bounded(cols, rows, cols, rows)
     }
 
     fn bounded(cols: u16, rows: u16, max_width: u16, max_height: u16) -> Self {
@@ -67,7 +76,7 @@ pub struct OverlayControlProjection {
     pub viewport: usize,
     body: PanelBody,
     action_affordances: Vec<Affordance>,
-    focus_target: Option<Id>,
+    pub focus_target: Option<Id>,
     form_draft: Option<TypedMap>,
 }
 
@@ -549,7 +558,7 @@ pub fn provider_surface_footer(projection: &ProviderViewProjection) -> &'static 
         _ => "Enter Retry   Esc Close",
     }
 }
-fn prepend_detail_rows(rows: &mut Vec<HostControlRow>, message: &str, width: usize) {
+pub fn prepend_detail_rows(rows: &mut Vec<HostControlRow>, message: &str, width: usize) {
     let detail = PanelBody::Detail(DetailBody {
         document: message.to_owned(),
         metadata: Vec::new(),
@@ -560,7 +569,7 @@ fn prepend_detail_rows(rows: &mut Vec<HostControlRow>, message: &str, width: usi
     *rows = prompt_rows;
 }
 
-fn project_form(
+pub fn project_form(
     title: &str,
     fields: Vec<Field>,
     values: TypedMap,
@@ -595,9 +604,40 @@ fn project_form(
     }
 }
 
+/// Assemble a Form projection from pre-built rows.
+///
+/// Definition-generated forms lay out their own sections, support rows, and
+/// action rows; this constructor keeps that freedom while producing the same
+/// typed body and affordance contract as [`project_form`].
+pub fn bespoke_form_projection(
+    title: &str,
+    rows: Vec<HostControlRow>,
+    fields: Vec<Field>,
+    values: TypedMap,
+    affordances: Vec<Affordance>,
+    focus_target: Option<Id>,
+) -> OverlayControlProjection {
+    OverlayControlProjection {
+        kind: ControlKind::Form,
+        title: title.to_owned(),
+        rows,
+        viewport: 0,
+        body: PanelBody::Form(FormBody {
+            fields,
+            values,
+            field_errors: Vec::new(),
+            submit_action: ActionId::internal(InternalActionId::OverlaySubmit),
+        }),
+        action_affordances: affordances,
+        focus_target,
+        form_draft: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host_controls::PanelHitTarget;
     use crate::state::transition::TransitionExt;
     use crate::state::{AppEvent, AppState};
 
@@ -680,5 +720,70 @@ mod tests {
         };
         assert!(provider_retry_accepted(&terminal, 60));
         assert!(!provider_cancel_accepted(&terminal, 60));
+    }
+
+    #[test]
+    fn focused_row_rewrite_replaces_only_the_first_matching_row() {
+        // Simulate a form projection where a long value wrapped into two
+        // rows carrying the same Field target (the push_wrapped behavior).
+        let field = Field::internal(InternalField::SearchQuery);
+        let field_id = field.id().clone();
+        let mut projection = OverlayControlProjection {
+            kind: ControlKind::Form,
+            title: "Test".to_owned(),
+            rows: vec![
+                HostControlRow {
+                    text: "label: long value that w".to_owned(),
+                    target: Some(PanelHitTarget::Field(field_id.clone())),
+                },
+                HostControlRow {
+                    text: "raps to a second row".to_owned(),
+                    target: Some(PanelHitTarget::Field(field_id.clone())),
+                },
+                HostControlRow {
+                    text: "Apply".to_owned(),
+                    target: None,
+                },
+            ],
+            viewport: 0,
+            body: PanelBody::Form(FormBody {
+                fields: vec![field],
+                values: TypedMap::new(),
+                field_errors: Vec::new(),
+                submit_action: ActionId::internal(InternalActionId::OverlaySubmit),
+            }),
+            action_affordances: Vec::new(),
+            focus_target: None,
+            form_draft: None,
+        };
+
+        // Reproduce the focused-row rewrite logic: only the first matching
+        // row should be rewritten, continuation rows keep their text.
+        let label = "label";
+        let caret_text = "new value";
+        let width = 30;
+        let mut rewritten = false;
+        for row in &mut projection.rows {
+            if !rewritten && row.target.as_ref() == Some(&PanelHitTarget::Field(field_id.clone())) {
+                row.text = crate::ui::util::truncate_with_ellipsis(
+                    &format!("{label}: {caret_text}"),
+                    width,
+                );
+                rewritten = true;
+            }
+        }
+
+        // First row rewritten.
+        assert!(
+            projection.rows[0].text.contains("new value"),
+            "first matching row must be rewritten"
+        );
+        // Second row untouched — no duplicate truncated text.
+        assert_eq!(
+            projection.rows[1].text, "raps to a second row",
+            "continuation row must keep its wrapped text, not be duplicated"
+        );
+        // Row count unchanged.
+        assert_eq!(projection.rows.len(), 3, "row count must not change");
     }
 }

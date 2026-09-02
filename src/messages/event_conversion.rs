@@ -153,12 +153,6 @@ impl AppMessage {
             AppEvent::ToggleWorkbenchStatusBucket(bucket) => {
                 ControlFlow::Break(Self::UiNavigation(U::ToggleWorkbenchStatusBucket(bucket)))
             }
-            AppEvent::WorkbenchNextPage => {
-                ControlFlow::Break(Self::UiNavigation(U::WorkbenchNextPage))
-            }
-            AppEvent::WorkbenchPrevPage => {
-                ControlFlow::Break(Self::UiNavigation(U::WorkbenchPrevPage))
-            }
             AppEvent::WorkbenchFilterCursorPrev => {
                 ControlFlow::Break(Self::UiNavigation(U::WorkbenchFilterCursorPrev))
             }
@@ -281,8 +275,6 @@ impl AppMessage {
     fn from_non_ui_nav_event(event: AppEvent) -> Self {
         match event {
             AppEvent::ToggleWorkbenchStatusBucket(_)
-            | AppEvent::WorkbenchNextPage
-            | AppEvent::WorkbenchPrevPage
             | AppEvent::WorkbenchFilterCursorPrev
             | AppEvent::WorkbenchFilterCursorNext
             | AppEvent::WorkbenchSelectPrev
@@ -522,8 +514,6 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::ToggleWorkbenchStatusBucket(bucket) => {
                 Self::ToggleWorkbenchStatusBucket(bucket)
             }
-            UiNavigationMessage::WorkbenchNextPage => Self::WorkbenchNextPage,
-            UiNavigationMessage::WorkbenchPrevPage => Self::WorkbenchPrevPage,
             UiNavigationMessage::WorkbenchFilterCursorPrev => Self::WorkbenchFilterCursorPrev,
             UiNavigationMessage::WorkbenchFilterCursorNext => Self::WorkbenchFilterCursorNext,
             UiNavigationMessage::WorkbenchSelectPrev => Self::WorkbenchSelectPrev,

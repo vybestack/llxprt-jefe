@@ -9,7 +9,7 @@
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, AppState, PaneFocus};
 use std::path::PathBuf;
 
 /// Create a test app state with some repositories and agents.
@@ -218,7 +218,7 @@ fn enter_split_mode_changes_active_screen() {
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen(), ScreenId::Repositories);
+    assert_eq!(state.screen(), jefe::workbench::REPOSITORIES_IDENTITY);
 }
 
 #[test]
@@ -229,13 +229,13 @@ fn enter_split_mode_focuses_the_visible_repository_list() {
 
     state = state.apply(AppEvent::EnterSplitMode).committed_pure();
 
-    assert_eq!(state.screen(), ScreenId::Repositories);
+    assert_eq!(state.screen(), jefe::workbench::REPOSITORIES_IDENTITY);
     assert_eq!(state.pane_focus, PaneFocus::Repositories);
 }
 #[test]
 fn exit_split_mode_returns_to_dashboard() {
     let mut state = create_test_state();
-    state.nav = jefe::state::navigation::NavState::rooted(ScreenId::Repositories);
+    state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
 
     state = state.apply(AppEvent::ExitSplitMode).committed_pure();
 

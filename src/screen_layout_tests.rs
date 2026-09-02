@@ -2,11 +2,12 @@
 
 use crate::domain::AgentId;
 use crate::screen_layout::{
-    hidden_panel_ids, initial_runtime_geometry, resolve_screen, screen_rect,
+    committed_pty_content_rect, committed_runtime_viewport, hidden_panel_ids,
+    initial_runtime_geometry, pty_resize_viewport, resolve_screen, screen_rect,
 };
 use crate::state::transition::TransitionExt;
 use crate::state::{AppEvent, AppState};
-use crate::workbench::{PanelId, ScreenId, ScreenIdentity, builtin_screens};
+use crate::workbench::{LayoutGeneration, PanelId, ScreenId, ScreenIdentity, builtin_screens};
 
 fn state_on(screen: impl Into<ScreenIdentity>) -> AppState {
     let mut state = AppState::test_fixture();
@@ -63,22 +64,97 @@ fn initial_runtime_geometry_comes_from_the_resolved_frame() {
     let terminal =
         crate::workbench::pty_content_rect(descriptor, layout, &PanelId::from_static("terminal"))
             .unwrap_or_else(|| unreachable!("dashboard terminal is visible"));
+    let viewport = initial_runtime_geometry(&dashboard)
+        .unwrap_or_else(|| unreachable!("dashboard supplies the first PTY viewport"));
     assert_eq!(
-        initial_runtime_geometry(&dashboard),
-        Some((terminal.height, terminal.width))
+        (viewport.rows, viewport.cols),
+        (terminal.height, terminal.width)
+    );
+    assert_eq!(
+        viewport.generation, layout.generation,
+        "the create effect carries the committed frame's generation"
     );
 
     let mut settings = state_on(ScreenId::Settings);
     settings.resolved_layout = resolve_screen(&settings, 120, 40);
-    let outer = settings
+    let layout = settings
         .resolved_layout
         .as_ref()
-        .unwrap_or_else(|| unreachable!("settings resolves"))
-        .outer;
+        .unwrap_or_else(|| unreachable!("settings resolves"));
+    let outer = layout.outer;
+    let viewport = initial_runtime_geometry(&settings)
+        .unwrap_or_else(|| unreachable!("settings commits an outer viewport"));
     assert_eq!(
-        initial_runtime_geometry(&settings),
-        Some((outer.height, outer.width)),
+        (viewport.rows, viewport.cols),
+        (outer.height, outer.width),
         "a screen without a PTY commits its resolved frame rather than ambient terminal size"
+    );
+    assert_eq!(
+        viewport.generation, layout.generation,
+        "the outer fallback still carries the committed frame's generation"
+    );
+}
+
+#[test]
+fn the_committed_frame_supplies_the_runtime_viewport_for_resizes() {
+    // On layout commit the runtime may be offered at most one resize, and it
+    // must carry the committed frame's exact rectangle and generation so a
+    // stale completion can be proven to change nothing (issue #706 CWR3-04).
+    let mut state = state_on(crate::workbench::TERMINALS_IDENTITY);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    let layout = state
+        .resolved_layout
+        .as_ref()
+        .unwrap_or_else(|| unreachable!("terminals resolves"));
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .unwrap_or_else(|| unreachable!("terminals is compiled"));
+    let pty_panel = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.panel_type.as_str() == crate::workbench::PTY_PANEL_TYPE)
+        .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
+    let rect = crate::workbench::pty_content_rect(descriptor, layout, &pty_panel.id)
+        .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
+    let viewport = committed_runtime_viewport(&state)
+        .unwrap_or_else(|| unreachable!("a visible PTY panel supplies the runtime viewport"));
+    assert_eq!((viewport.rows, viewport.cols), (rect.height, rect.width));
+    assert_eq!(
+        viewport.generation, layout.generation,
+        "the resize offer carries the committed frame's generation"
+    );
+
+    let mut settings = state_on(ScreenId::Settings);
+    settings.resolved_layout = resolve_screen(&settings, 120, 40);
+    assert_eq!(
+        committed_runtime_viewport(&settings),
+        None,
+        "a frame without a visible PTY panel offers no resize"
+    );
+    assert_eq!(
+        committed_runtime_viewport(&state_on(crate::workbench::TERMINALS_IDENTITY)),
+        None,
+        "without a committed frame there is no resize offer"
+    );
+}
+
+#[test]
+fn a_fresh_resize_viewport_carries_a_newly_minted_generation() {
+    // pty_resize_viewport answers terminal-size events, which arrive between
+    // committed frames. Its rectangle comes from a fresh resolve, so its
+    // generation must be one the resolver actually minted for that answer —
+    // bracketed here by two explicit mints — rather than an ambient value.
+    let mut state = state_on(crate::workbench::TERMINALS_IDENTITY);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    let before = LayoutGeneration::next();
+    let viewport = pty_resize_viewport(&state, 120, 40)
+        .unwrap_or_else(|| unreachable!("terminals shows its shell preview"));
+    let after = LayoutGeneration::next();
+    assert!(
+        viewport.generation > before && viewport.generation < after,
+        "the resize answer must carry a generation minted by its own resolve"
     );
 }
 
@@ -126,6 +202,100 @@ fn a_resize_produces_a_different_geometry() {
         .panel(&PanelId::from_static("issue-list"))
         .map(|panel| panel.chrome);
     assert_ne!(wide_list, narrow_list, "a resize must move the panes");
+}
+
+#[test]
+fn a_resize_targets_the_active_screens_resolved_pty_viewport() {
+    // The Terminal Manager's PTY is the shell preview below the list, not the
+    // dashboard pane the mirror arithmetic models. The resize a child receives
+    // must be the committed frame's rectangle for whichever screen is showing.
+    let state = state_on(crate::workbench::TERMINALS_IDENTITY);
+    let viewport = pty_resize_viewport(&state, 120, 40)
+        .unwrap_or_else(|| unreachable!("terminals shows its shell preview"));
+    let layout =
+        resolve_screen(&state, 120, 40).unwrap_or_else(|| unreachable!("terminals resolves"));
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .unwrap_or_else(|| unreachable!("terminals is compiled"));
+    let pty_panel = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.panel_type.as_str() == crate::workbench::PTY_PANEL_TYPE)
+        .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
+    let rect = crate::workbench::pty_content_rect(descriptor, &layout, &pty_panel.id)
+        .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
+    assert_eq!((viewport.rows, viewport.cols), (rect.height, rect.width));
+    let mirror = crate::layout::compute_pty_layout(120, 40);
+    assert_ne!(
+        (viewport.rows, viewport.cols),
+        (mirror.pty_rows, mirror.pty_cols),
+        "the dashboard mirror must stop answering for the Terminal Manager screen"
+    );
+}
+
+#[test]
+fn a_screen_without_a_visible_pty_panel_sends_no_resize() {
+    let state = state_on(ScreenId::Settings);
+    assert_eq!(
+        pty_resize_viewport(&state, 120, 40),
+        None,
+        "no fabricated resize may leave the resolver"
+    );
+}
+
+#[test]
+fn the_committed_frame_answers_for_the_terminal_pane_rectangle() {
+    // Mouse hit-testing and replay translation need the on-screen rectangle
+    // the renderer drew, so they read the committed frame instead of
+    // re-deriving a mirror from the terminal size (issue #706).
+    let mut state = state_on(crate::workbench::TERMINALS_IDENTITY);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    let rect = committed_pty_content_rect(&state)
+        .unwrap_or_else(|| unreachable!("the committed terminals frame shows its shell preview"));
+    let layout = state
+        .resolved_layout
+        .as_ref()
+        .unwrap_or_else(|| unreachable!("the frame was just committed"));
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+        .unwrap_or_else(|| unreachable!("terminals is compiled"));
+    let pty_panel = descriptor
+        .panels
+        .iter()
+        .find(|panel| panel.panel_type.as_str() == crate::workbench::PTY_PANEL_TYPE)
+        .unwrap_or_else(|| unreachable!("terminals declares a shell-preview PTY panel"));
+    let content = crate::workbench::pty_content_rect(descriptor, layout, &pty_panel.id)
+        .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
+    assert_eq!(rect, content);
+    let mirror = crate::layout::compute_pty_layout(120, 40);
+    assert_ne!(
+        (rect.row, rect.col),
+        (mirror.pane_row0, mirror.pane_col0),
+        "the dashboard mirror must stop answering for the Terminal Manager screen"
+    );
+}
+
+#[test]
+fn a_frame_without_a_visible_pty_panel_has_no_terminal_pane_rectangle() {
+    let mut state = state_on(ScreenId::Settings);
+    state.resolved_layout = resolve_screen(&state, 120, 40);
+    assert!(
+        committed_pty_content_rect(&state).is_none(),
+        "no PTY is on screen, so no pane rectangle exists to hit-test"
+    );
+}
+
+#[test]
+fn without_a_committed_frame_there_is_no_terminal_pane_rectangle() {
+    let state = state_on(crate::workbench::TERMINALS_IDENTITY);
+    assert!(
+        committed_pty_content_rect(&state).is_none(),
+        "nothing has been rendered yet, so no rectangle may be fabricated"
+    );
 }
 
 #[test]
@@ -277,11 +447,11 @@ fn every_panel_the_application_hides_is_declared_by_its_screen() {
             }
         }
         // Guard the assertion against becoming vacuous: the screens that carry
-        // conditional panels must actually produce some.
-        if matches!(
-            screen,
-            ScreenId::Repositories | ScreenId::Errors | ScreenId::Terminals
-        ) {
+        // conditional panels must actually produce some. The split view's
+        // STATUS block became a host control in the cutover, so it follows the
+        // shared rule and collapses under a shell overlay like the dashboard's
+        // auxiliary panels; Errors still renders no conditional panel.
+        if matches!(screen, ScreenId::Errors) {
             assert_eq!(named, 0, "screen {screen} hides nothing conditionally");
         } else {
             assert!(named > 0, "screen {screen} must exercise its hiding rules");

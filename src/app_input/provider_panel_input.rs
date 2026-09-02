@@ -35,10 +35,16 @@ pub(super) fn apply(
             let Some(control_action) = boundary_control_action(action) else {
                 return;
             };
+            let (viewport_cols, viewport_rows) =
+                jefe::screen_layout::committed_render_size_or_content(
+                    state.resolved_layout.as_ref(),
+                    &projection.content,
+                );
             let _ = state.apply_host_panel_action(
                 capability,
                 control_action,
-                usize::from(projection.content.height),
+                usize::from(viewport_cols),
+                usize::from(viewport_rows),
             );
             return;
         };
@@ -56,6 +62,56 @@ pub(super) fn apply(
         state.take_staged_effects()
     };
     super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
+}
+
+/// Apply one workbench paging key through the shared control path.
+///
+/// The card grid owns split-screen paging regardless of which panel holds
+/// focus — the behavior the legacy `split.page-up`/`split.page-down` events
+/// carried — so this resolves the screen's declared cards control rather
+/// than the focused panel. The control factory bounds the step by the
+/// committed frame's display basis and keeps it inert without one
+/// (issue #706).
+pub(super) fn apply_workbench_paging(
+    action: ControlAction,
+    app_state: &mut super::AppStateHandle,
+    ctx: &super::SharedContext,
+) {
+    let staged = {
+        let mut state = app_state.write();
+        let Some(capability) = workbench_cards_capability(&state) else {
+            return;
+        };
+        // Paging reads the display basis, not a panel content rectangle, and
+        // without a committed frame the reducer is inert, so no fallback
+        // geometry is invented here.
+        let (viewport_cols, viewport_rows) =
+            state.resolved_layout.as_ref().map_or((0, 0), |layout| {
+                let (cols, rows) = jefe::screen_layout::committed_render_size(layout);
+                (usize::from(cols), usize::from(rows))
+            });
+        let _ = state.apply_host_panel_action(capability, action, viewport_cols, viewport_rows);
+        state.take_staged_effects()
+    };
+    super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
+}
+
+/// The active screen's declared card-grid control, if it declares one.
+fn workbench_cards_capability(
+    state: &jefe::state::AppState,
+) -> Option<jefe::workbench::HostPanelCapability> {
+    state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?
+        .panels
+        .iter()
+        .find(|panel| {
+            panel.host_capability().is_some_and(|capability| {
+                capability.model_source() == jefe::workbench::HostPanelModelSource::WorkbenchCards
+            })
+        })
+        .and_then(jefe::workbench::PanelDescriptor::host_capability)
 }
 
 fn current_host_panel_capability(
@@ -142,27 +198,40 @@ fn apply_mouse_to_state(
             if host_owned
                 && let Some(capability) = current_host_panel_capability(state, &projection.id)
             {
-                // Host-owned panels share the provider target→action
-                // semantics: an unselected item selects, a selected item
-                // activates; Submit/Action/paging/retry/cancel target the same
-                // affordances. Failures return unconsumed so the terminal never
-                // treats a host click as its own.
-                let action = match target {
-                    Some(t) => shared_host_target_action(t),
-                    None => None,
-                };
-                let consumed = action.is_some_and(|action| {
-                    state.apply_host_panel_action(
-                        capability,
-                        action,
-                        usize::from(projection.content.height),
-                    )
-                });
+                let consumed = apply_host_owned_click(state, capability, &projection, target);
                 return (consumed, None);
             }
             apply_mouse_target(state, panel, projection.id, target)
         }
     }
+}
+
+/// Apply a click on a host-owned panel through the shared target→action
+/// semantics, sizing the control from the committed render viewport.
+fn apply_host_owned_click(
+    state: &mut jefe::state::AppState,
+    capability: jefe::workbench::HostPanelCapability,
+    projection: &jefe::provider_panel_view::PanelProjection,
+    target: Option<jefe::provider_panel_view::PanelHitTarget>,
+) -> bool {
+    // Host-owned panels share the provider target→action
+    // semantics: an unselected item selects, a selected item
+    // activates; Submit/Action/paging/retry/cancel target the same
+    // affordances. Failures return unconsumed so the terminal never
+    // treats a host click as its own.
+    let action = target.and_then(shared_host_target_action);
+    action.is_some_and(|action| {
+        let (viewport_cols, viewport_rows) = jefe::screen_layout::committed_render_size_or_content(
+            state.resolved_layout.as_ref(),
+            &projection.content,
+        );
+        state.apply_host_panel_action(
+            capability,
+            action,
+            usize::from(viewport_cols),
+            usize::from(viewport_rows),
+        )
+    })
 }
 
 fn apply_mouse_target(
@@ -231,6 +300,16 @@ fn hit_target(
 ) -> Option<jefe::provider_panel_view::PanelHitTarget> {
     if !projection.content.contains(col, row) {
         return None;
+    }
+    // Rectangle-keyed targets (the card grid) win before the row-indexed
+    // fallback: a grid packs several targets onto one row (issue #706).
+    if let Some(target) = projection
+        .rect_hit_targets
+        .iter()
+        .find(|(rect, _)| rect.contains(col, row))
+        .map(|(_, target)| target.clone())
+    {
+        return Some(target);
     }
     let index = usize::from(row.saturating_sub(projection.content.row));
     projection.hit_targets.get(index).cloned().flatten()
@@ -439,7 +518,7 @@ fn control_event(
 ) -> Option<PanelEvent> {
     match control_intent_for_state(state, panel, action) {
         ControlIntent::Event(event) => Some(event),
-        ControlIntent::Scroll(_) | ControlIntent::None => None,
+        ControlIntent::Scroll(_) | ControlIntent::PagePrevious | ControlIntent::None => None,
     }
 }
 

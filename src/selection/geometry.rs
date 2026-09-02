@@ -165,19 +165,23 @@ pub fn pane_at(
         return crate::selection::pane_at_resolved(col, row, resolved, terminal_input_enabled);
     }
 
+    // The split view keeps its legacy fallback geometry, now keyed by its
+    // descriptor identity like the Terminal Manager's branches above it.
+    if layout.screen == crate::workbench::REPOSITORIES_IDENTITY {
+        return split_pane_at(col, row, render_cols, render_rows);
+    }
+
     match layout.screen.compiled() {
-        Some(crate::state::ScreenId::Repositories) => {
-            split_pane_at(col, row, render_cols, render_rows)
-        }
         Some(
             crate::state::ScreenId::Issues
             | crate::state::ScreenId::PullRequests
             | crate::state::ScreenId::Actions
             | crate::state::ScreenId::Errors,
         ) => issues_pane_at(col, row, render_cols, render_rows, *layout),
-        // Open definitions, Terminal Manager, and Settings resolve every pane
-        // through their descriptor and have no legacy fallback geometry.
-        Some(crate::state::ScreenId::Terminals | crate::state::ScreenId::Settings) | None => None,
+        // Open definitions and Settings resolve every pane through their
+        // descriptor and have no legacy fallback geometry. The Terminal
+        // Manager reaches this None arm through its descriptor identity.
+        Some(crate::state::ScreenId::Settings) | None => None,
     }
 }
 

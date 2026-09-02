@@ -6,11 +6,12 @@
 //! persisted). Side effects (capture, attach, close) happen at the runtime
 //! boundary BEFORE these reducers run.
 
-use super::{
-    AppState, ManagedShellRow, ScreenId, ShellFocusOrigin, ShellReturnTarget, status_label_for,
-};
+use super::navigation::{Activation, NavIntent, NavMessage};
+use super::navigation_dirty::DraftAction;
+use super::{AppState, ManagedShellRow, ShellFocusOrigin, ShellReturnTarget, status_label_for};
 use crate::domain::{AgentId, AgentStatus};
 use crate::messages::{NavDir, TerminalManagerMessage};
+use crate::workbench::{ActivationValues, IdError, RouteId};
 
 /// Build the deterministic list of managed-shell rows from current state.
 ///
@@ -55,9 +56,34 @@ pub fn project_managed_shell_rows(state: &AppState) -> Vec<ManagedShellRow> {
 }
 
 impl AppState {
+    /// Ensure the session is on the Terminal Manager, without stacking a
+    /// second copy of it.
+    ///
+    /// The manager is a descriptor screen (`core.terminals`), so navigation
+    /// goes through its route rather than a compiled variant; stating the
+    /// destination idempotently keeps shell-return transitions from stacking
+    /// a second manager instance the user is already looking at.
+    ///
+    /// # Errors
+    ///
+    /// Returns the identifier error when the compiled-in route literal
+    /// fails the shared route grammar.
+    pub(crate) fn show_terminal_manager(&mut self) -> Result<DraftAction, IdError> {
+        if self.nav.screen() == crate::workbench::TERMINALS_IDENTITY {
+            return Ok(DraftAction::None);
+        }
+        let route = RouteId::parse(crate::workbench::TERMINALS_ROUTE)?;
+        let activation =
+            Activation::from_source(route, ActivationValues::empty(), self.nav.current());
+        Ok(self.navigate(NavMessage::Navigate(NavIntent::Push(activation))))
+    }
+
     /// Enter terminal-manager mode in a fresh exact screen instance (issue #364 PR A).
     fn enter_terminal_manager_mode(&mut self) -> bool {
-        let _ = self.show_screen(ScreenId::Terminals);
+        if let Err(error) = self.show_terminal_manager() {
+            tracing::error!(%error, "failed to enter terminal manager mode");
+            return false;
+        }
         self.terminal_manager.active = true;
         self.terminal_manager.bump_generation();
         let rows = project_managed_shell_rows(self);
@@ -157,7 +183,9 @@ impl AppState {
             }
             ShellFocusOrigin::ManagerEnter => {
                 self.terminal_manager.active = true;
-                let _ = self.show_screen(ScreenId::Terminals);
+                if let Err(error) = self.show_terminal_manager() {
+                    tracing::error!(%error, "failed to show terminal manager after shell focus");
+                }
                 self.shell_return_target = ShellReturnTarget::TerminalManager;
             }
         }
@@ -406,7 +434,7 @@ mod tests {
             AgentId("agent-1".into()),
         ));
         assert!(ok);
-        assert_eq!(state.screen(), ScreenId::Terminals);
+        assert_eq!(state.screen(), crate::workbench::TERMINALS_IDENTITY);
         assert!(state.terminal_manager.active);
         assert!(state.shell_overlay_active());
         assert!(state.terminal_focused);
