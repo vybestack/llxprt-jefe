@@ -437,7 +437,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue519/llxprt-launch-options.json",
-      "sha256": "2824a966efb76039ebe62d051675d0dcc91539dc2c55b25224f9c647e64b5e89",
+      "sha256": "2aa43f8da4397e16ecc9c83a1ec9f6310ce9f6fba0ae6d0c94211f6c2b80f635",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -499,7 +499,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json",
-      "sha256": "3dd654620409f405b5de6293558e5edb88b0456403dcccece0145703e652a7c7",
+      "sha256": "3bf8677c381fd5c007c022a32c4fc983d8e9e5cded517a46fa78812eeb1a2cba",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -731,7 +731,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
-      "sha256": "40ec0dcd822537b964472883019fcea823df1d1280c4d47da68053a847b39ada",
+      "sha256": "1299d9417d8c6edc171f267f6d5406859f385b468752556dce57c784c5019a2c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
