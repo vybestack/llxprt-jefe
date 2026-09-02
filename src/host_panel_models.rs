@@ -40,7 +40,9 @@ fn repository_list(state: &AppState) -> HostPanelModel {
                 .map(|repository| ListItem {
                     id: Id::internal_indexed(InternalId::RepositoryItem, visible_index),
                     label: repository.name.clone(),
-                    description: Some(repository.slug.clone()),
+                    // The dashboard sidebar is one row per repository; a
+                    // description would project as a second row.
+                    description: None,
                     status: Some(
                         state
                             .visible_agent_count_for_repository(&repository.id)
@@ -108,7 +110,9 @@ fn agent_list(state: &AppState) -> HostPanelModel {
             state.agents.get(*agent_index).map(|agent| ListItem {
                 id: Id::internal_indexed(InternalId::AgentItem, local_index),
                 label: agent.name.clone(),
-                description: Some(agent.description.clone()),
+                // The dashboard sidebar is one row per agent; a description
+                // would project as a second row.
+                description: None,
                 status: Some(format!("{:?}", agent.status)),
                 actions: Vec::new(),
             })
@@ -162,5 +166,63 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         action_affordances: Vec::new(),
         selected_id: None,
         scroll_offset: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #715 regression: a non-empty description projects as an extra
+    /// row under each item, so the slug made every repository read as two
+    /// rows (a duplicate where name matches slug). The dashboard sidebar is
+    /// one row per item.
+    #[test]
+    fn dashboard_sidebar_rows_are_one_line_per_item() {
+        let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
+        let repository = crate::domain::Repository::new(
+            crate::domain::RepositoryId("repo-one".to_owned()),
+            crate::domain::shipped_agent_type(1),
+            crate::domain::TypedMap::new(),
+            "One Repo".to_owned(),
+            "one-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/one-repo"),
+        );
+        let agent = crate::domain::Agent::new(
+            crate::domain::AgentId("agent-one".to_owned()),
+            repository.id.clone(),
+            crate::domain::shipped_agent_type(1),
+            crate::domain::TypedMap::new(),
+            "One Agent".to_owned(),
+            std::path::PathBuf::from("/tmp/one-agent"),
+        );
+        state.repositories = vec![repository];
+        state.agents = vec![agent];
+        state.selected_repository_index = Some(0);
+
+        let repository_model = project_host_panel(&state, HostPanelModelSource::RepositoryList);
+        let PanelBody::List(repository_body) = repository_model.body else {
+            panic!("repository sidebar must project a list body");
+        };
+        assert_eq!(repository_body.items.len(), 1, "one row per repository");
+        assert!(
+            repository_body.items[0].description.is_none(),
+            "repository rows must not carry a second line: {:?}",
+            repository_body.items[0].description
+        );
+        assert_eq!(repository_body.items[0].label, "One Repo");
+        assert_eq!(repository_body.items[0].status.as_deref(), Some("1"));
+
+        let agent_model = project_host_panel(&state, HostPanelModelSource::AgentList);
+        let PanelBody::List(agent_body) = agent_model.body else {
+            panic!("agent sidebar must project a list body");
+        };
+        assert_eq!(agent_body.items.len(), 1, "one row per agent");
+        assert!(
+            agent_body.items[0].description.is_none(),
+            "agent rows must not carry a second line: {:?}",
+            agent_body.items[0].description
+        );
+        assert_eq!(agent_body.items[0].label, "One Agent");
     }
 }
