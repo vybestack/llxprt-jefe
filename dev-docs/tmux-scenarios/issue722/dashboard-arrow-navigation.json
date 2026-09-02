@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "name": "dashboard-arrow-navigation",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      },
+      {
+        "path": "work/llxprt",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/settings.toml",
+        "content": {
+          "utf8": "schema_version = 1\ntheme = 'green-screen'\noverride_agent_theme = true\n"
+        },
+        "mode": 384
+      },
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.a\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"Alpha Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"slug\": {\n            \"type\": \"string\",\n            \"value\": \"slug-a\"\n          }\n        }\n      }\n    },\n    {\n      \"id\": \"repo.b\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"Beta Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"slug\": {\n            \"type\": \"string\",\n            \"value\": \"slug-b\"\n          }\n        }\n      }\n    },\n    {\n      \"id\": \"repo.c\",\n      \"location\": {\n        \"local_path\": \".\"\n      },\n      \"display_name\": \"Gamma Repo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"slug\": {\n            \"type\": \"string\",\n            \"value\": \"slug-c\"\n          }\n        }\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo.a\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"repositories\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "secrets": [],
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Alpha Repo",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "active-only",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        ">> Alpha Repo [0]"
+      ],
+      "absent": [
+        ">> Beta Repo"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "down",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">> Beta Repo",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        ">> Beta Repo [0]"
+      ],
+      "absent": [
+        ">> Alpha Repo"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "up",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": ">> Alpha Repo",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        ">> Alpha Repo [0]"
+      ],
+      "absent": [
+        ">> Beta Repo"
+      ]
+    }
+  ]
+}

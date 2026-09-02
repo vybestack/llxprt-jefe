@@ -3911,6 +3911,63 @@
       }
     },
     {
+      "path": "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
+      "scenario_schema": 1,
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platforms": {
+        "linux": {
+          "disposition": "unsupported",
+          "reason": "scenario declares platform macos"
+        },
+        "macos": {
+          "disposition": "required"
+        },
+        "windows": {
+          "disposition": "unsupported",
+          "reason": "schema-1 platform grammar admits only macos|linux (src/harness/v1/contract.rs::Platform); the surviving runner requires a Unix PTY"
+        }
+      },
+      "ci_job": "tui_scenarios_macos",
+      "command": {
+        "binary": "tmux_scenario",
+        "installs": [
+          {
+            "name": "jefe",
+            "source": "cargo-bin:jefe"
+          },
+          {
+            "name": "tmux",
+            "source": "repo:scripts/harness-tmux-shim.sh"
+          },
+          {
+            "name": "tmux-real",
+            "source": "host-path:tmux"
+          }
+        ]
+      },
+      "timeout_ms": 120000,
+      "expect": {
+        "exit_code": 0,
+        "report_status": "passed",
+        "steps_total": 10,
+        "operations": [
+          "assert-frame",
+          "key",
+          "launch",
+          "wait"
+        ],
+        "assertions": {
+          "assert-frame": 3
+        },
+        "captures": 0,
+        "capture_names": [],
+        "failed_step": null
+      }
+    },
+    {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
       "scenario_schema": 1,
       "criteria": [
