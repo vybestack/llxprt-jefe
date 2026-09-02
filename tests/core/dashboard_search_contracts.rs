@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::persistence::State as PersistedState;
 use jefe::state::transition::TransitionExt as _;
-use jefe::state::{AppEvent, AppState, PaneFocus, ScreenId};
+use jefe::state::{AppEvent, AppState, PaneFocus};
 use jefe::workbench::OverlayKind;
 
 fn repository(id: &str, name: &str) -> Repository {
@@ -199,7 +199,7 @@ fn selection_normalizes_when_the_search_filter_shrinks_the_visible_set() {
 #[test]
 fn search_is_the_same_declared_overlay_on_another_compiled_screen() {
     let mut state = dashboard_state();
-    state.restore_navigation_root(ScreenId::Repositories);
+    state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
 
     let after = open_search(state);
 

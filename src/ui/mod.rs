@@ -18,5 +18,5 @@ pub mod util;
 pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, TerminalView};
 pub use dashboard_filter_indicator::dashboard_filter_indicator;
 pub use modals::AuthModal;
-pub use screens::{ActionsScreen, SplitScreen, WorkflowDispatchForm};
+pub use screens::{ActionsScreen, WorkflowDispatchForm};
 pub use util::{CARET_CHAR, ELLIPSIS, text_with_caret, truncate_with_ellipsis};

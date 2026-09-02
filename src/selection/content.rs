@@ -295,7 +295,7 @@ fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneCo
         .iter()
         .map(|repo| state.visible_agent_count_for_repository(&repo.id))
         .collect();
-    let (pane_rows, content_width) = if state.screen() == crate::state::ScreenId::Repositories {
+    let (pane_rows, content_width) = if state.screen() == crate::workbench::REPOSITORIES_IDENTITY {
         let layout = crate::layout::split_layout_for_render_size(render_cols, render_rows);
         (layout.sidebar_rows, layout.sidebar_content_cols)
     } else {
@@ -308,7 +308,7 @@ fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneCo
         repositories,
         agent_counts: counts,
         selected: state.selected_repository_visible_index().unwrap_or(0),
-        grabbed: if state.screen() == crate::state::ScreenId::Repositories {
+        grabbed: if state.screen() == crate::workbench::REPOSITORIES_IDENTITY {
             state.split_grab_index
         } else {
             state.dashboard_grab.as_ref().and_then(|grab| match grab {

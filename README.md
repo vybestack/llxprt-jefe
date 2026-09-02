@@ -187,7 +187,6 @@ variables.
 
 Related runtime/env toggles:
 
-- `JEFE_WINDOWED=1` to disable fullscreen mode.
 - `JEFE_LOG_FILE` and `JEFE_LOG` for structured logging output/filtering.
 
 ## tmux clipboard note

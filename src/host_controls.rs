@@ -173,6 +173,8 @@ pub enum ControlAction {
     EditField { field_id: Id, value: TypedValue },
     /// Submit the current Form values.
     Submit,
+    /// Request the previous List page.
+    PagePrevious,
     /// Request the next List page.
     PageNext,
     /// Retry a retryable Error model.
@@ -192,6 +194,12 @@ pub enum ControlIntent {
     Event(PanelEvent),
     /// Move host-local viewport state by a signed row delta.
     Scroll(i8),
+    /// Step the host-local page index back one page.
+    ///
+    /// The panel protocol pages forward by token only, so this intent carries
+    /// no event: the host owns the page index and bounds the step itself, the
+    /// same authority split [`Self::Scroll`] uses for row offsets.
+    PagePrevious,
     /// Apply no state transition or provider event.
     None,
 }

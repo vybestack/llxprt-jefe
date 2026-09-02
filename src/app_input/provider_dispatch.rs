@@ -465,8 +465,7 @@ fn prepare_provider_host_outcome_state(
                     screen @ (jefe::state::ScreenId::Issues | jefe::state::ScreenId::PullRequests),
                 ) => Ok(ProviderHostAction::Refresh(screen)),
                 Some(
-                    jefe::state::ScreenId::Repositories
-                    | jefe::state::ScreenId::Actions
+                    jefe::state::ScreenId::Actions
                     | jefe::state::ScreenId::Errors
                     | jefe::state::ScreenId::Settings,
                 )

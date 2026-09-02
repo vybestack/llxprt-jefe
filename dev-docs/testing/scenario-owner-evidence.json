@@ -2579,7 +2579,7 @@
     },
     {
       "path": "src/app_input/action_handlers.rs",
-      "sha256": "3c011f774f54de0d75b921ceffe4f0e9434f1729e72f7e5f493818ea18235720",
+      "sha256": "8ef8b434b6f3ac622e4bfb4e3df3596a40990eea3077108a29fcbb912e8a457a",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2588,7 +2588,7 @@
     },
     {
       "path": "src/app_input/action_handlers_tests.rs",
-      "sha256": "ee200240a9ff592b99e91df007bec11dcefbe9aab8d3e82c745baff08a0f9ebd",
+      "sha256": "a451eb45d90d664ffaaadbe577a54e7fab258d6ad9a6e27b6bfa9770b731a178",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2622,7 +2622,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "33291292f61d9c235c9a15d478beeafb2cd930d52d2c0af7ced0197bbc273d6d",
+      "sha256": "6b5ff62e5efbadd42465690b1d6101d02d207477796ec19179933bc3cf85a1a7",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2631,7 +2631,7 @@
     },
     {
       "path": "src/app_shell_key_routing_tests.rs",
-      "sha256": "80a69f7aad5222eb7be247f2f7ac182ec72b0014414b8a507407177e24efbb79",
+      "sha256": "f4f7a123940d1b40ee5257711a5bfc81d7ed7621eb0dbe6f789357beae679b44",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2691,7 +2691,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "4fdf3ce3d36ae387a084b39d7dfd663aa522b0b4155ac1f6b9be7ae97f697bbc",
+      "sha256": "73b98d4833fa2aedaf16309ce113e0217d5cbe5d5484173a63e87e2caaeafa45",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

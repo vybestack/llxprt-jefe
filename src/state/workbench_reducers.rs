@@ -10,7 +10,6 @@ use crate::workbench_view::StatusBucket;
 
 pub(super) enum WorkbenchNavigation {
     ToggleStatusBucket(StatusBucket),
-    NextPage,
     PreviousPage,
     PreviousFilter,
     NextFilter,
@@ -125,26 +124,27 @@ impl AppState {
 
     /// Handle multi-agent workbench navigation messages.
     ///
-    /// `NextPage` is bounded by the display page count computed from the
-    /// committed frame's render size (the same basis the display path uses),
-    /// so the retained page counter never advances past the last page the
-    /// grid can show. Without a committed frame the page count is zero and
-    /// the counter is inert (issue #706).
+    /// `PreviousPage` is bounded by the display page count computed from the
+    /// committed frame's render size (the same basis the display path uses):
+    /// it steps down one page, clamps a stale counter back inside the display
+    /// range, and stays inert without a committed frame, where no display
+    /// basis exists (issue #706). Paging forward is the host-panel event
+    /// path's authority, [`Self::apply_workbench_page_next_within`].
     pub(super) fn apply_workbench(&mut self, navigation: WorkbenchNavigation) {
         match navigation {
             WorkbenchNavigation::ToggleStatusBucket(bucket) => {
                 self.apply_workbench_status_toggle(bucket);
             }
-            WorkbenchNavigation::NextPage => {
+            WorkbenchNavigation::PreviousPage => {
                 let page_count = self.display_page_count();
+                if page_count == 0 {
+                    return;
+                }
                 self.workbench.page = self
                     .workbench
                     .page
-                    .saturating_add(1)
+                    .saturating_sub(1)
                     .min(page_count.saturating_sub(1));
-            }
-            WorkbenchNavigation::PreviousPage => {
-                self.workbench.page = self.workbench.page.saturating_sub(1);
             }
             WorkbenchNavigation::PreviousFilter => {
                 self.workbench.filter_cursor = self.workbench.filter_cursor.saturating_sub(1);
@@ -161,10 +161,11 @@ impl AppState {
 
     /// Advance the workbench page, clamped to the grid's real `page_count`.
     ///
-    /// The host-panel input path knows the panel geometry, so unlike
-    /// [`WorkbenchNavigation::NextPage`] it never lets the retained page
-    /// counter advance past the last page the grid can show (issue #706);
-    /// otherwise `PreviousPage` appears unresponsive until it walks back.
+    /// The cards control pages forward through this arm on its panel's
+    /// next-page request; the caller supplies the panel geometry's page count
+    /// so the retained page counter never advances past the last page the
+    /// grid can show (issue #706); otherwise `PreviousPage` appears
+    /// unresponsive until it walks back.
     pub(super) fn apply_workbench_page_next_within(&mut self, page_count: usize) {
         self.workbench.page = self
             .workbench

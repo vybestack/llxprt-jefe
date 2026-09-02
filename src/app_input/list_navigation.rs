@@ -70,13 +70,17 @@ pub fn dashboard_page_item_count(
     if let Some(count) = host_list_page_item_count(state) {
         return count;
     }
+    // The split view is an open descriptor reached by identity, so its sidebar
+    // capacity is keyed here rather than through a compiled variant (issue
+    // #706).
+    if state.screen() == jefe::workbench::REPOSITORIES_IDENTITY {
+        return split_page_item_count(terminal_cols, terminal_rows);
+    }
     match screen {
         Some(ScreenId::Issues) => issues_page_item_count(state, terminal_cols, terminal_rows),
         Some(ScreenId::PullRequests) => prs_page_item_count(state, terminal_cols, terminal_rows),
         Some(ScreenId::Actions) => actions_page_item_count(state, terminal_cols, terminal_rows),
-        Some(screen) => {
-            dashboard_or_split_page_item_count(state, screen, terminal_cols, terminal_rows)
-        }
+        Some(_) => dashboard_pane_page_item_count(state, terminal_cols, terminal_rows),
         None => PageItemCount::default(),
     }
 }
@@ -102,19 +106,27 @@ fn host_list_page_item_count(state: &AppState) -> Option<PageItemCount> {
     )
 }
 
-fn dashboard_or_split_page_item_count(
+/// The split sidebar's page capacity.
+///
+/// The fixed left rail shares its height with the STATUS block, so its row
+/// count comes from the split layout rather than the focused pane.
+fn split_page_item_count(terminal_cols: u16, terminal_rows: u16) -> PageItemCount {
+    let (render_cols, render_rows) = effective_render_size(terminal_cols, terminal_rows);
+    let pane_rows = split_layout_for_render_size(render_cols, render_rows).sidebar_rows;
+    ListGeometry::bordered_padded(RowsPerItem::new(1))
+        .page_item_count(PaneRows::new(usize::from(pane_rows)))
+}
+
+/// The dashboard's focused list capacity.
+fn dashboard_pane_page_item_count(
     state: &AppState,
-    screen: ScreenId,
     terminal_cols: u16,
     terminal_rows: u16,
 ) -> PageItemCount {
-    let (render_cols, render_rows) = effective_render_size(terminal_cols, terminal_rows);
-    let pane_rows = match (screen, state.pane_focus) {
-        (ScreenId::Repositories, _) => {
-            split_layout_for_render_size(render_cols, render_rows).sidebar_rows
-        }
-        (_, PaneFocus::Repositories) => render_rows.saturating_sub(OUTER_BARS_HEIGHT),
-        (_, PaneFocus::Agents | PaneFocus::Terminal) => 0,
+    let (_, render_rows) = effective_render_size(terminal_cols, terminal_rows);
+    let pane_rows = match state.pane_focus {
+        PaneFocus::Repositories => render_rows.saturating_sub(OUTER_BARS_HEIGHT),
+        PaneFocus::Agents | PaneFocus::Terminal => 0,
     };
     ListGeometry::bordered_padded(RowsPerItem::new(1))
         .page_item_count(PaneRows::new(usize::from(pane_rows)))
@@ -166,7 +178,11 @@ mod tests {
     #[test]
     fn split_page_capacity_uses_the_actual_sidebar_pane() {
         let mut state = crate::test_app_state();
-        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state.nav = crate::state::navigation::NavState::rooted_definition(
+            jefe::workbench::REPOSITORIES_IDENTITY,
+            jefe::workbench::RouteId::from_static("repositories"),
+            jefe::workbench::PanelId::from_static("repositories"),
+        );
         let screen_instance = state.nav.current().id;
         let resolved = jefe::screen_layout::resolve_screen(&state, 100, 25);
         let expected = resolved
@@ -182,7 +198,7 @@ mod tests {
         // sidebar pane is five rows shorter than a full-height list.
         assert_eq!(expected, PageItemCount::new(11));
         assert_eq!(
-            dashboard_page_item_count(&state, Some(ScreenId::Repositories), 100, 25),
+            dashboard_page_item_count(&state, state.compiled_screen(), 100, 25),
             expected
         );
     }
@@ -190,7 +206,11 @@ mod tests {
     #[test]
     fn split_page_capacity_saturates_with_tiny_terminal() {
         let mut state = crate::test_app_state();
-        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state.nav = crate::state::navigation::NavState::rooted_definition(
+            jefe::workbench::REPOSITORIES_IDENTITY,
+            jefe::workbench::RouteId::from_static("repositories"),
+            jefe::workbench::PanelId::from_static("repositories"),
+        );
         let screen_instance = state.nav.current().id;
         let resolved = jefe::screen_layout::resolve_screen(&state, 2, 6);
         assert!(state.publish_resolved_layout(screen_instance, resolved));
@@ -201,7 +221,7 @@ mod tests {
         assert_eq!(layout.sidebar_rows, 0);
         assert_eq!(expected, PageItemCount::new(0));
         assert_eq!(
-            dashboard_page_item_count(&state, Some(ScreenId::Repositories), 2, 6),
+            dashboard_page_item_count(&state, state.compiled_screen(), 2, 6),
             expected
         );
     }
@@ -229,7 +249,11 @@ mod tests {
             )
         );
         let mut state = state;
-        state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+        state.nav = crate::state::navigation::NavState::rooted_definition(
+            jefe::workbench::REPOSITORIES_IDENTITY,
+            jefe::workbench::RouteId::from_static("repositories"),
+            jefe::workbench::PanelId::from_static("repositories"),
+        );
         let screen_instance = state.nav.current().id;
         let resolved = jefe::screen_layout::resolve_screen(&state, raw.0, raw.1);
         let expected = resolved
@@ -240,7 +264,7 @@ mod tests {
             });
         assert!(state.publish_resolved_layout(screen_instance, resolved));
         assert_eq!(
-            dashboard_page_item_count(&state, Some(ScreenId::Repositories), raw.0, raw.1),
+            dashboard_page_item_count(&state, state.compiled_screen(), raw.0, raw.1),
             expected
         );
     }

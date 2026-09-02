@@ -426,7 +426,7 @@ fn dashboard_and_split_use_registry_handlers() {
         HandlerKey::NavigateDown,
     );
     let mut split = crate::test_app_state();
-    split.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+    split.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
     assert_handler(
         &split,
         &key(KeyCode::PageDown),
@@ -484,7 +484,7 @@ fn dashboard_overlays_resolve_only_the_legacy_pre_mode_f12_binding() {
 
     for screen in [
         jefe::workbench::DASHBOARD_IDENTITY,
-        ScreenId::Repositories.into(),
+        jefe::workbench::REPOSITORIES_IDENTITY,
         ScreenId::Actions.into(),
     ] {
         let mut state = crate::test_app_state();

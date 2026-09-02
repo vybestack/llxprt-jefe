@@ -87,6 +87,21 @@ impl AppState {
             ControlIntent::Scroll(delta) => {
                 self.scroll_host_panel_kind(capability.model_source(), delta, viewport_rows)
             }
+            // PageUp on the grid pages the cards back, the legacy
+            // `split.page-up` behavior. Only the card grid pages; every other
+            // List control has pages the token protocol owns, so the action is
+            // unconsumed there. The reducer bounds the step by the committed
+            // frame's display basis and keeps it inert without one (issue
+            // #706).
+            ControlIntent::PagePrevious => match capability.model_source() {
+                HostPanelModelSource::WorkbenchCards => {
+                    self.apply_workbench(
+                        super::workbench_reducers::WorkbenchNavigation::PreviousPage,
+                    );
+                    true
+                }
+                _ => false,
+            },
             ControlIntent::None => false,
         }
     }

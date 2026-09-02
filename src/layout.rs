@@ -141,29 +141,6 @@ pub struct PtyLayout {
     pub pane_row0: u16,
 }
 
-/// Check if fullscreen mode is enabled.
-#[must_use]
-pub fn is_fullscreen_enabled() -> bool {
-    std::env::var("JEFE_WINDOWED").ok().as_deref() != Some("1")
-}
-
-/// Calculate effective render dimensions for a given fullscreen flag.
-#[must_use]
-fn effective_render_size_inner(cols: u16, rows: u16, fullscreen: bool) -> (u16, u16) {
-    if fullscreen {
-        (cols, rows)
-    } else {
-        (cols.saturating_sub(2).max(1), rows.saturating_sub(2).max(1))
-    }
-}
-
-/// Explicit windowed/fullscreen render sizing for integration tests (issue #307).
-#[doc(hidden)]
-#[must_use]
-pub fn effective_render_size_for_windowed(cols: u16, rows: u16, windowed: bool) -> (u16, u16) {
-    effective_render_size_inner(cols, rows, !windowed)
-}
-
 #[must_use]
 pub fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
@@ -190,10 +167,14 @@ pub fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
     (agent_rows, terminal_rows)
 }
 
-/// Calculate effective render dimensions.
+/// The terminal grid is the render grid.
+///
+/// Fullscreen is the only render mode; the resolved frame from
+/// [`crate::screen_layout`] is the sole geometry authority (issue #706), so
+/// normalizing terminal dimensions is the identity.
 #[must_use]
 pub fn effective_render_size(cols: u16, rows: u16) -> (u16, u16) {
-    effective_render_size_inner(cols, rows, is_fullscreen_enabled())
+    (cols, rows)
 }
 
 /// Physical Split-screen repository pane within an effective render grid.
@@ -240,10 +221,17 @@ pub fn dashboard_middle_row_heights(term_cols: u16, term_rows: u16) -> (u16, u16
     dashboard_middle_row_heights_inner(render_rows)
 }
 
-/// Compute PTY viewport size and its origin for a given fullscreen flag.
+/// Compute PTY viewport size and its origin within the render grid.
+///
+/// Layout mirrors dashboard proportions:
+/// - top status bar (1 row)
+/// - bottom keybind bar (1 row)
+/// - middle column split: agent list prefers 25% and terminal gets the rest
+/// - under tight heights, the terminal keeps enough rows for its chrome and viewport
+/// - terminal widget chrome: border + header + border
 #[must_use]
-fn compute_pty_layout_inner(term_cols: u16, term_rows: u16, fullscreen: bool) -> PtyLayout {
-    let (render_cols, render_rows) = effective_render_size_inner(term_cols, term_rows, fullscreen);
+pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
+    let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
     let (agent_rows, terminal_slot_rows) = dashboard_middle_row_heights_inner(render_rows);
     let middle_cols = render_cols.saturating_sub(LEFT_COL_WIDTH + RIGHT_COL_WIDTH);
@@ -266,30 +254,6 @@ fn compute_pty_layout_inner(term_cols: u16, term_rows: u16, fullscreen: bool) ->
     }
 }
 
-/// Explicit windowed/fullscreen PTY layout for integration tests (issue #307).
-#[doc(hidden)]
-#[must_use]
-pub fn compute_pty_layout_for_windowed(
-    term_cols: u16,
-    term_rows: u16,
-    windowed: bool,
-) -> PtyLayout {
-    compute_pty_layout_inner(term_cols, term_rows, !windowed)
-}
-
-/// Compute PTY viewport size and its origin within the fullscreen render grid.
-///
-/// Layout mirrors dashboard proportions:
-/// - top status bar (1 row)
-/// - bottom keybind bar (1 row)
-/// - middle column split: agent list prefers 25% and terminal gets the rest
-/// - under tight heights, the terminal keeps enough rows for its chrome and viewport
-/// - terminal widget chrome: border + header + border
-#[must_use]
-pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
-    compute_pty_layout_inner(term_cols, term_rows, is_fullscreen_enabled())
-}
-
 /// Compute expanded PTY geometry for the shell overlay (issue #222).
 ///
 /// When the embedded shell overlay is active, the terminal pane expands to
@@ -299,8 +263,7 @@ pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
 /// dimensions change.
 #[must_use]
 pub fn compute_shell_overlay_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
-    let (render_cols, render_rows) =
-        effective_render_size_inner(term_cols, term_rows, is_fullscreen_enabled());
+    let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
     // The overlay replaces agent list + preview, so the terminal gets the full
     // content height minus the outer bars.
@@ -329,8 +292,7 @@ pub fn compute_shell_overlay_pty_layout(term_cols: u16, term_rows: u16) -> PtyLa
 /// Compute PTY geometry for the live Terminal Manager lower pane.
 #[must_use]
 pub fn compute_terminal_manager_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
-    let (render_cols, render_rows) =
-        effective_render_size_inner(term_cols, term_rows, is_fullscreen_enabled());
+    let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
     let (list_rows, detail_rows) = actions_pane_rows(usize::from(render_rows), false, false);
     let terminal_slot_rows = u16::try_from(detail_rows).unwrap_or(u16::MAX);
     let workspace_cols = render_cols.saturating_sub(LEFT_COL_WIDTH);

@@ -57,9 +57,7 @@ fn cards_capability() -> crate::workbench::HostPanelCapability {
     let registry = crate::workbench::screens::builtin_screens()
         .unwrap_or_else(|error| unreachable!("compiled screens are valid: {error}"));
     let descriptor = registry
-        .get_identity(crate::workbench::ScreenIdentity::Compiled(
-            crate::state::ScreenId::Repositories,
-        ))
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
         .unwrap_or_else(|| panic!("repositories descriptor must be published"));
     let panel_id = crate::workbench::PanelId::parse("cards")
         .unwrap_or_else(|error| unreachable!("valid panel id: {error}"));
@@ -231,7 +229,11 @@ fn workbench_cards_page_next_advances_the_workbench_page() {
     // mode `effective_render_size` subtracts 2 per axis, so resolve at
     // (82, 14). The display-basis page count then matches the geometry
     // the test exercises (issue #706).
-    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Repositories);
+    state.nav = crate::state::navigation::NavState::rooted_definition(
+        crate::workbench::REPOSITORIES_IDENTITY,
+        crate::workbench::RouteId::from_static("repositories"),
+        crate::workbench::PanelId::from_static("repositories"),
+    );
     state.resolved_layout = crate::screen_layout::resolve_screen(&state, 82, 14);
     assert!(
         state.resolved_layout.is_some(),
@@ -258,7 +260,11 @@ fn workbench_cards_page_next_clamps_on_a_single_page_grid() {
     // last page the grid can show, or PreviousPage looks unresponsive until
     // the display clamp saturates back.
     let mut state = state_with_agents_across_buckets();
-    state.nav = crate::state::navigation::NavState::rooted(crate::state::ScreenId::Repositories);
+    state.nav = crate::state::navigation::NavState::rooted_definition(
+        crate::workbench::REPOSITORIES_IDENTITY,
+        crate::workbench::RouteId::from_static("repositories"),
+        crate::workbench::PanelId::from_static("repositories"),
+    );
     state.resolved_layout = crate::screen_layout::resolve_screen(&state, 82, 42);
     assert!(
         state.resolved_layout.is_some(),

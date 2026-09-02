@@ -134,9 +134,7 @@ fn status_block_capability() -> crate::workbench::HostPanelCapability {
     let registry = crate::workbench::screens::builtin_screens()
         .unwrap_or_else(|error| unreachable!("compiled screens are valid: {error}"));
     let descriptor = registry
-        .get_identity(crate::workbench::ScreenIdentity::Compiled(
-            crate::state::ScreenId::Repositories,
-        ))
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
         .unwrap_or_else(|| panic!("repositories descriptor must be published"));
     let panel_id = crate::workbench::PanelId::parse("status")
         .unwrap_or_else(|error| unreachable!("valid panel id: {error}"));

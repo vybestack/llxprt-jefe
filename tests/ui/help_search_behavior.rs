@@ -9,7 +9,7 @@
 
 use jefe::domain::{Agent, AgentId, Repository, RepositoryId};
 use jefe::state::transition::TransitionExt;
-use jefe::state::{AppEvent, AppState, ModalState, ScreenId};
+use jefe::state::{AppEvent, AppState, ModalState};
 use std::path::PathBuf;
 
 /// Create a test state with search-related data.
@@ -190,7 +190,7 @@ fn search_works_in_dashboard_mode() {
 #[test]
 fn search_works_in_split_mode() {
     let mut state = create_search_test_state();
-    state.restore_navigation_root(ScreenId::Repositories);
+    state.restore_navigation_root(jefe::workbench::REPOSITORIES_IDENTITY);
 
     state = state.apply(AppEvent::OpenSearch).committed_pure();
 

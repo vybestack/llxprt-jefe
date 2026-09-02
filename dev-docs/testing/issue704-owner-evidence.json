@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "2fda52965fad3527bbd50e2f1f83fb36aaad5268887d2ef426aaaf49f10866a2",
+      "sha256": "f36e97654db55838231dabe1dffcf1c0f9127344be185186a1ba72d847ddcd6e",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -91,7 +91,7 @@
     },
     {
       "path": "src/action_projection.rs",
-      "sha256": "a626ace3016edebf4fa2c31ae8508bcae49b2afb9e5581e9ea86cc1bbffb28a7",
+      "sha256": "45321bf2a4d9caadce727ddb12f003e768d8ea30c7fbbe21080b3ff835f6f435",
       "mode": "100644",
       "criteria": [
         "CWR1-08"
@@ -124,7 +124,7 @@
     },
     {
       "path": "src/main.rs",
-      "sha256": "f8f0ec58c8206e2cc21b736995c87aa13d428df105e5edc1e7e06cf4529d0f9e",
+      "sha256": "b3aafaaeea15933f09137a20c701376a7b3b55bdbe014672bb2ed4352db42dd9",
       "mode": "100644",
       "criteria": [
         "CWR1-01",
@@ -190,7 +190,7 @@
     },
     {
       "path": "src/state/action_availability.rs",
-      "sha256": "d05e922c73392cfe965c8515e7c29f11e49a76d29b6c7e350311de48a112e72a",
+      "sha256": "3917be86577e858eb86289a99a5f8b7a1ee9e8a105efe55af79d27863d5ac3e3",
       "mode": "100644",
       "criteria": [
         "CWR1-09"

@@ -30,7 +30,7 @@ mod screens_editor_tests;
 
 /// Why a mandatory shipped screen's membership cannot be edited.
 ///
-/// Composition includes the open Dashboard definition and every residual
+/// Composition includes the open builtin definitions and every residual
 /// compiled adapter unconditionally, so a toggle that appeared to turn one off
 /// would write a preference nothing reads.
 pub const MANDATORY_SCREEN_REASON: &str =
@@ -197,7 +197,8 @@ fn project_row(
     // mandatory row reports the truth and says why it cannot be changed.
     let mandatory = screen.id.compiled().is_some()
         || screen.id == crate::workbench::DASHBOARD_IDENTITY
-        || screen.id == crate::workbench::TERMINALS_IDENTITY;
+        || screen.id == crate::workbench::TERMINALS_IDENTITY
+        || screen.id == crate::workbench::REPOSITORIES_IDENTITY;
     let owner = Id::parse(screen.id.as_str()).ok();
     let composition = owner.as_ref().map_or_else(
         || CompositionStatus::Invalid {

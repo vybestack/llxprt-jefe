@@ -75,8 +75,9 @@ const REQUIRED_DELETED_SYMBOLS: [(&str, &str); 6] = [
     ("src", "detail_target_for"),
     ("src", "master_detail_edge"),
 ];
-const REQUIRED_RESIDUAL_ADAPTERS: [(&str, &str); 6] = [
-    ("Repositories", "src/workbench/screens.rs"),
+/// The residual compiled adapters after the #706 workbench cutover moved
+/// Repositories onto the shared screen runtime as a builtin.
+const REQUIRED_RESIDUAL_ADAPTERS: [(&str, &str); 5] = [
     ("Issues", "src/workbench/screens.rs"),
     ("PullRequests", "src/workbench/screens.rs"),
     ("Actions", "src/workbench/screens.rs"),

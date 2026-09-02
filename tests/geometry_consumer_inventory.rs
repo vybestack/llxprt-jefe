@@ -26,7 +26,7 @@ use std::{
 };
 
 /// The below-resolver geometry patterns the cutover deletes.
-const PATTERNS: [&str; 9] = [
+const PATTERNS: [&str; 6] = [
     // Ambient terminal-size queries (crossterm direct, and the mouse wrapper).
     "terminal::size(",
     "terminal_size(",
@@ -34,10 +34,6 @@ const PATTERNS: [&str; 9] = [
     "compute_pty_layout",
     "compute_shell_overlay_pty_layout",
     "compute_terminal_manager_pty_layout",
-    // The windowed fork and its enabling environment read.
-    "is_fullscreen_enabled",
-    "JEFE_WINDOWED",
-    "effective_render_size_for_windowed",
     // The fabricated default size a resolver-backed consumer must not need.
     "unwrap_or((120, 40))",
 ];
@@ -65,7 +61,6 @@ const EXPECTED: &[(&str, &[(&str, usize)])] = &[
             ("src/ui/screens/errors.rs", 1),
             ("src/ui/screens/issues.rs", 1),
             ("src/ui/screens/pull_requests.rs", 1),
-            ("src/ui/screens/split.rs", 1),
         ],
     ),
     (
@@ -76,7 +71,7 @@ const EXPECTED: &[(&str, &[(&str, usize)])] = &[
             ("src/mouse_routing.rs", 8),
         ],
     ),
-    ("compute_pty_layout", &[("src/layout.rs", 5)]),
+    ("compute_pty_layout", &[("src/layout.rs", 1)]),
     (
         "compute_shell_overlay_pty_layout",
         &[
@@ -97,15 +92,6 @@ const EXPECTED: &[(&str, &[(&str, usize)])] = &[
         ],
     ),
     (
-        "is_fullscreen_enabled",
-        &[("src/layout.rs", 5), ("src/main.rs", 2)],
-    ),
-    ("JEFE_WINDOWED", &[("src/layout.rs", 1)]),
-    (
-        "effective_render_size_for_windowed",
-        &[("src/layout.rs", 1)],
-    ),
-    (
         "unwrap_or((120, 40))",
         &[
             ("src/app_input/action_handlers.rs", 1),
@@ -120,7 +106,6 @@ const EXPECTED: &[(&str, &[(&str, usize)])] = &[
             ("src/ui/screens/errors.rs", 1),
             ("src/ui/screens/issues.rs", 1),
             ("src/ui/screens/pull_requests.rs", 1),
-            ("src/ui/screens/split.rs", 1),
         ],
     ),
 ];

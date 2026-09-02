@@ -968,7 +968,7 @@ fn test_background_refresh_skips_when_detail_load_in_flight() {
     // Not on the PR view → must NOT refresh.
     assert!(
         !should_background_refresh(BackgroundRefreshGuard {
-            screen: ScreenId::Repositories,
+            screen: ScreenId::Issues,
             list_reload_pending: false,
             detail_pending: false,
             is_idle: false,

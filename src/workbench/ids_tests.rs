@@ -55,20 +55,17 @@ fn screen_resolution_does_not_depend_on_declaration_position() {
     // Resolving by string means reordering the enum cannot change which screen
     // a restored session opens on.
     assert_eq!(
-        ScreenId::from_stable("core.repositories"),
-        Some(ScreenId::Repositories)
-    );
-    assert_eq!(
         ScreenId::from_stable("github.issues"),
         Some(ScreenId::Issues)
     );
 }
 
 #[test]
-fn dashboard_is_not_a_compiled_residual_screen() {
+fn builtin_definitions_are_not_compiled_residual_screens() {
     assert_eq!(ScreenId::from_stable("core.dashboard"), None);
     assert_eq!(ScreenId::from_stable("core.terminals"), None);
-    assert_eq!(ScreenId::ALL.len(), 6);
+    assert_eq!(ScreenId::from_stable("core.repositories"), None);
+    assert_eq!(ScreenId::ALL.len(), 5);
 }
 
 #[test]

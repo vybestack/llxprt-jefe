@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "issue": 706,
+  "phase": "slice-J2-deletions",
+  "deleted_paths": [
+    {
+      "path": "src/screen_layout_parity_tests.rs",
+      "reason": "hand-maintained resolver-parity arithmetic retired with the legacy split geometry authorities"
+    },
+    {
+      "path": "src/ui/screens/split.rs",
+      "reason": "legacy split-screen presentation path replaced by the core.repositories builtin on the shared screen runtime"
+    }
+  ],
+  "deleted_symbols": [
+    {
+      "scope": "src",
+      "symbol": "AppEvent::WorkbenchNextPage",
+      "reason": "legacy direct-dispatch paging event; the s3 keymap dispatches BoundaryAction::WorkbenchPageNext onto the declared cards control"
+    },
+    {
+      "scope": "src",
+      "symbol": "AppEvent::WorkbenchPrevPage",
+      "reason": "legacy direct-dispatch paging event; the s3 keymap dispatches BoundaryAction::WorkbenchPagePrevious onto the declared cards control"
+    },
+    {
+      "scope": "src",
+      "symbol": "JEFE_WINDOWED",
+      "reason": "environment read that selected the deleted windowed render mode"
+    },
+    {
+      "scope": "src",
+      "symbol": "SplitScreen",
+      "reason": "legacy split-screen presentation component"
+    },
+    {
+      "scope": "src",
+      "symbol": "UiNavigationMessage::WorkbenchNextPage",
+      "reason": "message-bus shadow of the deleted legacy paging event"
+    },
+    {
+      "scope": "src",
+      "symbol": "UiNavigationMessage::WorkbenchPrevPage",
+      "reason": "message-bus shadow of the deleted legacy paging event"
+    },
+    {
+      "scope": "src",
+      "symbol": "compute_pty_layout_for_windowed",
+      "reason": "windowed render fork; the resolved frame is the sole geometry authority"
+    },
+    {
+      "scope": "src",
+      "symbol": "effective_render_size_for_windowed",
+      "reason": "windowed render fork; the resolved frame is the sole geometry authority"
+    },
+    {
+      "scope": "src",
+      "symbol": "is_fullscreen_enabled",
+      "reason": "JEFE_WINDOWED env fork below the resolver; fullscreen is the only render mode"
+    }
+  ],
+  "retained_modules": [
+    {
+      "path": "src/preview_view.rs",
+      "sha256": "1a32656c1bdf6abfc348736849be61aa271ea5772f72527bc89c027c13d872be"
+    },
+    {
+      "path": "src/status_precedence.rs",
+      "sha256": "abaee5b4bbbeba4e65cb9ba0146705d01f34935925f6e24df2c4b8657aee423a"
+    },
+    {
+      "path": "src/ui/components/preview.rs",
+      "sha256": "fadbd711b76cf50c93ea0f5b2c2998257995b40e6afcf61953753e9818fd97d6"
+    },
+    {
+      "path": "src/ui/components/workbench_card.rs",
+      "sha256": "52287e97c0b76ac994b41cc8a8461c8ebde10fe70a3179b71804901007bf08ae"
+    },
+    {
+      "path": "src/workbench_view.rs",
+      "sha256": "8e0171a2072528110016ff47c65f62592224bd1ddbef296abf5198ad160ed121"
+    }
+  ],
+  "repointed_call_sites": [
+    "README.md - JEFE_WINDOWED bullet removed",
+    "dev-docs/testing/issue705-owner-evidence.json - Repositories residual adapter removed; the builtin is no longer a compiled adapter",
+    "docs/windows-support.md - JEFE_WINDOWED bullet removed",
+    "src/app_input/split_mode_key_tests.rs - legacy-event negative assertions removed; boundary dispatch stays the asserted path",
+    "src/app_shell.rs - stale SplitScreen comment reworded to the repositories screen's filter bar",
+    "src/layout.rs - windowed fork folded away; effective_render_size is the fullscreen render grid",
+    "src/lib.rs - screen_layout_parity_tests module registration removed",
+    "src/main.rs - fullscreen/render_loop fork removed; the app always runs fullscreen",
+    "src/messages.rs - UiNavigationMessage workbench paging variants removed",
+    "src/messages/event_conversion.rs - workbench paging conversion arms removed",
+    "src/messages/names.rs - workbench paging name arms removed",
+    "src/screen_layout_tests.rs - mirror witnesses retargeted from compute_pty_layout_for_windowed to compute_pty_layout",
+    "src/state/events.rs - AppEvent workbench paging variants removed",
+    "src/state/mod.rs - workbench paging apply arms and imports removed; navigation_provider_lifecycle registered",
+    "src/state/navigation_ops.rs - provider-panel lifecycle split out to keep the handler source-size gate",
+    "src/state/navigation_provider_lifecycle.rs - new home for the provider-panel lifecycle navigation commits",
+    "src/state/workbench_reducers.rs - WorkbenchNavigation::NextPage removed; the host-panel event arm owns forward paging",
+    "src/state/workbench_tests.rs - paging reducer tests drive the production previous/next paging arms",
+    "src/ui/mod.rs - SplitScreen re-export removed",
+    "src/ui/screens/mod.rs - split module declaration removed",
+    "src/workbench/screens_tests.rs - residual-set guard strengthened to exactly five, strict subset of the #705 recorded set",
+    "tests/core/dashboard_search_contracts.rs - repositories navigation root retargeted to the builtin identity",
+    "tests/core/domain_state_contracts.rs - split-mode screen assertions retargeted to the builtin identity",
+    "tests/e2e/end_to_end.rs - repositories screen assertion retargeted to the builtin identity",
+    "tests/geometry_consumer_inventory.rs - expected consumer inventory updated for the deleted surface",
+    "tests/issue705_owner_evidence.rs - required residual adapter set updated to the five compiled adapters",
+    "tests/layout/layout_tests.rs - windowed-fork tests removed; fullscreen seam locks retained",
+    "tests/selection/model.rs - split selection fixtures retargeted to the builtin identity",
+    "tests/ui/dashboard_navigation.rs - split-mode screen assertions retargeted to the builtin identity",
+    "tests/ui/dashboard_reorder.rs - split-mode screen assertion retargeted to the builtin identity",
+    "tests/ui/help_search_behavior.rs - repositories navigation root retargeted to the builtin identity",
+    "tests/ui/split_mode_behavior.rs - split fixtures and screen assertions retargeted to the builtin identity"
+  ]
+}

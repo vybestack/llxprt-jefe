@@ -16,7 +16,11 @@ use std::path::PathBuf;
 
 fn repositories_state() -> AppState {
     let mut state = AppState::new(crate::test_support::published_workbench());
-    state.nav = crate::state::navigation::NavState::rooted(ScreenId::Repositories);
+    state.nav = crate::state::navigation::NavState::rooted_definition(
+        crate::workbench::REPOSITORIES_IDENTITY,
+        crate::workbench::RouteId::from_static("repositories"),
+        crate::workbench::PanelId::from_static("repositories"),
+    );
     state
 }
 
@@ -74,7 +78,7 @@ fn project_repositories(state: &AppState) -> ProviderScreenView {
     let descriptor = state
         .published_workbench()
         .screen_registry()
-        .get_identity(ScreenId::Repositories.into())
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
         .unwrap_or_else(|| panic!("repositories descriptor must be published"));
     let layout = crate::screen_layout::resolve_screen(state, 120, 40)
         .unwrap_or_else(|| panic!("repositories layout must resolve"));

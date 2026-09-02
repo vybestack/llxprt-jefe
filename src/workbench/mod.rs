@@ -150,8 +150,9 @@ pub use ids::{
     MAX_BINDINGS_PER_SCREEN, MAX_FIELDS_PER_RESOURCE, MAX_LAYOUT_DEPTH, MAX_PANELS_PER_SCREEN,
     MAX_PORTS_PER_PANEL, MAX_RELATIONSHIPS_PER_SCREEN, MAX_RESOURCES_PER_SCREEN, MAX_SCREENS,
     MAX_SPLIT_CHILDREN, OpenScreenId, PanelId, PanelInstanceId, PanelTypeId, PluginScreenId,
-    PortId, RouteId, ScreenId, ScreenIdentity, ScreenInstanceId, ScreenInstanceIdExhausted,
-    TERMINALS_IDENTITY, TERMINALS_SCREEN_ID, VersionedTypeId,
+    PortId, REPOSITORIES_IDENTITY, REPOSITORIES_SCREEN_ID, RouteId, ScreenId, ScreenIdentity,
+    ScreenInstanceId, ScreenInstanceIdExhausted, TERMINALS_IDENTITY, TERMINALS_SCREEN_ID,
+    VersionedTypeId,
 };
 pub use intern::{InternExhausted, MAX_INTERNED_IDENTIFIERS, intern};
 pub use lowering_error::LoweringError;

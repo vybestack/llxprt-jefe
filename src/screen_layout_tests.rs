@@ -227,7 +227,7 @@ fn a_resize_targets_the_active_screens_resolved_pty_viewport() {
     let rect = crate::workbench::pty_content_rect(descriptor, &layout, &pty_panel.id)
         .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
     assert_eq!((viewport.rows, viewport.cols), (rect.height, rect.width));
-    let mirror = crate::layout::compute_pty_layout_for_windowed(120, 40, false);
+    let mirror = crate::layout::compute_pty_layout(120, 40);
     assert_ne!(
         (viewport.rows, viewport.cols),
         (mirror.pty_rows, mirror.pty_cols),
@@ -271,7 +271,7 @@ fn the_committed_frame_answers_for_the_terminal_pane_rectangle() {
     let content = crate::workbench::pty_content_rect(descriptor, layout, &pty_panel.id)
         .unwrap_or_else(|| unreachable!("the shell preview is visible at 120x40"));
     assert_eq!(rect, content);
-    let mirror = crate::layout::compute_pty_layout_for_windowed(120, 40, false);
+    let mirror = crate::layout::compute_pty_layout(120, 40);
     assert_ne!(
         (rect.row, rect.col),
         (mirror.pane_row0, mirror.pane_col0),

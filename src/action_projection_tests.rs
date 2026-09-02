@@ -251,7 +251,7 @@ fn available_projection_preserves_existing_help_and_footer_bytes() {
         project_footer(
             &snapshot,
             FooterProjectionInput {
-                screen: ScreenId::Repositories.into(),
+                screen: crate::workbench::REPOSITORIES_IDENTITY,
                 terminal_focused: false,
                 shell_overlay_active: false,
                 shell_resume_available: false,
@@ -286,9 +286,7 @@ fn footer_mode_only_maps_residual_compiled_adapters() {
         .unwrap_or_else(|error| panic!("custom screen identity: {error}"));
 
     assert_eq!(
-        footer_mode(crate::workbench::ScreenIdentity::Compiled(
-            ScreenId::Repositories
-        )),
+        footer_mode(crate::workbench::REPOSITORIES_IDENTITY),
         Some(FooterMode::Split)
     );
     assert_eq!(

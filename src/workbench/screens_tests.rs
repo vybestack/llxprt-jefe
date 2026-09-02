@@ -159,10 +159,9 @@ fn every_declared_screen_constant_satisfies_the_identifier_grammar() {
 }
 
 #[test]
-fn the_compiled_residual_set_is_exactly_six_and_excludes_dashboard_and_terminals() {
+fn the_compiled_residual_set_is_exactly_five_and_a_strict_subset_of_the_recorded_set() {
     let registry = registry();
     let expected = [
-        ScreenId::Repositories,
         ScreenId::Issues,
         ScreenId::PullRequests,
         ScreenId::Actions,
@@ -174,16 +173,47 @@ fn the_compiled_residual_set_is_exactly_six_and_excludes_dashboard_and_terminals
         .iter()
         .filter_map(|screen| screen.id.compiled())
         .collect();
-    let dashboard = registry
+    let repositories = registry
         .screens()
         .iter()
-        .find(|screen| screen.id.as_str() == "core.dashboard");
+        .find(|screen| screen.id.as_str() == crate::workbench::REPOSITORIES_SCREEN_ID.as_str());
 
-    assert_eq!(ScreenId::ALL, expected);
-    assert_eq!(registered, expected);
+    assert_eq!(ScreenId::ALL.as_slice(), expected.as_slice());
+    assert_eq!(registered.as_slice(), expected.as_slice());
     assert!(
-        dashboard.is_some_and(|screen| screen.id.compiled().is_none()),
-        "Dashboard must be an open shared-runtime definition, not a residual compiled adapter"
+        repositories.is_some_and(|screen| screen.id.compiled().is_none()),
+        "Repositories must be an open shared-runtime definition, not a residual compiled adapter"
+    );
+
+    // The recorded residual set is what the issue #705 owner-evidence ledger
+    // shipped: compiled adapters including Repositories. The #706 cutover
+    // migrates exactly one of them onto the shared runtime, so the live set
+    // must be a strict subset whose only missing element is the repositories
+    // builtin — no silent additions, no second migration hiding in the diff.
+    let recorded = [
+        "github.issues",
+        "github.pull-requests",
+        "github.actions",
+        "core.errors",
+        "core.settings",
+        "core.repositories",
+    ];
+    let live: Vec<&str> = ScreenId::ALL.iter().map(|id| id.as_str()).collect();
+    for id in &live {
+        assert!(
+            recorded.contains(id),
+            "screen {id} joined the residual set outside the recorded migration"
+        );
+    }
+    let migrated: Vec<&str> = recorded
+        .iter()
+        .filter(|id| !live.contains(id))
+        .copied()
+        .collect();
+    assert_eq!(
+        migrated.as_slice(),
+        [crate::workbench::REPOSITORIES_SCREEN_ID.as_str()],
+        "exactly the repositories screen may have migrated off the recorded residual set"
     );
 }
 
@@ -417,6 +447,12 @@ fn shipped_builtin_count_matches_the_declared_table() {
         .filter(|screen| screen.id.compiled().is_none())
         .count();
     assert_eq!(
+        crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
+        3,
+        "the shipped builtins are exactly dashboard, terminals, and repositories"
+    );
+    assert_eq!(builtins, 3, "three shipped screens are builtin definitions");
+    assert_eq!(
         builtins,
         crate::workbench::screens::SHIPPED_BUILTIN_SCREENS,
         "SHIPPED_BUILTIN_SCREENS must name exactly the builtin descriptor screens"
@@ -515,9 +551,7 @@ fn mutating_a_legacy_product_spelling_does_not_change_compiled_host_authority() 
 fn repositories_cards_grid_is_a_declared_host_control() {
     let registry = registry();
     let descriptor = registry
-        .get_identity(crate::workbench::ScreenIdentity::Compiled(
-            crate::state::ScreenId::Repositories,
-        ))
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
         .unwrap_or_else(|| panic!("repositories descriptor must be published"));
     let cards_grid = descriptor
         .panels
@@ -565,9 +599,7 @@ fn terminals_shell_list_is_a_declared_host_control() {
 fn repositories_status_block_is_a_declared_host_control() {
     let registry = registry();
     let descriptor = registry
-        .get_identity(crate::workbench::ScreenIdentity::Compiled(
-            crate::state::ScreenId::Repositories,
-        ))
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
         .unwrap_or_else(|| panic!("repositories descriptor must be published"));
     let status_block = descriptor
         .panels

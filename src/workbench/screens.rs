@@ -367,7 +367,7 @@ pub fn builtin_screens() -> Result<ScreenRegistry, RegistryError> {
 /// How many shipped screens are declared builtin descriptors rather than
 /// residual compiled adapters. Tests key shipped-screen counts off this so a
 /// migration flips one number instead of a dozen literals.
-pub const SHIPPED_BUILTIN_SCREENS: usize = 2;
+pub const SHIPPED_BUILTIN_SCREENS: usize = 3;
 
 /// A weighted share of the cells left once every minimum is satisfied.
 ///
@@ -602,9 +602,9 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
 /// filter band.
 fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
-        id: ScreenIdentity::Compiled(ScreenId::Repositories),
+        id: crate::workbench::REPOSITORIES_IDENTITY,
         title: "Repositories".to_owned(),
-        route: RouteId::parse("repositories")?,
+        route: RouteId::parse(REPOSITORIES_ROUTE)?,
         panels: vec![
             sidebar_panel()?,
             host_panel(
@@ -660,7 +660,6 @@ fn repositories_screen() -> Result<ScreenDescriptor, RegistryError> {
 #[must_use]
 pub const fn route_of(screen: ScreenId) -> RouteId {
     RouteId::from_static(match screen {
-        ScreenId::Repositories => "repositories",
         ScreenId::Issues => "issues",
         ScreenId::PullRequests => "pull-requests",
         ScreenId::Actions => "actions",
@@ -679,7 +678,6 @@ pub const fn route_of(screen: ScreenId) -> RouteId {
 #[must_use]
 pub const fn initial_focus(screen: ScreenId) -> PanelId {
     PanelId::from_static(match screen {
-        ScreenId::Repositories => REPOSITORIES_PANEL,
         ScreenId::Issues => ISSUES_LIST_PANEL,
         ScreenId::PullRequests => PULL_REQUESTS_LIST_PANEL,
         ScreenId::Actions => ACTIONS_LIST_PANEL,
@@ -700,6 +698,8 @@ pub const ERRORS_LIST_PANEL: &str = "error-list";
 pub const TERMINALS_LIST_PANEL: &str = "shell-list";
 /// Route literal the Terminal Manager screen is reachable through.
 pub const TERMINALS_ROUTE: &str = "terminals";
+/// Route literal the Repositories (split) screen is reachable through.
+pub const REPOSITORIES_ROUTE: &str = "repositories";
 /// Identity of the Settings section list.
 pub const SETTINGS_SECTIONS_PANEL: &str = "settings-sections";
 /// Identity of the Settings General panel.

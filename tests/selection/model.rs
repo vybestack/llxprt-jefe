@@ -8,15 +8,16 @@ use jefe::selection::{
     normalize_selection, pane_at, point_to_content_coords, row_highlight_range, selection_text,
 };
 use jefe::state::ScreenId;
+use jefe::workbench::ScreenIdentity;
 
-const SPLIT: ScreenId = ScreenId::Repositories;
+const SPLIT: ScreenIdentity = jefe::workbench::REPOSITORIES_IDENTITY;
 const ISSUES: ScreenId = ScreenId::Issues;
 const PRS: ScreenId = ScreenId::PullRequests;
 
 fn layout(
     cols: u16,
     rows: u16,
-    mode: ScreenId,
+    mode: impl Into<ScreenIdentity>,
     error_visible: bool,
     filter_open: bool,
 ) -> jefe::selection::ScreenLayout {
@@ -444,7 +445,7 @@ fn highlight_range_works_with_reversed_anchor_focus() {
 fn layout_with_overlay(
     cols: u16,
     rows: u16,
-    mode: ScreenId,
+    mode: impl Into<ScreenIdentity>,
     overlay: jefe::selection::OverlayPane,
 ) -> jefe::selection::ScreenLayout {
     jefe::selection::ScreenLayout::new(cols, rows, mode.into(), false, false).with_overlay(overlay)

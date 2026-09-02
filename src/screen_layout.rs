@@ -251,10 +251,10 @@ pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         return hidden;
     };
     match screen {
-        // The split view and the errors screen render no conditional band,
-        // so nothing is ever hidden on them. The Terminal Manager is a
-        // descriptor screen and returns before this match.
-        ScreenId::Repositories | ScreenId::Errors => {}
+        // The errors screen renders no conditional band, so nothing is ever
+        // hidden on it. The Terminal Manager and the split view are
+        // descriptor screens and return before this match.
+        ScreenId::Errors => {}
         ScreenId::Settings => push_unfocused_settings_sections(&mut hidden, state),
         ScreenId::Issues => {
             push_band_state(

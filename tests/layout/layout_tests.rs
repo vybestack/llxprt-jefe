@@ -8,14 +8,6 @@
 
 use jefe::layout::*;
 
-fn effective_render_size_for_test(cols: u16, rows: u16, fullscreen: bool) -> (u16, u16) {
-    effective_render_size_for_windowed(cols, rows, !fullscreen)
-}
-
-fn compute_pty_layout_for_test(cols: u16, rows: u16, fullscreen: bool) -> PtyLayout {
-    compute_pty_layout_for_windowed(cols, rows, !fullscreen)
-}
-
 #[test]
 fn column_width_constants_hold_expected_values() {
     // The UI screens reference these constants for their fixed-width panes,
@@ -27,24 +19,9 @@ fn column_width_constants_hold_expected_values() {
 }
 
 #[test]
-fn effective_render_size_fullscreen_passthrough() {
-    assert_eq!(effective_render_size_for_test(120, 40, true), (120, 40));
-    assert_eq!(effective_render_size_for_test(80, 24, true), (80, 24));
-}
-
-#[test]
-fn effective_render_size_windowed_subtraction() {
-    assert_eq!(effective_render_size_for_test(120, 40, false), (118, 38));
-    assert_eq!(effective_render_size_for_test(2, 2, false), (1, 1));
-    assert_eq!(effective_render_size_for_test(1, 1, false), (1, 1));
-}
-
-#[test]
-fn fullscreen_and_windowed_terminals_can_project_the_same_render_size() {
-    assert_eq!(
-        effective_render_size_for_test(100, 25, true),
-        effective_render_size_for_test(102, 27, false)
-    );
+fn effective_render_size_passes_the_terminal_grid_through() {
+    assert_eq!(effective_render_size(120, 40), (120, 40));
+    assert_eq!(effective_render_size(80, 24), (80, 24));
 }
 
 #[test]
@@ -90,7 +67,7 @@ fn terminal_manager_pty_layout_matches_lower_workspace_pane() {
 
 #[test]
 fn compute_pty_layout_pane_origin() {
-    let layout = compute_pty_layout_for_test(120, 40, true);
+    let layout = compute_pty_layout(120, 40);
     assert_eq!(layout.pane_col0, LEFT_COL_WIDTH + 1);
 }
 
@@ -112,45 +89,25 @@ fn dashboard_middle_row_heights_degrade_gracefully_when_extremely_small() {
 
 #[test]
 fn compute_pty_layout_dimensions_always_at_least_two() {
-    for fullscreen in [true, false] {
-        for (cols, rows) in [(120, 40), (10, 10), (0, 0), (60, 20)] {
-            let layout = compute_pty_layout_for_test(cols, rows, fullscreen);
-            assert!(
-                layout.pty_rows >= 2,
-                "pty_rows < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
-            );
-            assert!(
-                layout.pty_cols >= 2,
-                "pty_cols < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
-            );
-        }
+    for (cols, rows) in [(120, 40), (10, 10), (0, 0), (60, 20)] {
+        let layout = compute_pty_layout(cols, rows);
+        assert!(layout.pty_rows >= 2, "pty_rows < 2 for ({cols}, {rows})");
+        assert!(layout.pty_cols >= 2, "pty_cols < 2 for ({cols}, {rows})");
     }
 }
 
 #[test]
-fn agent_rows_rounding_half_up_fullscreen() {
+fn agent_rows_rounding_half_up() {
     // 40 rows - 2 bars = 38 content rows. 25% = 9.5 → rounds to 10.
-    let layout = compute_pty_layout_for_test(120, 40, true);
+    let layout = compute_pty_layout(120, 40);
     // pane_row0 = 1 (status bar) + agent_rows(10) + 2 (chrome top border + header)
     assert_eq!(layout.pane_row0, 1 + 10 + 2);
 }
 
 #[test]
-fn agent_rows_rounding_half_up_windowed() {
-    // Windowed: 40-2=38 render rows, 38-2=36 content rows. 25% = 9.0 → exactly 9.
-    let layout = compute_pty_layout_for_test(120, 40, false);
-    assert_eq!(layout.pane_row0, 1 + 9 + 2);
-}
-
-#[test]
 fn compute_pty_layout_pane_row0_positive() {
-    for fullscreen in [true, false] {
-        let layout = compute_pty_layout_for_test(120, 40, fullscreen);
-        assert!(
-            layout.pane_row0 > 0,
-            "pane_row0 not positive for fullscreen={fullscreen}"
-        );
-    }
+    let layout = compute_pty_layout(120, 40);
+    assert!(layout.pane_row0 > 0, "pane_row0 not positive");
 }
 
 #[test]
@@ -421,55 +378,42 @@ const ROW_SAMPLES: [u16; 9] = [0, 1, 2, 3, 4, 8, 24, 40, 50];
 
 #[test]
 fn prop_pty_dimensions_invariants_hold_across_sizes() {
-    for fullscreen in [true, false] {
-        for &cols in &COL_SAMPLES {
-            for &rows in &ROW_SAMPLES {
-                let layout = compute_pty_layout_for_test(cols, rows, fullscreen);
-                assert!(
-                    layout.pty_rows >= 2,
-                    "pty_rows < 2 for ({cols}, {rows}, fs={fullscreen})"
-                );
-                assert!(
-                    layout.pty_cols >= 2,
-                    "pty_cols < 2 for ({cols}, {rows}, fs={fullscreen})"
-                );
-            }
-            // Dense row sweep: every value 0..=64, both fullscreen states.
-            for rows in 0..=64u16 {
-                let layout = compute_pty_layout_for_test(cols, rows, fullscreen);
-                assert!(
-                    layout.pty_rows >= 2,
-                    "pty_rows < 2 for (cols={cols}, rows={rows}, fs={fullscreen})"
-                );
-                assert!(
-                    layout.pty_cols >= 2,
-                    "pty_cols < 2 for (cols={cols}, rows={rows}, fs={fullscreen})"
-                );
-            }
+    for &cols in &COL_SAMPLES {
+        for &rows in &ROW_SAMPLES {
+            let layout = compute_pty_layout(cols, rows);
+            assert!(layout.pty_rows >= 2, "pty_rows < 2 for ({cols}, {rows})");
+            assert!(layout.pty_cols >= 2, "pty_cols < 2 for ({cols}, {rows})");
+        }
+        // Dense row sweep: every value 0..=64.
+        for rows in 0..=64u16 {
+            let layout = compute_pty_layout(cols, rows);
+            assert!(
+                layout.pty_rows >= 2,
+                "pty_rows < 2 for (cols={cols}, rows={rows})"
+            );
+            assert!(
+                layout.pty_cols >= 2,
+                "pty_cols < 2 for (cols={cols}, rows={rows})"
+            );
         }
     }
 }
 
 #[test]
 fn prop_pane_origin_invariants() {
-    for fullscreen in [true, false] {
-        for &cols in &COL_SAMPLES {
-            for &rows in &ROW_SAMPLES {
-                let layout = compute_pty_layout_for_test(cols, rows, fullscreen);
-                assert_eq!(
-                    layout.pane_col0,
-                    LEFT_COL_WIDTH + 1,
-                    "pane_col0 must equal LEFT_COL_WIDTH+1 for ({cols}, {rows}, fs={fullscreen})"
-                );
-                assert!(
-                    layout.pane_col0 > 0,
-                    "pane_col0 must be positive for ({cols}, {rows}, fs={fullscreen})"
-                );
-                assert!(
-                    layout.pane_row0 > 0,
-                    "pane_row0 must be positive for ({cols}, {rows}, fs={fullscreen})"
-                );
-            }
+    for &cols in &COL_SAMPLES {
+        for &rows in &ROW_SAMPLES {
+            let layout = compute_pty_layout(cols, rows);
+            assert_eq!(
+                layout.pane_col0,
+                LEFT_COL_WIDTH + 1,
+                "pane_col0 must equal LEFT_COL_WIDTH+1 for ({cols}, {rows})"
+            );
+            assert!(layout.pane_col0 > 0, "pane_col0 must be positive");
+            assert!(
+                layout.pane_row0 > 0,
+                "pane_row0 must be positive for ({cols}, {rows})"
+            );
         }
     }
 }
@@ -478,20 +422,18 @@ fn prop_pane_origin_invariants() {
 /// layout's `pane_row0` matches the derived value (1 + agent_rows + 2).
 #[test]
 fn prop_agent_rows_half_up_rounding() {
-    for fullscreen in [true, false] {
-        for term_rows in 0..=300u16 {
-            let cols: u16 = 120; // wide enough that cols don't constrain rows
-            let (_, eff_rows) = effective_render_size_for_test(cols, term_rows, fullscreen);
-            let content_rows = eff_rows.saturating_sub(OUTER_BARS_HEIGHT);
-            let agent_rows = expected_agent_rows(content_rows);
-            let layout = compute_pty_layout_for_test(cols, term_rows, fullscreen);
-            // pane_row0 = 1 + agent_rows + 2
-            let expected_pane_row0 = 1u16.saturating_add(agent_rows).saturating_add(2);
-            assert_eq!(
-                layout.pane_row0, expected_pane_row0,
-                "pane_row0 mismatch for term_rows={term_rows}, fs={fullscreen}"
-            );
-        }
+    for term_rows in 0..=300u16 {
+        let cols: u16 = 120; // wide enough that cols don't constrain rows
+        let (_, eff_rows) = effective_render_size(cols, term_rows);
+        let content_rows = eff_rows.saturating_sub(OUTER_BARS_HEIGHT);
+        let agent_rows = expected_agent_rows(content_rows);
+        let layout = compute_pty_layout(cols, term_rows);
+        // pane_row0 = 1 + agent_rows + 2
+        let expected_pane_row0 = 1u16.saturating_add(agent_rows).saturating_add(2);
+        assert_eq!(
+            layout.pane_row0, expected_pane_row0,
+            "pane_row0 mismatch for term_rows={term_rows}"
+        );
     }
 }
 
@@ -543,17 +485,15 @@ fn expected_agent_rows(content_rows: u16) -> u16 {
 // intentionally change the layout, update these in lockstep.
 // -------------------------------------------------------------------------
 
-/// Representative `(cols, rows, fullscreen, expected)` golden cases.
+/// Representative `(cols, rows, expected)` golden cases.
 ///
 /// These pin the full computed geometry for representative terminal sizes.
 /// Values are derived from the established algorithm; if the layout is
 /// intentionally changed, update these in lockstep.
-const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
-    // fullscreen = true
+const GOLDEN_CASES: &[(u16, u16, PtyLayout)] = &[
     (
         80,
         24,
-        true,
         PtyLayout {
             pty_rows: 13,
             pty_cols: 20,
@@ -564,7 +504,6 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
     (
         120,
         40,
-        true,
         PtyLayout {
             pty_rows: 25,
             pty_cols: 60,
@@ -575,7 +514,6 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
     (
         200,
         50,
-        true,
         PtyLayout {
             pty_rows: 33,
             pty_cols: 140,
@@ -586,7 +524,6 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
     (
         60,
         20,
-        true,
         PtyLayout {
             pty_rows: 10,
             pty_cols: 2,
@@ -597,7 +534,6 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
     (
         100,
         30,
-        true,
         PtyLayout {
             pty_rows: 18,
             pty_cols: 40,
@@ -608,7 +544,6 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
     (
         10,
         10,
-        true,
         PtyLayout {
             pty_rows: 2,
             pty_cols: 2,
@@ -619,85 +554,6 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
     (
         20,
         8,
-        true,
-        PtyLayout {
-            pty_rows: 2,
-            pty_cols: 2,
-            pane_col0: 23,
-            pane_row0: 6,
-        },
-    ),
-    // fullscreen = false (windowed: each dim shrinks by 2)
-    (
-        80,
-        24,
-        false,
-        PtyLayout {
-            pty_rows: 12,
-            pty_cols: 18,
-            pane_col0: 23,
-            pane_row0: 8,
-        },
-    ),
-    (
-        120,
-        40,
-        false,
-        PtyLayout {
-            pty_rows: 24,
-            pty_cols: 58,
-            pane_col0: 23,
-            pane_row0: 12,
-        },
-    ),
-    (
-        200,
-        50,
-        false,
-        PtyLayout {
-            pty_rows: 31,
-            pty_cols: 138,
-            pane_col0: 23,
-            pane_row0: 15,
-        },
-    ),
-    (
-        60,
-        20,
-        false,
-        PtyLayout {
-            pty_rows: 9,
-            pty_cols: 2,
-            pane_col0: 23,
-            pane_row0: 7,
-        },
-    ),
-    (
-        100,
-        30,
-        false,
-        PtyLayout {
-            pty_rows: 16,
-            pty_cols: 38,
-            pane_col0: 23,
-            pane_row0: 10,
-        },
-    ),
-    (
-        10,
-        10,
-        false,
-        PtyLayout {
-            pty_rows: 2,
-            pty_cols: 2,
-            pane_col0: 23,
-            pane_row0: 6,
-        },
-    ),
-    (
-        20,
-        8,
-        false,
         PtyLayout {
             pty_rows: 2,
             pty_cols: 2,
@@ -709,12 +565,9 @@ const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
 
 #[test]
 fn golden_pty_layout_representative_sizes() {
-    for &(cols, rows, fullscreen, expected) in GOLDEN_CASES {
-        let actual = compute_pty_layout_for_test(cols, rows, fullscreen);
-        assert_eq!(
-            actual, expected,
-            "golden mismatch for ({cols}x{rows}, fullscreen={fullscreen})"
-        );
+    for &(cols, rows, expected) in GOLDEN_CASES {
+        let actual = compute_pty_layout(cols, rows);
+        assert_eq!(actual, expected, "golden mismatch for ({cols}x{rows})");
     }
 }
 

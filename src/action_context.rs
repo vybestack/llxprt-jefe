@@ -55,8 +55,8 @@ pub fn derive_action_context(
             pre_mode(&["dashboard", "global"])
         };
     }
-    // The Terminal Manager is a descriptor screen whose keymap is still the
-    // terminal-manager context, keyed by identity rather than a variant.
+    // The Terminal Manager and the split view are descriptor screens whose
+    // keymaps are still keyed by identity rather than a variant.
     if state.screen() == jefe::workbench::TERMINALS_IDENTITY {
         return if input_mode == InputMode::Normal {
             full_s3(&["terminal-manager", "global"])
@@ -64,10 +64,14 @@ pub fn derive_action_context(
             pre_mode(&["global"])
         };
     }
-    match state.compiled_screen() {
-        Some(ScreenId::Repositories) if input_mode == InputMode::Normal => {
+    if state.screen() == jefe::workbench::REPOSITORIES_IDENTITY {
+        return if input_mode == InputMode::Normal {
             full_s3(&["split", "global"])
-        }
+        } else {
+            pre_mode(&["split", "global"])
+        };
+    }
+    match state.compiled_screen() {
         Some(ScreenId::Errors) if input_mode == InputMode::Normal => full_s3(&["errors", "global"]),
         Some(ScreenId::Settings) if input_mode == InputMode::Normal => {
             full_s3(&["settings", "global"])
@@ -75,7 +79,6 @@ pub fn derive_action_context(
         Some(ScreenId::Issues) => issues_context(state),
         Some(ScreenId::PullRequests) => prs_context(state),
         Some(ScreenId::Actions) => actions_context(state),
-        Some(ScreenId::Repositories) => pre_mode(&["split", "global"]),
         Some(ScreenId::Errors | ScreenId::Settings) => pre_mode(&["global"]),
         // Lowered package and custom screens share the protected host Back
         // action while panel-specific semantic input remains descriptor-driven.
@@ -98,10 +101,8 @@ fn modal_context(modal: &ModalState) -> Option<&'static str> {
 
 fn modal_stack(state: &AppState, modal: &str) -> Result<ActionContext, ContextStackError> {
     if is_host_workspace(state)
-        || matches!(
-            state.compiled_screen(),
-            Some(ScreenId::Repositories | ScreenId::Actions)
-        )
+        || state.screen() == jefe::workbench::REPOSITORIES_IDENTITY
+        || matches!(state.compiled_screen(), Some(ScreenId::Actions))
     {
         return action_context(
             &[modal, "dashboard.pre-mode", "global"],

@@ -16,7 +16,7 @@ use crate::ui::components::{HostControlOverlay, ProviderScreen};
 use crate::ui::screens::{
     ActionsScreen, ErrorsScreen, IssuesScreen, PullRequestsScreen, SettingsScreen,
 };
-use crate::ui::{AuthModal, SplitScreen, WorkflowDispatchForm};
+use crate::ui::{AuthModal, WorkflowDispatchForm};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -277,7 +277,6 @@ pub fn build_screen_element(
 ) -> AnyElement<'static> {
     match snapshot.compiled_screen() {
         Some(ScreenId::Issues) => screen_element!(IssuesScreen, snapshot, colors, theme_name),
-        Some(ScreenId::Repositories) => screen_element!(SplitScreen, snapshot, colors, theme_name),
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
         Some(ScreenId::PullRequests) => {
@@ -286,6 +285,8 @@ pub fn build_screen_element(
         Some(ScreenId::Actions) => screen_element!(ActionsScreen, snapshot, colors, theme_name),
         Some(ScreenId::Errors) => screen_element!(ErrorsScreen, snapshot, colors, theme_name),
         Some(ScreenId::Settings) => screen_element!(SettingsScreen, snapshot, colors, theme_name),
+        // The dashboard, the Terminal Manager, and the split view render from
+        // their published descriptors through the shared screen runtime.
         None => element! {
             ProviderScreen(
                 state: Some(snapshot.clone()),

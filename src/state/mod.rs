@@ -141,6 +141,8 @@ mod navigation_ops;
 #[cfg(test)]
 #[path = "navigation_package_tests.rs"]
 mod navigation_package_tests;
+/// Provider-panel lifecycle transitions committed by navigation (issue #706).
+mod navigation_provider_lifecycle;
 #[cfg(test)]
 #[path = "navigation_provider_relationship_tests.rs"]
 mod navigation_provider_relationship_tests;
@@ -250,8 +252,7 @@ use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::list_viewport::ListMove;
 use crate::messages::UiNavigationMessage::{
     ToggleWorkbenchStatusBucket, WorkbenchAttach, WorkbenchFilterCursorNext,
-    WorkbenchFilterCursorPrev, WorkbenchNextPage, WorkbenchPrevPage, WorkbenchSelectNext,
-    WorkbenchSelectPrev,
+    WorkbenchFilterCursorPrev, WorkbenchSelectNext, WorkbenchSelectPrev,
 };
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
@@ -661,8 +662,6 @@ impl AppState {
             ToggleWorkbenchStatusBucket(bucket) => {
                 self.apply_workbench(W::ToggleStatusBucket(bucket));
             }
-            WorkbenchNextPage => self.apply_workbench(W::NextPage),
-            WorkbenchPrevPage => self.apply_workbench(W::PreviousPage),
             WorkbenchFilterCursorPrev => self.apply_workbench(W::PreviousFilter),
             WorkbenchFilterCursorNext => self.apply_workbench(W::NextFilter),
             WorkbenchSelectPrev => self.apply_workbench(W::PreviousSelection),
@@ -679,7 +678,7 @@ impl AppState {
     }
 
     fn enter_split_screen(&mut self) {
-        let _ = self.enter_screen(ScreenId::Repositories);
+        let _ = self.enter_split_definition();
         self.pane_focus = PaneFocus::Repositories;
         self.dashboard_grab = None;
     }

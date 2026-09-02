@@ -64,6 +64,56 @@ pub(super) fn apply(
     super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
 }
 
+/// Apply one workbench paging key through the shared control path.
+///
+/// The card grid owns split-screen paging regardless of which panel holds
+/// focus — the behavior the legacy `split.page-up`/`split.page-down` events
+/// carried — so this resolves the screen's declared cards control rather
+/// than the focused panel. The control factory bounds the step by the
+/// committed frame's display basis and keeps it inert without one
+/// (issue #706).
+pub(super) fn apply_workbench_paging(
+    action: ControlAction,
+    app_state: &mut super::AppStateHandle,
+    ctx: &super::SharedContext,
+) {
+    let staged = {
+        let mut state = app_state.write();
+        let Some(capability) = workbench_cards_capability(&state) else {
+            return;
+        };
+        // Paging reads the display basis, not a panel content rectangle, and
+        // without a committed frame the reducer is inert, so no fallback
+        // geometry is invented here.
+        let (viewport_cols, viewport_rows) =
+            state.resolved_layout.as_ref().map_or((0, 0), |layout| {
+                let (cols, rows) = jefe::screen_layout::committed_render_size(layout);
+                (usize::from(cols), usize::from(rows))
+            });
+        let _ = state.apply_host_panel_action(capability, action, viewport_cols, viewport_rows);
+        state.take_staged_effects()
+    };
+    super::provider_dispatch::schedule_provider_effects(app_state, ctx, staged);
+}
+
+/// The active screen's declared card-grid control, if it declares one.
+fn workbench_cards_capability(
+    state: &jefe::state::AppState,
+) -> Option<jefe::workbench::HostPanelCapability> {
+    state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())?
+        .panels
+        .iter()
+        .find(|panel| {
+            panel.host_capability().is_some_and(|capability| {
+                capability.model_source() == jefe::workbench::HostPanelModelSource::WorkbenchCards
+            })
+        })
+        .and_then(jefe::workbench::PanelDescriptor::host_capability)
+}
+
 fn current_host_panel_capability(
     state: &jefe::state::AppState,
     panel_id: &jefe::workbench::PanelId,
@@ -468,7 +518,7 @@ fn control_event(
 ) -> Option<PanelEvent> {
     match control_intent_for_state(state, panel, action) {
         ControlIntent::Event(event) => Some(event),
-        ControlIntent::Scroll(_) | ControlIntent::None => None,
+        ControlIntent::Scroll(_) | ControlIntent::PagePrevious | ControlIntent::None => None,
     }
 }
 

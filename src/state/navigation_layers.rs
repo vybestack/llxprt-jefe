@@ -124,13 +124,16 @@ impl AppState {
     }
 
     fn leave_back_event(&self) -> Option<AppEvent> {
-        // The Terminal Manager is a descriptor screen; leaving it still leaves
-        // terminal-manager mode, keyed by identity rather than a variant.
+        // The Terminal Manager and the split view are descriptor screens;
+        // leaving them still leaves their modes, keyed by identity rather
+        // than a variant.
         if self.screen() == crate::workbench::TERMINALS_IDENTITY {
             return Some(AppEvent::ExitTerminalManagerMode);
         }
+        if self.screen() == crate::workbench::REPOSITORIES_IDENTITY {
+            return Some(AppEvent::ExitSplitMode);
+        }
         match self.compiled_screen() {
-            Some(ScreenId::Repositories) => Some(AppEvent::ExitSplitMode),
             Some(ScreenId::Issues) => Some(AppEvent::ExitIssuesMode),
             Some(ScreenId::PullRequests) => Some(AppEvent::ExitPrsMode),
             Some(ScreenId::Actions) => Some(AppEvent::ExitActionsMode),
@@ -347,7 +350,7 @@ impl AppState {
                 self.actions_state.focus == super::types::ActionsFocus::Detail
             }
             Some(ScreenId::Errors) => self.errors_state.focus == ErrorsFocus::ErrorDetail,
-            Some(ScreenId::Repositories | ScreenId::Settings) | None => false,
+            Some(ScreenId::Settings) | None => false,
         }
     }
 }

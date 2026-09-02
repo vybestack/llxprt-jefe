@@ -601,8 +601,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         None
     };
 
-    // Search is an in-band mode used by SplitScreen's filter bar, not a blocking
-    // overlay modal. Keep rendering the underlying screen in search mode.
+    // Search is an in-band mode used by the repositories screen's filter bar,
+    // not a blocking overlay modal. Keep rendering the underlying screen in
+    // search mode.
     let content_el: AnyElement<'static> =
         if active_overlay == Some(jefe::workbench::OverlayKind::Search) {
             screen_el

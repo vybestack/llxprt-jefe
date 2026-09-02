@@ -283,7 +283,7 @@ mod tests {
                 KeybindBar(
                     hints: keybind_hints_for(
                         crate::test_support::published_workbench().actions(),
-                        ScreenId::Repositories,
+                        crate::workbench::REPOSITORIES_IDENTITY,
                         false,
                         None,
                     ),

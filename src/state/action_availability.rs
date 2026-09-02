@@ -54,8 +54,7 @@ impl AppState {
                 self.prs_state.draft_notice = Some(reason.clone());
             }
             Some(
-                super::ScreenId::Repositories
-                | super::ScreenId::Actions
+                super::ScreenId::Actions
                 | super::ScreenId::Errors
                 | super::ScreenId::Settings,
             )

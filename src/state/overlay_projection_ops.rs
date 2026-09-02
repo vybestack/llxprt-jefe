@@ -85,6 +85,7 @@ impl AppState {
                 projection.rows.len().saturating_sub(layout.viewport_rows),
             )),
             crate::host_controls::ControlIntent::Event(_)
+            | crate::host_controls::ControlIntent::PagePrevious
             | crate::host_controls::ControlIntent::None => None,
         }
     }
@@ -259,6 +260,7 @@ impl AppState {
             ) => Some((field_id, value)),
             crate::host_controls::ControlIntent::Event(_)
             | crate::host_controls::ControlIntent::Scroll(_)
+            | crate::host_controls::ControlIntent::PagePrevious
             | crate::host_controls::ControlIntent::None => None,
         }
     }
