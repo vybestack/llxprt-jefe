@@ -388,13 +388,15 @@ fn restore_persisted_state(
 ) {
     state.repositories = persisted.repositories;
     state.agents = persisted.agents;
-    state.selected_repository_index = persisted.selected_repository_index;
-    state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
     state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
     state.durable_revision = persisted.revision;
     state.dormant_records = persisted.dormant_records;
     state.restore_navigation_root(persisted.screen);
+    // Selection lives on the restored navigation instance, so it can only be
+    // written after the root is re-bound; assigning earlier discarded it.
+    state.selected_repository_index = persisted.selected_repository_index;
+    state.selected_agent_index = persisted.selected_agent_index;
     state.pane_focus = persisted.pane_focus;
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
@@ -911,3 +913,7 @@ fn apply_restored_state(
 #[cfg(test)]
 #[path = "app_init_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "app_init_restore_tests.rs"]
+mod restore_tests;

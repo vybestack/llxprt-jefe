@@ -10,7 +10,7 @@ use jefe::domain::{Repository, RepositoryId, TypedValue, UncleanRun};
 use jefe::runtime::RuntimeSession;
 use std::time::Duration;
 
-fn code_puppy_agent_and_repository() -> (Agent, Repository) {
+pub(super) fn code_puppy_agent_and_repository() -> (Agent, Repository) {
     let repository_id = RepositoryId("repo-model".to_owned());
     let repository = Repository::new(
         repository_id.clone(),
