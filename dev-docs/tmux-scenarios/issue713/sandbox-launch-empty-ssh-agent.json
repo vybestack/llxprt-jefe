@@ -67,7 +67,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Sandbox Fixture",
+      "literal": "Sandbox Fi",
       "timeout_ms": 15000
     },
     {
