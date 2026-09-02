@@ -97,8 +97,15 @@ const SEARCH_ROW_ROWS: u16 = 1;
 /// Rows the split-screen filter band occupies.
 const SPLIT_FILTER_ROWS: u16 = 3;
 
-/// The STATUS block: one header row plus one row per bucket.
-const STATUS_BLOCK_ROWS: u16 = 5;
+/// The STATUS block: the bordered pane's vertical chrome — top border plus
+/// title row (2) and bottom border (1) — plus one row per bucket (4), so
+/// 2 + 1 + 4 = 7 and the pane's interior fits all four buckets. The legacy
+/// borderless rail spent its first row on a header; the pane carries STATUS
+/// on its border now, so every interior row is a bucket.
+const STATUS_BLOCK_ROWS: u16 =
+    LIST_PANE_CHROME.top + LIST_PANE_CHROME.bottom + STATUS_BLOCK_BUCKETS;
+/// One row per STATUS bucket: Needs you, Working, Ready, Stale.
+const STATUS_BLOCK_BUCKETS: u16 = 4;
 /// Rows a workspace error/notice banner occupies when shown.
 pub(super) const BANNER_ROWS: u16 = 1;
 /// Rows the workspace filter-controls band occupies when open.

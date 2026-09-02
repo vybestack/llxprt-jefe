@@ -6,8 +6,10 @@
 
 use serde_json::Value;
 
-use super::descriptor::{LayoutChild, LayoutNode, ScreenDescriptor};
-use super::ids::{DASHBOARD_IDENTITY, MAX_PANELS_PER_SCREEN, PanelId, ScreenId};
+use super::descriptor::{HostPanelModelSource, LayoutChild, LayoutNode, ScreenDescriptor};
+use super::geometry::Rect;
+use super::ids::{DASHBOARD_IDENTITY, MAX_PANELS_PER_SCREEN, PanelId, ScreenId, ScreenInstanceId};
+use super::resolve::{PanelState, resolve_layout};
 use super::screens::{PTY_PANEL_TYPE, ScreenRegistry, builtin_screens};
 use super::validate::validate_descriptor;
 
@@ -616,5 +618,77 @@ fn repositories_status_block_is_a_declared_host_control() {
     assert_eq!(
         capability.control_kind(),
         crate::host_controls::ControlKind::List
+    );
+}
+
+/// The STATUS pane must fit every bucket row the projection emits.
+///
+/// The pane draws its own border and title (`LIST_PANE_CHROME`), so the fixed
+/// claim has to cover that chrome plus one row per bucket. The scenario
+/// manifest `workbench-screen.json` asserts the same four labels against the
+/// real process; this pins the geometry and the clipped projection that
+/// produce them, at the scenario's terminal size.
+#[test]
+fn repositories_status_pane_fits_every_bucket_row_at_120x36() {
+    let registry = registry();
+    let descriptor = registry
+        .get_identity(crate::workbench::REPOSITORIES_IDENTITY)
+        .unwrap_or_else(|| panic!("repositories descriptor must be published"));
+    let layout = resolve_layout(
+        descriptor,
+        ScreenInstanceId::next(),
+        Rect::new(0, 0, 120, 36),
+        &PanelState::all_visible(),
+    )
+    .unwrap_or_else(|error| panic!("resolution must not fail: {error}"));
+    assert!(
+        layout.too_small.is_none(),
+        "the repositories screen must fit at 120x36"
+    );
+
+    let status = layout
+        .panel(&PanelId::from_static("status"))
+        .unwrap_or_else(|| panic!("status panel must resolve"));
+    assert!(status.visible, "the status panel must be visible at 120x36");
+    let buckets = crate::workbench_view::STATUS_BLOCK_ORDER.len();
+    assert!(
+        usize::from(status.content.height) >= buckets,
+        "status interior is {} rows but must fit all {buckets} bucket rows",
+        status.content.height
+    );
+
+    // Every row the projection emits, clipped to the interior height the pane
+    // renders — the same clip `project_host_model` applies before drawing.
+    let state = crate::state::AppState::test_fixture();
+    let model =
+        crate::host_panel_models::project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let rows = crate::host_controls::project_control_body(
+        &model.body,
+        &model.action_affordances,
+        model.selected_id.as_ref(),
+        None,
+        usize::from(status.content.width),
+    );
+    let visible: Vec<&str> = rows
+        .iter()
+        .take(usize::from(status.content.height))
+        .map(|row| row.text.as_str())
+        .collect();
+    for label in ["Needs you", "Working", "Ready", "Stale"] {
+        assert!(
+            visible.iter().any(|text| text.contains(label)),
+            "status interior must show the {label} bucket; visible rows: {visible:?}"
+        );
+    }
+
+    // Growing the status claim must not push the repository list out of the
+    // rows it renders at this size (its empty-state line plus one entry).
+    let sidebar = layout
+        .panel(&PanelId::from_static("repositories"))
+        .unwrap_or_else(|| panic!("repositories panel must resolve"));
+    assert!(
+        sidebar.visible && usize::from(sidebar.content.height) >= 2,
+        "repository list must keep at least its two rendered rows, has {}",
+        sidebar.content.height
     );
 }

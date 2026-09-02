@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "d443b1ad1687760211d6ef32302aacc2758a659b08949d3736c3bdb48ed1f542"
+    "artifact_set_sha256": "a65735b9a476260f9bcb02de10c7c7bd933eb2e67377f621899b7a4fb048c12d"
   },
   "artifacts": [
     {
@@ -715,7 +715,7 @@
     },
     {
       "path": "src/workbench/screens.rs",
-      "sha256": "7e7e675a499c9b5d54896c9ef946326047d62017ab3806d0929c2bcb5befa5ba",
+      "sha256": "ba5778a4854f6d8be497e9f0d6a38f0100b6a590ee9d5b03a46d708fe2d0397d",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -728,7 +728,7 @@
     },
     {
       "path": "src/workbench/screens_tests.rs",
-      "sha256": "1da154c738fcc8b3c89f5cf0523af56a5fc082719bf02c9e9e2b4506b9dc586e",
+      "sha256": "bc45812b494c72ecbf69734d0b612a2327cbc90ffce198df7a83401e40513922",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
