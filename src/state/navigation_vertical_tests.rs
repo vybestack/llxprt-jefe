@@ -1,10 +1,14 @@
 //! Dashboard vertical navigation follows the focused pane (issue #722).
 //!
-//! Since the #715 dashboard cutover no screen renders the startup agent-type
-//! availability list, so routing Up/Down into that invisible selection
-//! whenever `agents` was empty left the visible repositories and agents panes
-//! ignoring arrows entirely. These tests pin the restored contract: Up/Down
-//! act on `pane_focus`, the same routing `handle_navigate_page` already uses.
+//! Routing Up/Down into the startup agent-type selection whenever `agents` was
+//! empty left the visible repositories and agents panes ignoring arrows
+//! entirely. These tests pin the contract: Up/Down act on `pane_focus`, the
+//! same routing `handle_navigate_page` already uses.
+//!
+//! The availability list is the zero-agent form of the agents pane (#734), so
+//! `PaneFocus::Agents` addresses it exactly while it is the pane on screen —
+//! never while the repositories pane holds the focus, which is the case #722
+//! reported.
 
 use super::*;
 use crate::agent_status_view::AgentAvailabilityObservation;
@@ -147,5 +151,89 @@ fn navigate_up_moves_the_agent_selection_in_the_agents_pane() {
         state.selected_agent_index,
         Some(0),
         "Up on the focused agents pane must move the agent cursor"
+    );
+}
+
+/// The availability repro: the pane the zero-agent dashboard renders in the
+/// agent list's place holds the focus (`a`, or the persisted
+/// `pane_focus: agents` the `issue382/agent-probe-negative` fixture boots
+/// with), so its own cursor is the one vertical keys move (#734).
+fn availability_pane_focused() -> AppState {
+    let mut state = dashboard_repro();
+    state.pane_focus = PaneFocus::Agents;
+    state.agent_type_availability = vec![
+        AgentAvailabilityObservation::not_found(&shipped_definition(), true, 1),
+        AgentAvailabilityObservation::not_found(&shipped_definition(), true, 2),
+        AgentAvailabilityObservation::not_found(&shipped_definition(), true, 3),
+    ];
+    state
+}
+
+#[test]
+fn navigate_down_moves_the_availability_cursor_when_its_pane_is_focused() {
+    let state = availability_pane_focused()
+        .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateDown))
+        .committed_pure();
+
+    assert_eq!(
+        state.selected_agent_type_index, 1,
+        "Down on the focused availability pane must move its cursor"
+    );
+    assert_eq!(
+        state.selected_repository_index,
+        Some(0),
+        "the repository cursor belongs to the pane that is not focused"
+    );
+}
+
+#[test]
+fn navigate_up_moves_the_availability_cursor_back_and_stops_at_the_first_row() {
+    let mut state = availability_pane_focused();
+    state.selected_agent_type_index = 1;
+
+    let state = state
+        .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateUp))
+        .committed_pure();
+    assert_eq!(state.selected_agent_type_index, 0);
+
+    let state = state
+        .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateUp))
+        .committed_pure();
+    assert_eq!(
+        state.selected_agent_type_index, 0,
+        "the cursor stops on the first row rather than wrapping"
+    );
+}
+
+#[test]
+fn navigate_down_stops_the_availability_cursor_on_the_last_row() {
+    let state = availability_pane_focused();
+    let last = state.agent_type_availability.len() - 1;
+
+    let state = (0..5).fold(state, |state, _| {
+        state
+            .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateDown))
+            .committed_pure()
+    });
+
+    assert_eq!(
+        state.selected_agent_type_index, last,
+        "the cursor clamps to the last published observation"
+    );
+}
+
+#[test]
+fn the_availability_cursor_stays_put_once_the_pane_is_replaced_by_the_agent_list() {
+    let mut state = availability_pane_focused();
+    state.agents = vec![agent("agent-1", "repo-a", "First Agent")];
+    state.selected_agent_index = Some(0);
+
+    let state = state
+        .apply_message(AppMessage::UiNavigation(UiNavigationMessage::NavigateDown))
+        .committed_pure();
+
+    assert_eq!(
+        state.selected_agent_type_index, 0,
+        "with agents on screen the agents pane owns the vertical keys"
     );
 }

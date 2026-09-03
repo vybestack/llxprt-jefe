@@ -282,10 +282,18 @@ fn agent_list(state: &AppState) -> HostPanelModel {
 /// no agents (`src/ui/screens/dashboard.rs:171-188`, dropped by #715). The
 /// rows come from the same pure `agent_status_view` projection the retired
 /// renderer consumed, so the status vocabulary the scenario corpus boots on
-/// (`Code Puppy  Installed, enabled`) is reproduced rather than re-invented:
-/// the label carries name, status and enablement, the create-gating rides the
-/// status suffix where the list projection guarantees it survives truncation,
+/// (`Code Puppy  Installed, enabled`) is reproduced rather than re-invented,
 /// and the probe's reason becomes the row's second line (#734).
+///
+/// The whole availability row is composed here rather than handed to the
+/// shared list control as a `status` value. The shared suffix is
+/// `" [{status}]"`, one space, and every other list on the dashboard pins it
+/// that way (`>> Alpha Repo [0]`, `Alpha One [Running]`); the retained
+/// pre-cutover renderer spells this row with two
+/// (`agent_types_status.rs::status_lines`: `"{name}  {status}, {enablement}
+///  {create}"`), and the corpus pins the two-space form. Widening the shared
+/// suffix would rewrite every sidebar and agent row, so the availability rows
+/// carry their own value formatting instead.
 fn agent_type_availability(state: &AppState) -> HostPanelModel {
     let rows =
         crate::agent_status_view::project_agent_type_statuses(&state.agent_type_availability);
@@ -295,23 +303,21 @@ fn agent_type_availability(state: &AppState) -> HostPanelModel {
         .map(|(index, row)| ListItem {
             id: Id::internal_indexed(InternalId::AgentTypeItem, index),
             label: format!(
-                "{}  {}, {}",
+                "{}  {}, {}  [{}]",
                 row.display_name,
                 row.status_text,
-                if row.enabled { "enabled" } else { "disabled" }
-            ),
-            description: row.reason.as_ref().map(|reason| {
-                row.error_code
-                    .map_or_else(|| reason.clone(), |code| format!("{code}  {reason}"))
-            }),
-            status: Some(
+                if row.enabled { "enabled" } else { "disabled" },
                 if row.create_enabled {
                     "Create enabled"
                 } else {
                     "Create disabled"
                 }
-                .to_owned(),
             ),
+            description: row.reason.as_ref().map(|reason| {
+                row.error_code
+                    .map_or_else(|| reason.clone(), |code| format!("{code}  {reason}"))
+            }),
+            status: None,
             actions: Vec::new(),
         })
         .collect();

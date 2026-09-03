@@ -93,7 +93,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agents",
+      "literal": "Agent Types",
       "timeout_ms": 20000
     },
     {

@@ -93,7 +93,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agents",
+      "literal": "Agent Types",
       "timeout_ms": 20000
     },
     {
@@ -214,13 +214,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agents",
+      "literal": "Agent Types",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Agents"
+        "Agent Types"
       ],
       "absent": [
         "provider unavailable",

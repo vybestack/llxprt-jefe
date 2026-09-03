@@ -81,15 +81,45 @@ fn every_observation_projects_one_row_in_probe_order() {
     assert_eq!(
         labels,
         vec![
-            "Claude Code  Not found, enabled",
-            "Code Puppy  Installed, enabled",
-            "Codex CLI  Incompatible, disabled",
-            "LLxprt  Probe error, enabled",
+            "Claude Code  Not found, enabled  [Create disabled]",
+            "Code Puppy  Installed, enabled  [Create enabled]",
+            "Codex CLI  Incompatible, disabled  [Create disabled]",
+            "LLxprt  Probe error, enabled  [Create disabled]",
         ],
         "one row per observation, in the order the probe published them"
     );
 }
 
+/// The row text the scenario corpus pins, rendered through the shared list
+/// control rather than read off the model: `agent_types_status.rs::status_lines`
+/// separated the create-gating with two spaces, the shared status suffix uses
+/// one, and nine `issue382/*` scenarios wait on the two-space spelling.
+#[test]
+fn a_projected_row_reads_exactly_as_the_pre_cutover_pane_spelled_it() {
+    let state = state_with(observations());
+    let model = project_host_panel(&state, HostPanelModelSource::AgentTypeAvailability);
+
+    let rows = crate::host_controls::project_control_body(
+        &model.body,
+        &model.action_affordances,
+        model.selected_id.as_ref(),
+        None,
+        80,
+    );
+    let texts: Vec<&str> = rows.iter().map(|row| row.text.as_str()).collect();
+
+    assert!(
+        texts.contains(&"   Code Puppy  Installed, enabled  [Create enabled]"),
+        "the corpus waits on this exact row: {texts:?}"
+    );
+    assert!(
+        texts.contains(&">> Claude Code  Not found, enabled  [Create disabled]"),
+        "the selected row keeps the same spelling: {texts:?}"
+    );
+}
+
+/// The gating rides the row text, so no row carries a shared status suffix
+/// that would separate it with a single space.
 #[test]
 fn each_row_carries_its_create_gating_and_its_reason() {
     let state = state_with(observations());
@@ -103,13 +133,9 @@ fn each_row_carries_its_create_gating_and_its_reason() {
         .collect();
     assert_eq!(
         gating,
-        vec![
-            Some("Create disabled"),
-            Some("Create enabled"),
-            Some("Create disabled"),
-            Some("Create disabled"),
-        ],
-        "only an enabled, installed-compatible definition can be created from"
+        vec![None, None, None, None],
+        "the availability rows format their own value; the shared one-space \
+         status suffix belongs to the sidebar and agent rows"
     );
 
     let reasons: Vec<Option<&str>> = body
@@ -147,7 +173,10 @@ fn a_pending_probe_reads_as_checking_with_no_reason() {
     let body = availability_body(&state);
 
     assert_eq!(body.items.len(), 1);
-    assert_eq!(body.items[0].label, "LLxprt  Checking, enabled");
+    assert_eq!(
+        body.items[0].label,
+        "LLxprt  Checking, enabled  [Create disabled]"
+    );
     assert_eq!(body.items[0].description, None);
 }
 

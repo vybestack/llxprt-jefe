@@ -210,27 +210,72 @@ fn global_chrome(
 /// Compose the footer band: hints on the left, the process identity on the
 /// right edge of the same row.
 ///
-/// The pre-cutover `KeybindBar` right-aligned `pid:<pid> <commit>` on every
-/// screen it drew, and `pid-commit-corner.json` asserts the `pid:` prefix.
+/// The pre-cutover footer was a `SpaceBetween` flex row holding exactly these
+/// two segments (`keybind_bar.rs:66-86`, mounted at `dashboard.rs:331-346`),
+/// and `pid-commit-corner.json` asserts the `pid:` prefix it right-aligned.
 /// The provider runtime's footer dropped the label when the dashboard moved
-/// onto `global_chrome` (#734). The hints are the actionable half, so a band
-/// too narrow for both keeps them and drops the identity rather than the
-/// other way round.
+/// onto `global_chrome` (#734).
+///
+/// The budget is that row's, not a new one. Flexbox shrinks children in
+/// proportion to their own length, so an overflowing band gave each segment
+/// `len * width / total` cells: on a 120-column dashboard the hint run kept
+/// ~95% of the row and the identity still rendered its `pid:` prefix. Neither
+/// segment is ever dropped, which is why both the hint literals and the
+/// identity survive at the widths the corpus pins.
+///
+/// Only the rendering differs from the flex row: a segment is truncated to its
+/// share instead of word-wrapped into it. A one-row band cannot show a wrapped
+/// remainder — pre-cutover it was simply lost, taking the tail of the last
+/// hint with it — so truncating shows strictly more of the same budget.
 fn footer_line(hints: &str, identity: &str, width: u16) -> String {
     let width = usize::from(width);
+    let hints_width = UnicodeWidthStr::width(hints);
     let identity_width = UnicodeWidthStr::width(identity);
-    let Some(hint_budget) = width
-        .checked_sub(identity_width)
-        .and_then(|budget| budget.checked_sub(1))
-        .filter(|budget| *budget > 0)
-    else {
-        return crate::list_viewport::fit_text_to_width(hints, width);
+    let total = hints_width.saturating_add(identity_width);
+    if width == 0 || total == 0 {
+        return String::new();
+    }
+    let identity_budget = if total <= width {
+        identity_width
+    } else {
+        // The flex share, rounded to the nearest cell as the layout engine
+        // rounds its resolved edges.
+        identity_width
+            .saturating_mul(width)
+            .saturating_add(total / 2)
+            / total
     };
+    let hint_budget = width.saturating_sub(identity_budget);
     let hints = crate::list_viewport::fit_text_to_width(hints, hint_budget);
-    let gap = hint_budget
-        .saturating_sub(UnicodeWidthStr::width(hints.as_str()))
-        .saturating_add(1);
+    let identity = clip_to_width(identity, identity_budget);
+    let gap = hint_budget.saturating_sub(UnicodeWidthStr::width(hints.as_str()));
     format!("{hints}{}{identity}", " ".repeat(gap))
+}
+
+/// Footer-band composition tests: the two-segment budget the pre-cutover
+/// `KeybindBar` row computed (issue #734).
+#[cfg(test)]
+#[path = "provider_screen_footer_tests.rs"]
+mod footer_tests;
+
+/// Take the leading cells that fit, with no truncation marker.
+///
+/// The identity label carries its meaning in its `pid:` prefix and the
+/// pre-cutover flex row clipped it exactly this way; spending a cell on `…`
+/// would cost the prefix its colon at the widths the corpus pins.
+fn clip_to_width(text: &str, width: usize) -> String {
+    let mut clipped = String::new();
+    let mut used = 0usize;
+    for character in text.chars() {
+        let mut encoded = [0; 4];
+        let character_width = UnicodeWidthStr::width(&*character.encode_utf8(&mut encoded));
+        if used.saturating_add(character_width) > width {
+            break;
+        }
+        clipped.push(character);
+        used = used.saturating_add(character_width);
+    }
+    clipped
 }
 
 /// The shared top bar: `StatusBar` semantics on the title band's resolved
@@ -566,35 +611,6 @@ mod tests {
         assert_eq!(rects.footer, Rect::new(0, 29, 100, 1));
         assert!(!rects.title.contains(0, outer.row));
         assert!(!rects.footer.contains(0, outer.row + outer.height - 1));
-    }
-
-    /// Issue #734: the pre-cutover `KeybindBar` right-aligned
-    /// `pid:<pid> <commit>` on every screen it drew, and
-    /// `pid-commit-corner.json` asserts the `pid:` prefix. The provider
-    /// runtime's footer dropped it when the dashboard moved onto
-    /// `global_chrome`.
-    #[test]
-    fn the_footer_right_aligns_the_process_identity_label() {
-        let line = footer_line("q quit", "pid:4242 abc1234", 40);
-
-        assert_eq!(line.len(), 40, "the band fills its resolved rectangle");
-        assert!(
-            line.starts_with("q quit"),
-            "hints keep the left edge: {line}"
-        );
-        assert!(
-            line.ends_with("pid:4242 abc1234"),
-            "the identity keeps the right edge: {line}"
-        );
-    }
-
-    /// A footer narrow enough that the two segments would collide keeps the
-    /// hints, which are the actionable half.
-    #[test]
-    fn a_footer_too_narrow_for_both_segments_keeps_the_hints() {
-        let line = footer_line("q quit | ? help", "pid:4242 abc1234", 16);
-
-        assert_eq!(line, "q quit | ? help");
     }
 
     #[test]

@@ -550,7 +550,7 @@ fn dashboard_panels() -> Result<Vec<PanelDescriptor>, IdError> {
             "agent-types-status",
             HostPanelModelSource::AgentTypeAvailability,
             ControlKind::List,
-            (false, false),
+            (true, false),
             LIST_PANE_CHROME,
         )?,
         panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
@@ -574,7 +574,12 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
         route: RouteId::parse("dashboard")?,
         panels: dashboard_panels()?,
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
-        focus_order: focus_order(&[REPOSITORIES_PANEL, "agents", "terminal"])?,
+        // The availability pane is the zero-agent form of the agent list, so
+        // it takes the agent list's place in the traversal. Focus cycling
+        // filters the order by resolved visibility, so exactly one of the two
+        // forms is ever reachable and the pane's cursor can move while it is
+        // the pane on screen (#734).
+        focus_order: focus_order(&[REPOSITORIES_PANEL, "agents", AGENT_TYPES_PANEL, "terminal"])?,
         relationships: Vec::new(),
         activation: Vec::new(),
         overlays: HOST_OVERLAYS.to_vec(),

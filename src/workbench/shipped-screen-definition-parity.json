@@ -6,7 +6,7 @@
       "title": "LLxprt Jefe",
       "route": "dashboard",
       "initial_focus": "repositories",
-      "focus_order": ["repositories", "agents", "terminal"],
+      "focus_order": ["repositories", "agents", "agent-types", "terminal"],
       "required_panels": ["repositories", "terminal"],
       "collapse_order": ["search", "preview", "agents"]
     },

@@ -252,6 +252,70 @@ fn a_shell_overlay_keeps_the_required_terminal_visible() {
     );
 }
 
+/// A pane whose cursor must move has to be reachable: the descriptor declares
+/// it focusable and names it in the traversal, beside the agent list it stands
+/// in for. Without this the `>>` marker can never leave row 0 and eight
+/// scenarios wait forever on `> LLxprt` / `> Codex CLI` (#734).
+#[test]
+fn the_availability_pane_is_focusable_and_named_in_the_dashboard_traversal() {
+    let descriptor = dashboard_descriptor(&zero_agent_state());
+    let pane = crate::workbench::PanelId::from_static(crate::workbench::AGENT_TYPES_PANEL);
+
+    assert!(
+        descriptor
+            .panels
+            .iter()
+            .any(|panel| panel.id == pane && panel.focusable),
+        "the availability pane must be focusable"
+    );
+    let order: Vec<&str> = descriptor
+        .focus_order
+        .iter()
+        .map(|id| id.as_str())
+        .collect();
+    assert_eq!(
+        order,
+        vec!["repositories", "agents", "agent-types", "terminal"],
+        "the availability pane takes the agent list's place in the traversal"
+    );
+}
+
+/// Assert that focus cycling reaches exactly `expected` for this fixture.
+///
+/// Cycling walks the declared traversal filtered by resolved visibility, so
+/// this filters the same way rather than reading the raw declaration.
+fn assert_reachable_traversal(state: &mut AppState, expected: &[&str]) {
+    let view = projected(state, SCENARIO_COLS, SCENARIO_ROWS);
+    let descriptor = dashboard_descriptor(state);
+    let reachable: Vec<&str> = descriptor
+        .focus_order
+        .iter()
+        .filter(|id| {
+            view.panels
+                .iter()
+                .any(|panel| panel.id == **id && panel.visible)
+        })
+        .map(|id| id.as_str())
+        .collect();
+    assert_eq!(
+        reachable,
+        expected,
+        "visible panes were {:?}",
+        visible_titles(&view)
+    );
+}
+
+/// Focus cycling filters the declared order by resolved visibility, so exactly
+/// one of the two mutually exclusive workspace forms is ever reachable.
+#[test]
+fn exactly_one_workspace_form_is_reachable_from_the_declared_traversal() {
+    assert_reachable_traversal(&mut zero_agent_state(), &["repositories", "agent-types"]);
+    assert_reachable_traversal(
+        &mut populated_state(),
+        &["repositories", "agents", "terminal"],
+    );
+}
+
 #[test]
 fn every_panel_the_dashboard_hiding_rule_names_is_declared_by_the_dashboard() {
     // Whether an identity is written as a literal or read out of the layout,
