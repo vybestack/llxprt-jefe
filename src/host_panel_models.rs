@@ -294,24 +294,17 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         .map(|repo| crate::git_info::GitRepoInfo::from_configured_origin(&repo.github_repo));
     let observation = state.observations.get(&agent.id);
     // Retained preview_view owns the accepted field set (Name/Status/Repo/
-    // Branch/Dir); the panel projection re-projects its wrapped lines as
-    // metadata rows so the dashboard preview keeps its pre-#715 content.
-    let preview = crate::preview_view::build_preview_view(
-        Some(agent),
-        git_info.as_ref(),
-        observation,
-        AGENT_PREVIEW_WIDTH,
-    );
-    let metadata = preview
-        .lines
-        .iter()
-        .take_while(|line| !line.trim().is_empty())
-        .filter_map(|line| line.split_once(": "))
-        .map(|(label, value)| DetailMetadata {
-            label: label.to_owned(),
-            value: value.to_owned(),
-        })
-        .collect();
+    // Branch/Dir); the projection consumes its structured rows and budgets
+    // each value on its own, so truncation can never eat the delimiter or
+    // drop a row.
+    let metadata =
+        crate::preview_view::preview_metadata(Some(agent), git_info.as_ref(), observation)
+            .into_iter()
+            .map(|(label, value)| DetailMetadata {
+                label: label.to_owned(),
+                value: crate::list_viewport::fit_text_to_width(&value, AGENT_PREVIEW_WIDTH),
+            })
+            .collect();
     HostPanelModel {
         title: "Agent preview".to_owned(),
         body: PanelBody::Detail(DetailBody {

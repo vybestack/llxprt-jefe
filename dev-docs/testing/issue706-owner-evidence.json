@@ -62,7 +62,7 @@
   "retained_modules": [
     {
       "path": "src/preview_view.rs",
-      "sha256": "1a32656c1bdf6abfc348736849be61aa271ea5772f72527bc89c027c13d872be"
+      "sha256": "c99e297cf225755d96bc6e8a20547ae91ab4619a7d85d1ea95e4373697ad3c4d"
     },
     {
       "path": "src/status_precedence.rs",
