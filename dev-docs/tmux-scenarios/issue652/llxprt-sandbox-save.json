@@ -138,7 +138,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Sandbox: false",
+      "literal": "Sandbox          [ ]  (space toggles)",
       "timeout_ms": 5000
     },
     {
@@ -149,7 +149,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Sandbox: true",
+      "literal": "Sandbox          [x]  (space toggles)",
       "timeout_ms": 5000
     },
     {
@@ -182,9 +182,9 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Sandbox: true",
-        "Sandbox Engine: Podman",
-        "Sandbox Flags: --cpus=2 --memory=12288m --pids-limit=256"
+        "Sandbox          [x]  (space toggles)",
+        "Sandbox Engine   [Podman]",
+        "Sandbox Flags    [--cpus=2 --memory=12288m --pids-limit=256]"
       ],
       "absent": []
     }

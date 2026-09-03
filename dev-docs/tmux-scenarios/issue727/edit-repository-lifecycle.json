@@ -1,0 +1,362 @@
+{
+  "schema": 1,
+  "name": "issue727-edit-repository-lifecycle",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.alpha\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"alpha\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"remote\": {\n            \"type\": \"map\",\n            \"value\": {\n              \"enabled\": {\n                \"type\": \"bool\",\n                \"value\": true\n              },\n              \"host\": {\n                \"type\": \"string\",\n                \"value\": \"fixture-host\"\n              },\n              \"identity-file\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"login-user\": {\n                \"type\": \"string\",\n                \"value\": \"fixture-user\"\n              },\n              \"options\": {\n                \"type\": \"list\",\n                \"value\": []\n              },\n              \"run-as-user\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"setup-env-default\": {\n                \"type\": \"bool\",\n                \"value\": false\n              }\n            }\n          }\n        }\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo.alpha\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"repositories\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "secrets": [],
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "alpha",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "r",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [alpha▏]",
+        "Base Dir         [${workspace}/work]"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "-prime"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [alpha-prime▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "GitHub Repo      [▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "text",
+      "text": "not-a-github-repo"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "GitHub Repo      [not-a-github-repo▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Edit Repository",
+        "Name             [alpha-prime]",
+        "GitHub Repo      [not-a-github-repo▏]"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Green Screen",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "alpha"
+      ],
+      "absent": [
+        "PANIC",
+        "Edit Repository",
+        "alpha-prime"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [alpha▏]"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "-prime"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [alpha-prime▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "GitHub Repo      [▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Green Screen",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "alpha-prime"
+      ],
+      "absent": [
+        "PANIC",
+        "Edit Repository"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [alpha-prime▏]"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "Y"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [alpha-primeY▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Green Screen",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "alpha-prime"
+      ],
+      "absent": [
+        "PANIC",
+        "Edit Repository",
+        "alpha-primeY"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [alpha-prime▏]"
+      ],
+      "absent": [
+        "PANIC",
+        "alpha-primeY"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ]
+}

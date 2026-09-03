@@ -133,25 +133,56 @@ mod sealed {
     pub trait Sealed {}
 }
 
+/// Theme-relative presentation for one shared-shell control row.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostControlRowStyle {
+    /// Standard overlay foreground.
+    #[default]
+    Normal,
+    /// Focused or validation-error foreground.
+    Bright,
+    /// Disabled or secondary foreground.
+    Dim,
+}
+
+/// Weight treatment for one shared-shell overlay title.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostControlTitleStyle {
+    /// Existing bold overlay-title treatment.
+    #[default]
+    Emphasized,
+    /// Plain-weight legacy form title.
+    Plain,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HostControlRow {
     pub(crate) text: String,
     pub(crate) target: Option<PanelHitTarget>,
+    pub(crate) style: HostControlRowStyle,
 }
 
 impl HostControlRow {
-    pub fn plain(text: impl Into<String>) -> Self {
+    pub(crate) fn new(text: impl Into<String>, target: Option<PanelHitTarget>) -> Self {
         Self {
             text: text.into(),
-            target: None,
+            target,
+            style: HostControlRowStyle::Normal,
         }
     }
 
-    fn targeted(text: impl Into<String>, target: PanelHitTarget) -> Self {
-        Self {
-            text: text.into(),
-            target: Some(target),
-        }
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self::new(text, None)
+    }
+
+    pub(crate) fn targeted(text: impl Into<String>, target: PanelHitTarget) -> Self {
+        Self::new(text, Some(target))
+    }
+
+    #[must_use]
+    pub(crate) fn with_style(mut self, style: HostControlRowStyle) -> Self {
+        self.style = style;
+        self
     }
 }
 
@@ -507,10 +538,7 @@ fn push_list_item_row(
         ),
         None => format!("{marker}{status_suffix}"),
     };
-    rows.push(HostControlRow {
-        text: row,
-        target: Some(target),
-    });
+    rows.push(HostControlRow::targeted(row, target));
 }
 
 fn project_tree(body: &TreeBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {

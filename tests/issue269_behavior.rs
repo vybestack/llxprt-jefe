@@ -293,18 +293,18 @@ fn code_puppy_selection_content_projection_shows_puppy_version_without_llxprt_ve
     let state = projection_state(jefe::domain::shipped_agent_type(1));
     let lines = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40).lines;
 
-    let row = |label: &str| {
-        lines
-            .iter()
-            .find(|line| line.starts_with(&format!("{label}: ")))
-            .unwrap_or_else(|| panic!("missing {label} row, lines={lines:?}"))
-            .clone()
-    };
-    assert_eq!(row("Agent Runtime"), "Agent Runtime: core.code-puppy");
-    assert_eq!(row("Model"), "Model: sonnet");
-    assert_eq!(row("CP Version"), "CP Version: puppy-nightly");
-    assert_eq!(row("YOLO"), "YOLO: true");
-    assert_eq!(row("Quick resume"), "Quick resume: true");
+    for expected in [
+        "  Agent Runtime    [core.code-puppy]  (space cycles: LLxprt / Code Puppy / Claude Code / Codex CLI)",
+        "  Model            [sonnet]",
+        "  Version          [puppy-nightly]",
+        "  YOLO             [x]  (space toggles)",
+        "  Quick resume     [x]  (space toggles)",
+    ] {
+        assert!(
+            lines.iter().any(|line| line == expected),
+            "missing exact restored row {expected:?}, lines={lines:?}"
+        );
+    }
     assert!(
         lines.iter().all(|line| !line.contains(NIGHTLY_SELECTOR)),
         "Code Puppy projection must omit the dormant LLxprt Version value"
@@ -316,26 +316,23 @@ fn llxprt_selection_content_projection_retains_version_and_omits_code_puppy_rows
     let state = projection_state(jefe::domain::shipped_agent_type(3));
     let lines = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40).lines;
 
-    let row = |label: &str| {
-        lines
-            .iter()
-            .find(|line| line.starts_with(&format!("{label}: ")))
-            .unwrap_or_else(|| panic!("missing {label} row, lines={lines:?}"))
-            .clone()
-    };
-    assert_eq!(row("Agent Runtime"), "Agent Runtime: core.llxprt");
-    assert_eq!(row("Mode Flags"), "Mode Flags: --yolo");
-    assert_eq!(
-        row("LLxprt Version"),
-        format!("LLxprt Version: {NIGHTLY_SELECTOR}")
-    );
-    assert_eq!(row("LLXPRT_DEBUG"), "LLXPRT_DEBUG: trace");
+    for expected in [
+        "  Agent Runtime    [core.llxprt]  (space cycles: LLxprt / Code Puppy / Claude Code / Codex CLI)".to_owned(),
+        "  Mode Flags       [--yolo]".to_owned(),
+        format!("  Version          [{NIGHTLY_SELECTOR}]"),
+        "  LLXPRT_DEBUG     [trace]".to_owned(),
+    ] {
+        assert!(
+            lines.iter().any(|line| line == &expected),
+            "missing exact restored row {expected:?}, lines={lines:?}"
+        );
+    }
     assert!(
         lines.iter().all(|line| {
-            !line.starts_with("Model:")
-                && !line.starts_with("YOLO")
-                && !line.starts_with("CP Version")
-                && !line.starts_with("Quick resume")
+            !line.starts_with("  Model            [")
+                && !line.starts_with("  YOLO             [")
+                && !line.starts_with("  Quick resume     [")
+                && !line.contains("puppy-nightly")
         }),
         "LLxprt projection must omit dormant code-puppy rows, lines={lines:?}"
     );

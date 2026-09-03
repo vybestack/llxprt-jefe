@@ -1,23 +1,29 @@
 //! Repository form (new/edit) projection onto the shared overlay Form control.
 //!
-//! Mirrors the legacy bespoke renderer: declared field order, type-gated
-//! visibility, the focused-field caret rewrite, and the pending error line all
-//! ride [`OverlayControlProjection`] so the form draws and takes input through
-//! the one shared overlay runtime.
+//! The retained projection builds the old operator-facing row text while the
+//! typed form body, field targets, caret, visibility, and submit affordance
+//! continue to ride [`OverlayControlProjection`].
 
-use crate::domain::TypedValue;
+use crate::domain::action_registry::{ActionId, InternalActionId};
 use crate::domain::plugin::field::{Field, InternalField};
-use crate::host_controls::PanelHitTarget;
-use crate::overlay_controls::{OverlayControlProjection, prepend_detail_rows, project_form};
-use crate::runtime::provider::protocol::TypedMap;
+use crate::domain::{InternalId, TypedValue};
+use crate::host_controls::{
+    HostControlRow, HostControlRowStyle, HostControlTitleStyle, PanelHitTarget,
+};
+use crate::list_viewport::fit_text_to_width;
+use crate::overlay_controls::{OverlayControlProjection, bespoke_form_projection};
+use crate::runtime::provider::protocol::{Affordance, Id, TypedMap};
 use crate::state::{
     AppState, ModalState, RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
 };
+use unicode_width::UnicodeWidthStr;
 
-/// The repository form's declared fields in legacy render order.
+const LABEL_WIDTH: usize = 16;
+
+/// The repository form's declared fields in reducer traversal order.
 ///
 /// The third slot marks fields whose visibility is gated on the selected agent
-/// type; every other field mirrors the legacy renderer and always shows.
+/// type; every other field mirrors the old renderer and always shows.
 const REPOSITORY_FORM_LAYOUT: [(InternalField, RepositoryFormFocus, bool); 21] = [
     (
         InternalField::RepositoryFormName,
@@ -40,14 +46,14 @@ const REPOSITORY_FORM_LAYOUT: [(InternalField, RepositoryFormFocus, bool); 21] =
         true,
     ),
     (
-        InternalField::RepositoryFormDefaultYolo,
-        RepositoryFormFocus::DefaultCodePuppyYolo,
-        true,
-    ),
-    (
         InternalField::RepositoryFormDefaultAgentType,
         RepositoryFormFocus::DefaultAgentType,
         false,
+    ),
+    (
+        InternalField::RepositoryFormDefaultYolo,
+        RepositoryFormFocus::DefaultCodePuppyYolo,
+        true,
     ),
     (
         InternalField::RepositoryFormDefaultVersion,
@@ -154,53 +160,247 @@ fn repository_field_value(fields: &RepositoryFormFields, focus: RepositoryFormFo
     TypedValue::String(text.to_owned())
 }
 
-/// Raw text and caret offset of a text field; `None` for booleans, which have
-/// no caret.
-fn repository_field_text(
-    fields: &RepositoryFormFields,
+/// Raw text and caret offset of an editable text field; `None` for booleans
+/// and the cycle-only default-agent row, which never shows a caret.
+fn repository_field_text<'a>(
+    fields: &'a RepositoryFormFields,
     cursor: &RepositoryFormCursor,
     focus: RepositoryFormFocus,
-) -> Option<(String, usize)> {
+) -> Option<(&'a str, usize)> {
     use RepositoryFormFocus as F;
-    let (text, offset) = match focus {
-        F::Name => (&fields.name, cursor.name),
-        F::BaseDir => (&fields.base_dir, cursor.base_dir),
-        F::DefaultProfile => (&fields.default_profile, cursor.default_profile),
-        F::DefaultCodePuppyModel => (
+    match focus {
+        F::Name => Some((&fields.name, cursor.name)),
+        F::BaseDir => Some((&fields.base_dir, cursor.base_dir)),
+        F::DefaultProfile => Some((&fields.default_profile, cursor.default_profile)),
+        F::DefaultCodePuppyModel => Some((
             &fields.default_code_puppy_model,
             cursor.default_code_puppy_model,
-        ),
-        F::DefaultAgentType => (&fields.default_type_id, 0),
-        F::DefaultCodePuppyVersion => (
+        )),
+        F::DefaultCodePuppyVersion => Some((
             &fields.default_code_puppy_version,
             cursor.default_code_puppy_version,
-        ),
-        F::DefaultLlxprtMode => (&fields.default_llxprt_mode, cursor.default_llxprt_mode),
-        F::DefaultLlxprtVersion => (
+        )),
+        F::DefaultLlxprtMode => Some((&fields.default_llxprt_mode, cursor.default_llxprt_mode)),
+        F::DefaultLlxprtVersion => Some((
             &fields.default_llxprt_version,
             cursor.default_llxprt_version,
-        ),
-        F::GitHubRepo => (&fields.github_repo, cursor.github_repo),
-        F::IssuePrRepo => (&fields.github_issue_pr_repo, cursor.github_issue_pr_repo),
-        F::LoginUser => (&fields.login_user, cursor.login_user),
-        F::Host => (&fields.host, cursor.host),
-        F::SshPort => (&fields.ssh_port, cursor.ssh_port),
-        F::IdentityFile => (&fields.identity_file, cursor.identity_file),
-        F::SshOptions => (&fields.ssh_options, cursor.ssh_options),
-        F::RunAsUser => (&fields.run_as_user, cursor.run_as_user),
-        F::TransientAgentDir => (&fields.transient_agent_dir, cursor.transient_agent_dir),
-        F::TransientMaxConcurrent => (
+        )),
+        F::GitHubRepo => Some((&fields.github_repo, cursor.github_repo)),
+        F::IssuePrRepo => Some((&fields.github_issue_pr_repo, cursor.github_issue_pr_repo)),
+        F::LoginUser => Some((&fields.login_user, cursor.login_user)),
+        F::Host => Some((&fields.host, cursor.host)),
+        F::SshPort => Some((&fields.ssh_port, cursor.ssh_port)),
+        F::IdentityFile => Some((&fields.identity_file, cursor.identity_file)),
+        F::SshOptions => Some((&fields.ssh_options, cursor.ssh_options)),
+        F::RunAsUser => Some((&fields.run_as_user, cursor.run_as_user)),
+        F::TransientAgentDir => Some((&fields.transient_agent_dir, cursor.transient_agent_dir)),
+        F::TransientMaxConcurrent => Some((
             &fields.transient_max_concurrent,
             cursor.transient_max_concurrent,
-        ),
-        F::DefaultCodePuppyYolo | F::RemoteEnabled | F::SetupEnvDefault => return None,
+        )),
+        F::DefaultAgentType | F::DefaultCodePuppyYolo | F::RemoteEnabled | F::SetupEnvDefault => {
+            None
+        }
+    }
+}
+
+fn display_label(field: InternalField, declared_label: &str) -> &str {
+    match field {
+        InternalField::RepositoryFormDefaultVersion
+        | InternalField::RepositoryFormDefaultLlxprtVersion => "Default Version",
+        InternalField::RepositoryFormSshOptions => "SSH Options (space-separated)",
+        _ => declared_label,
+    }
+}
+
+fn checkbox(value: bool) -> &'static str {
+    if value { "x" } else { " " }
+}
+
+fn display_value(
+    fields: &RepositoryFormFields,
+    cursor: &RepositoryFormCursor,
+    slot: RepositoryFormFocus,
+    focused: bool,
+) -> String {
+    use RepositoryFormFocus as F;
+    match slot {
+        F::DefaultCodePuppyYolo => checkbox(fields.default_code_puppy_yolo).to_owned(),
+        F::RemoteEnabled => checkbox(fields.remote_enabled).to_owned(),
+        F::SetupEnvDefault => checkbox(fields.setup_env_default).to_owned(),
+        F::DefaultAgentType => fields.default_type_id.clone(),
+        _ => {
+            let Some((text, offset)) = repository_field_text(fields, cursor, slot) else {
+                return String::new();
+            };
+            if focused {
+                crate::ui::util::text_with_caret(text, offset)
+            } else {
+                text.to_owned()
+            }
+        }
+    }
+}
+
+fn field_hint(
+    state: &AppState,
+    fields: &RepositoryFormFields,
+    slot: RepositoryFormFocus,
+) -> Option<String> {
+    use RepositoryFormFocus as F;
+    match slot {
+        F::DefaultAgentType => Some(crate::state::effective_types_hint(
+            &crate::state::effective_agent_type_ids(
+                &state.available_agent_type_ids,
+                fields.remote_enabled,
+            ),
+        )),
+        F::DefaultCodePuppyYolo | F::RemoteEnabled | F::SetupEnvDefault => {
+            Some("space toggles".to_owned())
+        }
+        F::IssuePrRepo if fields.github_issue_pr_repo.trim().is_empty() => {
+            Some("blank uses GitHub Repo".to_owned())
+        }
+        F::IssuePrRepo => Some("override issue/PR tracker".to_owned()),
+        F::TransientAgentDir if fields.transient_agent_dir.trim().is_empty() => {
+            Some("blank uses /tmp".to_owned())
+        }
+        F::TransientAgentDir => Some("transient agent work dirs root".to_owned()),
+        F::TransientMaxConcurrent
+            if fields.transient_max_concurrent.trim().is_empty()
+                || fields.transient_max_concurrent.trim() == "0" =>
+        {
+            Some("0 = no limit".to_owned())
+        }
+        F::TransientMaxConcurrent => Some("max concurrent transient agents".to_owned()),
+        _ => None,
+    }
+}
+
+fn field_row(label: &str, value: &str, hint: Option<&str>, width: usize) -> String {
+    let prefix = format!("  {label:<LABEL_WIDTH$} [");
+    let suffix = hint.map_or_else(|| "]".to_owned(), |hint| format!("]  ({hint})"));
+    let fixed_width = UnicodeWidthStr::width(prefix.as_str())
+        .saturating_add(UnicodeWidthStr::width(suffix.as_str()));
+    let Some(value_width) = width.checked_sub(fixed_width) else {
+        return fit_text_to_width(&format!("{prefix}{value}{suffix}"), width);
     };
-    Some((text.clone(), offset))
+    format!("{prefix}{}{suffix}", fit_text_to_width(value, value_width))
+}
+fn row_style(
+    slot: RepositoryFormFocus,
+    focused: bool,
+    remote_enabled: bool,
+) -> HostControlRowStyle {
+    use RepositoryFormFocus as F;
+    let remote_setting = matches!(
+        slot,
+        F::LoginUser | F::Host | F::SshPort | F::IdentityFile | F::SshOptions | F::RunAsUser
+    );
+    if remote_setting && !remote_enabled {
+        HostControlRowStyle::Dim
+    } else if focused {
+        HostControlRowStyle::Bright
+    } else {
+        HostControlRowStyle::Normal
+    }
+}
+
+struct RepositoryFormParts {
+    rows: Vec<HostControlRow>,
+    declared: Vec<Field>,
+    values: TypedMap,
+    focus_target: Option<Id>,
+}
+
+fn build_repository_form_parts(
+    state: &AppState,
+    fields: &RepositoryFormFields,
+    focus: RepositoryFormFocus,
+    cursor: &RepositoryFormCursor,
+    width: usize,
+) -> RepositoryFormParts {
+    let type_id = crate::state::type_id_from_form_value(&fields.default_type_id);
+    let mut parts = RepositoryFormParts {
+        rows: vec![HostControlRow::plain(String::new())],
+        declared: Vec::new(),
+        values: TypedMap::new(),
+        focus_target: None,
+    };
+
+    for (field, slot, gated) in REPOSITORY_FORM_LAYOUT {
+        if gated && !crate::state::is_repository_field_visible(slot, type_id.as_ref()) {
+            continue;
+        }
+
+        let declaration = Field::internal(field);
+        let field_id = declaration.id().clone();
+        let focused = slot == focus;
+        let value = display_value(fields, cursor, slot, focused);
+        let hint = field_hint(state, fields, slot);
+        parts.rows.push(
+            HostControlRow::targeted(
+                field_row(
+                    display_label(field, declaration.label()),
+                    &value,
+                    hint.as_deref(),
+                    width,
+                ),
+                PanelHitTarget::Field(field_id.clone()),
+            )
+            .with_style(row_style(slot, focused, fields.remote_enabled)),
+        );
+        parts
+            .values
+            .insert(field_id.clone(), repository_field_value(fields, slot));
+        if focused {
+            parts.focus_target = Some(field_id);
+        }
+        parts.declared.push(declaration);
+    }
+
+    parts
+}
+
+fn finish_repository_form(
+    title: &str,
+    mut parts: RepositoryFormParts,
+    error: Option<&str>,
+    width: usize,
+) -> OverlayControlProjection {
+    parts.rows.push(HostControlRow::targeted(
+        String::new(),
+        PanelHitTarget::Submit,
+    ));
+    if let Some(error) = error {
+        parts.rows.push(
+            HostControlRow::plain(fit_text_to_width(&format!("  Error: {error}"), width))
+                .with_style(HostControlRowStyle::Bright),
+        );
+    }
+
+    let affordances = vec![Affordance {
+        id: Id::internal(InternalId::OverlaySubmit),
+        label: "Apply".to_owned(),
+        action_id: ActionId::internal(InternalActionId::OverlaySubmit),
+        arguments: None,
+        enabled: true,
+        unavailable_reason: None,
+    }];
+    bespoke_form_projection(
+        title,
+        parts.rows,
+        parts.declared,
+        parts.values,
+        affordances,
+        parts.focus_target,
+    )
+    .with_title_style(HostControlTitleStyle::Plain)
 }
 
 /// Project the open repository form (new or edit) as a shared-shell form
-/// control. Visibility follows the legacy renderer: identity and connection
-/// fields always show, type-gated defaults follow the selected agent type.
+/// control. Visibility follows the old renderer: identity and connection fields
+/// always show, while type-gated defaults follow the selected agent type.
 #[must_use]
 pub fn project_repository_form(state: &AppState, width: usize) -> Option<OverlayControlProjection> {
     let (title, fields, focus, cursor) = match &state.modal {
@@ -208,57 +408,20 @@ pub fn project_repository_form(state: &AppState, width: usize) -> Option<Overlay
             fields,
             focus,
             cursor,
-        } => ("New Repository", fields, focus, cursor),
+        } => (" New Repository", fields, focus, cursor),
         ModalState::EditRepository {
             fields,
             focus,
             cursor,
             ..
-        } => ("Edit Repository", fields, focus, cursor),
+        } => (" Edit Repository", fields, focus, cursor),
         _ => return None,
     };
-    let type_id = crate::state::type_id_from_form_value(&fields.default_type_id);
-    let mut declared = Vec::new();
-    let mut values = TypedMap::new();
-    let mut focused = None;
-    for (field, slot, gated) in REPOSITORY_FORM_LAYOUT {
-        if gated && !crate::state::is_repository_field_visible(slot, type_id.as_ref()) {
-            continue;
-        }
-        let declaration = Field::internal(field);
-        values.insert(
-            declaration.id().clone(),
-            repository_field_value(fields, slot),
-        );
-        if slot == *focus {
-            focused = Some((
-                declaration.id().clone(),
-                declaration.label().to_owned(),
-                repository_field_text(fields, cursor, slot),
-            ));
-        }
-        declared.push(declaration);
-    }
-    let mut projection = project_form(title, declared, values, 0, width);
-    if let Some((id, label, Some((text, offset)))) = &focused {
-        let caret = crate::ui::util::text_with_caret(text, *offset);
-        // `push_wrapped` may have produced multiple rows carrying the same
-        // `Field(id)` target. Only the first row is the focused line;
-        // continuation rows must keep their wrapped text so the row count
-        // matches the unfocused rendering (issue #706).
-        let mut rewritten = false;
-        for row in &mut projection.rows {
-            if !rewritten && row.target.as_ref() == Some(&PanelHitTarget::Field(id.clone())) {
-                row.text =
-                    crate::ui::util::truncate_with_ellipsis(&format!("{label}: {caret}"), width);
-                rewritten = true;
-            }
-        }
-    }
-    if let Some(error) = state.error_message.as_deref() {
-        let error_line = format!("Error: {error}");
-        prepend_detail_rows(&mut projection.rows, &error_line, width);
-    }
-    projection.focus_target = focused.map(|(id, _, _)| id);
-    Some(projection)
+    let parts = build_repository_form_parts(state, fields, *focus, cursor, width);
+    Some(finish_repository_form(
+        title,
+        parts,
+        state.error_message.as_deref(),
+        width,
+    ))
 }

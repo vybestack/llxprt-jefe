@@ -138,7 +138,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Sandbox: false",
+      "literal": "Sandbox          [ ]  (space toggles)",
       "timeout_ms": 5000
     },
     {
@@ -149,7 +149,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Sandbox: true",
+      "literal": "Sandbox          [x]  (space toggles)",
       "timeout_ms": 5000
     },
     {

@@ -92,6 +92,7 @@ impl AppState {
 
     fn submit_edit_agent(&mut self, id: &crate::domain::AgentId, fields: &AgentFormFields) {
         if fields.name.trim().is_empty() {
+            self.error_message = Some("Agent name is required".to_owned());
             return;
         }
         if let Err(message) = Self::validate_agent_form_fields(fields) {

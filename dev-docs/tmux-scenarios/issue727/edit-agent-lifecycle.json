@@ -1,0 +1,323 @@
+{
+  "schema": 1,
+  "name": "issue727-edit-agent-lifecycle",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.alpha\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"alpha\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"remote\": {\n            \"type\": \"map\",\n            \"value\": {\n              \"enabled\": {\n                \"type\": \"bool\",\n                \"value\": true\n              },\n              \"host\": {\n                \"type\": \"string\",\n                \"value\": \"fixture-host\"\n              },\n              \"identity-file\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"login-user\": {\n                \"type\": \"string\",\n                \"value\": \"fixture-user\"\n              },\n              \"options\": {\n                \"type\": \"list\",\n                \"value\": []\n              },\n              \"run-as-user\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"setup-env-default\": {\n                \"type\": \"bool\",\n                \"value\": false\n              }\n            }\n          }\n        }\n      }\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent.alpha\",\n      \"repository_id\": \"repo.alpha\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {\n        \"continue\": {\n          \"type\": \"bool\",\n          \"value\": true\n        },\n        \"work-dir\": {\n          \"type\": \"string\",\n          \"value\": \"${workspace}/work\"\n        }\n      },\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": \"jefe-alpha\",\n        \"invocation_generation\": 1,\n        \"last_known\": \"running\"\n      }\n    }\n  ],\n  \"selection\": {\n    \"repository_id\": \"repo.alpha\",\n    \"agent_id\": \"agent.alpha\",\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"agents\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "secrets": [],
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "agent.alpha",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Shortcut (1-9)   [none]",
+        "Name             [▏]",
+        "Agent Runtime    [core.llxprt]"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "beta"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [beta▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "backspace",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [ ▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Error: Agent name is required",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Edit Agent",
+        "Name             [ ▏]",
+        "Error: Agent name is required"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "agent.alpha",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "agent.alpha"
+      ],
+      "absent": [
+        "PANIC",
+        "Edit Agent",
+        "beta"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [▏]"
+      ],
+      "absent": [
+        "PANIC",
+        "beta"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "beta"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [beta▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Green Screen",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "beta"
+      ],
+      "absent": [
+        "PANIC",
+        "Edit Agent"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [beta▏]"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "text",
+      "text": "X"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Name             [betaX▏]",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "beta",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "beta"
+      ],
+      "absent": [
+        "PANIC",
+        "Edit Agent",
+        "betaX"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Agent",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Name             [beta▏]"
+      ],
+      "absent": [
+        "PANIC",
+        "betaX"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ]
+}

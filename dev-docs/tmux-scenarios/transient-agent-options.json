@@ -86,7 +86,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.code-puppy",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -107,14 +107,14 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default YOLO: true",
+      "literal": "Default YOLO     [x]  (space toggles)",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Default Agent: core.code-puppy",
-        "Default YOLO: true"
+        "Default Agent    [core.code-puppy]",
+        "Default YOLO     [x]  (space toggles)"
       ],
       "absent": []
     },
@@ -366,7 +366,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.llxprt",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -377,7 +377,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Mode: --yolo\u258f",
+      "literal": "Default Mode     [--yolo\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -413,7 +413,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Mode: \u258f",
+      "literal": "Default Mode     [\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -461,7 +461,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.llxprt",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -472,7 +472,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Mode: \u258f",
+      "literal": "Default Mode     [\u258f]",
       "timeout_ms": 15000
     },
     {

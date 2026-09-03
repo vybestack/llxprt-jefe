@@ -1,18 +1,21 @@
-//! RED tests: the agent form (new/edit) must project through the shared
-//! overlay Form control, mirroring the legacy renderer's field order,
-//! visibility, caret, error, and submit affordance.
+//! Agent form projection tests for the shared overlay Form control.
 
-use crate::domain::{AgentId, Id, InternalId, RepositoryId, TypedValue};
-use crate::host_controls::{ControlAction, ControlIntent, PanelHitTarget};
+use crate::domain::{AgentId, Id, InternalId, PlatformCapabilities, RepositoryId, TypedValue};
+use crate::host_controls::{
+    ControlAction, ControlIntent, HostControlRowStyle, HostControlTitleStyle, PanelHitTarget,
+};
 use crate::overlay_controls::overlay_intent;
-use crate::overlay_controls_agent_form::project_agent_form;
+use crate::overlay_controls_agent_form::{AGENT_FORM_FOOTER, project_agent_form};
 use crate::runtime::provider::protocol::PanelEvent;
 use crate::state::{AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState};
+use unicode_width::UnicodeWidthStr;
 
 const WIDTH: usize = 80;
+const FULL_FORM_WIDTH: usize = 116;
 
 fn agent_state(type_id: &str, focus: AgentFormFocus) -> AppState {
     let mut state = AppState::new(crate::test_support::published_workbench());
+    state.available_agent_type_ids.clear();
     let fields = AgentFormFields {
         agent_type_id: type_id.to_owned(),
         name: "jefe".to_owned(),
@@ -20,6 +23,8 @@ fn agent_state(type_id: &str, focus: AgentFormFocus) -> AppState {
         work_dir: "/tmp/jefe".to_owned(),
         profile: "dev".to_owned(),
         mode: "--yolo".to_owned(),
+        pass_continue: true,
+        sandbox_engine: "Podman".to_owned(),
         ..AgentFormFields::default()
     };
     state.modal = ModalState::NewAgent {
@@ -32,60 +37,133 @@ fn agent_state(type_id: &str, focus: AgentFormFocus) -> AppState {
     state
 }
 
+fn edit_agent_state(type_id: &str, focus: AgentFormFocus) -> AppState {
+    let mut state = agent_state(type_id, focus);
+    let ModalState::NewAgent { fields, cursor, .. } = &state.modal else {
+        panic!("fixture opens the new agent form");
+    };
+    state.modal = ModalState::EditAgent {
+        id: AgentId("a".to_owned()),
+        fields: fields.clone(),
+        focus,
+        cursor: cursor.clone(),
+    };
+    state
+}
+
+fn row_texts(state: &AppState, width: usize) -> Vec<String> {
+    project_agent_form(state, width)
+        .unwrap_or_else(|| panic!("agent form must project"))
+        .text_rows()
+        .map(str::to_owned)
+        .collect()
+}
+
 #[test]
-fn agent_form_projects_its_fields_through_the_form_control() {
-    let state = agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
+fn edit_agent_form_restores_aligned_bracketed_rows_and_spacers() {
+    let state = edit_agent_state("core.llxprt", AgentFormFocus::SandboxEngine);
     let projection =
         project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
-    assert_eq!(projection.title, "New Agent");
+
+    assert_eq!(projection.title, " Edit Agent");
     let rows = projection.text_rows().collect::<Vec<_>>();
+    assert_eq!(
+        rows.first(),
+        Some(&""),
+        "title must be followed by a spacer"
+    );
     for expected in [
-        "Shortcut (1-9): none",
-        "Name: jefe",
-        "Description: dev agent",
-        "Work Dir: /tmp/jefe",
-        "Profile: dev",
-        "Agent Runtime: core.llxprt",
-        "Mode Flags: --yolo",
-        "LLxprt Version:",
-        "LLXPRT_DEBUG:",
-        "Pass --continue: false",
-        "Sandbox: false",
-        "Sandbox Engine:",
-        "Sandbox Flags:",
+        "  Shortcut (1-9)   [none]",
+        "  Name             [jefe]",
+        "  Description      [dev agent]",
+        "  Work Dir         [/tmp/jefe]",
+        "  Profile          [dev]",
+        "  Mode Flags       [--yolo]",
+        "  Version          []",
+        "  LLXPRT_DEBUG     []",
+        "  Sandbox Flags    []",
     ] {
         assert!(
-            rows.iter().any(|row| row.contains(expected)),
-            "expected a row containing {expected:?}, rows={rows:?}"
+            rows.contains(&expected),
+            "expected exact restored row {expected:?}, rows={rows:?}"
         );
     }
-    for absent in ["YOLO:", "Quick resume:", "Model:", "CP Version:"] {
+    assert_eq!(
+        rows.iter().filter(|row| row.is_empty()).count(),
+        2,
+        "the projection needs one spacer after the title and one before the footer"
+    );
+    assert!(
+        rows.iter().all(|row| !row.contains("LLxprt Version")),
+        "the projection-local display label is Version, rows={rows:?}"
+    );
+}
+
+#[test]
+fn agent_form_restores_checkbox_runtime_and_disabled_engine_hints() {
+    let state = edit_agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
+    let rows = row_texts(&state, WIDTH);
+
+    for expected in [
+        "  Agent Runtime    [core.llxprt]  (no available agents)",
+        "  Pass --continue  [x]  (space toggles)",
+        "  Sandbox          [ ]  (space toggles)",
+        "  Sandbox Engine   [Podman]  (disabled)",
+    ] {
         assert!(
-            rows.iter().all(|row| !row.contains(absent)),
-            "llxprt hides {absent:?}, rows={rows:?}"
+            rows.iter().any(|row| row == expected),
+            "expected exact hint row {expected:?}, rows={rows:?}"
         );
     }
+    assert!(
+        rows.iter()
+            .all(|row| !row.contains(": true") && !row.contains(": false")),
+        "booleans must not leak generic Form text, rows={rows:?}"
+    );
+}
+
+#[test]
+fn enabled_sandbox_engine_lists_the_platform_cycle_choices() {
+    let mut state = edit_agent_state("core.llxprt", AgentFormFocus::SandboxEngine);
+    let ModalState::EditAgent { fields, .. } = &mut state.modal else {
+        panic!("fixture opens the edit agent form");
+    };
+    fields.sandbox_enabled = true;
+    let labels = PlatformCapabilities::current()
+        .supported_engines()
+        .iter()
+        .map(|engine| engine.label())
+        .collect::<Vec<_>>()
+        .join(" / ");
+    let expected = format!("  Sandbox Engine   [Podman]  (space cycles: {labels})");
+
+    let rows = row_texts(&state, FULL_FORM_WIDTH);
+    assert!(
+        rows.iter().any(|row| row == &expected),
+        "enabled sandbox hint must describe the real cycle order, rows={rows:?}"
+    );
 }
 
 #[test]
 fn agent_form_hides_llxprt_fields_for_code_puppy() {
     let state = agent_state("core.code-puppy", AgentFormFocus::Name);
-    let projection =
-        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
-    let rows = projection.text_rows().collect::<Vec<_>>();
-    for expected in ["YOLO: false", "Quick resume: false"] {
+    let rows = row_texts(&state, WIDTH);
+    for expected in [
+        "  YOLO             [ ]  (space toggles)",
+        "  Quick resume     [ ]  (space toggles)",
+    ] {
         assert!(
-            rows.iter().any(|row| row.contains(expected)),
+            rows.iter().any(|row| row == expected),
             "code-puppy shows {expected:?}, rows={rows:?}"
         );
     }
     for absent in [
-        "Mode Flags:",
-        "LLXPRT_DEBUG:",
-        "Pass --continue:",
-        "Sandbox:",
-        "Sandbox Engine:",
-        "Sandbox Flags:",
+        "Mode Flags",
+        "LLXPRT_DEBUG",
+        "Pass --continue",
+        "Sandbox ",
+        "Sandbox Engine",
+        "Sandbox Flags",
     ] {
         assert!(
             rows.iter().all(|row| !row.contains(absent)),
@@ -95,7 +173,7 @@ fn agent_form_hides_llxprt_fields_for_code_puppy() {
 }
 
 #[test]
-fn agent_form_marks_the_focused_field_with_a_caret() {
+fn agent_form_marks_the_focused_field_with_a_caret_inside_brackets() {
     let mut state = agent_state("core.llxprt", AgentFormFocus::Name);
     let ModalState::NewAgent { cursor, .. } = &mut state.modal else {
         panic!("fixture opens the new agent form");
@@ -108,36 +186,32 @@ fn agent_form_marks_the_focused_field_with_a_caret() {
     assert!(
         projection
             .text_rows()
-            .any(|row| row.contains("Name: je▏fe")),
-        "the focused field carries the text caret, rows={:?}",
+            .any(|row| row == "  Name             [je▏fe]"),
+        "the focused field carries the text caret inside brackets, rows={:?}",
         projection.text_rows().collect::<Vec<_>>()
     );
+    assert!(projection.rows.iter().any(|row| {
+        row.target.as_ref() == Some(&PanelHitTarget::Field(name_id.clone()))
+            && row.text == "  Name             [je▏fe]"
+            && row.style == HostControlRowStyle::Bright
+    }));
+    assert_eq!(projection.title_style, HostControlTitleStyle::Plain);
+    assert_eq!(projection.title, " New Agent");
 }
 
 #[test]
-fn edit_agent_form_titles_and_carries_current_values() {
-    let mut state = agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
-    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
-        panic!("fixture opens the new agent form");
-    };
-    fields.name = "existing".to_owned();
-    let fields = fields.clone();
-    state.modal = ModalState::EditAgent {
-        id: AgentId("a".to_owned()),
-        fields,
-        focus: AgentFormFocus::LlxprtDebug,
-        cursor: AgentFormCursor::default(),
-    };
+fn edit_agent_focused_row_is_bright() {
+    let state = edit_agent_state("core.llxprt", AgentFormFocus::Name);
+    let name_id = Id::internal(InternalId::AgentFormName);
     let projection =
-        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
-    assert_eq!(projection.title, "Edit Agent");
-    assert!(
-        projection
-            .text_rows()
-            .any(|row| row.contains("Name: existing")),
-        "edit carries current values, rows={:?}",
-        projection.text_rows().collect::<Vec<_>>()
-    );
+        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("edit agent form must project"));
+
+    assert!(projection.rows.iter().any(|row| {
+        row.target.as_ref() == Some(&PanelHitTarget::Field(name_id.clone()))
+            && row.style == HostControlRowStyle::Bright
+    }));
+    assert_eq!(projection.title_style, HostControlTitleStyle::Plain);
+    assert_eq!(projection.title, " Edit Agent");
 }
 
 #[test]
@@ -163,57 +237,104 @@ fn agent_form_edit_field_yields_a_typed_change() {
 }
 
 #[test]
-fn agent_form_surfaces_the_pending_error_message() {
-    let mut state = agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
+fn agent_form_places_the_pending_error_after_fields_and_spacer() {
+    let mut state = edit_agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
     state.error_message = Some("name is required".to_owned());
+    let rows = row_texts(&state, WIDTH);
+    let error_index = rows
+        .iter()
+        .position(|row| row == "  Error: name is required")
+        .unwrap_or_else(|| panic!("the pending error must ride the projection, rows={rows:?}"));
+
+    assert!(error_index > 0, "error must follow the field rows");
+    assert_eq!(rows[error_index - 1], "", "error must follow the spacer");
+    assert_eq!(
+        error_index,
+        rows.len() - 1,
+        "error must be the final projected row immediately above the shell footer"
+    );
+    let projection =
+        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("edit agent form must project"));
+    assert!(
+        projection.rows.iter().any(|row| {
+            row.text == "  Error: name is required" && row.style == HostControlRowStyle::Bright
+        }),
+        "the pending validation error must render bright"
+    );
+}
+
+#[test]
+fn agent_form_hides_submit_text_but_retains_submit_contract() {
+    let state = edit_agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
     let projection =
         project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
+
     assert!(
         projection
             .text_rows()
-            .any(|row| row.contains("Error: name is required")),
-        "the pending error rides the projection, rows={:?}",
+            .all(|row| !row.contains("submit:") && !row.contains("overlay-submit")),
+        "internal submit text must not be visible, rows={:?}",
         projection.text_rows().collect::<Vec<_>>()
     );
-}
-
-#[test]
-fn agent_form_carries_the_shared_submit_affordance() {
-    let state = agent_state("core.llxprt", AgentFormFocus::LlxprtDebug);
-    let projection =
-        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
     assert!(
-        projection
-            .rows
-            .iter()
-            .any(|row| row.text.starts_with("submit:")
-                && row
-                    .target
-                    .as_ref()
-                    .is_some_and(|target| matches!(target, PanelHitTarget::Submit))),
-        "the shared Form submit affordance closes the projection, rows={:?}",
-        projection.text_rows().collect::<Vec<_>>()
+        projection.rows.iter().any(|row| {
+            row.text.is_empty() && row.target.as_ref() == Some(&PanelHitTarget::Submit)
+        }),
+        "the blank pre-footer spacer retains the shared submit hit target"
+    );
+    assert!(matches!(
+        overlay_intent(&projection, ControlAction::Activate),
+        ControlIntent::Event(PanelEvent::Submit { .. })
+    ));
+}
+
+#[test]
+fn agent_form_fits_long_values_inside_one_bracketed_field_row() {
+    let mut state = edit_agent_state("core.llxprt", AgentFormFocus::Name);
+    let ModalState::EditAgent { fields, .. } = &mut state.modal else {
+        panic!("fixture opens the edit agent form");
+    };
+    fields.name = "界".repeat(200);
+    let name_id = Id::internal(InternalId::AgentFormName);
+
+    let projection =
+        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
+    let matching = projection
+        .rows
+        .iter()
+        .filter(|row| row.target.as_ref() == Some(&PanelHitTarget::Field(name_id.clone())))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        matching.len(),
+        1,
+        "one field must project to exactly one row"
+    );
+    let row = &matching[0].text;
+    assert!(row.starts_with("  Name             ["), "row={row:?}");
+    assert!(
+        row.ends_with(']'),
+        "the closing bracket must survive fitting: {row:?}"
+    );
+    assert!(
+        row.contains('…'),
+        "the over-width value must be truncated: {row:?}"
+    );
+    assert!(
+        UnicodeWidthStr::width(row.as_str()) <= WIDTH,
+        "row exceeds the overlay width: {row:?}"
     );
 }
 
 #[test]
-fn agent_form_truncates_the_focused_row_to_the_content_width() {
-    // Issue #706: the rewritten focused row must obey the same width every
-    // other row is truncated to, or a long value overflows the overlay.
-    let mut state = agent_state("core.llxprt", AgentFormFocus::Name);
-    let long_value = "x".repeat(200);
-    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
-        panic!("fixture must open the agent form");
-    };
-    fields.name = long_value;
-
-    let projection =
-        project_agent_form(&state, WIDTH).unwrap_or_else(|| panic!("agent form must project"));
-
-    for row in projection.text_rows() {
-        assert!(
-            unicode_width::UnicodeWidthStr::width(row) <= WIDTH,
-            "row exceeds the overlay width: {row:?}"
-        );
-    }
+fn agent_form_footer_is_one_row_and_fits_a_120_column_overlay() {
+    assert_eq!(
+        AGENT_FORM_FOOTER,
+        "  Tab/Down next  Shift+Tab/Up prev  Left/Right cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel"
+    );
+    assert!(!AGENT_FORM_FOOTER.contains('\n'));
+    assert!(
+        UnicodeWidthStr::width(AGENT_FORM_FOOTER) <= FULL_FORM_WIDTH,
+        "footer must fit the 116-cell content width: {AGENT_FORM_FOOTER:?}"
+    );
 }

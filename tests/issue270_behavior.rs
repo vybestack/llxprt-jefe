@@ -131,7 +131,7 @@ fn code_puppy_agent_version_is_visible_focusable_and_hidden_draft_survives_switc
     assert!(
         modal_lines(SelectablePane::AgentForm, &state)
             .iter()
-            .any(|line| line.starts_with("CP Version:") && line.contains("0.0.361-rc1")),
+            .any(|line| line == "  Version          [0.0.361-rc1]"),
         "the drafted code-puppy version must ride the projection for code-puppy"
     );
 }
@@ -182,7 +182,7 @@ fn repository_default_version_is_code_puppy_only_focusable_and_draft_is_retained
     assert!(
         modal_lines(SelectablePane::RepositoryForm, &state)
             .iter()
-            .any(|line| line.starts_with("Default CP Version:") && line.contains("0.0.361")),
+            .any(|line| line == "  Default Version  [  0.0.361  ]"),
         "the drafted code-puppy version must ride the projection"
     );
     state = state.apply(AppEvent::SubmitForm).committed_pure();

@@ -325,10 +325,7 @@ pub(super) fn push_wrapped(
     target: Option<PanelHitTarget>,
 ) {
     for row in wrap_text(text, width) {
-        rows.push(HostControlRow {
-            text: row.text,
-            target: target.clone(),
-        });
+        rows.push(HostControlRow::new(row.text, target.clone()));
     }
 }
 

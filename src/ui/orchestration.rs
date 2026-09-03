@@ -425,11 +425,11 @@ fn host_overlay_element(
     colors: &ThemeColors,
     footer: &str,
 ) -> AnyElement<'static> {
-    let rows: Vec<String> = projection.rows.into_iter().map(|row| row.text).collect();
     element! {
         HostControlOverlay(
             title: projection.title,
-            rows: rows,
+            title_style: projection.title_style,
+            rows: projection.rows,
             viewport: projection.viewport,
             viewport_rows: layout.viewport_rows,
             width: u32::from(layout.width),
