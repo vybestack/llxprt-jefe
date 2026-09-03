@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
-use jefe::domain::{AgentId, AgentLaunchRequest, AgentStatus, Repository, RepositoryId};
+use jefe::domain::{Agent, AgentId, AgentLaunchRequest, AgentStatus, Repository, RepositoryId};
 use jefe::runtime::NpmPackageAvailabilityError;
 use jefe::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppEvent, AppState, ModalState,
@@ -104,12 +104,25 @@ impl SubmittedAgentFixture {
         assert_eq!(state.modal, ModalState::None);
         assert_eq!(state.agents.len(), 1, "New Agent still creates its record");
 
-        let agent_id = state.agents[0].id.clone();
+        let agent_id = state
+            .agents
+            .first()
+            .unwrap_or_else(|| panic!("New Agent submission must create the tracked agent"))
+            .id
+            .clone();
         Self {
             _temp: temp,
             state,
             agent_id,
         }
+    }
+
+    fn tracked_agent(&self) -> &Agent {
+        self.state
+            .agents
+            .iter()
+            .find(|agent| agent.id == self.agent_id)
+            .unwrap_or_else(|| panic!("submitted agent {:?} must remain in state", self.agent_id))
     }
 
     fn open_edit_with_name(&mut self, name: &str, expected_modal_message: &str) {
@@ -124,7 +137,7 @@ impl SubmittedAgentFixture {
     }
 
     fn runtime_observation(&self) -> AgentRuntimeObservation {
-        let agent = &self.state.agents[0];
+        let agent = self.tracked_agent();
         let attachment = if agent.runtime_binding.is_some() {
             RuntimeAttachment::Bound
         } else {
@@ -156,7 +169,7 @@ impl SubmittedAgentFixture {
             1,
             "Edit Agent must not launch a new agent"
         );
-        assert_eq!(self.state.agents[0].name, name);
+        assert_eq!(self.tracked_agent().name, name);
         self.assert_runtime_matches(runtime_before);
         assert!(
             !self.state.terminal_focused,
@@ -258,7 +271,7 @@ fn apply_submit_reports_failure_when_edit_agent_validation_keeps_modal_open() {
         fixture.state.error_message.as_deref(),
         Some("Agent name is required")
     );
-    assert_eq!(fixture.state.agents[0].name, "Edited Agent");
+    assert_eq!(fixture.tracked_agent().name, "Edited Agent");
     fixture.assert_runtime_matches(runtime_before);
 }
 

@@ -767,7 +767,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
-      "sha256": "75152d0d0182d1ec6e58c307c45ae7c5d3953a8f38148d5cf15e3e41ee98f6ff",
+      "sha256": "8ba32c9d1a6e871bc87f5532d5c9c6ab78f86e9ba4d452f96a9dcfeb430a8e98",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

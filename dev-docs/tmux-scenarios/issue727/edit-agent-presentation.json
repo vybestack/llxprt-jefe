@@ -67,15 +67,14 @@
         "Pass --continue  [x]  (space toggles)",
         "Sandbox          [ ]  (space toggles)",
         "Sandbox Engine   [Podman]  (disabled)",
-        "Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc"
+        "Tab/Down next  Shift+Tab/Up prev  Left/Right cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel"
       ],
       "absent": [
         "PANIC",
         "submit: host.overlay-submit",
         "Sandbox: false",
         "Pass --continue: true",
-        "Name:",
-        "cancel"
+        "Name:"
       ]
     },
     {

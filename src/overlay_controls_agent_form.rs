@@ -16,7 +16,7 @@ use crate::runtime::provider::protocol::{Affordance, Id, TypedMap};
 use crate::state::{AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState};
 use unicode_width::UnicodeWidthStr;
 
-pub const AGENT_FORM_FOOTER: &str = "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc";
+pub const AGENT_FORM_FOOTER: &str = "  Tab/Down next  Shift+Tab/Up prev  Left/Right cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel";
 
 const LABEL_WIDTH: usize = 16;
 

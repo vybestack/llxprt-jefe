@@ -328,15 +328,9 @@ fn agent_form_fits_long_values_inside_one_bracketed_field_row() {
 
 #[test]
 fn agent_form_footer_is_one_row_and_fits_a_120_column_overlay() {
-    assert!(
-        AGENT_FORM_FOOTER.starts_with("  "),
-        "footer must carry the two-space row indent: {AGENT_FORM_FOOTER:?}"
-    );
-    assert!(
-        AGENT_FORM_FOOTER.ends_with(
-            "Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc"
-        ),
-        "footer wording through the ending must be unchanged: {AGENT_FORM_FOOTER:?}"
+    assert_eq!(
+        AGENT_FORM_FOOTER,
+        "  Tab/Down next  Shift+Tab/Up prev  Left/Right cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel"
     );
     assert!(!AGENT_FORM_FOOTER.contains('\n'));
     assert!(
