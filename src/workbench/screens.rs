@@ -82,6 +82,13 @@ pub const PTY_PANEL_TYPE: &str = "pty-terminal";
 /// Identity of the repository sidebar, which every workspace screen shares.
 pub const REPOSITORIES_PANEL: &str = "repositories";
 
+/// The dashboard's zero-agent Agent Types availability pane (issue #734).
+///
+/// Named here because the application, not the descriptor, decides which side
+/// of the dashboard is showing; `screen_layout::hidden_panel_ids` addresses
+/// this panel by identity.
+pub const AGENT_TYPES_PANEL: &str = "agent-types";
+
 // ── Shipped geometry constants ─────────────────────────────────────────────
 //
 // These mirror the widths and proportions the screens render today.
@@ -538,6 +545,14 @@ fn dashboard_panels() -> Result<Vec<PanelDescriptor>, IdError> {
             (true, false),
             LIST_PANE_CHROME,
         )?,
+        host_panel(
+            AGENT_TYPES_PANEL,
+            "agent-types-status",
+            HostPanelModelSource::AgentTypeAvailability,
+            ControlKind::List,
+            (false, false),
+            LIST_PANE_CHROME,
+        )?,
         panel("terminal", PTY_PANEL_TYPE, true, true, TERMINAL_CHROME)?,
         host_panel(
             "preview",
@@ -596,6 +611,13 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
                         PREVIEW_COLUMNS,
                         -1,
                     ),
+                    // The zero-agent form of the workspace, declared beside the
+                    // form it replaces rather than under a wrapping split: a
+                    // hidden child receives no cells, so whichever form is
+                    // showing takes the whole flexible width from the one
+                    // resolver, and the tree stays shallow enough to survive a
+                    // settings layout override round trip (#734).
+                    required_child(leaf(AGENT_TYPES_PANEL)?, weight(1), FLEX_MIN_COLUMNS),
                 ]),
                 weight(1),
                 TERMINAL_MIN_ROWS,

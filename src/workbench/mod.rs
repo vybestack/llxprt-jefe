@@ -185,7 +185,7 @@ pub use screen_file::{ScreenFile, parse_screen_file};
 pub use screen_file_bounds::{ScreenSyntaxError, ScreenSyntaxReason};
 pub use screen_lowering::{LoweredScreen, ScreenProvenance, lower_package_screen, lower_screen};
 pub use screens::{
-    ACTIONS_LIST_PANEL, ERRORS_LIST_PANEL, ISSUES_LIST_PANEL, PTY_PANEL_TYPE,
+    ACTIONS_LIST_PANEL, AGENT_TYPES_PANEL, ERRORS_LIST_PANEL, ISSUES_LIST_PANEL, PTY_PANEL_TYPE,
     PULL_REQUESTS_LIST_PANEL, PackagePanelBinding, REPOSITORIES_PANEL, RegistryError,
     SELECTION_PORT, SETTINGS_AGENT_TYPES_PANEL, SETTINGS_APPEARANCE_PANEL,
     SETTINGS_DIAGNOSTICS_PANEL, SETTINGS_GENERAL_PANEL, SETTINGS_KEYS_PANEL,

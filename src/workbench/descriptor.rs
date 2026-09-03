@@ -178,6 +178,7 @@ pub enum HostPanelModelSource {
     RepositoryList,
     SearchInput,
     AgentList,
+    AgentTypeAvailability,
     AgentPreview,
     SessionList,
     WorkbenchStatus,
@@ -224,12 +225,14 @@ impl HostPanelCapability {
 impl HostPanelModelSource {
     const fn control_kind(self) -> crate::host_controls::ControlKind {
         match self {
-            Self::RepositoryList | Self::AgentList | Self::SessionList => {
-                crate::host_controls::ControlKind::List
-            }
             Self::SearchInput => crate::host_controls::ControlKind::Form,
             Self::AgentPreview => crate::host_controls::ControlKind::Detail,
-            Self::WorkbenchStatus | Self::WorkbenchCards => crate::host_controls::ControlKind::List,
+            Self::RepositoryList
+            | Self::AgentList
+            | Self::AgentTypeAvailability
+            | Self::SessionList
+            | Self::WorkbenchStatus
+            | Self::WorkbenchCards => crate::host_controls::ControlKind::List,
         }
     }
 }

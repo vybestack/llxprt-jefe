@@ -143,6 +143,7 @@ impl AppState {
             HostPanelModelSource::WorkbenchStatus
             | HostPanelModelSource::WorkbenchCards
             | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentTypeAvailability
             | HostPanelModelSource::AgentPreview => return false,
         };
         let changed = *offset != next;
@@ -192,7 +193,12 @@ impl AppState {
                         );
                         None
                     }
-                    HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => None,
+                    // The availability pane is a read-only startup surface:
+                    // it declares `focusable: false`, so no host-panel input
+                    // ever reaches it (#734).
+                    HostPanelModelSource::SearchInput
+                    | HostPanelModelSource::AgentTypeAvailability
+                    | HostPanelModelSource::AgentPreview => None,
                 };
                 if let Some(event) = event {
                     self.reduce_message_body(AppMessage::from(event));
@@ -255,6 +261,7 @@ impl AppState {
             HostPanelModelSource::WorkbenchStatus
             | HostPanelModelSource::WorkbenchCards
             | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentTypeAvailability
             | HostPanelModelSource::AgentPreview => None,
         };
         let Some(selected) = selected.and_then(|index| u32::try_from(index).ok()) else {
@@ -268,6 +275,7 @@ impl AppState {
             HostPanelModelSource::WorkbenchStatus
             | HostPanelModelSource::WorkbenchCards
             | HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentTypeAvailability
             | HostPanelModelSource::AgentPreview => return,
         };
         if selected < *offset {
@@ -329,7 +337,9 @@ impl AppState {
                 true
             }
             HostPanelModelSource::WorkbenchCards => self.select_workbench_card(id),
-            HostPanelModelSource::SearchInput | HostPanelModelSource::AgentPreview => false,
+            HostPanelModelSource::SearchInput
+            | HostPanelModelSource::AgentTypeAvailability
+            | HostPanelModelSource::AgentPreview => false,
         }
     }
     fn select_workbench_card(&mut self, id: &Id) -> bool {

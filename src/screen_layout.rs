@@ -15,8 +15,9 @@ use crate::layout::{OUTER_BARS_HEIGHT, effective_render_size};
 use crate::messages::settings::SettingsSection;
 use crate::state::AppState;
 use crate::workbench::{
-    PTY_PANEL_TYPE, PanelId, PanelState, Rect, ResolvedLayout, RuntimeViewport, ScreenDescriptor,
-    ScreenId, pty_content_rect, resolve_layout,
+    HostPanelModelSource, LayoutNode, PTY_PANEL_TYPE, PanelId, PanelState, REPOSITORIES_PANEL,
+    Rect, ResolvedLayout, RuntimeViewport, ScreenDescriptor, ScreenId, pty_content_rect,
+    resolve_layout,
 };
 
 /// Resolve the active screen's geometry for a terminal size.
@@ -247,6 +248,7 @@ fn hidden_host_panel_ids(state: &AppState) -> Option<Vec<PanelId>> {
 /// identity produced here is declared by the screen it names.
 pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
     let mut hidden = hidden_host_panel_ids(state).unwrap_or_default();
+    push_availability_side(&mut hidden, state);
     let Some(screen) = state.compiled_screen() else {
         return hidden;
     };
@@ -291,6 +293,76 @@ pub(crate) fn hidden_panel_ids(state: &AppState) -> Vec<PanelId> {
         }
     }
     hidden
+}
+
+/// Show exactly one side of a workspace that declares an availability pane.
+///
+/// Pre-cutover, a dashboard with no agents replaced the agent list, the
+/// embedded terminal and the preview with a full-width Agent Types
+/// availability pane; #715 deleted that screen and the pane lost its mount
+/// (#734). The rule is stated against the declaration, not against a screen
+/// identity: a screen that declares an availability panel has two mutually
+/// exclusive forms, and which one is showing is the application decision this
+/// module exists to answer, exactly like the Settings sections below.
+///
+/// A shell overlay wins over the availability pane. The two cannot both apply
+/// — an overlay needs a running agent and the pane needs none at all — and
+/// deferring to the overlay keeps the required terminal on screen instead of
+/// leaving a screen with no visible workspace pane.
+fn push_availability_side(hidden: &mut Vec<PanelId>, state: &AppState) {
+    let Some(descriptor) = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(state.screen())
+    else {
+        return;
+    };
+    let Some(pane) = descriptor.panels.iter().find(|panel| {
+        panel.host_capability.is_some_and(|capability| {
+            capability.model_source() == HostPanelModelSource::AgentTypeAvailability
+        })
+    }) else {
+        return;
+    };
+    if state.agent_types_pane_active() && !state.shell_overlay_active() {
+        hidden.extend(panels_the_pane_replaces(&descriptor.layout, &pane.id));
+    } else {
+        hidden.push(pane.id);
+    }
+}
+
+/// The panels an availability pane replaces: its siblings in the innermost
+/// split that contains it, less the repository sidebar.
+///
+/// The declaration already says which panels form the workspace group — they
+/// are the ones sharing the pane's split — so the rule reads the layout rather
+/// than repeating a list of panel names that a descriptor edit could silently
+/// invalidate (#734). The sidebar is the one exception, and it is the same
+/// exception pre-cutover made: it is the shared navigation column every
+/// workspace screen keeps, not part of the workspace being replaced.
+fn panels_the_pane_replaces(node: &LayoutNode, pane: &PanelId) -> Vec<PanelId> {
+    let LayoutNode::Split { children, .. } = node else {
+        return Vec::new();
+    };
+    for child in children {
+        let inner = panels_the_pane_replaces(&child.node, pane);
+        if !inner.is_empty() {
+            return inner;
+        }
+    }
+    let contains_pane = children
+        .iter()
+        .any(|child| child.node.panels_depth_first().contains(&pane));
+    if !contains_pane {
+        return Vec::new();
+    }
+    let sidebar = PanelId::from_static(REPOSITORIES_PANEL);
+    children
+        .iter()
+        .flat_map(|child| child.node.panels_depth_first())
+        .filter(|panel| *panel != pane && **panel != sidebar)
+        .copied()
+        .collect()
 }
 
 /// Hide every Settings section panel except the one in view.

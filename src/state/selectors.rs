@@ -186,6 +186,17 @@ impl AppState {
             })
     }
 
+    /// Whether a workspace that declares one shows the startup Agent Types
+    /// availability pane instead of its ordinary panes.
+    ///
+    /// The pre-cutover condition, kept verbatim: a workspace with no agents at
+    /// all and a startup probe that has published something to show
+    /// (`src/ui/screens/dashboard.rs:171` before #715, issue #734).
+    #[must_use]
+    pub fn agent_types_pane_active(&self) -> bool {
+        self.agents.is_empty() && !self.agent_type_availability.is_empty()
+    }
+
     #[must_use]
     pub fn is_transient_available_for_repo(&self, repo_id: Option<&RepositoryId>) -> bool {
         let Some(repository) = repo_id.and_then(|id| self.repository_by_id(id)) else {

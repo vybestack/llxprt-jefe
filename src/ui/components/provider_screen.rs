@@ -196,10 +196,41 @@ fn global_chrome(
     rc: &ResolvedColors,
 ) -> Vec<AnyElement<'static>> {
     let rects = global_chrome_rects(outer);
+    let identity = crate::process_identity_label(std::process::id(), crate::GIT_COMMIT);
     vec![
         themed_title_bar(rects.title, header),
-        absolute_text(rects.footer, footer.to_owned(), rc.dim),
+        absolute_text(
+            rects.footer,
+            footer_line(footer, &identity, rects.footer.width),
+            rc.dim,
+        ),
     ]
+}
+
+/// Compose the footer band: hints on the left, the process identity on the
+/// right edge of the same row.
+///
+/// The pre-cutover `KeybindBar` right-aligned `pid:<pid> <commit>` on every
+/// screen it drew, and `pid-commit-corner.json` asserts the `pid:` prefix.
+/// The provider runtime's footer dropped the label when the dashboard moved
+/// onto `global_chrome` (#734). The hints are the actionable half, so a band
+/// too narrow for both keeps them and drops the identity rather than the
+/// other way round.
+fn footer_line(hints: &str, identity: &str, width: u16) -> String {
+    let width = usize::from(width);
+    let identity_width = UnicodeWidthStr::width(identity);
+    let Some(hint_budget) = width
+        .checked_sub(identity_width)
+        .and_then(|budget| budget.checked_sub(1))
+        .filter(|budget| *budget > 0)
+    else {
+        return crate::list_viewport::fit_text_to_width(hints, width);
+    };
+    let hints = crate::list_viewport::fit_text_to_width(hints, hint_budget);
+    let gap = hint_budget
+        .saturating_sub(UnicodeWidthStr::width(hints.as_str()))
+        .saturating_add(1);
+    format!("{hints}{}{identity}", " ".repeat(gap))
 }
 
 /// The shared top bar: `StatusBar` semantics on the title band's resolved
@@ -535,6 +566,35 @@ mod tests {
         assert_eq!(rects.footer, Rect::new(0, 29, 100, 1));
         assert!(!rects.title.contains(0, outer.row));
         assert!(!rects.footer.contains(0, outer.row + outer.height - 1));
+    }
+
+    /// Issue #734: the pre-cutover `KeybindBar` right-aligned
+    /// `pid:<pid> <commit>` on every screen it drew, and
+    /// `pid-commit-corner.json` asserts the `pid:` prefix. The provider
+    /// runtime's footer dropped it when the dashboard moved onto
+    /// `global_chrome`.
+    #[test]
+    fn the_footer_right_aligns_the_process_identity_label() {
+        let line = footer_line("q quit", "pid:4242 abc1234", 40);
+
+        assert_eq!(line.len(), 40, "the band fills its resolved rectangle");
+        assert!(
+            line.starts_with("q quit"),
+            "hints keep the left edge: {line}"
+        );
+        assert!(
+            line.ends_with("pid:4242 abc1234"),
+            "the identity keeps the right edge: {line}"
+        );
+    }
+
+    /// A footer narrow enough that the two segments would collide keeps the
+    /// hints, which are the actionable half.
+    #[test]
+    fn a_footer_too_narrow_for_both_segments_keeps_the_hints() {
+        let line = footer_line("q quit | ? help", "pid:4242 abc1234", 16);
+
+        assert_eq!(line, "q quit | ? help");
     }
 
     #[test]

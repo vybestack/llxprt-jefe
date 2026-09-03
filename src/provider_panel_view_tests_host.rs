@@ -14,8 +14,19 @@ fn dashboard_projects_declared_host_controls_through_the_shared_screen_runtime()
         .unwrap_or_else(|error| panic!("dashboard projection: {error}"));
 
     assert_eq!(view.panels.len(), descriptor.panels.len());
-    assert!(view.panels.iter().all(|panel| panel.visible));
-    for panel in &view.panels {
+    // The dashboard declares two mutually exclusive workspace sides: the agent
+    // list over the terminal beside the preview, and the zero-agent Agent
+    // Types availability pane (#734). This state has no published
+    // observations, so the ordinary side shows and the availability pane is
+    // the only panel the application hides.
+    let hidden: Vec<&str> = view
+        .panels
+        .iter()
+        .filter(|panel| !panel.visible)
+        .map(|panel| panel.id.as_str())
+        .collect();
+    assert_eq!(hidden, vec![crate::workbench::AGENT_TYPES_PANEL]);
+    for panel in view.panels.iter().filter(|panel| panel.visible) {
         assert_eq!(panel.status, PanelStatus::Active, "{}", panel.id);
         assert!(
             !panel.lines.iter().any(|line| line == "provider unavailable"),
