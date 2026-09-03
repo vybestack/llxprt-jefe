@@ -3,16 +3,17 @@
 //! Split out of `mod.rs` to keep that file within the source-size gate. Both
 //! handlers move the selection within the currently focused pane, skipping
 //! filtered-out rows and resetting terminal scrollback on a real move.
+//!
+//! Routing is by `pane_focus` alone, matching `handle_navigate_page`. The
+//! startup agent-type availability list lost its dashboard pane in the #715
+//! cutover, so no vertical key may move that unrendered selection (issue
+//! #722).
 
 use super::AppState;
 use super::types::PaneFocus;
 
 impl AppState {
     pub(super) fn handle_navigate_up(&mut self) {
-        if self.agents.is_empty() && !self.agent_type_availability.is_empty() {
-            self.selected_agent_type_index = self.selected_agent_type_index.saturating_sub(1);
-            return;
-        }
         match self.pane_focus {
             PaneFocus::Repositories => {
                 let visible_repo_indices = self.visible_repository_indices();
@@ -59,11 +60,6 @@ impl AppState {
     }
 
     pub(super) fn handle_navigate_down(&mut self) {
-        if self.agents.is_empty() && !self.agent_type_availability.is_empty() {
-            let last = self.agent_type_availability.len().saturating_sub(1);
-            self.selected_agent_type_index = (self.selected_agent_type_index + 1).min(last);
-            return;
-        }
         match self.pane_focus {
             PaneFocus::Repositories => {
                 let visible_repo_indices = self.visible_repository_indices();

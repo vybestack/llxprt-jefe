@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "f98958f7cc825495df7caa5046da090c53d24cd5b99174e31c983e78f489bb6e",
+  "scenario_manifest_sha256": "b863ff45c0852539403f8b18ac4cbd54fac6895d4800af162ed4fb026711d691",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -740,6 +740,18 @@
       "platform": "macos",
       "ci_job": "tui_scenarios_macos",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json --install jefe=cargo-bin:jefe --install podman=repo:scripts/harness-podman-ready-shim.sh --install ssh-add=repo:scripts/harness-ssh-add-empty-shim.sh --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
+      "sha256": "e437db53bc64f058f35ecf81c7a402867af603dcad07110fcad3fef669e5c087",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
@@ -2131,7 +2143,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "f98958f7cc825495df7caa5046da090c53d24cd5b99174e31c983e78f489bb6e",
+      "sha256": "b863ff45c0852539403f8b18ac4cbd54fac6895d4800af162ed4fb026711d691",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2691,7 +2703,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "73b98d4833fa2aedaf16309ce113e0217d5cbe5d5484173a63e87e2caaeafa45",
+      "sha256": "7456073c2666f0de4d2618dcb89661d6c55d65818e8a6f9ba3ca2f3192cc4408",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -3544,6 +3556,7 @@
         "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
         "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
         "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
+        "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3837,6 +3850,7 @@
         "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
         "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
         "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
+        "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",

@@ -154,6 +154,10 @@ pub mod navigation_unwind;
 #[path = "navigation_unwind_tests.rs"]
 mod navigation_unwind_tests;
 mod navigation_vertical;
+/// Dashboard vertical navigation follows the focused pane (issue #722).
+#[cfg(test)]
+#[path = "navigation_vertical_tests.rs"]
+mod navigation_vertical_tests;
 /// Declared generic-confirmation overlay tests.
 #[cfg(test)]
 #[path = "overlay_confirmation_tests.rs"]
