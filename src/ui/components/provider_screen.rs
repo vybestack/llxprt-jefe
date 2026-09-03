@@ -82,7 +82,7 @@ pub fn ProviderScreen(props: &ProviderScreenProps) -> impl Into<AnyElement<'stat
         actions_focus: None,
         mode_override: None,
     });
-    let header = screen_header(
+    let header = themed_header(
         &view.title,
         HeaderStatus {
             warning: state.warning_message.as_deref(),
@@ -97,6 +97,7 @@ pub fn ProviderScreen(props: &ProviderScreenProps) -> impl Into<AnyElement<'stat
             theme_name: &props.theme_name,
             kennel_mode: state.is_kennel_mode(),
         },
+        &rc,
     );
     let mut children = global_chrome(&header, &footer, layout.outer, &rc);
     if view.too_small {
@@ -133,24 +134,36 @@ struct HeaderStatus<'a> {
     kennel_mode: bool,
 }
 
-fn screen_header(title: &str, status: HeaderStatus<'_>) -> String {
+/// The resolved top-bar composition: the band's colors plus the three
+/// segments its SpaceBetween row lays out (title+version, stats, theme).
+struct ThemedHeader {
+    background: Color,
+    text: Color,
+    left: String,
+    center: String,
+    right: String,
+}
+
+fn themed_header(title: &str, status: HeaderStatus<'_>, rc: &ResolvedColors) -> ThemedHeader {
     let kennel = if status.kennel_mode {
         " (Kennel mode)"
     } else {
         ""
     };
-    let status_text = super::status_bar::status_bar_stats(
+    let center_text = super::status_bar::status_bar_stats(
         status.warning,
         status.repository_count,
         status.running_count,
         status.agent_count,
         status.error_count,
     );
-    format!(
-        "{title}{kennel} - {}  {status_text}  {}",
-        crate::VERSION,
-        status.theme_name
-    )
+    ThemedHeader {
+        background: rc.border,
+        text: rc.bg,
+        left: format!("{title}{kennel} - {}", crate::VERSION),
+        center: center_text,
+        right: status.theme_name.to_owned(),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,16 +190,46 @@ fn global_chrome_rects(outer: Rect) -> GlobalChromeRects {
 }
 
 fn global_chrome(
-    title: &str,
+    header: &ThemedHeader,
     footer: &str,
     outer: Rect,
     rc: &ResolvedColors,
 ) -> Vec<AnyElement<'static>> {
     let rects = global_chrome_rects(outer);
     vec![
-        absolute_text(rects.title, title.to_owned(), rc.bright),
+        themed_title_bar(rects.title, header),
         absolute_text(rects.footer, footer.to_owned(), rc.dim),
     ]
+}
+
+/// The shared top bar: `StatusBar` semantics on the title band's resolved
+/// rectangle — one reverse-video band, three segments justified between the
+/// edges, one cell of end padding.
+fn themed_title_bar(rect: Rect, header: &ThemedHeader) -> AnyElement<'static> {
+    element! {
+        Box(
+            position: Position::Absolute,
+            left: u32::from(rect.col),
+            top: u32::from(rect.row),
+            width: u32::from(rect.width),
+            height: u32::from(rect.height),
+        ) {
+            Box(
+                flex_direction: FlexDirection::Row,
+                width: 100pct,
+                height: 100pct,
+                background_color: header.background,
+                justify_content: JustifyContent::SpaceBetween,
+                padding_left: 1u32,
+                padding_right: 1u32,
+            ) {
+                Text(content: header.left.clone(), weight: Weight::Bold, color: header.text)
+                Text(content: header.center.clone(), color: header.text)
+                Text(content: header.right.clone(), color: header.text)
+            }
+        }
+    }
+    .into_any()
 }
 
 fn render_panel(
@@ -209,6 +252,7 @@ fn render_panel(
         _ if panel.focused => rc.border_focused,
         _ => rc.border,
     };
+    let border_style = panel_border_style(panel.focused);
     let chrome = panel.chrome;
     children.push(
         element! {
@@ -218,7 +262,7 @@ fn render_panel(
                 top: u32::from(chrome.row),
                 width: u32::from(chrome.width),
                 height: u32::from(chrome.height),
-                border_style: BorderStyle::Round,
+                border_style: border_style,
                 border_color,
             ) {}
         }
@@ -295,6 +339,16 @@ fn panel_title(panel: &PanelProjection) -> String {
         format!(" ▶ {} ", panel.title)
     } else {
         format!(" {} ", panel.title)
+    }
+}
+
+/// The panel's border set: double lines for the focused pane, rounded for
+/// every other pane, mirroring the retired split-screen presentation.
+fn panel_border_style(focused: bool) -> BorderStyle {
+    if focused {
+        BorderStyle::Double
+    } else {
+        BorderStyle::Round
     }
 }
 
@@ -485,7 +539,8 @@ mod tests {
 
     #[test]
     fn shared_header_preserves_status_semantics() {
-        let header = screen_header(
+        let rc = ResolvedColors::from_theme(Some(&ThemeColors::default()));
+        let header = themed_header(
             "Screen",
             HeaderStatus {
                 warning: Some("provider unavailable"),
@@ -496,15 +551,53 @@ mod tests {
                 theme_name: "Nord",
                 kennel_mode: true,
             },
+            &rc,
         );
 
+        // The three segments split the same words the legacy single-line
+        // header carried; nothing may be dropped in the split.
         assert_eq!(
-            header,
-            format!(
-                "Screen (Kennel mode) - {}  WARN: provider unavailable | 4 errors  Nord",
-                crate::VERSION
-            )
+            header.left,
+            format!("Screen (Kennel mode) - {}", crate::VERSION)
         );
+        assert_eq!(header.center, "WARN: provider unavailable | 4 errors");
+        assert_eq!(header.right, "Nord");
+    }
+
+    /// Issue #723 fix 1: the provider screen's top bar must carry the
+    /// `StatusBar` band styling — `rc.border` background over `rc.bg` text —
+    /// not the plain bright-on-terminal header text #715 left behind.
+    #[test]
+    fn themed_header_uses_the_status_bar_band_colors() {
+        let rc = ResolvedColors::from_theme(Some(&ThemeColors::default()));
+
+        let header = themed_header(
+            "LLxprt Jefe",
+            HeaderStatus {
+                warning: None,
+                repository_count: 3,
+                running_count: 0,
+                agent_count: 3,
+                error_count: 0,
+                theme_name: "Green Screen",
+                kennel_mode: false,
+            },
+            &rc,
+        );
+
+        assert_eq!(header.background, rc.border);
+        assert_eq!(header.text, rc.bg);
+        assert_eq!(header.left, format!("LLxprt Jefe - {}", crate::VERSION));
+        assert_eq!(header.center, "3 repos | 0/3 running");
+        assert_eq!(header.right, "Green Screen");
+    }
+
+    /// Issue #723 fix 2: the focused pane draws the double-line border set;
+    /// every other pane keeps the rounded border.
+    #[test]
+    fn panel_border_style_is_double_iff_focused() {
+        assert_eq!(panel_border_style(true), BorderStyle::Double);
+        assert_eq!(panel_border_style(false), BorderStyle::Round);
     }
 
     #[test]

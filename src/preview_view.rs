@@ -26,6 +26,37 @@ pub fn build_preview_view(
     build_preview_view_at(agent, git_info, observation, content_width, Instant::now())
 }
 
+/// Structured Preview header rows: the one source for the accepted field set.
+///
+/// Both the rendered pane ([`build_preview_view`]) and host-panel metadata
+/// projections consume these `(label, value)` rows, so the label/value split
+/// is a fact of the data rather than something a width budget can eat. Rows
+/// are untruncated: budgeting is a render-time concern each consumer applies
+/// to the value on its own.
+#[must_use]
+pub fn preview_metadata(
+    agent: Option<&Agent>,
+    git_info: Option<&GitRepoInfo>,
+    observation: Option<&AgentObservation>,
+) -> Vec<(&'static str, String)> {
+    let Some(agent) = agent else {
+        return Vec::new();
+    };
+    let repository = git_info
+        .and_then(|info| info.origin_shortform.as_deref())
+        .unwrap_or("(unknown)");
+    let branch = git_info
+        .and_then(|info| info.branch.as_deref())
+        .unwrap_or("(unknown)");
+    vec![
+        ("Name", agent.name.clone()),
+        ("Status", project_status(agent.status, observation)),
+        ("Repo", repository.to_owned()),
+        ("Branch", branch.to_owned()),
+        ("Dir", agent.work_dir.display().to_string()),
+    ]
+}
+
 /// Clock-injected Preview projection used to prove monotonic turn elapsed time.
 #[must_use]
 pub fn build_preview_view_at(
@@ -41,19 +72,10 @@ pub fn build_preview_view_at(
             todo_header_row: None,
         };
     };
-    let repository = git_info
-        .and_then(|info| info.origin_shortform.as_deref())
-        .unwrap_or("(unknown)");
-    let branch = git_info
-        .and_then(|info| info.branch.as_deref())
-        .unwrap_or("(unknown)");
-    let mut lines = vec![
-        format!("Name: {}", agent.name),
-        format!("Status: {}", project_status(agent.status, observation)),
-        format!("Repo: {repository}"),
-        format!("Branch: {branch}"),
-        format!("Dir: {}", agent.work_dir.display()),
-    ];
+    let mut lines: Vec<String> = preview_metadata(Some(agent), git_info, observation)
+        .into_iter()
+        .map(|(label, value)| format!("{label}: {value}"))
+        .collect();
     append_turn_elapsed(&mut lines, observation, now);
     lines.push(String::new());
     let todo_header_row = lines.len();
@@ -216,4 +238,91 @@ pub fn project_resolved_status(
     observation: Option<&AgentObservation>,
 ) -> ResolvedStatus {
     resolve_status(status, observation)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture_agent() -> Agent {
+        let mut agent =
+            crate::test_support::host_panel_agent("zed", "repo-alpha", AgentStatus::Dead);
+        agent.work_dir = std::path::PathBuf::from("/tmp/jefe/zed");
+        agent
+    }
+
+    fn fixture_git_info() -> GitRepoInfo {
+        GitRepoInfo {
+            origin_shortform: Some("owner/repo".to_owned()),
+            branch: Some("main".to_owned()),
+            dirty: None,
+        }
+    }
+
+    /// The structured rows are the one source for the Preview header: they
+    /// carry the accepted five-field set in order, untruncated.
+    #[test]
+    fn preview_metadata_orders_the_five_header_fields() {
+        let agent = fixture_agent();
+        let rows = preview_metadata(Some(&agent), Some(&fixture_git_info()), None);
+        assert_eq!(
+            rows,
+            vec![
+                ("Name", "zed".to_owned()),
+                ("Status", "Dead".to_owned()),
+                ("Repo", "owner/repo".to_owned()),
+                ("Branch", "main".to_owned()),
+                ("Dir", "/tmp/jefe/zed".to_owned()),
+            ]
+        );
+    }
+
+    /// Missing git info must read as unknown, not absent: the row survives
+    /// with the "(unknown)" sentinel value.
+    #[test]
+    fn preview_metadata_falls_back_to_unknown_git_fields() {
+        let agent = fixture_agent();
+        let rows = preview_metadata(Some(&agent), None, None);
+        let labels: Vec<&str> = rows.iter().map(|(label, _)| *label).collect();
+        assert_eq!(labels, ["Name", "Status", "Repo", "Branch", "Dir"]);
+        assert_eq!(rows[2].1, "(unknown)");
+        assert_eq!(rows[3].1, "(unknown)");
+    }
+
+    /// No agent means no header rows; the rendered "No agent selected" line
+    /// is a whole-pane concern, not metadata.
+    #[test]
+    fn preview_metadata_is_empty_without_an_agent() {
+        assert!(preview_metadata(None, None, None).is_empty());
+    }
+
+    /// Byte-identical rendering contract: the pane's header lines must stay
+    /// exactly `Label: value` over the structured rows, with no width budget
+    /// applied before the rows exist.
+    #[test]
+    fn preview_metadata_renders_the_pinned_header_bytes() {
+        let agent = fixture_agent();
+        let git_info = fixture_git_info();
+        let rows = preview_metadata(Some(&agent), Some(&git_info), None);
+        let view = build_preview_view(Some(&agent), Some(&git_info), None, 80);
+        let rendered_from_rows: Vec<String> = rows
+            .into_iter()
+            .map(|(label, value)| format!("{label}: {value}"))
+            .collect();
+        assert_eq!(
+            view.lines[..rendered_from_rows.len()],
+            rendered_from_rows[..],
+            "rendered headers must derive from the structured rows"
+        );
+        assert_eq!(
+            view.lines[..5],
+            [
+                "Name: zed".to_owned(),
+                "Status: Dead".to_owned(),
+                "Repo: owner/repo".to_owned(),
+                "Branch: main".to_owned(),
+                "Dir: /tmp/jefe/zed".to_owned(),
+            ]
+        );
+    }
 }

@@ -13,6 +13,7 @@ use crate::runtime::provider::protocol::{
     StructuredDiffFile, StructuredDiffPath, TreeBody, TreeNode,
 };
 use crate::text_wrap::wrap_text;
+use unicode_width::UnicodeWidthStr;
 
 mod intent;
 
@@ -445,11 +446,13 @@ fn project_list(body: &ListBody, input: ProjectionInput<'_>) -> Vec<HostControlR
             .status
             .as_deref()
             .map_or(String::new(), |value| format!(" [{value}]"));
-        push_wrapped(
+        push_list_item_row(
             &mut rows,
-            &format!("{marker}{}{status_suffix}", item.label),
+            marker,
+            &item.label,
+            &status_suffix,
             input.width,
-            Some(item_target.clone()),
+            item_target.clone(),
         );
         if let Some(description) = &item.description {
             push_wrapped(
@@ -480,6 +483,34 @@ fn project_list(body: &ListBody, input: ProjectionInput<'_>) -> Vec<HostControlR
         ));
     }
     rows
+}
+
+/// One list item's primary row.
+///
+/// A label plus its trailing count must never wrap: a wrapped sidebar row
+/// shifts every later row down and reads as two items (issue #723). Only the
+/// label portion is truncated to the row budget; the count always survives.
+fn push_list_item_row(
+    rows: &mut Vec<HostControlRow>,
+    marker: &str,
+    label: &str,
+    status_suffix: &str,
+    width: usize,
+    target: PanelHitTarget,
+) {
+    let budget =
+        width.checked_sub(UnicodeWidthStr::width(marker) + UnicodeWidthStr::width(status_suffix));
+    let row = match budget {
+        Some(budget) => format!(
+            "{marker}{}{status_suffix}",
+            fit_text_to_width(label, budget)
+        ),
+        None => format!("{marker}{status_suffix}"),
+    };
+    rows.push(HostControlRow {
+        text: row,
+        target: Some(target),
+    });
 }
 
 fn project_tree(body: &TreeBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {

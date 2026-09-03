@@ -54,6 +54,46 @@ fn terminal_is_not_a_public_control_kind() {
     assert_eq!(ControlKind::from_wire("terminal"), None);
 }
 
+/// Issue #723 fix 4: a sidebar row is one line — `name [N]` truncates the
+/// name to the pane width so the count survives and the row never wraps.
+#[test]
+fn list_label_rows_truncate_instead_of_wrapping() {
+    let long_name = "a".repeat(30);
+    let snapshot = snapshot(PanelBody::List(ListBody {
+        items: vec![ListItem {
+            id: id("item"),
+            label: long_name,
+            description: None,
+            status: Some("1".to_owned()),
+            actions: Vec::new(),
+        }],
+        selected_id: None,
+        next_page_token: None,
+    }));
+
+    let rows = project_control(&snapshot, None, None, 12);
+
+    assert_eq!(
+        rows.len(),
+        1,
+        "the row must never wrap into a second row: {rows:?}"
+    );
+    let row = rows
+        .first()
+        .map(|row| row.text.as_str())
+        .unwrap_or_default();
+    assert!(row.starts_with(">> "), "the marker survives: {row:?}");
+    assert!(row.ends_with(" [1]"), "the agent count survives: {row:?}");
+    assert!(
+        row.chars().count() <= 12,
+        "the row fits the pane width: {row:?}"
+    );
+    assert!(
+        row.contains('…'),
+        "the overlong name is visibly truncated: {row:?}"
+    );
+}
+
 fn id(value: &str) -> Id {
     Id::parse(value).unwrap_or_else(|error| unreachable!("valid test id `{value}`: {error}"))
 }
