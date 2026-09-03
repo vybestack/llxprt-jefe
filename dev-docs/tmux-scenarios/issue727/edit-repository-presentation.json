@@ -1,0 +1,192 @@
+{
+  "schema": 1,
+  "name": "issue727-edit-repository-presentation",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.alpha\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"alpha\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    },\n    {\n      \"id\": \"repo.bravo\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"bravo\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    },\n    {\n      \"id\": \"repo.charlie\",\n      \"location\": {\n        \"local_path\": \"${workspace}/work\"\n      },\n      \"display_name\": \"charlie\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {}\n      }\n    }\n  ],\n  \"agents\": [],\n  \"selection\": {\n    \"repository_id\": \"repo.alpha\",\n    \"agent_id\": null,\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {},\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"repositories\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}"
+        },
+        "mode": 384
+      }
+    ],
+    "env": []
+  },
+  "secrets": [],
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "alpha",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "key",
+      "key": "r",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Repositories",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "key",
+      "key": "enter",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Edit Repository",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Edit Repository",
+        "Name             [alpha▏]",
+        "Base Dir         [${workspace}/work]",
+        "Default Agent    [core.llxprt]  (no available agents)",
+        "Default Version  []",
+        "Issues / PRs Repo []  (blank uses GitHub Repo)",
+        "Remote Repository [ ]  (space toggles)",
+        "SSH Options (space-separated) []",
+        "Transient Dir    []  (blank uses /tmp)",
+        "Max Transient    [0]  (0 = no limit)",
+        "Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter submit  Esc cancel"
+      ],
+      "absent": [
+        "PANIC",
+        "submit: host.overlay-submit",
+        "Remote Repository: false",
+        "Default LLxprt Version"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "key",
+      "key": "tab",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Remote Repository [ ]  (space toggles)",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Remote Repository [x]  (space toggles)",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Remote Repository [x]  (space toggles)"
+      ],
+      "absent": [
+        "PANIC",
+        "Remote Repository: true"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Remote Repository [ ]  (space toggles)",
+      "timeout_ms": 5000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Remote Repository [ ]  (space toggles)"
+      ],
+      "absent": [
+        "PANIC"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "q",
+      "modifiers": [
+        "control"
+      ]
+    },
+    {
+      "op": "finish"
+    }
+  ]
+}

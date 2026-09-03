@@ -67,7 +67,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Issues / PRs Repo:"
+        "Issues / PRs Repo []  (blank uses GitHub Repo)"
       ],
       "absent": []
     },

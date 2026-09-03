@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "762705f64aaca78b0fc00304ec21e3770bba1634899f3ca5643f7678efcb483a"
+    "artifact_set_sha256": "c3904c9da52287c1e4fc7ee08eea03f90e3166d29570704473fc73da96dbca16"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "742d47db91b217514fe9e1b3b52024990dee980e4f06c535f7375c8d7361d295",
+      "sha256": "5d86fc6fb26c473054e4768fb629f7e43714a5eb4a66d9338a509c27e90c21a4",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -42,7 +42,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "b863ff45c0852539403f8b18ac4cbd54fac6895d4800af162ed4fb026711d691",
+      "sha256": "662c2c0e75d37b3d6a7d2328c0c62e3b9628b43130f2d47caea19c0edd545a9b",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "183b4b0a8ff5238131d6825e40d01fcbf9c7f17c46424fccc93263afe11f9d6c",
+      "sha256": "84fdaf7ecc767d705d0103d052d08173ac30cf7ae57b6dfaaa31744ee0c3516c",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -229,7 +229,7 @@
     },
     {
       "path": "src/host_controls.rs",
-      "sha256": "7f84277273b88ac398d696fcaf8d08fcceba747c6f2483fac1924f63bfe5594f",
+      "sha256": "3702f519c1075472055a6e5b746da03000904f6c0a90a0e9368a7ca121818efa",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "2d390920fd0751c6059e28e484beb62b88bba5f0254c132a06ba81635adb3279",
+      "sha256": "066961949b50be49eb6003b9732867372bd1821be91fc7d745d02e95d55e4d60",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -631,7 +631,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "sha256": "818b5d1523a8222b846658e38e9218988b8f991c99ef1311f1a16ccbb009ef1c",
+      "sha256": "ef4bcf657a05fd77c10233a1fc661fb9ac58d5c960a1af60f471904905c68deb",
       "mode": "100644",
       "criteria": [
         "CWR2-06",

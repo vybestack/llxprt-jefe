@@ -4,8 +4,8 @@ use crate::domain::action_registry::{ActionId, InternalActionId};
 use crate::domain::plugin::field::{Field, InternalField};
 use crate::domain::{InternalId, TypedValue};
 use crate::host_controls::{
-    ControlAction, ControlIntent, ControlKind, HostControlRow, control_intent_body,
-    project_control_body,
+    ControlAction, ControlIntent, ControlKind, HostControlRow, HostControlTitleStyle,
+    control_intent_body, project_control_body,
 };
 pub use crate::overlay_controls_repository_form::project_repository_form;
 use crate::runtime::provider::protocol::{
@@ -17,7 +17,7 @@ use crate::state::{AppState, ConfirmFocus};
 
 pub const HELP_FOOTER: &str = "Esc/? close | Up/Down scroll";
 pub const CONFIRMATION_FOOTER: &str = "Enter confirm | Esc cancel";
-pub const REPOSITORY_FORM_FOOTER: &str = "Tab/Down next | Shift+Tab/Up prev | Left/Right move cursor | Space toggles | Enter submit | Esc cancel";
+pub const REPOSITORY_FORM_FOOTER: &str = "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter submit  Esc cancel";
 
 /// Exact dimensions shared by host-overlay projection, drawing, input, and selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +72,7 @@ impl HostOverlayLayout {
 pub struct OverlayControlProjection {
     pub kind: ControlKind,
     pub title: String,
+    pub(crate) title_style: HostControlTitleStyle,
     pub rows: Vec<HostControlRow>,
     pub viewport: usize,
     body: PanelBody,
@@ -84,6 +85,12 @@ impl OverlayControlProjection {
     /// Rendered text rows from this exact typed control projection.
     pub fn text_rows(&self) -> impl Iterator<Item = &str> {
         self.rows.iter().map(|row| row.text.as_str())
+    }
+
+    #[must_use]
+    pub(crate) fn with_title_style(mut self, title_style: HostControlTitleStyle) -> Self {
+        self.title_style = title_style;
+        self
     }
 }
 
@@ -120,6 +127,7 @@ pub fn project_help(state: &AppState, width: usize) -> OverlayControlProjection 
     OverlayControlProjection {
         kind: ControlKind::Detail,
         title: "Help - Keyboard Shortcuts".to_owned(),
+        title_style: HostControlTitleStyle::Emphasized,
         rows,
         viewport: state.help_scroll_offset(),
         body,
@@ -388,6 +396,7 @@ fn project_provider_progress(message: &str, width: usize) -> OverlayControlProje
     OverlayControlProjection {
         kind: ControlKind::Progress,
         title: "Provider Action".to_owned(),
+        title_style: HostControlTitleStyle::Emphasized,
         rows,
         viewport: 0,
         body,
@@ -418,6 +427,7 @@ fn project_provider_error(message: &str, width: usize) -> OverlayControlProjecti
     OverlayControlProjection {
         kind: ControlKind::Error,
         title: "Provider Action".to_owned(),
+        title_style: HostControlTitleStyle::Emphasized,
         rows,
         viewport: 0,
         body,
@@ -519,6 +529,7 @@ fn project_provider_status(
     OverlayControlProjection {
         kind: ControlKind::Status,
         title: "Provider Action".to_owned(),
+        title_style: HostControlTitleStyle::Emphasized,
         rows,
         viewport: 0,
         body,
@@ -595,6 +606,7 @@ pub fn project_form(
     OverlayControlProjection {
         kind: ControlKind::Form,
         title: title.to_owned(),
+        title_style: HostControlTitleStyle::Emphasized,
         rows,
         viewport,
         body,
@@ -620,6 +632,7 @@ pub fn bespoke_form_projection(
     OverlayControlProjection {
         kind: ControlKind::Form,
         title: title.to_owned(),
+        title_style: HostControlTitleStyle::Emphasized,
         rows,
         viewport: 0,
         body: PanelBody::Form(FormBody {
@@ -648,6 +661,7 @@ mod tests {
             .committed_pure();
         let help = project_help(&state, 60);
         assert_eq!(help.kind, ControlKind::Detail);
+        assert_eq!(help.title_style, HostControlTitleStyle::Emphasized);
         assert!(!help.rows.is_empty());
         assert_eq!(
             overlay_intent(&help, ControlAction::Next),
@@ -663,6 +677,7 @@ mod tests {
             .committed_pure();
         let search = project_search(&state, 60);
         assert_eq!(search.kind, ControlKind::Form);
+        assert_eq!(search.title_style, HostControlTitleStyle::Emphasized);
         assert!(search.rows.iter().any(|row| row.text.contains("Filter: x")));
 
         let confirmation = project_confirmation(
@@ -731,19 +746,17 @@ mod tests {
         let mut projection = OverlayControlProjection {
             kind: ControlKind::Form,
             title: "Test".to_owned(),
+            title_style: HostControlTitleStyle::Emphasized,
             rows: vec![
-                HostControlRow {
-                    text: "label: long value that w".to_owned(),
-                    target: Some(PanelHitTarget::Field(field_id.clone())),
-                },
-                HostControlRow {
-                    text: "raps to a second row".to_owned(),
-                    target: Some(PanelHitTarget::Field(field_id.clone())),
-                },
-                HostControlRow {
-                    text: "Apply".to_owned(),
-                    target: None,
-                },
+                HostControlRow::targeted(
+                    "label: long value that w",
+                    PanelHitTarget::Field(field_id.clone()),
+                ),
+                HostControlRow::targeted(
+                    "raps to a second row",
+                    PanelHitTarget::Field(field_id.clone()),
+                ),
+                HostControlRow::plain("Apply"),
             ],
             viewport: 0,
             body: PanelBody::Form(FormBody {

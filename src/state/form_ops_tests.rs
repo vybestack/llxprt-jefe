@@ -519,6 +519,37 @@ fn llxprt_sandbox_values_survive_create_and_edit_projection() {
 }
 
 #[test]
+fn edit_agent_blank_name_stays_open_with_a_visible_error() {
+    let repository = seed_repository();
+    let fields = AgentFormFields {
+        name: "Agent".to_owned(),
+        work_dir: "/tmp/agent".to_owned(),
+        agent_type_id: "core.llxprt".to_owned(),
+        ..AgentFormFields::default()
+    };
+    let Some(agent) = AppState::create_agent_from_fields(&repository, &fields, 1) else {
+        panic!("valid LLxprt form should create an agent");
+    };
+    let id = agent.id.clone();
+    let mut state = AppState::test_fixture();
+    state.repositories = vec![repository];
+    state.agents = vec![agent];
+    state = state.apply(AppEvent::OpenEditAgent(id)).committed_pure();
+    let ModalState::EditAgent { fields, .. } = &mut state.modal else {
+        panic!("expected edit-agent modal");
+    };
+    fields.name = " ".to_owned();
+
+    state = state.apply(AppEvent::SubmitForm).committed_pure();
+
+    assert!(matches!(state.modal, ModalState::EditAgent { .. }));
+    assert_eq!(
+        state.error_message.as_deref(),
+        Some("Agent name is required")
+    );
+}
+
+#[test]
 fn repository_checkbox_toggle_updates_remote_fields() {
     let mut state = AppState::test_fixture();
     state.repositories = vec![seed_repository()];

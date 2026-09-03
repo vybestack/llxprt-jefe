@@ -73,6 +73,8 @@ mod prs_merge_dispatch;
 mod prs_mutation;
 mod prs_property_edit;
 // @plan PLAN-20260624-PR-MODE.P11
+#[cfg(test)]
+mod form_route_characterization_tests;
 mod prs_orchestration;
 mod raw_key_mutations;
 

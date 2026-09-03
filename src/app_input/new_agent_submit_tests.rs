@@ -1,11 +1,11 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
-use jefe::domain::{AgentId, AgentLaunchRequest, Repository, RepositoryId};
+use jefe::domain::{AgentId, AgentLaunchRequest, AgentStatus, Repository, RepositoryId};
 use jefe::runtime::NpmPackageAvailabilityError;
 use jefe::state::{
-    AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus,
+    AgentFormCursor, AgentFormFields, AgentFormFocus, AppEvent, AppState, ModalState,
+    RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
 };
 
 use super::launch_signature_for_new_agent;
@@ -73,6 +73,100 @@ fn probe_failures() -> Vec<NpmPackageAvailabilityError> {
     ]
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeAttachment {
+    Bound,
+    Unbound,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AgentRuntimeObservation {
+    status: AgentStatus,
+    attachment: RuntimeAttachment,
+}
+
+struct SubmittedAgentFixture {
+    _temp: tempfile::TempDir,
+    state: AppState,
+    agent_id: AgentId,
+}
+
+impl SubmittedAgentFixture {
+    fn new() -> Self {
+        let temp = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory should be created: {error}"));
+        let (mut state, _) = new_agent_state(temp.path());
+
+        assert!(
+            submit_with_probe(&mut state, |_| Ok(())),
+            "valid New Agent submission must report success after closing the modal"
+        );
+        assert_eq!(state.modal, ModalState::None);
+        assert_eq!(state.agents.len(), 1, "New Agent still creates its record");
+
+        let agent_id = state.agents[0].id.clone();
+        Self {
+            _temp: temp,
+            state,
+            agent_id,
+        }
+    }
+
+    fn open_edit_with_name(&mut self, name: &str, expected_modal_message: &str) {
+        jefe::state::transition::commit_pure_site(
+            &mut self.state,
+            AppEvent::OpenEditAgent(self.agent_id.clone()).into(),
+        );
+        let ModalState::EditAgent { fields, .. } = &mut self.state.modal else {
+            panic!("{expected_modal_message}");
+        };
+        fields.name = name.to_owned();
+    }
+
+    fn runtime_observation(&self) -> AgentRuntimeObservation {
+        let agent = &self.state.agents[0];
+        let attachment = if agent.runtime_binding.is_some() {
+            RuntimeAttachment::Bound
+        } else {
+            RuntimeAttachment::Unbound
+        };
+        AgentRuntimeObservation {
+            status: agent.status,
+            attachment,
+        }
+    }
+
+    fn assert_runtime_matches(&self, expected: AgentRuntimeObservation) {
+        let actual = self.runtime_observation();
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.attachment, expected.attachment);
+    }
+
+    fn submit_successful_edit(&mut self, name: &str) -> AgentRuntimeObservation {
+        self.open_edit_with_name(name, "Edit Agent modal must open for the created agent");
+        let runtime_before = self.runtime_observation();
+
+        assert!(
+            apply_form_submit_after_package_probe(&mut self.state, Ok(())),
+            "valid Edit Agent submission must report success after closing the modal"
+        );
+        assert_eq!(self.state.modal, ModalState::None);
+        assert_eq!(
+            self.state.agents.len(),
+            1,
+            "Edit Agent must not launch a new agent"
+        );
+        assert_eq!(self.state.agents[0].name, name);
+        self.assert_runtime_matches(runtime_before);
+        assert!(
+            !self.state.terminal_focused,
+            "Edit Agent must not focus terminal"
+        );
+
+        runtime_before
+    }
+}
+
 #[test]
 fn package_probe_failure_rejects_submit_without_state_filesystem_or_follow_up_side_effects() {
     for failure in probe_failures() {
@@ -132,6 +226,40 @@ fn successful_package_probe_uses_prospective_signature_and_submit_proceeds() {
     for (key, value) in &observed.values {
         assert_eq!(actual.values.get(key), Some(value));
     }
+}
+
+#[test]
+fn apply_submit_reports_success_when_new_agent_submission_closes_modal() {
+    let _fixture = SubmittedAgentFixture::new();
+}
+
+#[test]
+fn apply_submit_reports_success_when_edit_agent_submission_closes_modal() {
+    let mut fixture = SubmittedAgentFixture::new();
+
+    fixture.submit_successful_edit("Edited Agent");
+}
+
+#[test]
+fn apply_submit_reports_failure_when_edit_agent_validation_keeps_modal_open() {
+    let mut fixture = SubmittedAgentFixture::new();
+    let runtime_before = fixture.submit_successful_edit("Edited Agent");
+    fixture.open_edit_with_name(
+        "   ",
+        "Edit Agent modal must reopen for validation coverage",
+    );
+
+    assert!(
+        !apply_form_submit_after_package_probe(&mut fixture.state, Ok(())),
+        "validation-kept-open Edit Agent submission must report failure"
+    );
+    assert!(matches!(fixture.state.modal, ModalState::EditAgent { .. }));
+    assert_eq!(
+        fixture.state.error_message.as_deref(),
+        Some("Agent name is required")
+    );
+    assert_eq!(fixture.state.agents[0].name, "Edited Agent");
+    fixture.assert_runtime_matches(runtime_before);
 }
 
 #[test]

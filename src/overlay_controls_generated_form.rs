@@ -206,12 +206,12 @@ fn field_rows(form: &GeneratedAgentForm, width: usize) -> LoweredFields {
                 focus_target = Some(declaration.id().clone());
             }
         }
-        rows.push(HostControlRow {
-            text: truncate_with_ellipsis(&text, width),
-            target: lowered
+        rows.push(HostControlRow::new(
+            truncate_with_ellipsis(&text, width),
+            lowered
                 .as_ref()
                 .map(|declaration| PanelHitTarget::Field(declaration.id().clone())),
-        });
+        ));
         fields.extend(lowered);
     }
     LoweredFields {
@@ -243,8 +243,8 @@ pub fn project_generated_agent_form(
     rows.extend(lowered.rows);
     rows.push(HostControlRow::plain(String::new()));
     let create_focused = form.focus() == &GeneratedAgentFormFocus::Create;
-    rows.push(HostControlRow {
-        text: format!(
+    rows.push(HostControlRow::targeted(
+        format!(
             "{}[Create {}]",
             marker(create_focused),
             if create_enabled {
@@ -253,8 +253,8 @@ pub fn project_generated_agent_form(
                 "disabled"
             }
         ),
-        target: Some(PanelHitTarget::Submit),
-    });
+        PanelHitTarget::Submit,
+    ));
     let back_focused = form.focus() == &GeneratedAgentFormFocus::Back;
     rows.push(HostControlRow::plain(format!(
         "{}[Back]",

@@ -94,7 +94,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.code-puppy",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -335,7 +335,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.code-puppy",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -346,7 +346,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default YOLO: true",
+      "literal": "Default YOLO     [x]  (space toggles)",
       "timeout_ms": 15000
     },
     {
@@ -357,7 +357,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default CP Version: ▏",
+      "literal": "Default Version  [▏]",
       "timeout_ms": 15000
     },
     {
@@ -398,7 +398,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default CP Version: 0.0.361▏",
+      "literal": "Default Version  [0.0.361▏]",
       "timeout_ms": 15000
     },
     {
@@ -426,13 +426,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.code-puppy",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: 0.0.361",
+      "literal": "Version          [0.0.361]",
       "timeout_ms": 15000
     },
     {
@@ -528,7 +528,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: 0.0.361▏",
+      "literal": "Version          [0.0.361▏]",
       "timeout_ms": 15000
     },
     {
@@ -554,7 +554,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: 0.0.361-rc1▏",
+      "literal": "Version          [0.0.361-rc1▏]",
       "timeout_ms": 15000
     },
     {
@@ -570,7 +570,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.code-puppy",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -581,14 +581,14 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.llxprt",
+      "literal": "Agent Runtime    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [],
       "absent": [
-        "LLxprt Version: 0.0.361-rc1"
+        "Version          [0.0.361-rc1"
       ]
     },
     {
@@ -610,7 +610,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Version: ▏",
+      "literal": "Version          [▏]",
       "timeout_ms": 15000
     },
     {
@@ -631,7 +631,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.code-puppy",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -653,7 +653,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: 0.0.361-rc1▏",
+      "literal": "Version          [0.0.361-rc1▏]",
       "timeout_ms": 15000
     },
     {

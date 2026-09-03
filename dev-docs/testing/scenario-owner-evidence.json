@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "b863ff45c0852539403f8b18ac4cbd54fac6895d4800af162ed4fb026711d691",
+  "scenario_manifest_sha256": "662c2c0e75d37b3d6a7d2328c0c62e3b9628b43130f2d47caea19c0edd545a9b",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -64,7 +64,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/code-puppy-chord-passthrough.json",
-      "sha256": "d71ec70166d0694e1b5b70ed672363c9cf02e01e183f1146f769ee9bd1fe18b5",
+      "sha256": "e92417cd0374299fab62fa0d21175a1d57b9c98d9467379afb9e1e45773a67c1",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -76,7 +76,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/code-puppy-version-fields.json",
-      "sha256": "dc3b3a5bc01f723a76feaa3f1afb7ed5998af7774b12672af581260cf44654b9",
+      "sha256": "eddf88c65187c6e38078733014913a08816399432d9fd8602be26ffc700f752b",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -159,7 +159,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/first-agent-tutorial.json",
-      "sha256": "f5f06a395ecb9c41c8557e5ad9c97c6e7415e19a858eb1c78e9d777303738b16",
+      "sha256": "57204228f5d2dd680eb517210237e30b0311c767bafd48ac0ea522e774e065a3",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -171,7 +171,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/fork-issue-pr-repository.json",
-      "sha256": "e539b3571be4ffa2d134064b8ae7397849086bfae8061b1e27b0f66ac4f755a3",
+      "sha256": "4c550e745eda723f81d3d605272bf667202f9f7581fab224f95b5b75ffece5bd",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -437,7 +437,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue519/llxprt-launch-options.json",
-      "sha256": "2aa43f8da4397e16ecc9c83a1ec9f6310ce9f6fba0ae6d0c94211f6c2b80f635",
+      "sha256": "af5590b27ef074e66d61a4bd19f2dae6d8cf89855814b46a9a83b789c5d6274c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -499,7 +499,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue652/llxprt-sandbox-save.json",
-      "sha256": "d004927223450c893d8909266cf4413cfbe94e0a52de806988563c5a31f21f86",
+      "sha256": "013e05915b6379ae77da8c667e1cd1b7bed1cdcbdd77cb1041db2948badf3259",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -731,7 +731,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
-      "sha256": "f3f606403c010d9f8e50de8fd57806e6ca28730cadd2e7652e2705cfb6196001",
+      "sha256": "867af6a7df114e6284424baabc9606a56565f6b6512ebd4f709f2a5921684801",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -752,6 +752,54 @@
       "platform": "macos",
       "ci_job": "tui_scenarios_macos",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue727/edit-agent-lifecycle.json",
+      "sha256": "191644bcc153b885b5b31a4fad5fab94e890d6879414493c8ac6f0a26b68f13c",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue727/edit-agent-lifecycle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
+      "sha256": "75152d0d0182d1ec6e58c307c45ae7c5d3953a8f38148d5cf15e3e41ee98f6ff",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
+      "sha256": "f5147c863cb0eacf5200adec9f335ef3764b3ecbafe9e9282cedbafbba69265b",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
+      "sha256": "1f5d07b5b324dfcbfaf246e046863fa8af33734baaeb222cebb8b48cd6a9223a",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
@@ -851,7 +899,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/kennel-terminal-select.json",
-      "sha256": "f486a5e18e4994496c31bd72fa82d0e40a4059a14b320ee18b299d56c0343f3c",
+      "sha256": "e5540464d854654668ece7d5e71caf15812ef89676b5f0d7fbe1d7b2f70d6da9",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -875,7 +923,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/latest-version-fields.json",
-      "sha256": "7c7c5d7833069dc1bdcaa9e3c418ff977fbdc45560db166bd10780b4d80b719f",
+      "sha256": "6480f1ffba63b5b1be1070c072d2ef2343b2e91eae5278021325ca28251b24e8",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -911,7 +959,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/llxprt-version-fields.json",
-      "sha256": "d7ffcf87ff8d88ccbf1b5af16b0686a9a0f2b91165827c1d151cf1f24863d068",
+      "sha256": "a67a4f285b044f8af394422a3573a7ec29102c80651e144fec20dc41375f8e88",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1187,7 +1235,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/repo-github-field-focus.json",
-      "sha256": "f4f6a34b7108c65d32e43e48e1e95703232dedac327ca8e96705f6fdc9543736",
+      "sha256": "f52face6244e8becc663497fd539133df227b95bae701c55afe056353e9c5145",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1511,7 +1559,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/terminal-scrollback.json",
-      "sha256": "2ebc6d2b5948d7e4af2b0250518e73000759cc6dbc7fe47af0c8ed9622e9856b",
+      "sha256": "a025babbe9c007f695cb82d31486de2843dee71f3dce973b5baf6a88038ff39c",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1535,7 +1583,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/transient-agent-options.json",
-      "sha256": "c665b38172d9fc8e8f23d143518b9403513c196fe1ee6350270b9ccc15687e85",
+      "sha256": "ad2883d940508d1a4c48f0718a38c70d58db4c5f359fbc76c37293790f484f34",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2143,7 +2191,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "b863ff45c0852539403f8b18ac4cbd54fac6895d4800af162ed4fb026711d691",
+      "sha256": "662c2c0e75d37b3d6a7d2328c0c62e3b9628b43130f2d47caea19c0edd545a9b",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -3557,6 +3605,10 @@
         "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
         "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
         "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
+        "dev-docs/tmux-scenarios/issue727/edit-agent-lifecycle.json",
+        "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
+        "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
+        "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3851,6 +3903,10 @@
         "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
         "dev-docs/tmux-scenarios/issue713/sandbox-launch-empty-ssh-agent.json",
         "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
+        "dev-docs/tmux-scenarios/issue727/edit-agent-lifecycle.json",
+        "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
+        "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
+        "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",

@@ -89,7 +89,7 @@ pub(super) fn apply_form_submit_after_package_probe(
     match probe_result {
         Ok(()) => {
             jefe::state::transition::commit_pure_site(state, (AppEvent::SubmitForm).into());
-            true
+            state.modal == ModalState::None
         }
         Err(error) => {
             state.error_message = Some(error);

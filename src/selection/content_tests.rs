@@ -177,7 +177,7 @@ fn repository_form_selection_projection_matches_runtime_focus_order() {
     let positions = [
         "Default Profile",
         "Default Agent",
-        "Default LLxprt Version",
+        "Default Version",
         "GitHub Repo",
     ]
     .map(|label| {
@@ -189,9 +189,10 @@ fn repository_form_selection_projection_matches_runtime_focus_order() {
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
     assert!(lines[positions[2]].contains("0.9.0▏"));
     assert!(!lines.iter().any(|line| line.contains("Default Model")));
-    assert!(
-        lines.iter().any(|line| line.starts_with("submit:")),
-        "selection content rides the shared projection, lines={lines:?}"
+    assert_eq!(
+        lines.last().map(String::as_str),
+        Some(""),
+        "selection content includes the shared projection's blank pre-footer row, lines={lines:?}"
     );
 }
 
@@ -429,14 +430,19 @@ fn agent_form_lines_include_title_and_fields() {
     use crate::domain::RepositoryId;
     use crate::state::{AgentFormFields, ModalState};
     let mut state = AppState::test_fixture();
+    let name = "my-agent".to_owned();
+    let name_cursor = name.chars().count();
     state.modal = ModalState::NewAgent {
         repository_id: RepositoryId("r1".to_string()),
         fields: AgentFormFields {
-            name: "my-agent".to_string(),
+            name,
             ..Default::default()
         },
         focus: crate::state::AgentFormFocus::Name,
-        cursor: crate::state::AgentFormCursor::default(),
+        cursor: crate::state::AgentFormCursor {
+            name: name_cursor,
+            ..Default::default()
+        },
         work_dir_manual: false,
     };
     let content = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40);
@@ -445,20 +451,21 @@ fn agent_form_lines_include_title_and_fields() {
         "agent form must include the title"
     );
     assert!(
-        content.lines.iter().any(|l| l.contains("my-agent")),
-        "agent form must include the agent name field value"
+        content.lines.iter().any(|l| l.contains("my-agent▏")),
+        "agent form must include the agent name field value with an end caret"
     );
     assert!(
         content
             .lines
             .iter()
-            .any(|l| l.starts_with("Name: ▏my-agent")),
-        "the focused field carries the shared projection's caret, lines={:?}",
+            .any(|l| l == "  Name             [my-agent▏]"),
+        "the focused field carries the aligned bracketed shared projection text, lines={:?}",
         content.lines
     );
-    assert!(
-        content.lines.iter().any(|l| l.starts_with("submit:")),
-        "selection content rides the shared projection, lines={:?}",
+    assert_eq!(
+        content.lines.last().map(String::as_str),
+        Some(""),
+        "selection content includes the shared projection's blank pre-footer row, lines={:?}",
         content.lines
     );
 }

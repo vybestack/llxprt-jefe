@@ -302,7 +302,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.llxprt",
+      "literal": "Default Agent    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
@@ -313,7 +313,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default Agent: core.code-puppy",
+      "literal": "Default Agent    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -324,7 +324,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default YOLO: true",
+      "literal": "Default YOLO     [x]  (space toggles)",
       "timeout_ms": 15000
     },
     {
@@ -335,7 +335,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default CP Version: \u258f",
+      "literal": "Default Version  [\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -371,7 +371,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Default CP Version: latest\u258f",
+      "literal": "Default Version  [latest\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -399,13 +399,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.code-puppy",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: latest",
+      "literal": "Version          [latest]",
       "timeout_ms": 15000
     },
     {
@@ -471,7 +471,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: latest\u258f",
+      "literal": "Version          [latest\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -522,7 +522,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: latest nightly\u258f",
+      "literal": "Version          [latest nightly\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -538,7 +538,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.code-puppy",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -549,14 +549,14 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.llxprt",
+      "literal": "Agent Runtime    [core.llxprt]",
       "timeout_ms": 15000
     },
     {
       "op": "assert-frame",
       "contains": [],
       "absent": [
-        "LLxprt Version: latest nightly"
+        "Version          [latest nightly"
       ]
     },
     {
@@ -578,7 +578,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Version: \u258f",
+      "literal": "Version          [\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -614,7 +614,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "LLxprt Version: latest\u258f",
+      "literal": "Version          [latest\u258f]",
       "timeout_ms": 15000
     },
     {
@@ -635,7 +635,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Runtime: core.code-puppy",
+      "literal": "Agent Runtime    [core.code-puppy]",
       "timeout_ms": 15000
     },
     {
@@ -657,7 +657,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CP Version: latest nightly\u258f",
+      "literal": "Version          [latest nightly\u258f]",
       "timeout_ms": 15000
     },
     {
