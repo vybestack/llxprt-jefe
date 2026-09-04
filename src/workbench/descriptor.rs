@@ -309,6 +309,13 @@ pub enum HostScreenCapability {
     DashboardActionContext,
     /// Project the complete host-owned Dashboard footer.
     DashboardFooter,
+    /// Carry the product name in the shared top band instead of this screen's
+    /// own title (issue #742).
+    ///
+    /// Sealed, so a lowered local or package screen cannot name itself after
+    /// the application. The screen keeps its own `title`, which is what every
+    /// inventory of screens lists.
+    ProductBrandedHeader,
 }
 
 /// The sole definition of one screen.
@@ -360,6 +367,24 @@ impl ScreenDescriptor {
     #[must_use]
     pub fn has_host_capability(&self, capability: HostScreenCapability) -> bool {
         self.host_capabilities.contains(&capability)
+    }
+
+    /// What the shared top band names while this screen is displayed
+    /// (issue #742).
+    ///
+    /// A screen's `title` names the screen, everywhere and always: it is what
+    /// the Screens editor lists. The band is host chrome, so a declaration that
+    /// owns [`HostScreenCapability::ProductBrandedHeader`] hands the band the
+    /// product name instead. One string never has to do both jobs, and the
+    /// runtime resolves the difference from the declaration rather than from
+    /// any screen's identity.
+    #[must_use]
+    pub fn band_title(&self) -> &str {
+        if self.has_host_capability(HostScreenCapability::ProductBrandedHeader) {
+            crate::PRODUCT_NAME
+        } else {
+            &self.title
+        }
     }
 
     /// Resolve a `<panel>.<port>` reference against this screen.

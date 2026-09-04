@@ -27,7 +27,8 @@ use crate::workbench_view::{WorkbenchRequest, WorkbenchView, build_workbench_vie
 /// One lowered screen projected against a resolved geometry snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderScreenView {
-    /// Descriptor-owned screen title.
+    /// What the shared top band names: the screen's declared title, or the
+    /// product name when the declaration owns the branded band (#742).
     pub title: String,
     /// Every descriptor panel, in declaration order, projected at resolved geometry.
     pub panels: Vec<PanelProjection>,
@@ -164,7 +165,9 @@ pub fn project_provider_screen(
         })
         .collect::<Result<Vec<_>, PanelProjectionError>>()?;
     Ok(ProviderScreenView {
-        title: descriptor.title.clone(),
+        // What the top band names, which is the screen's own title unless the
+        // declaration owns the product-branded band (#742).
+        title: descriptor.band_title().to_owned(),
         panels: projected,
         too_small: layout.too_small.is_some(),
     })

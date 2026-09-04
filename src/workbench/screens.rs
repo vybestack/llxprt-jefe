@@ -570,7 +570,7 @@ fn dashboard_panels() -> Result<Vec<PanelDescriptor>, IdError> {
 fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
     Ok(ScreenDescriptor {
         id: crate::workbench::DASHBOARD_IDENTITY,
-        title: "LLxprt Jefe".to_owned(),
+        title: "Dashboard".to_owned(),
         route: RouteId::parse("dashboard")?,
         panels: dashboard_panels()?,
         initial_focus: PanelId::parse(REPOSITORIES_PANEL)?,
@@ -586,6 +586,9 @@ fn dashboard_screen() -> Result<ScreenDescriptor, RegistryError> {
         host_capabilities: vec![
             super::descriptor::HostScreenCapability::DashboardActionContext,
             super::descriptor::HostScreenCapability::DashboardFooter,
+            // The composition root's band brands the product; the screen is
+            // still named Dashboard wherever screens are listed (#742).
+            super::descriptor::HostScreenCapability::ProductBrandedHeader,
         ],
         bindings: dashboard_bindings()?,
         layout: column(vec![

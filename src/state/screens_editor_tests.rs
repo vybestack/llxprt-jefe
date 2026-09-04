@@ -58,6 +58,28 @@ fn every_registered_screen_projects_exactly_one_row() {
     }
 }
 
+/// Issue #742: the editor lists screens, so every row is a screen name. The
+/// composition root's row is the one at risk, because the top band brands the
+/// product from the same registry; if the two ever share a string again this
+/// row reads `LLxprt Jefe` in a list of screens.
+#[test]
+fn composition_root_row_is_named_for_the_screen_not_the_application() {
+    let registry = registry();
+
+    let rows = project_screens(&registry, &PublishedSettings::default());
+
+    let root = row(&rows, crate::workbench::DASHBOARD_IDENTITY.as_str());
+    assert_eq!(root.title, "Dashboard");
+    for row in &rows {
+        assert_ne!(
+            row.title,
+            crate::PRODUCT_NAME,
+            "screen {} is listed under the application name",
+            row.screen_id.as_str()
+        );
+    }
+}
+
 #[test]
 fn rows_follow_the_documents_order_and_then_the_registrys_own() {
     let registry = registry();

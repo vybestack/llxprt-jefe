@@ -97,7 +97,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "compiled screens are always composed and cannot be turned off",
+      "literal": "shipped screens are always composed and cannot be turned off",
       "timeout_ms": 20000
     },
     {

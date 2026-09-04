@@ -1535,7 +1535,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/settings-screens-unavailable.json",
-      "sha256": "dc419885662da3dbe6903c2c18f67e5884b171fb9c81cd3f9309084db4508a32",
+      "sha256": "96587638d196e88d4e5a28e0d4e003e296357051c6851f29c0de65ae513f9af9",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

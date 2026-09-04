@@ -6,7 +6,9 @@
 
 use serde_json::Value;
 
-use super::descriptor::{HostPanelModelSource, LayoutChild, LayoutNode, ScreenDescriptor};
+use super::descriptor::{
+    HostPanelModelSource, HostScreenCapability, LayoutChild, LayoutNode, ScreenDescriptor,
+};
 use super::geometry::Rect;
 use super::ids::{DASHBOARD_IDENTITY, MAX_PANELS_PER_SCREEN, PanelId, ScreenId, ScreenInstanceId};
 use super::resolve::{PanelState, resolve_layout};
@@ -258,6 +260,41 @@ fn dashboard_declares_its_footer_context_from_the_canonical_action_inventory() {
     assert_eq!(dashboard.bindings.len(), 1);
     assert_eq!(dashboard.bindings[0].context.as_str(), "dashboard");
     assert_eq!(dashboard.bindings[0].action, help_action.id);
+}
+
+/// Issue #742: the composition root is a screen named `Dashboard` that owns
+/// the sealed authority to brand the shared band. Two strings, two jobs: the
+/// Screens editor lists the screen, the band shows the product.
+#[test]
+fn the_composition_root_is_named_for_the_screen_and_brands_only_the_band() {
+    let registry = registry();
+    let Some(dashboard) = registry.get_identity(DASHBOARD_IDENTITY) else {
+        panic!("Dashboard descriptor must be published");
+    };
+
+    assert_eq!(dashboard.title, "Dashboard");
+    assert_eq!(dashboard.band_title(), crate::PRODUCT_NAME);
+    assert!(dashboard.has_host_capability(HostScreenCapability::ProductBrandedHeader));
+}
+
+/// Issue #742: branding is sealed to the composition root. Every other shipped
+/// screen names its own band, so `Terminals` stays `Terminals`.
+#[test]
+fn every_other_shipped_screen_bands_its_own_title() {
+    let registry = registry();
+
+    for screen in registry.screens() {
+        if screen.id == DASHBOARD_IDENTITY {
+            continue;
+        }
+        assert!(
+            !screen.has_host_capability(HostScreenCapability::ProductBrandedHeader),
+            "screen {} claims the product name",
+            screen.id.as_str()
+        );
+        assert_eq!(screen.band_title(), screen.title, "{}", screen.id.as_str());
+        assert_ne!(screen.title, crate::PRODUCT_NAME, "{}", screen.id.as_str());
+    }
 }
 
 #[test]
