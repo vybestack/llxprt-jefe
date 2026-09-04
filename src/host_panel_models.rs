@@ -112,6 +112,19 @@ fn agent_display_name(agent: &crate::domain::Agent) -> String {
 /// Wrap budget for the dashboard preview's fixed pane width.
 const AGENT_PREVIEW_WIDTH: usize = 30;
 
+/// Cells one preview document row may occupy.
+///
+/// The pane is `PREVIEW_COLUMNS` (36) wide and `PREVIEW_CHROME` spends two
+/// columns of border and padding on each side (`src/workbench/screens.rs`),
+/// leaving 32. The rows are budgeted here, by the retained projection, rather
+/// than left to the Detail control's wrap: a wrapped `Last reply:` splits the
+/// reply across two rows, and the pane — like the pre-cutover one, and like
+/// the scenarios that read it — treats the reply as a single row that ends in
+/// an ellipsis when it does not fit. The metadata block keeps its own,
+/// narrower budget because that one applies to the value after the label
+/// split rather than to a whole row.
+const AGENT_PREVIEW_DOCUMENT_WIDTH: usize = 32;
+
 /// The workbench card grid, projected as a list control over the grid's own
 /// order.
 ///
@@ -357,9 +370,7 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
             scroll_offset: 0,
         };
     };
-    let repository = state.repository_by_id(&agent.repository_id);
-    let git_info = repository
-        .map(|repo| crate::git_info::GitRepoInfo::from_configured_origin(&repo.github_repo));
+    let git_info = crate::dashboard_git_info::resolve_preview_git_info(state);
     let observation = state.observations.get(&agent.id);
     // Retained preview_view owns the accepted field set (Name/Status/Repo/
     // Branch/Dir); the projection consumes its structured rows and budgets
@@ -376,7 +387,7 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
     HostPanelModel {
         title: "Agent preview".to_owned(),
         body: PanelBody::Detail(DetailBody {
-            document: agent.description.clone(),
+            document: agent_preview_document(agent, git_info.as_ref(), observation),
             metadata,
             actions: Vec::new(),
         }),
@@ -384,6 +395,47 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         selected_id: None,
         scroll_offset: 0,
     }
+}
+
+/// The preview's document: the agent's description, then the rows the
+/// metadata block does not carry — turn elapsed, the `Todo:` block, and the
+/// last reply.
+///
+/// Those rows are taken from the retained `preview_view` projection rather
+/// than recomputed, so the todo markers, the stale/unsupported/unknown arms
+/// and the elapsed format cannot drift from the module that owns them, and
+/// that module cannot silently lose its last live caller the way it did in
+/// the #715 cutover (#733).
+///
+/// The rows are budgeted here, at [`AGENT_PREVIEW_DOCUMENT_WIDTH`], rather
+/// than handed over untruncated for the shared Detail control to wrap. Both
+/// alternatives were measured against the corpus and both fail it: an
+/// unbudgeted `Last reply: Native LLxprt JSP reply` wraps onto a second row
+/// and splits the 19-cell prefix `jsp-llxprt-preview-native` waits on, and the
+/// metadata block's narrower per-value budget cuts `Last reply: JSP preview is
+/// wired` short of the full row `jsp-llxprt-preview` asserts.
+fn agent_preview_document(
+    agent: &crate::domain::Agent,
+    git_info: Option<&crate::git_info::GitRepoInfo>,
+    observation: Option<&crate::domain::observation::AgentObservation>,
+) -> String {
+    let header_rows =
+        crate::preview_view::preview_metadata(Some(agent), git_info, observation).len();
+    let mut document = agent.description.clone();
+    for row in crate::preview_view::build_preview_view(
+        Some(agent),
+        git_info,
+        observation,
+        AGENT_PREVIEW_DOCUMENT_WIDTH,
+    )
+    .lines
+    .into_iter()
+    .skip(header_rows)
+    {
+        document.push('\n');
+        document.push_str(&row);
+    }
+    document
 }
 
 fn session_list(state: &AppState) -> HostPanelModel {
