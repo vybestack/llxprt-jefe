@@ -26,11 +26,13 @@ impl AppState {
     /// Whether the exact focused host-owned control is a reorderable list.
     #[must_use]
     pub fn focused_host_reorder_panel(&self) -> bool {
-        let current = self.nav.current();
+        // The same focus authority the renderer reads, so paging geometry and
+        // the focus cue can never name different panes (issue #731).
+        let focused = self.focused_panel();
         self.published_workbench()
             .screen_registry()
-            .get_identity(current.screen)
-            .and_then(|descriptor| descriptor.panel(&current.panel_focus))
+            .get_identity(self.nav.current().screen)
+            .and_then(|descriptor| descriptor.panel(&focused))
             .and_then(|panel| {
                 panel
                     .host_capability

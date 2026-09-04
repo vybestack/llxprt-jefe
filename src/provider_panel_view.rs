@@ -185,12 +185,16 @@ pub fn project_current_screen(
     }
     let instance_id = current_instance.get();
     let registry = state.published_workbench().screen_registry();
+    // One focus authority per screen, resolved rather than mirrored: the host
+    // keyboard's `PaneFocus` on the shipped host-driven screens, the
+    // per-instance `panel_focus` everywhere else (issue #731).
+    let focused_panel = crate::state::resolve_focused_panel(state, descriptor, layout);
     let mut view = project_provider_screen(
         descriptor,
         instance_id,
         state.provider_panels(),
         layout,
-        &state.nav.current().panel_focus,
+        &focused_panel,
     )?;
     for (panel_descriptor, projection) in descriptor.panels.iter().zip(&mut view.panels) {
         if !projection.visible
@@ -227,6 +231,13 @@ fn project_declared_content(
             return;
         }
         "Terminal".clone_into(&mut projection.title);
+        // The embedded PTY answers to terminal focus, not to the pane
+        // ordinal: `t`/F12 is what forwards keystrokes into it, and
+        // `normalize_terminal_focus` already keeps `terminal_focused` a
+        // subset of `pane_focus == Terminal`. Selecting the pane without
+        // taking terminal focus must leave the `F12/t to focus` hint up,
+        // as it did pre-cutover (issue #731).
+        projection.focused = state.terminal_focused;
         projection.status = PanelStatus::Active;
         projection.lines.clear();
         projection.hit_targets.clear();

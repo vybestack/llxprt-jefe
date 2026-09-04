@@ -323,11 +323,7 @@ fn render_panel(
         render_workbench_cards(panel, state, props, rc, children);
         return;
     }
-    let border_color = match panel.status {
-        PanelStatus::Failed => rc.error,
-        _ if panel.focused => rc.border_focused,
-        _ => rc.border,
-    };
+    let border_color = panel_border_color(panel.status, panel.focused, rc);
     let border_style = panel_border_style(panel.focused);
     let chrome = panel.chrome;
     children.push(
@@ -427,6 +423,20 @@ fn panel_border_style(focused: bool) -> BorderStyle {
         BorderStyle::Round
     }
 }
+
+/// The panel's border colour: error accent when failed, `border_focused` when
+/// focused, otherwise the ordinary border. A schema-1 frame discards every SGR
+/// byte, so this is the seam a unit assertion pins colour through (#731).
+fn panel_border_color(status: PanelStatus, focused: bool, rc: &ResolvedColors) -> Color {
+    match status {
+        PanelStatus::Failed => rc.error,
+        _ if focused => rc.border_focused,
+        _ => rc.border,
+    }
+}
+#[cfg(test)]
+#[path = "provider_screen_focus_tests.rs"]
+mod focus_tests;
 
 /// Render the retained workbench card grid inside its panel content rect.
 ///

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "662c2c0e75d37b3d6a7d2328c0c62e3b9628b43130f2d47caea19c0edd545a9b",
+  "scenario_manifest_sha256": "3b6ebcdf7d4c89cc6858505071d7b375fc2b79ab350fe147c862837c54d09a86",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -800,6 +800,18 @@
       "platform": "macos",
       "ci_job": "tui_scenarios_macos",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json",
+      "sha256": "681eea9f962a1bbdbb0f8c8c15e183c8bfcec3213962786e6922c313025d3c2e",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
     },
     {
       "path": "dev-docs/tmux-scenarios/issues-close-delete.json",
@@ -2191,7 +2203,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "662c2c0e75d37b3d6a7d2328c0c62e3b9628b43130f2d47caea19c0edd545a9b",
+      "sha256": "3b6ebcdf7d4c89cc6858505071d7b375fc2b79ab350fe147c862837c54d09a86",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2751,7 +2763,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "7456073c2666f0de4d2618dcb89661d6c55d65818e8a6f9ba3ca2f3192cc4408",
+      "sha256": "94459b0e0ac86fc5f6221ab7a359bcb67f2f6486ce76b1544f52fc0d7ef9fe6a",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -3609,6 +3621,7 @@
         "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
+        "dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
@@ -3907,6 +3920,7 @@
         "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
+        "dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
         "dev-docs/tmux-scenarios/issues-composer-textbox.json",
