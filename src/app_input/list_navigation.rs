@@ -99,7 +99,7 @@ fn host_list_page_item_count(state: &AppState) -> Option<PageItemCount> {
     };
     Some(
         layout
-            .panel(&current.panel_focus)
+            .panel(&state.focused_panel())
             .map_or_else(PageItemCount::default, |resolved| {
                 PageItemCount::new(usize::from(resolved.content.height))
             }),
@@ -169,6 +169,38 @@ mod tests {
         let expected = PageItemCount::new(usize::from(panel.content.height));
 
         assert_ne!(expected, PageItemCount::default());
+        assert_eq!(
+            dashboard_page_item_count(&state, state.compiled_screen(), 100, 25),
+            expected
+        );
+    }
+
+    /// Page capacity must read the same focus authority the renderer reads:
+    /// with pane focus on the agents pane, a page is a page of that pane
+    /// (issue #731).
+    #[test]
+    fn dashboard_page_capacity_follows_pane_focus_to_the_agents_pane() {
+        let mut state = crate::test_app_state();
+        state.pane_focus = PaneFocus::Agents;
+        let screen_instance = state.nav.current().id;
+        let resolved = jefe::screen_layout::resolve_screen(&state, 100, 25);
+        assert!(state.publish_resolved_layout(screen_instance, resolved));
+        let layout = state
+            .resolved_layout
+            .as_ref()
+            .unwrap_or_else(|| panic!("dashboard layout must resolve"));
+        let agents = layout
+            .panel(&jefe::workbench::PanelId::from_static("agents"))
+            .unwrap_or_else(|| panic!("the agents pane must resolve"));
+        let repositories = layout
+            .panel(&jefe::workbench::PanelId::from_static("repositories"))
+            .unwrap_or_else(|| panic!("the repositories pane must resolve"));
+        let expected = PageItemCount::new(usize::from(agents.content.height));
+
+        assert_ne!(
+            agents.content.height, repositories.content.height,
+            "the two panes must differ for this to discriminate"
+        );
         assert_eq!(
             dashboard_page_item_count(&state, state.compiled_screen(), 100, 25),
             expected
