@@ -170,6 +170,14 @@ pub mod github;
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The product name the application brands itself with (issue #742).
+///
+/// Branding belongs to the chrome that displays it, not to any screen's
+/// declaration: a screen's title names that screen, and the top band decides
+/// when to show the product instead. One constant so the two can never drift
+/// back into one string doing both jobs.
+pub const PRODUCT_NAME: &str = "LLxprt Jefe";
+
 /// Short git commit hash baked in at build time (issue #223).
 ///
 /// Falls back to `"unknown"` when the crate was built outside a git working
