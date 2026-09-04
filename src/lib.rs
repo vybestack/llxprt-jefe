@@ -159,6 +159,9 @@ mod host_panel_models_chrome_tests;
 #[path = "host_panel_models_session_tests.rs"]
 mod host_panel_models_session_tests;
 #[cfg(test)]
+#[path = "host_panel_models_sidebar_tests.rs"]
+mod host_panel_models_sidebar_tests;
+#[cfg(test)]
 #[path = "host_panel_models_status_tests.rs"]
 mod host_panel_models_status_tests;
 

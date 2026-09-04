@@ -743,7 +743,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue722/dashboard-arrow-navigation.json",
-      "sha256": "e437db53bc64f058f35ecf81c7a402867af603dcad07110fcad3fef669e5c087",
+      "sha256": "bfe4b033770562ae881b9f71cd591a703be270a66ac3797193fb5e2f963de709",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

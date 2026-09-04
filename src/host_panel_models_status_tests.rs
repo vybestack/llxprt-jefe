@@ -75,16 +75,17 @@ fn status_block_lists_four_buckets_in_filter_order_with_live_counts() {
             .iter()
             .map(|item| item.label.as_str())
             .collect::<Vec<_>>(),
-        ["[x] Needs you", "[x] Working", "[x] Ready", "[x] Stale"],
-        "default mask is all-on, buckets in filter order"
+        [
+            "[x] Needs you (1)",
+            "[x] Working (1)",
+            "[x] Ready (1)",
+            "[x] Stale (1)"
+        ],
+        "default mask is all-on, buckets in filter order, counts parenthesized"
     );
-    assert_eq!(
-        items
-            .iter()
-            .map(|item| item.status.as_deref())
-            .collect::<Vec<_>>(),
-        [Some("1"), Some("1"), Some("1"), Some("1")],
-        "every bucket carries its live count"
+    assert!(
+        items.iter().all(|item| item.status.is_none()),
+        "the count is the projection's own suffix, not a shared status value: {items:?}"
     );
     assert!(
         items.iter().all(|item| item.description.is_none()),
@@ -106,15 +107,11 @@ fn status_block_checkbox_reflects_the_mask_while_counts_stay_prefilter() {
 
     let items = status_items(&model);
     assert_eq!(
-        items[1].label, "[ ] Working",
-        "a toggled-off bucket is unchecked"
+        items[1].label, "[ ] Working (1)",
+        "a toggled-off bucket is unchecked and counts ignore the active \
+         filter, like the legacy rail"
     );
-    assert_eq!(
-        items[1].status.as_deref(),
-        Some("1"),
-        "counts ignore the active filter, like the legacy rail"
-    );
-    assert_eq!(items[0].label, "[x] Needs you");
+    assert_eq!(items[0].label, "[x] Needs you (1)");
 }
 
 #[test]
@@ -187,10 +184,8 @@ fn status_block_activation_toggles_the_bucket_under_the_cursor() {
     );
     let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
     let items = status_items(&model);
-    assert_eq!(items[1].label, "[ ] Working");
     assert_eq!(
-        items[1].status.as_deref(),
-        Some("1"),
+        items[1].label, "[ ] Working (1)",
         "the count stays live for a toggled-off bucket"
     );
 }
