@@ -123,18 +123,24 @@ mod tests {
         assert_eq!(projected.rows.first().map(|row| row.source_index), Some(5));
         assert_eq!(projected.rows.last().map(|row| row.source_index), Some(24));
         assert!(projected.rows.last().is_some_and(|row| row.is_selected));
-        assert!(projected.rows.first().is_some_and(|row| {
-            row.spans
+        assert_eq!(
+            projected.rows.first().map(|row| row
+                .spans
                 .iter()
-                .any(|span| span.text.contains("Repository 5"))
-        }));
+                .map(|span| span.text.as_str())
+                .collect::<String>()),
+            Some(String::from("  Repository 5 (0)")),
+            "an unselected row is the parenthesized count form (#745)"
+        );
         let lines = crate::ui::components::selectable_list::projected_content_lines(&projected);
         assert_eq!(lines.first().map(|line| line.source_index), Some(5));
         assert_eq!(lines.last().map(|line| line.source_index), Some(24));
         assert!(
             lines
                 .last()
-                .is_some_and(|line| line.text.contains("Repository 24"))
+                .is_some_and(|line| line.text.contains("Repository 24 (0)")),
+            "the selected row keeps the same count form: {:?}",
+            lines.last().map(|line| line.text.as_str())
         );
     }
 
@@ -163,7 +169,7 @@ mod tests {
                 && row
                     .spans
                     .iter()
-                    .any(|span| span.text.contains("１２長いリポジトリ名-29"))
+                    .any(|span| span.text.contains("１２長いリポジトリ名-29 (0)"))
         }));
     }
 }

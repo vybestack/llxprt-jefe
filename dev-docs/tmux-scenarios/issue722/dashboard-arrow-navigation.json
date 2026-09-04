@@ -67,7 +67,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        ">> Alpha Repo [0]"
+        ">> Alpha Repo (0)"
       ],
       "absent": [
         ">> Beta Repo"
@@ -87,7 +87,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        ">> Beta Repo [0]"
+        ">> Beta Repo (0)"
       ],
       "absent": [
         ">> Alpha Repo"
@@ -107,7 +107,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        ">> Alpha Repo [0]"
+        ">> Alpha Repo (0)"
       ],
       "absent": [
         ">> Beta Repo"

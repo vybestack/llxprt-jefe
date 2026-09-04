@@ -68,13 +68,18 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
         .map(
             |(index, bucket)| crate::runtime::provider::protocol::ListItem {
                 id: Id::internal_indexed(InternalId::StatusBucketItem, index),
+                // The bucket count is composed here rather than handed to the
+                // shared list control as a `status` value, for the reason
+                // `repository_list` records: the shared suffix is `" [{value}]"`
+                // and the corpus pins `Needs you (1)` (#745).
                 label: format!(
-                    "{} {}",
+                    "{} {} ({})",
                     if filter.allows(*bucket) { "[x]" } else { "[ ]" },
-                    bucket.label()
+                    bucket.label(),
+                    counts[bucket.as_index()]
                 ),
                 description: None,
-                status: Some(counts[bucket.as_index()].to_string()),
+                status: None,
                 actions: Vec::new(),
             },
         )
@@ -180,6 +185,17 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
     }
 }
 
+/// The repository sidebar, projected as a list control.
+///
+/// The agent count is composed into the row's own label rather than handed to
+/// the shared list control as a `status` value. The shared suffix is
+/// `" [{value}]"` and every control carrying a status *word* pins it that way
+/// (`Alpha One [Running]`, a card's `[Working]`); a count is not a status word,
+/// and the corpus pins the pre-cutover round form, `LLxprt Jefe (0)` (#745).
+/// The retained component the other screens render spells it the same way
+/// (`src/ui/components/sidebar.rs`). Widening the shared suffix would rewrite
+/// every agent, session and card row, so this projection carries its own
+/// suffix formatting, exactly as `agent_type_availability` does below.
 fn repository_list(state: &AppState) -> HostPanelModel {
     let visible = state.visible_repository_indices();
     let items = visible
@@ -191,15 +207,15 @@ fn repository_list(state: &AppState) -> HostPanelModel {
                 .get(*repository_index)
                 .map(|repository| ListItem {
                     id: Id::internal_indexed(InternalId::RepositoryItem, visible_index),
-                    label: repository.name.clone(),
+                    label: format!(
+                        "{} ({})",
+                        repository.name,
+                        state.visible_agent_count_for_repository(&repository.id)
+                    ),
                     // The dashboard sidebar is one row per repository; a
                     // description would project as a second row.
                     description: None,
-                    status: Some(
-                        state
-                            .visible_agent_count_for_repository(&repository.id)
-                            .to_string(),
-                    ),
+                    status: None,
                     actions: Vec::new(),
                 })
         })
@@ -300,13 +316,14 @@ fn agent_list(state: &AppState) -> HostPanelModel {
 ///
 /// The whole availability row is composed here rather than handed to the
 /// shared list control as a `status` value. The shared suffix is
-/// `" [{status}]"`, one space, and every other list on the dashboard pins it
-/// that way (`>> Alpha Repo [0]`, `Alpha One [Running]`); the retained
+/// `" [{status}]"`, one space, and every list carrying a status word pins it
+/// that way (`Alpha One [Running]`, a card's `[Working]`); the retained
 /// pre-cutover renderer spells this row with two
 /// (`agent_types_status.rs::status_lines`: `"{name}  {status}, {enablement}
 ///  {create}"`), and the corpus pins the two-space form. Widening the shared
-/// suffix would rewrite every sidebar and agent row, so the availability rows
-/// carry their own value formatting instead.
+/// suffix would rewrite every agent and card row, so the availability rows
+/// carry their own value formatting instead — the same reason
+/// `repository_list` and `workbench_status` carry theirs (#745).
 fn agent_type_availability(state: &AppState) -> HostPanelModel {
     let rows =
         crate::agent_status_view::project_agent_type_statuses(&state.agent_type_availability);
@@ -529,8 +546,12 @@ mod tests {
             "repository rows must not carry a second line: {:?}",
             repository_body.items[0].description
         );
-        assert_eq!(repository_body.items[0].label, "One Repo");
-        assert_eq!(repository_body.items[0].status.as_deref(), Some("1"));
+        assert_eq!(repository_body.items[0].label, "One Repo (1)");
+        assert_eq!(
+            repository_body.items[0].status.as_deref(),
+            None,
+            "the count is the projection's own suffix, not a shared status value (#745)"
+        );
 
         let agent_model = project_host_panel(&state, HostPanelModelSource::AgentList);
         let PanelBody::List(agent_body) = agent_model.body else {
