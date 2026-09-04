@@ -95,6 +95,10 @@ pub mod screen_layout;
 #[cfg(test)]
 #[path = "screen_layout_tests.rs"]
 mod screen_layout_tests;
+
+#[cfg(test)]
+#[path = "screen_layout_agent_types_tests.rs"]
+mod screen_layout_agent_types_tests;
 pub mod selection;
 pub mod services;
 /// Native-host OpenSSH planning and typed failure classification.
@@ -140,6 +144,10 @@ pub mod workbench_view;
 #[cfg(test)]
 #[path = "workbench_view_tests.rs"]
 mod workbench_view_tests;
+
+#[cfg(test)]
+#[path = "host_panel_models_agent_types_tests.rs"]
+mod host_panel_models_agent_types_tests;
 
 #[cfg(test)]
 #[path = "host_panel_models_cards_tests.rs"]

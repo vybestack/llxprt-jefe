@@ -24,6 +24,7 @@ pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> Hos
         HostPanelModelSource::RepositoryList => repository_list(state),
         HostPanelModelSource::SearchInput => search_input(state),
         HostPanelModelSource::AgentList => agent_list(state),
+        HostPanelModelSource::AgentTypeAvailability => agent_type_availability(state),
         HostPanelModelSource::AgentPreview => agent_preview(state),
         HostPanelModelSource::SessionList => session_list(state),
         HostPanelModelSource::WorkbenchStatus => workbench_status(state),
@@ -272,6 +273,73 @@ fn agent_list(state: &AppState) -> HostPanelModel {
         action_affordances: Vec::new(),
         selected_id,
         scroll_offset: state.agent_scroll_offset,
+    }
+}
+
+/// The startup Agent Types availability pane, projected as a list control.
+///
+/// Restores the pane the pre-cutover dashboard rendered for a workspace with
+/// no agents (`src/ui/screens/dashboard.rs:171-188`, dropped by #715). The
+/// rows come from the same pure `agent_status_view` projection the retired
+/// renderer consumed, so the status vocabulary the scenario corpus boots on
+/// (`Code Puppy  Installed, enabled`) is reproduced rather than re-invented,
+/// and the probe's reason becomes the row's second line (#734).
+///
+/// The whole availability row is composed here rather than handed to the
+/// shared list control as a `status` value. The shared suffix is
+/// `" [{status}]"`, one space, and every other list on the dashboard pins it
+/// that way (`>> Alpha Repo [0]`, `Alpha One [Running]`); the retained
+/// pre-cutover renderer spells this row with two
+/// (`agent_types_status.rs::status_lines`: `"{name}  {status}, {enablement}
+///  {create}"`), and the corpus pins the two-space form. Widening the shared
+/// suffix would rewrite every sidebar and agent row, so the availability rows
+/// carry their own value formatting instead.
+fn agent_type_availability(state: &AppState) -> HostPanelModel {
+    let rows =
+        crate::agent_status_view::project_agent_type_statuses(&state.agent_type_availability);
+    let items = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| ListItem {
+            id: Id::internal_indexed(InternalId::AgentTypeItem, index),
+            label: format!(
+                "{}  {}, {}  [{}]",
+                row.display_name,
+                row.status_text,
+                if row.enabled { "enabled" } else { "disabled" },
+                if row.create_enabled {
+                    "Create enabled"
+                } else {
+                    "Create disabled"
+                }
+            ),
+            description: row.reason.as_ref().map(|reason| {
+                row.error_code
+                    .map_or_else(|| reason.clone(), |code| format!("{code}  {reason}"))
+            }),
+            status: None,
+            actions: Vec::new(),
+        })
+        .collect();
+    // A republished, shorter snapshot can leave the state-owned cursor past
+    // the last row; the same clamp `workbench_status` applies to its filter
+    // cursor keeps a marker on screen.
+    let selected_id = rows.len().checked_sub(1).map(|last| {
+        Id::internal_indexed(
+            InternalId::AgentTypeItem,
+            state.selected_agent_type_index.min(last),
+        )
+    });
+    HostPanelModel {
+        title: "Agent Types".to_owned(),
+        body: PanelBody::List(ListBody {
+            items,
+            selected_id: selected_id.clone(),
+            next_page_token: None,
+        }),
+        action_affordances: Vec::new(),
+        selected_id,
+        scroll_offset: 0,
     }
 }
 
