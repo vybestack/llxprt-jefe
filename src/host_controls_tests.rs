@@ -129,7 +129,7 @@ fn list_count_survives_when_the_label_does_not() {
     assert!(row.starts_with(">> "), "the marker survives: {row:?}");
     assert!(row.ends_with(" (12)"), "the count survives whole: {row:?}");
     assert!(
-        row.chars().count() <= 12,
+        UnicodeWidthStr::width(row) <= 12,
         "the row fits the pane width: {row:?}"
     );
     assert!(
