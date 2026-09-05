@@ -4,16 +4,27 @@
 //! (issue #223). Falls back to "unknown" when git is unavailable or the build
 //! directory is not inside a git working tree (e.g. a tarball extraction).
 
+#[path = "build_support/git_watch.rs"]
+mod git_watch;
+
+use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    // `.git/HEAD` is a file (possibly a symbolic ref) whose contents change on
-    // branch switch and new commits, so Cargo re-runs this script and the
-    // baked commit stays accurate. Watching the `.git/refs` *directory* is a
-    // no-op (Cargo only watches files), and the branch name is not known at
-    // build time, so we rely on `.git/HEAD` alone — fast-forwards that do not
-    // touch any source file require a clean rebuild to refresh the hash.
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // Watching `.git/HEAD` alone misses a fast-forward: the file is a
+    // symbolic ref whose bytes never change when the branch tip moves
+    // (issue #753). `git_watch` resolves the watch list through git plumbing
+    // instead: an attached HEAD also watches the loose branch-ref file (even
+    // while packed, because the absent-to-present transition is the next ref
+    // update), and a detached HEAD needs only the HEAD file, which every
+    // movement rewrites.
+    let package_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|error| {
+        panic!("cargo must provide CARGO_MANIFEST_DIR to the build script: {error}")
+    });
+    let root = Path::new(&package_root);
+    for watched in git_watch::resolve(root).rerun_paths(root) {
+        println!("cargo:rerun-if-changed={watched}");
+    }
 
     let commit = git_short_commit().unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=JEFE_GIT_COMMIT={commit}");
