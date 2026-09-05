@@ -53,6 +53,7 @@ fn selectable_bodies(first: &Id, second: &Id) -> Vec<PanelBody> {
                     id,
                     description: None,
                     status: None,
+                    count: None,
                     actions: Vec::new(),
                 })
                 .collect(),

@@ -134,6 +134,7 @@ fn list_panel(
             label: (*item_id).to_string(),
             description: None,
             status: None,
+            count: None,
             actions: vec![],
         })
         .collect();

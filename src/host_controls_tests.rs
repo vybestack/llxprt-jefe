@@ -15,6 +15,7 @@ use crate::runtime::provider::protocol::{
     PanelEvent, PanelSnapshot, ProgressBody, StructuredDiffBody, StructuredDiffFile,
     StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody, TreeNode,
 };
+use unicode_width::UnicodeWidthStr;
 
 #[test]
 fn control_kind_is_the_exact_nine_value_public_vocabulary() {
@@ -65,6 +66,7 @@ fn list_label_rows_truncate_instead_of_wrapping() {
             label: long_name,
             description: None,
             status: Some("1".to_owned()),
+            count: None,
             actions: Vec::new(),
         }],
         selected_id: None,
@@ -92,6 +94,198 @@ fn list_label_rows_truncate_instead_of_wrapping() {
         row.contains('…'),
         "the overlong name is visibly truncated: {row:?}"
     );
+}
+
+/// #745 follow-up B5: a typed count is a protected suffix, not part of the
+/// truncatable label. The pane spends what it has on the label and always
+/// keeps the count, because a row that reads `Needs you (1…` states a number
+/// that is not the number.
+#[test]
+fn list_count_survives_when_the_label_does_not() {
+    let snapshot = snapshot(PanelBody::List(ListBody {
+        items: vec![ListItem {
+            id: id("item"),
+            label: "a".repeat(30),
+            description: None,
+            status: None,
+            count: Some(12),
+            actions: Vec::new(),
+        }],
+        selected_id: None,
+        next_page_token: None,
+    }));
+
+    let rows = project_control(&snapshot, None, None, 12);
+
+    assert_eq!(
+        rows.len(),
+        1,
+        "the row must never wrap into a second row: {rows:?}"
+    );
+    let row = rows
+        .first()
+        .map(|row| row.text.as_str())
+        .unwrap_or_default();
+    assert!(row.starts_with(">> "), "the marker survives: {row:?}");
+    assert!(row.ends_with(" (12)"), "the count survives whole: {row:?}");
+    assert!(
+        row.chars().count() <= 12,
+        "the row fits the pane width: {row:?}"
+    );
+    assert!(
+        row.contains('…'),
+        "the label, not the count, is the elided part: {row:?}"
+    );
+}
+
+/// #745 follow-up B7: an item may carry both, so the composition order is
+/// pinned rather than left to whichever suffix is appended last. The count
+/// belongs to the name phrase and leads; the status word trails.
+#[test]
+fn list_renders_a_count_before_a_status_suffix() {
+    let snapshot = snapshot(PanelBody::List(ListBody {
+        items: vec![ListItem {
+            id: id("item"),
+            label: "Alpha".to_owned(),
+            description: None,
+            status: Some("Running".to_owned()),
+            count: Some(2),
+            actions: Vec::new(),
+        }],
+        selected_id: None,
+        next_page_token: None,
+    }));
+
+    let rows = project_control(&snapshot, None, None, 40);
+
+    assert_eq!(
+        rows.first().map(|row| row.text.as_str()),
+        Some(">> Alpha (2) [Running]"),
+        "count then status, both after the label: {rows:?}"
+    );
+}
+
+/// #745 follow-up B5, boundary: when the marker, the label and the count
+/// cannot share the row, the marker and the label go and the count stays
+/// whole. The row is still exactly one row and still fits the pane.
+#[test]
+fn a_count_too_wide_to_share_the_row_is_kept_whole_without_the_label() {
+    let rows = extreme_width_rows("Needs you", Some(1234), None, 6);
+
+    assert_eq!(
+        rows,
+        vec!["(1234)".to_owned()],
+        "the marker and the label are sacrificed, not the number"
+    );
+}
+
+/// #745 follow-up B5, boundary: below the width of the count itself there is
+/// no honest way to show it, so it is dropped whole. A row reading `(1…`
+/// states a count of one, which is the #745 defect in miniature.
+#[test]
+fn a_count_that_cannot_fit_whole_is_dropped_rather_than_sliced() {
+    let rows = extreme_width_rows("Needs you", Some(1234), None, 5);
+
+    assert_eq!(
+        rows,
+        vec![">> N…".to_owned()],
+        "no fragment of the count is painted"
+    );
+    assert_no_partial_tokens(&rows);
+}
+
+/// #745 follow-up B7, boundary: the status word obeys the same rule. `[Runn…`
+/// names a status no agent is in, so the whole suffix goes and the count —
+/// which still fits — stays.
+#[test]
+fn a_status_word_too_wide_for_the_row_is_dropped_whole() {
+    let rows = extreme_width_rows("Alpha", Some(2), Some("Running"), 14);
+
+    assert_eq!(
+        rows,
+        vec![">> Alpha (2)".to_owned()],
+        "the status is dropped whole and the count is untouched"
+    );
+    assert_no_partial_tokens(&rows);
+}
+
+/// #745 follow-up B7, boundary: with the count too wide to share the row and
+/// the status narrow enough, the count is the suffix dropped whole. The label
+/// stays, because it is the one span an elision may touch.
+#[test]
+fn a_count_too_wide_to_share_the_row_yields_to_a_status_that_fits() {
+    let rows = extreme_width_rows("Alpha", Some(1_234_567), Some("ok"), 10);
+
+    assert_eq!(
+        rows,
+        vec![">> A… [ok]".to_owned()],
+        "the label carries the ellipsis; the status is whole and the count absent"
+    );
+    assert_no_partial_tokens(&rows);
+}
+
+/// #745 follow-up B5, boundary: at a width that fits nothing semantic the row
+/// is the elided label alone, never a fragment of a number or a status word.
+#[test]
+fn a_row_narrower_than_every_suffix_paints_only_the_elided_label() {
+    let rows = extreme_width_rows("Needs you", Some(1234), Some("Running"), 4);
+
+    assert_eq!(
+        rows,
+        vec![">> …".to_owned()],
+        "the marker and an elided label, nothing semantic"
+    );
+    assert_no_partial_tokens(&rows);
+}
+
+/// One list item projected at a width narrower than the shipped panes, as row
+/// text. The shared control must return exactly one row whatever the width, so
+/// asserting the whole vector proves that too.
+fn extreme_width_rows(
+    label: &str,
+    count: Option<usize>,
+    status: Option<&str>,
+    width: usize,
+) -> Vec<String> {
+    let snapshot = snapshot(PanelBody::List(ListBody {
+        items: vec![ListItem {
+            id: id("item"),
+            label: label.to_owned(),
+            description: None,
+            status: status.map(str::to_owned),
+            count,
+            actions: Vec::new(),
+        }],
+        selected_id: None,
+        next_page_token: None,
+    }));
+
+    let rows: Vec<String> = project_control(&snapshot, None, None, width)
+        .into_iter()
+        .map(|row| row.text)
+        .collect();
+    for row in &rows {
+        assert!(
+            UnicodeWidthStr::width(row.as_str()) <= width,
+            "every row fits the pane width {width}: {row:?}"
+        );
+    }
+    rows
+}
+
+/// No row carries the opening half of a count or of a status word: an ellipsis
+/// may only follow label text.
+fn assert_no_partial_tokens(rows: &[String]) {
+    for row in rows {
+        assert!(
+            !row.contains('(') || row.contains(')'),
+            "a count is painted whole or not at all: {row:?}"
+        );
+        assert!(
+            !row.contains('[') || row.contains(']'),
+            "a status word is painted whole or not at all: {row:?}"
+        );
+    }
 }
 
 fn id(value: &str) -> Id {
@@ -478,6 +672,7 @@ fn activation_repairs_stale_local_list_and_diff_selection_to_the_visible_row() {
             label: "Current".to_owned(),
             description: None,
             status: None,
+            count: None,
             actions: Vec::new(),
         }],
         selected_id: Some(id("current")),

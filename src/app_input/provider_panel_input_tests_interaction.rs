@@ -287,6 +287,7 @@
                 label: "Alpha".to_owned(),
                 description: None,
                 status: None,
+                count: None,
                 actions: Vec::new(),
             }],
             selected_id: None,

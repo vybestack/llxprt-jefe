@@ -438,6 +438,10 @@ fn panel_border_color(status: PanelStatus, focused: bool, rc: &ResolvedColors) -
 #[path = "provider_screen_focus_tests.rs"]
 mod focus_tests;
 
+#[cfg(test)]
+#[path = "provider_screen_count_render_tests.rs"]
+mod count_render_tests;
+
 /// Render the retained workbench card grid inside its panel content rect.
 ///
 /// Mirrors the retired split-screen composition: card rows of

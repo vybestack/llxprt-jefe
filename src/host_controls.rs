@@ -9,7 +9,7 @@ use crate::domain::{Id, TypedMap, TypedValue};
 use crate::list_viewport::fit_text_to_width;
 use crate::runtime::provider::protocol::{
     Affordance, BodyKind, DetailBody, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, ListBody,
-    PanelBody, PanelEvent, PanelSnapshot, ProgressBody, StatusBody, StructuredDiffBody,
+    ListItem, PanelBody, PanelEvent, PanelSnapshot, ProgressBody, StatusBody, StructuredDiffBody,
     StructuredDiffFile, StructuredDiffPath, TreeBody, TreeNode,
 };
 use crate::text_wrap::wrap_text;
@@ -473,18 +473,7 @@ fn project_list(body: &ListBody, input: ProjectionInput<'_>) -> Vec<HostControlR
         } else {
             "   "
         };
-        let status_suffix = item
-            .status
-            .as_deref()
-            .map_or(String::new(), |value| format!(" [{value}]"));
-        push_list_item_row(
-            &mut rows,
-            marker,
-            &item.label,
-            &status_suffix,
-            input.width,
-            item_target.clone(),
-        );
+        push_list_item_row(&mut rows, marker, item, input.width, item_target.clone());
         if let Some(description) = &item.description {
             push_wrapped(
                 &mut rows,
@@ -518,27 +507,98 @@ fn project_list(body: &ListBody, input: ProjectionInput<'_>) -> Vec<HostControlR
 
 /// One list item's primary row.
 ///
-/// A label plus its trailing count must never wrap: a wrapped sidebar row
-/// shifts every later row down and reads as two items (issue #723). Only the
-/// label portion is truncated to the row budget; the count always survives.
+/// A label plus its trailing suffixes must never wrap: a wrapped sidebar row
+/// shifts every later row down and reads as two items (issue #723). The label
+/// is the only span this row may elide. A count and a status word are never
+/// sliced, because half of one changes what the row says rather than merely
+/// shortening it: `Needs you (1…` states a count that is not the count, and
+/// `[Runn…` names a status that does not exist (#745).
+///
+/// The row is exactly one row and always fits `width`. The first of these
+/// forms that fits is the one painted, so a suffix is dropped whole rather
+/// than cut:
+///
+/// 1. `marker`, the label fitted to what is left, `" (count)"`, `" [status]"`
+///    — the form every shipped pane width renders.
+/// 2. the same without the status, which is dropped whole.
+/// 3. the same without the count, reachable only when the count cannot share
+///    the row with the marker but the status can.
+/// 4. `"(count)"`, then `"[status]"` — the marker and the label are sacrificed
+///    so one suffix can stay whole. The two together never reach this rung: a
+///    count is at least three cells wide, so a row that could hold both bare is
+///    already wide enough for rung 3.
+/// 5. `marker` and the label fitted to what is left, carrying no suffix. This
+///    is also the form an item with neither suffix always takes.
+/// 6. the label alone, fitted to the full width, when even the marker does not
+///    fit; empty when there is no label either.
 fn push_list_item_row(
     rows: &mut Vec<HostControlRow>,
     marker: &str,
-    label: &str,
-    status_suffix: &str,
+    item: &ListItem,
     width: usize,
     target: PanelHitTarget,
 ) {
-    let budget =
-        width.checked_sub(UnicodeWidthStr::width(marker) + UnicodeWidthStr::width(status_suffix));
-    let row = match budget {
-        Some(budget) => format!(
-            "{marker}{}{status_suffix}",
-            fit_text_to_width(label, budget)
-        ),
-        None => format!("{marker}{status_suffix}"),
-    };
-    rows.push(HostControlRow::targeted(row, target));
+    let count = item
+        .count
+        .map_or(String::new(), |value| format!("({value})"));
+    let status = item
+        .status
+        .as_deref()
+        .map_or(String::new(), |value| format!("[{value}]"));
+    rows.push(HostControlRow::targeted(
+        compose_list_item_row(marker, &item.label, &count, &status, width),
+        target,
+    ));
+}
+
+/// The widest form of a list item's row that fits, per [`push_list_item_row`].
+fn compose_list_item_row(
+    marker: &str,
+    label: &str,
+    count: &str,
+    status: &str,
+    width: usize,
+) -> String {
+    let suffixes = [
+        join_row_suffixes(count, status),
+        join_row_suffixes(count, ""),
+        join_row_suffixes("", status),
+    ];
+    for suffix in suffixes.iter().filter(|suffix| !suffix.is_empty()) {
+        if let Some(row) = labelled_row(marker, label, suffix, width) {
+            return row;
+        }
+    }
+    for bare in [count, status] {
+        if !bare.is_empty() && UnicodeWidthStr::width(bare) <= width {
+            return bare.to_owned();
+        }
+    }
+    labelled_row(marker, label, "", width).unwrap_or_else(|| fit_text_to_width(label, width))
+}
+
+/// The marker, the fitted label and `suffix`, or `None` when the marker and
+/// the suffix alone already exceed the row and the label has no room at all.
+fn labelled_row(marker: &str, label: &str, suffix: &str, width: usize) -> Option<String> {
+    let reserved = UnicodeWidthStr::width(marker) + UnicodeWidthStr::width(suffix);
+    let budget = width.checked_sub(reserved)?;
+    Some(format!(
+        "{marker}{}{suffix}",
+        fit_text_to_width(label, budget)
+    ))
+}
+
+/// The trailing suffixes in their pinned order, each preceded by one space and
+/// each omitted when empty.
+fn join_row_suffixes(count: &str, status: &str) -> String {
+    let mut joined = String::new();
+    for token in [count, status] {
+        if !token.is_empty() {
+            joined.push(' ');
+            joined.push_str(token);
+        }
+    }
+    joined
 }
 
 fn project_tree(body: &TreeBody, input: ProjectionInput<'_>) -> Vec<HostControlRow> {

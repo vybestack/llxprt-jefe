@@ -170,6 +170,7 @@ fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
                 label: format!("label {secret}"),
                 description: Some(format!("description {secret}")),
                 status: Some(format!("status {secret}")),
+                count: None,
                 actions: Vec::new(),
             }],
             selected_id: Some(panel_fixture_id("item")),

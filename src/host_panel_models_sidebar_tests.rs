@@ -2,8 +2,9 @@
 //!
 //! The sidebar's agent count is a count, not a status word, and the corpus
 //! spells it `LLxprt Jefe (0)`. It rides the shared list control, whose
-//! `status` suffix is `" [{value}]"`, so the projection composes the count
-//! into its own label instead of handing it over as a `status` value.
+//! `status` suffix is `" [{value}]"`, so the projection hands the number over
+//! as a typed `count` that the control renders `(N)` and keeps out of the
+//! width budget it elides the name against.
 //!
 //! These tests own the *composition-root* row form. The retained pre-cutover
 //! component (`src/ui/components/sidebar.rs`) is still live — the actions,
@@ -32,6 +33,12 @@ fn state_with_two_repositories() -> AppState {
     state
 }
 
+/// The content width the resolver hands the sidebar on the shipped split: the
+/// 22-column rail less its chrome and list padding
+/// (`src/workbench/screens.rs`). Rows are asserted there rather than at a
+/// comfortable width, because that is where #752's folded count was lost.
+const SIDEBAR_PANE_WIDTH: usize = 18;
+
 fn repository_items(model: &HostPanelModel) -> &Vec<ListItem> {
     let PanelBody::List(body) = &model.body else {
         panic!(
@@ -55,8 +62,9 @@ fn projected_rows(model: &HostPanelModel, width: usize) -> Vec<String> {
     .collect()
 }
 
-/// Issue #745 A1: the count is parenthesized and lives in the label, so the
-/// shared `" [{value}]"` status suffix never reaches a sidebar row.
+/// Issue #745 A1: the count is a typed count the shared control renders `(N)`
+/// and protects, so the shared `" [{value}]"` status suffix never reaches a
+/// sidebar row and the number never rides inside the truncatable name.
 #[test]
 fn repository_rows_carry_the_parenthesized_agent_count() {
     let state = state_with_two_repositories();
@@ -68,14 +76,19 @@ fn repository_rows_carry_the_parenthesized_agent_count() {
     assert_eq!(
         items
             .iter()
-            .map(|item| item.label.as_str())
+            .map(|item| (item.label.as_str(), item.count))
             .collect::<Vec<_>>(),
-        ["Repo one (0)", "Repo two (2)"],
-        "the sidebar spells its agent count `(N)`, as the corpus pins it"
+        [("Repo one", Some(0)), ("Repo two", Some(2))],
+        "the label is the repository name; the count is carried beside it"
+    );
+    assert_eq!(
+        projected_rows(&model, SIDEBAR_PANE_WIDTH),
+        [">> Repo one (0)", "   Repo two (2)"],
+        "and the rows the pane paints spell `(N)`, as the corpus pins it"
     );
     assert!(
         items.iter().all(|item| item.status.is_none()),
-        "the count is the projection's own suffix, not a shared status value: {items:?}"
+        "a count is not a status word, so the shared `[value]` suffix stays clear: {items:?}"
     );
     assert!(
         items.iter().all(|item| item.description.is_none()),
@@ -98,11 +111,12 @@ fn repository_row_renders_the_parenthesized_count_through_the_shared_control() {
     );
 }
 
-/// Issue #745 A6: #723's invariant survives the fold. A row too long for the
-/// pane is truncated in place; it never becomes a second row that shifts every
-/// later repository down.
+/// Issue #745 A6: #723's invariant holds. A row too long for the pane is
+/// truncated in place; it never becomes a second row that shifts every later
+/// repository down. The follow-up adds what #752 could not keep: the name is
+/// the span that gives way, and the count is still there afterwards.
 #[test]
-fn a_folded_repository_row_truncates_instead_of_wrapping() {
+fn an_overlong_repository_row_truncates_the_name_and_keeps_the_count() {
     let mut state = state_with_two_repositories();
     state.repositories[0].name = "a".repeat(40);
 
@@ -119,5 +133,9 @@ fn a_folded_repository_row_truncates_instead_of_wrapping() {
     assert!(
         first.contains('\u{2026}'),
         "the overlong name is visibly truncated: {first:?}"
+    );
+    assert!(
+        first.ends_with(" (0)"),
+        "the count outlives the name it belongs to: {first:?}"
     );
 }

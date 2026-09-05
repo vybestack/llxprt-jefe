@@ -200,6 +200,7 @@ fn list_item(value: &str, label: &str, description: Option<&str>, actions: &[&st
         label: label.to_owned(),
         description: description.map(ToOwned::to_owned),
         status: None,
+        count: None,
         actions: actions.iter().map(|action| id(action)).collect(),
     }
 }
@@ -485,6 +486,7 @@ fn list_body_projects_with_selection_and_pagination() {
                     label: "Alpha".to_owned(),
                     description: Some("first".to_owned()),
                     status: Some("ready".to_owned()),
+                    count: None,
                     actions: vec![id("open")],
                 }],
                 selected_id: Some(id("item-a")),

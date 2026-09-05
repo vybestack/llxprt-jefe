@@ -355,6 +355,7 @@ fn projection_repairs_a_removed_host_selection_to_the_current_model() {
                     label: "Alpha".to_owned(),
                     description: None,
                     status: None,
+                    count: None,
                     actions: Vec::new(),
                 }],
                 selected_id: Some(alpha),

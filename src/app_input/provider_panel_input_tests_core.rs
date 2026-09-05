@@ -22,20 +22,8 @@
             action_affordances: Vec::new(),
             body: PanelBody::List(ListBody {
                 items: vec![
-                    ListItem {
-                        id: alpha.clone(),
-                        label: "Alpha".to_owned(),
-                        description: None,
-                        status: None,
-                        actions: Vec::new(),
-                    },
-                    ListItem {
-                        id: beta,
-                        label: "Beta".to_owned(),
-                        description: None,
-                        status: None,
-                        actions: Vec::new(),
-                    },
+                    plain_item(alpha.clone(), "Alpha"),
+                    plain_item(beta, "Beta"),
                 ],
                 selected_id: Some(alpha),
                 next_page_token: None,
@@ -243,23 +231,29 @@
         ));
     }
 
+    /// A list item with nothing but an identity and a label: no description,
+    /// no status word, no count.
+    ///
+    /// The four construction sites share this rather than spelling the literal
+    /// out, because `ListItem` gaining a field (#745) put the expanded form of
+    /// this file two lines over the 1000-line hard limit `xtask check
+    /// source-size` enforces.
+    fn plain_item(id: Id, label: &str) -> ListItem {
+        ListItem {
+            id,
+            label: label.to_owned(),
+            description: None,
+            status: None,
+            count: None,
+            actions: Vec::new(),
+        }
+    }
+
     fn authoritative_list(first: &Id, second: &Id) -> PanelBody {
         PanelBody::List(ListBody {
             items: vec![
-                ListItem {
-                    id: first.clone(),
-                    label: "First".to_owned(),
-                    description: None,
-                    status: None,
-                    actions: Vec::new(),
-                },
-                ListItem {
-                    id: second.clone(),
-                    label: "Second".to_owned(),
-                    description: None,
-                    status: None,
-                    actions: Vec::new(),
-                },
+                plain_item(first.clone(), "First"),
+                plain_item(second.clone(), "Second"),
             ],
             selected_id: Some(first.clone()),
             next_page_token: None,

@@ -330,6 +330,7 @@ fn affordance_and_list_item_types_compile_against_model() {
         label: "L".to_owned(),
         description: None,
         status: None,
+        count: None,
         actions: Vec::new(),
     };
     let _list = ListBody {

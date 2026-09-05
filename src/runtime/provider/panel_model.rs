@@ -203,6 +203,18 @@ pub struct ListItem {
     pub description: Option<String>,
     /// A short status string, if any.
     pub status: Option<String>,
+    /// A trailing count belonging to the item, if any.
+    ///
+    /// Rendered by the shared list control as `" (N)"` and protected from the
+    /// row's width budget, so a narrow pane elides the label rather than the
+    /// number (#745): a row that reads `Needs you (1…` states a count that is
+    /// not the count. Carrying it as a number rather than folding it into
+    /// `label` is what makes that protection possible, since the control
+    /// cannot tell presentation from content once the two are one string.
+    ///
+    /// Host projections only. The provider wire has no `count` key, so a
+    /// snapshot read from a plugin always leaves this `None`.
+    pub count: Option<usize>,
     /// Action affordance ids available on this item.
     pub actions: Vec<Id>,
 }
