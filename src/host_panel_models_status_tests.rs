@@ -86,7 +86,7 @@ fn status_items(model: &crate::host_panel_models::HostPanelModel) -> &Vec<ListIt
 fn status_block_lists_four_buckets_in_filter_order_with_live_counts() {
     let state = state_with_one_agent_per_bucket();
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus, None);
 
     assert_eq!(model.title, "STATUS");
     let items = status_items(&model);
@@ -133,7 +133,7 @@ fn status_block_checkbox_reflects_the_mask_while_counts_stay_prefilter() {
         .with(StatusBucket::Working, false);
     state.workbench.status_filter = crate::state::WorkbenchStatusFilter(mask);
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus, None);
 
     let items = status_items(&model);
     assert_eq!(
@@ -158,7 +158,7 @@ fn status_block_selection_follows_the_filter_cursor() {
     let mut state = state_with_one_agent_per_bucket();
     state.workbench.filter_cursor = 2;
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus, None);
 
     let expected =
         crate::domain::Id::internal_indexed(crate::domain::InternalId::StatusBucketItem, 2);
@@ -221,7 +221,7 @@ fn status_block_activation_toggles_the_bucket_under_the_cursor() {
         state.workbench.page, 0,
         "a toggle resets the page so a shrinking card list cannot strand it"
     );
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus, None);
     let items = status_items(&model);
     assert_eq!(
         (items[1].label.as_str(), items[1].count),

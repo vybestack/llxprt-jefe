@@ -158,8 +158,11 @@ fn redact_list_body(body: ListBody, redactor: &Redactor) -> ListBody {
                 label: redact_text(item.label, redactor),
                 description: item.description.map(|text| redact_text(text, redactor)),
                 status: item.status.map(|text| redact_text(text, redactor)),
-                // A count is a number the host computed, not operator text.
+                // Provider snapshots cannot carry host-only presentation.
                 count: item.count,
+                glyph: None,
+                badge: None,
+                suffix: None,
                 actions: item.actions,
             })
             .collect(),

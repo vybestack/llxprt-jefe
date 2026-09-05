@@ -67,7 +67,7 @@ impl AppState {
         viewport_cols: usize,
         viewport_rows: usize,
     ) -> bool {
-        let model = project_host_panel(self, capability.model_source());
+        let model = project_host_panel(self, capability.model_source(), None);
         if crate::host_controls::ControlKind::from(model.body.kind()) != capability.control_kind() {
             return false;
         }
@@ -124,7 +124,7 @@ impl AppState {
         delta: i8,
         viewport_rows: usize,
     ) -> bool {
-        let model = project_host_panel(self, kind);
+        let model = project_host_panel(self, kind, None);
         let PanelBody::List(body) = model.body else {
             return false;
         };

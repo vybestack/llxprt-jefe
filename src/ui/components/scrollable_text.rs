@@ -97,7 +97,7 @@ fn scrollbar_geometry(total: usize, visible: usize, offset: usize) -> (usize, us
 
 /// Split a display line into `(before, selected, after)` segments given a
 /// highlight range. The `end` column is clamped to the line length.
-fn split_for_highlight(line: &str, range: HighlightRange) -> (String, String, String) {
+pub(super) fn split_for_highlight(line: &str, range: HighlightRange) -> (String, String, String) {
     let chars: Vec<char> = line.chars().collect();
     let len = chars.len();
     let start = range.start.min(len);

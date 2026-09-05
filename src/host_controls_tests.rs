@@ -7,13 +7,14 @@ use crate::domain::{
     },
 };
 use crate::host_controls::{
-    ControlAction, ControlIntent, ControlKind, PanelHitTarget, control_intent, project_control,
-    public_factory,
+    ControlAction, ControlIntent, ControlKind, HostControlSpanRole, PanelHitTarget, control_intent,
+    project_control, public_factory,
 };
 use crate::runtime::provider::protocol::{
-    Affordance, BodyKind, DiffLineOrigin, ErrorBody, FormBody, ListBody, ListItem, PanelBody,
-    PanelEvent, PanelSnapshot, ProgressBody, StructuredDiffBody, StructuredDiffFile,
-    StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody, TreeNode,
+    Affordance, BodyKind, DiffLineOrigin, ErrorBody, FormBody, ListBody, ListItem, ListItemGlyph,
+    ListItemGlyphRole, PanelBody, PanelEvent, PanelSnapshot, ProgressBody, StructuredDiffBody,
+    StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody,
+    TreeNode,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -55,6 +56,134 @@ fn terminal_is_not_a_public_control_kind() {
     assert_eq!(ControlKind::from_wire("terminal"), None);
 }
 
+fn decorated_list_item(glyph: &str) -> ListItem {
+    ListItem {
+        id: id("item"),
+        label: "Alpha".to_owned(),
+        description: None,
+        status: None,
+        count: None,
+        glyph: Some(ListItemGlyph {
+            text: glyph.to_owned(),
+            role: ListItemGlyphRole::Yellow,
+        }),
+        badge: Some("1".to_owned()),
+        suffix: Some("  owner/repo @ main".to_owned()),
+        actions: Vec::new(),
+    }
+}
+
+fn project_list_item(item: ListItem, width: usize) -> crate::host_controls::HostControlRow {
+    let snapshot = snapshot(PanelBody::List(ListBody {
+        items: vec![item],
+        selected_id: None,
+        next_page_token: None,
+    }));
+    project_control(&snapshot, None, None, width)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("a list item must project one primary row"))
+}
+
+#[test]
+fn list_item_carries_optional_glyph_badge_and_git_suffix() {
+    let item = decorated_list_item("~");
+
+    assert_eq!(
+        item.glyph,
+        Some(ListItemGlyph {
+            text: "~".to_owned(),
+            role: ListItemGlyphRole::Yellow,
+        })
+    );
+    assert_eq!(item.badge.as_deref(), Some("1"));
+    assert_eq!(item.suffix.as_deref(), Some("  owner/repo @ main"));
+}
+
+#[test]
+fn decorated_list_composition_returns_ordered_typed_spans() {
+    let row = project_list_item(decorated_list_item("~"), 80);
+
+    assert_eq!(row.text, ">> ~ [1] Alpha  owner/repo @ main");
+    assert_eq!(
+        row.spans
+            .iter()
+            .map(|span| (span.text.as_str(), span.role))
+            .collect::<Vec<_>>(),
+        vec![
+            (">> ", HostControlSpanRole::Themed),
+            ("~", HostControlSpanRole::Yellow),
+            (" [1] Alpha", HostControlSpanRole::Themed),
+            ("  owner/repo @ main", HostControlSpanRole::Dim),
+        ]
+    );
+}
+
+#[test]
+fn tight_list_width_drops_the_git_suffix_before_prefix_or_name_content() {
+    let row = project_list_item(decorated_list_item("~"), 14);
+
+    assert_eq!(row.text, ">> ~ [1] Alpha");
+    assert_eq!(UnicodeWidthStr::width(row.text.as_str()), 14);
+    assert_eq!(
+        row.spans
+            .iter()
+            .map(|span| (span.text.as_str(), span.role))
+            .collect::<Vec<_>>(),
+        vec![
+            (">> ", HostControlSpanRole::Themed),
+            ("~", HostControlSpanRole::Yellow),
+            (" [1] Alpha", HostControlSpanRole::Themed),
+        ]
+    );
+}
+
+#[test]
+fn list_glyph_is_kept_whole_or_dropped_whole_at_every_width() {
+    let glyph = "界界";
+
+    for width in 0..40 {
+        let row = project_list_item(decorated_list_item(glyph), width);
+        let glyph_spans: Vec<_> = row
+            .spans
+            .iter()
+            .filter(|span| span.role == HostControlSpanRole::Yellow)
+            .collect();
+        assert!(
+            glyph_spans.len() <= 1 && glyph_spans.iter().all(|span| span.text == glyph),
+            "width {width} sliced the glyph: {row:?}"
+        );
+        assert!(
+            UnicodeWidthStr::width(row.text.as_str()) <= width,
+            "width {width} was exceeded: {row:?}"
+        );
+    }
+}
+
+#[test]
+fn undecorated_list_rows_keep_their_text_and_uniform_paint_shape() {
+    let row = project_list_item(
+        ListItem {
+            id: id("plain"),
+            label: "Alpha".to_owned(),
+            description: None,
+            status: Some("Running".to_owned()),
+            count: Some(2),
+            glyph: None,
+            badge: None,
+            suffix: None,
+            actions: Vec::new(),
+        },
+        40,
+    );
+
+    assert_eq!(row.text, ">> Alpha (2) [Running]");
+    assert!(
+        row.spans.is_empty(),
+        "empty spans retain the existing one-color render path: {row:?}"
+    );
+}
+
 /// Issue #723 fix 4: a sidebar row is one line — `name [N]` truncates the
 /// name to the pane width so the count survives and the row never wraps.
 #[test]
@@ -67,6 +196,9 @@ fn list_label_rows_truncate_instead_of_wrapping() {
             description: None,
             status: Some("1".to_owned()),
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         }],
         selected_id: None,
@@ -109,6 +241,9 @@ fn list_count_survives_when_the_label_does_not() {
             description: None,
             status: None,
             count: Some(12),
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         }],
         selected_id: None,
@@ -150,6 +285,9 @@ fn list_renders_a_count_before_a_status_suffix() {
             description: None,
             status: Some("Running".to_owned()),
             count: Some(2),
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         }],
         selected_id: None,
@@ -254,6 +392,9 @@ fn extreme_width_rows(
             description: None,
             status: status.map(str::to_owned),
             count,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         }],
         selected_id: None,
@@ -673,6 +814,9 @@ fn activation_repairs_stale_local_list_and_diff_selection_to_the_visible_row() {
             description: None,
             status: None,
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         }],
         selected_id: Some(id("current")),

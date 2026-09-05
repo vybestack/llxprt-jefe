@@ -53,10 +53,10 @@ pub use super::dto::{
 pub use super::panel_model::{
     ActivatePanelPayload, Affordance, BodyKind, DeactivatePanelPayload, DeactivateReason,
     DetailBody, DetailMetadata, DiffLineOrigin, EmptyBody, ErrorBody, FormBody, FormFieldError,
-    HostLocal, ListBody, ListItem, MigrateConfigPayload, MigratedConfigPayload, PanelBody,
-    PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody, StatusBody, StatusRow,
-    StatusRowState, StructuredDiffBody, StructuredDiffFile, StructuredDiffHunk, StructuredDiffLine,
-    StructuredDiffPath, TreeBody, TreeNode,
+    HostLocal, ListBody, ListItem, ListItemGlyph, ListItemGlyphRole, MigrateConfigPayload,
+    MigratedConfigPayload, PanelBody, PanelEvent, PanelEventPayload, PanelSnapshot, ProgressBody,
+    StatusBody, StatusRow, StatusRowState, StructuredDiffBody, StructuredDiffFile,
+    StructuredDiffHunk, StructuredDiffLine, StructuredDiffPath, TreeBody, TreeNode,
 };
 
 // Pure validators.

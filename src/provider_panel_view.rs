@@ -9,7 +9,7 @@
 
 use crate::git_info::GitRepoInfo;
 pub use crate::host_controls::PanelHitTarget;
-use crate::host_controls::project_control_body;
+use crate::host_controls::{HostControlSpan, project_control_body_with_marked_id};
 use crate::runtime::provider::protocol::{Affordance, PanelBody};
 use crate::state::AppState;
 use crate::state::provider_panels::{PanelLifecycle, ProviderPanelState};
@@ -55,12 +55,16 @@ pub struct PanelProjection {
     pub status: PanelStatus,
     /// Wrapped and scroll-clipped display lines.
     pub lines: Vec<String>,
+    /// Typed display segments aligned with `lines`; an empty row is uniformly themed.
+    pub(crate) spans: Vec<Vec<HostControlSpan>>,
+    /// Content-row index represented by the first visible display line.
+    pub(crate) visible_window_origin: usize,
     /// Largest valid host-local scroll offset for this projection.
     pub max_scroll_offset: u32,
     /// Semantic target occupying each display line, aligned with `lines`.
+    pub hit_targets: Vec<Option<PanelHitTarget>>,
     /// Which shared renderer consumes this panel's projected content.
     pub render: PanelRender,
-    pub hit_targets: Vec<Option<PanelHitTarget>>,
     /// Rectangle-keyed targets for content a row index cannot address: the
     /// card grid packs several cards onto one row, so each visible card
     /// carries its own rectangle (issue #706).
@@ -199,6 +203,25 @@ pub fn project_current_screen(
         layout,
         &focused_panel,
     )?;
+    let dashboard_git = descriptor
+        .panels
+        .iter()
+        .zip(&view.panels)
+        .any(|(panel_descriptor, projection)| {
+            projection.visible
+                && registry
+                    .panel_binding(descriptor.id, &panel_descriptor.id)
+                    .is_none()
+                && state
+                    .provider_panels()
+                    .panel_for_screen(instance_id, &panel_descriptor.id)
+                    .is_none()
+                && panel_descriptor.host_capability.is_some_and(|capability| {
+                    capability.model_source() == HostPanelModelSource::AgentList
+                })
+        })
+        .then(|| crate::dashboard_git_info::resolve_dashboard_git_info(state))
+        .flatten();
     for (panel_descriptor, projection) in descriptor.panels.iter().zip(&mut view.panels) {
         if !projection.visible
             || registry
@@ -211,7 +234,13 @@ pub fn project_current_screen(
         {
             continue;
         }
-        project_declared_content(&descriptor.id, panel_descriptor, projection, state);
+        project_declared_content(
+            &descriptor.id,
+            panel_descriptor,
+            projection,
+            state,
+            dashboard_git.as_ref(),
+        );
     }
     Ok(view)
 }
@@ -223,6 +252,7 @@ fn project_declared_content(
     panel_descriptor: &crate::workbench::PanelDescriptor,
     projection: &mut PanelProjection,
     state: &AppState,
+    dashboard_git: Option<&crate::dashboard_git_info::DashboardGitInfoSnapshot>,
 ) {
     if panel_descriptor.panel_type.as_str() == PTY_PANEL_TYPE {
         // The Terminal Manager's preview pane carries the single live
@@ -243,6 +273,7 @@ fn project_declared_content(
         projection.focused = state.terminal_focused;
         projection.status = PanelStatus::Active;
         projection.lines.clear();
+        projection.spans.clear();
         projection.hit_targets.clear();
         projection.max_scroll_offset = 0;
         projection.render = PanelRender::EmbeddedTerminal;
@@ -259,17 +290,25 @@ fn project_declared_content(
         // The grid survives the Repositories cutover with its own
         // renderer; the host capability still owns the input
         // contract (selection, attach, paging) declared in #706.
-        let model = crate::host_panel_models::project_host_panel(state, capability.model_source());
+        let model =
+            crate::host_panel_models::project_host_panel(state, capability.model_source(), None);
         projection.title = model.title;
         projection.status = PanelStatus::Active;
         projection.lines.clear();
+        projection.spans.clear();
         projection.hit_targets.clear();
         projection.max_scroll_offset = 0;
         projection.render = PanelRender::WorkbenchCards;
         projection.rect_hit_targets = workbench_card_hit_targets(state, projection.content);
         return;
     }
-    let model = crate::host_panel_models::project_host_panel(state, capability.model_source());
+    let source = capability.model_source();
+    let git = if source == HostPanelModelSource::AgentList {
+        dashboard_git
+    } else {
+        None
+    };
+    let model = crate::host_panel_models::project_host_panel(state, source, git);
     if crate::host_controls::ControlKind::from(model.body.kind()) == capability.control_kind() {
         project_host_model(projection, model);
     }
@@ -385,6 +424,7 @@ fn project_filter_band(projection: &mut PanelProjection, state: &AppState) {
     projection.title.clear();
     projection.status = PanelStatus::Active;
     projection.lines = vec![format!("{line}_")];
+    projection.spans = vec![Vec::new()];
     projection.hit_targets = vec![None];
     projection.max_scroll_offset = 0;
     projection.render = PanelRender::Control;
@@ -405,6 +445,7 @@ fn project_shell_preview(projection: &mut PanelProjection, state: &AppState) {
     let Some(row) = selected else {
         projection.status = PanelStatus::Active;
         projection.lines.clear();
+        projection.spans.clear();
         projection.hit_targets.clear();
         projection.max_scroll_offset = 0;
         return;
@@ -437,6 +478,7 @@ fn project_shell_preview(projection: &mut PanelProjection, state: &AppState) {
     }
     let maximum = lines.len().saturating_sub(1);
     projection.status = PanelStatus::Active;
+    projection.spans = vec![Vec::new(); lines.len()];
     projection.lines = lines;
     projection.hit_targets.clear();
     projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
@@ -456,6 +498,7 @@ fn project_host_model(
         loading: false,
         stale: false,
         selected_id: model.selected_id.as_ref(),
+        marked_id: model.grabbed_id.as_ref(),
         form_draft: None,
         body_width,
     });
@@ -465,9 +508,12 @@ fn project_host_model(
         .len()
         .saturating_sub(usize::from(projection.content.height));
     projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
-    let clipped = clip_to_content(rows, model.scroll_offset, projection.content.height);
-    projection.lines = clipped.iter().map(|row| row.text.clone()).collect();
-    projection.hit_targets = clipped.into_iter().map(|row| row.target).collect();
+    let window = visible_projected_window(rows, model.scroll_offset, projection.content.height);
+    let (lines, spans, hit_targets) = split_projected_rows(window.rows);
+    projection.lines = lines;
+    projection.spans = spans;
+    projection.hit_targets = hit_targets;
+    projection.visible_window_origin = window.origin;
     projection.render = PanelRender::Control;
 }
 // ---------------------------------------------------------------------------
@@ -485,15 +531,22 @@ struct PanelProjectionInput<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ProjectedRow {
-    text: String,
-    target: Option<PanelHitTarget>,
+pub(crate) struct ProjectedRow {
+    pub(crate) text: String,
+    pub(crate) spans: Vec<HostControlSpan>,
+    pub(crate) target: Option<PanelHitTarget>,
+}
+
+pub(crate) struct ProjectedWindow {
+    pub(crate) origin: usize,
+    pub(crate) rows: Vec<ProjectedRow>,
 }
 
 impl ProjectedRow {
     fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
+            spans: Vec::new(),
             target: None,
         }
     }
@@ -501,23 +554,25 @@ impl ProjectedRow {
     fn targeted(text: impl Into<String>, target: PanelHitTarget) -> Self {
         Self {
             text: text.into(),
+            spans: Vec::new(),
             target: Some(target),
         }
     }
 }
 
-struct ModelProjectionInput<'a> {
-    body: &'a PanelBody,
-    affordances: &'a [Affordance],
-    description: Option<&'a str>,
-    loading: bool,
-    stale: bool,
-    selected_id: Option<&'a crate::domain::Id>,
-    form_draft: Option<&'a crate::domain::TypedMap>,
-    body_width: usize,
+pub(crate) struct ModelProjectionInput<'a> {
+    pub(crate) body: &'a PanelBody,
+    pub(crate) affordances: &'a [Affordance],
+    pub(crate) description: Option<&'a str>,
+    pub(crate) loading: bool,
+    pub(crate) stale: bool,
+    pub(crate) selected_id: Option<&'a crate::domain::Id>,
+    pub(crate) marked_id: Option<&'a crate::domain::Id>,
+    pub(crate) form_draft: Option<&'a crate::domain::TypedMap>,
+    pub(crate) body_width: usize,
 }
 
-fn project_model_rows(input: ModelProjectionInput<'_>) -> Vec<ProjectedRow> {
+pub(crate) fn project_model_rows(input: ModelProjectionInput<'_>) -> Vec<ProjectedRow> {
     let mut rows = Vec::new();
     if input.loading {
         rows.push(ProjectedRow::plain("loading…"));
@@ -527,16 +582,18 @@ fn project_model_rows(input: ModelProjectionInput<'_>) -> Vec<ProjectedRow> {
     }
     rows.extend(project_description(input.description, input.body_width));
     rows.extend(
-        project_control_body(
+        project_control_body_with_marked_id(
             input.body,
             input.affordances,
             input.selected_id,
+            input.marked_id,
             input.form_draft,
             input.body_width,
         )
         .into_iter()
         .map(|row| ProjectedRow {
             text: row.text,
+            spans: row.spans,
             target: row.target,
         }),
     );
@@ -572,6 +629,7 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
             loading: snapshot.loading,
             stale,
             selected_id,
+            marked_id: None,
             form_draft,
             body_width: usize::from(input.content.width.max(1)),
         })
@@ -579,9 +637,8 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
     let max_scroll_offset =
         u32::try_from(rows.len().saturating_sub(usize::from(input.content.height)))
             .unwrap_or(u32::MAX);
-    let clipped = clip_to_content(rows, scroll_offset, input.content.height);
-    let lines = clipped.iter().map(|row| row.text.clone()).collect();
-    let hit_targets = clipped.into_iter().map(|row| row.target).collect();
+    let window = visible_projected_window(rows, scroll_offset, input.content.height);
+    let (lines, spans, hit_targets) = split_projected_rows(window.rows);
     PanelProjection {
         id: input.id,
         title,
@@ -591,6 +648,8 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
         content: input.content,
         status,
         lines,
+        spans,
+        visible_window_origin: window.origin,
         max_scroll_offset,
         hit_targets,
         render: PanelRender::Control,
@@ -609,6 +668,8 @@ fn hidden_panel(id: PanelId) -> PanelProjection {
         content: Rect::default(),
         status: PanelStatus::Unavailable,
         lines: Vec::new(),
+        spans: Vec::new(),
+        visible_window_origin: 0,
         max_scroll_offset: 0,
         hit_targets: Vec::new(),
         render: PanelRender::Control,
@@ -627,6 +688,8 @@ fn unavailable_panel(id: PanelId, focused: bool, chrome: Rect, content: Rect) ->
         content,
         status: PanelStatus::Unavailable,
         lines: vec!["provider unavailable".to_owned()],
+        spans: vec![Vec::new()],
+        visible_window_origin: 0,
         max_scroll_offset: 0,
         hit_targets: vec![None],
         render: PanelRender::Control,
@@ -649,21 +712,51 @@ fn panel_status(lifecycle: Option<PanelLifecycle>, has_snapshot: bool, stale: bo
     }
 }
 
-/// Clip body rows to the content height, applying the host scroll offset.
-fn clip_to_content(
+/// Clip projected rows to a visible content window at the host scroll offset.
+pub(crate) fn visible_projected_window(
     rows: Vec<ProjectedRow>,
     scroll_offset: u32,
     content_height: u16,
-) -> Vec<ProjectedRow> {
-    if content_height == 0 {
-        return Vec::new();
+) -> ProjectedWindow {
+    let origin = usize::try_from(scroll_offset).unwrap_or(usize::MAX);
+    if content_height == 0 || origin >= rows.len() {
+        return ProjectedWindow {
+            origin,
+            rows: Vec::new(),
+        };
     }
     let max = usize::from(content_height);
-    let offset = usize::try_from(scroll_offset).unwrap_or(0);
-    if offset >= rows.len() {
-        return Vec::new();
+    ProjectedWindow {
+        origin,
+        rows: rows.into_iter().skip(origin).take(max).collect(),
     }
-    rows.into_iter().skip(offset).take(max).collect()
+}
+
+fn split_projected_rows(
+    rows: Vec<ProjectedRow>,
+) -> (
+    Vec<String>,
+    Vec<Vec<HostControlSpan>>,
+    Vec<Option<PanelHitTarget>>,
+) {
+    let mut lines = Vec::with_capacity(rows.len());
+    let mut spans = Vec::with_capacity(rows.len());
+    let mut hit_targets = Vec::with_capacity(rows.len());
+    for row in rows {
+        assert!(
+            row.spans.is_empty()
+                || row
+                    .spans
+                    .iter()
+                    .flat_map(|span| span.text.chars())
+                    .eq(row.text.chars()),
+            "projected row spans must concatenate to row text"
+        );
+        lines.push(row.text);
+        spans.push(row.spans);
+        hit_targets.push(row.target);
+    }
+    (lines, spans, hit_targets)
 }
 
 fn project_description(description: Option<&str>, width: usize) -> Vec<ProjectedRow> {

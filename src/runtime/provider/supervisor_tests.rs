@@ -162,20 +162,27 @@ fn secret_structured_diff_body(secret: &str) -> PanelBody {
     })
 }
 
+fn secret_list_body(secret: &str) -> PanelBody {
+    PanelBody::List(ListBody {
+        items: vec![ListItem {
+            id: panel_fixture_id("item"),
+            label: format!("label {secret}"),
+            description: Some(format!("description {secret}")),
+            status: Some(format!("status {secret}")),
+            count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
+            actions: Vec::new(),
+        }],
+        selected_id: Some(panel_fixture_id("item")),
+        next_page_token: Some(format!("page {secret}")),
+    })
+}
+
 fn secret_panel_bodies(secret: &str, action: &ActionId) -> Vec<PanelBody> {
     vec![
-        PanelBody::List(ListBody {
-            items: vec![ListItem {
-                id: panel_fixture_id("item"),
-                label: format!("label {secret}"),
-                description: Some(format!("description {secret}")),
-                status: Some(format!("status {secret}")),
-                count: None,
-                actions: Vec::new(),
-            }],
-            selected_id: Some(panel_fixture_id("item")),
-            next_page_token: Some(format!("page {secret}")),
-        }),
+        secret_list_body(secret),
         secret_tree_body(secret),
         PanelBody::Detail(DetailBody {
             document: format!("document {secret}"),

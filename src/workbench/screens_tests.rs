@@ -697,8 +697,11 @@ fn repositories_status_pane_fits_every_bucket_row_at_120x36() {
     // Every row the projection emits, clipped to the interior height the pane
     // renders — the same clip `project_host_model` applies before drawing.
     let state = crate::state::AppState::test_fixture();
-    let model =
-        crate::host_panel_models::project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
+    let model = crate::host_panel_models::project_host_panel(
+        &state,
+        HostPanelModelSource::WorkbenchStatus,
+        None,
+    );
     let rows = crate::host_controls::project_control_body(
         &model.body,
         &model.action_affordances,

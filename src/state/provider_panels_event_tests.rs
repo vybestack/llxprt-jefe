@@ -135,6 +135,9 @@ fn list_panel(
             description: None,
             status: None,
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: vec![],
         })
         .collect();

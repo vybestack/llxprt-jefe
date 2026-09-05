@@ -245,6 +245,9 @@
             description: None,
             status: None,
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         }
     }

@@ -69,7 +69,7 @@ fn projected_rows(model: &HostPanelModel, width: usize) -> Vec<String> {
 fn repository_rows_carry_the_parenthesized_agent_count() {
     let state = state_with_two_repositories();
 
-    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList);
+    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList, None);
 
     assert_eq!(model.title, "Repositories");
     let items = repository_items(&model);
@@ -102,7 +102,7 @@ fn repository_rows_carry_the_parenthesized_agent_count() {
 fn repository_row_renders_the_parenthesized_count_through_the_shared_control() {
     let state = state_with_two_repositories();
 
-    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList);
+    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList, None);
 
     assert_eq!(
         projected_rows(&model, 40),
@@ -120,7 +120,7 @@ fn an_overlong_repository_row_truncates_the_name_and_keeps_the_count() {
     let mut state = state_with_two_repositories();
     state.repositories[0].name = "a".repeat(40);
 
-    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList);
+    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList, None);
     let rows = projected_rows(&model, 16);
 
     assert_eq!(rows.len(), 2, "one row per repository: {rows:?}");

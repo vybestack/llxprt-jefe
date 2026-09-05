@@ -60,7 +60,7 @@ fn state_with(observations: Vec<AgentAvailabilityObservation>) -> AppState {
 }
 
 fn availability_body(state: &AppState) -> ListBody {
-    let model = project_host_panel(state, HostPanelModelSource::AgentTypeAvailability);
+    let model = project_host_panel(state, HostPanelModelSource::AgentTypeAvailability, None);
     assert_eq!(
         model.title, "Agent Types",
         "the pane's title is the literal the required scenario asserts"
@@ -97,7 +97,7 @@ fn every_observation_projects_one_row_in_probe_order() {
 #[test]
 fn a_projected_row_reads_exactly_as_the_pre_cutover_pane_spelled_it() {
     let state = state_with(observations());
-    let model = project_host_panel(&state, HostPanelModelSource::AgentTypeAvailability);
+    let model = project_host_panel(&state, HostPanelModelSource::AgentTypeAvailability, None);
 
     let rows = crate::host_controls::project_control_body(
         &model.body,

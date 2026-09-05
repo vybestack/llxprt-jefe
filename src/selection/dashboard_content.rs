@@ -2,12 +2,13 @@
 
 use crate::dashboard_git_info::DashboardGitInfoSnapshot;
 use crate::list_viewport::bordered_padded_content_width;
-use crate::selection::SelectablePane;
-use crate::state::{AppState, DashboardGrabPane};
-use crate::ui::components::selectable_list::projected_content_lines;
-use crate::ui::components::{
-    AgentListSelection, AgentListView, AgentListWindow, agent_list_props, preview_content_lines,
+use crate::provider_panel_view::{
+    ModelProjectionInput, project_model_rows, visible_projected_window,
 };
+use crate::selection::SelectablePane;
+use crate::state::AppState;
+use crate::ui::components::preview_content_lines;
+use crate::workbench::HostPanelModelSource;
 
 use super::content::PaneContent;
 
@@ -18,46 +19,33 @@ pub fn agent_list_lines(
     render_rows: u16,
     git_info: Option<&DashboardGitInfoSnapshot>,
 ) -> PaneContent {
-    let Some(repo) = state.selected_repository() else {
-        return PaneContent::empty(SelectablePane::AgentList);
-    };
-    let agents = state.visible_agents_for_repository(&repo.id);
-    let configured = git_info.is_none().then(|| {
-        let info = crate::git_info::GitRepoInfo::from_configured_origin(&repo.github_repo);
-        vec![info; agents.len()]
-    });
-    let git_infos = git_info.map_or_else(
-        || configured.as_deref().unwrap_or_default(),
-        |info| info.agents.as_slice(),
-    );
     let pane_rows = crate::layout::dashboard_middle_row_heights_inner(render_rows).0;
     let pane_cols =
         render_cols.saturating_sub(crate::layout::LEFT_COL_WIDTH + crate::layout::RIGHT_COL_WIDTH);
-    let props = agent_list_props(
-        &agents,
-        git_infos,
-        AgentListView {
-            selection: AgentListSelection {
-                selected: state.selected_agent_local_index().unwrap_or(0),
-                grabbed: state.dashboard_grab.as_ref().and_then(|grab| match grab {
-                    DashboardGrabPane::Agent { local_index, .. } => Some(*local_index),
-                    DashboardGrabPane::Repository { .. } => None,
-                }),
-            },
-            window: AgentListWindow {
-                pane_rows,
-                content_width: bordered_padded_content_width(pane_cols),
-            },
-        },
-        false,
-        crate::theme::ThemeColors::default(),
-        None,
+    let content_height = pane_rows.saturating_sub(crate::layout::AGENT_LIST_CHROME_ROWS);
+    let content_width = pane_cols.saturating_sub(crate::layout::AGENT_LIST_CHROME_COLS);
+    let model = crate::host_panel_models::project_host_panel(
+        state,
+        HostPanelModelSource::AgentList,
+        git_info,
     );
+    let rows = project_model_rows(ModelProjectionInput {
+        body: &model.body,
+        affordances: &model.action_affordances,
+        description: None,
+        loading: false,
+        stale: false,
+        selected_id: model.selected_id.as_ref(),
+        marked_id: model.grabbed_id.as_ref(),
+        form_draft: None,
+        body_width: usize::from(content_width.max(1)),
+    });
     PaneContent::new(
         SelectablePane::AgentList,
-        projected_content_lines(&props)
+        visible_projected_window(rows, model.scroll_offset, content_height)
+            .rows
             .into_iter()
-            .map(|line| line.text),
+            .map(|row| row.text),
     )
 }
 
@@ -81,4 +69,53 @@ pub fn preview_lines(state: &AppState, git_info: Option<&DashboardGitInfoSnapsho
             content_width,
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::AgentStatus;
+    use crate::test_support::{host_panel_agent, host_panel_repository};
+
+    #[test]
+    fn copied_agent_rows_equal_the_screen_projection_at_fixed_width_and_window() {
+        const RENDER_COLS: u16 = 90;
+        const RENDER_ROWS: u16 = 20;
+
+        let mut state = AppState::new(crate::test_support::published_workbench());
+        state.repositories = vec![host_panel_repository("alpha")];
+        state.agents = (0..24)
+            .map(|index| {
+                host_panel_agent(
+                    &format!("agent-{index}-with-a-long-name"),
+                    "repo-alpha",
+                    AgentStatus::Dead,
+                )
+            })
+            .collect();
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(5);
+        state.agent_scroll_offset = 2;
+        let descriptor = state
+            .published_workbench()
+            .screen_registry()
+            .get_identity(crate::workbench::DASHBOARD_IDENTITY)
+            .unwrap_or_else(|| panic!("dashboard descriptor must be published"));
+        let layout = crate::screen_layout::resolve_screen(&state, RENDER_COLS, RENDER_ROWS)
+            .unwrap_or_else(|| panic!("dashboard layout must resolve"));
+        let git = crate::dashboard_git_info::resolve_dashboard_git_info(&state);
+
+        let view = crate::provider_panel_view::project_current_screen(&state, descriptor, &layout)
+            .unwrap_or_else(|error| panic!("dashboard projection: {error}"));
+        let rendered = view
+            .panels
+            .iter()
+            .find(|panel| panel.id.as_str() == "agents")
+            .unwrap_or_else(|| panic!("AgentList projection must exist"));
+        let copied = agent_list_lines(&state, RENDER_COLS, RENDER_ROWS, git.as_ref());
+
+        assert_eq!(rendered.visible_window_origin, 2);
+        assert!(rendered.max_scroll_offset > 0);
+        assert_eq!(copied.lines, rendered.lines);
+    }
 }

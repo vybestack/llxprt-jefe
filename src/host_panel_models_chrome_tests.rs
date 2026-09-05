@@ -35,7 +35,7 @@ fn dashboard_preview_projects_the_full_preview_view_field_set() {
     let agent = host_panel_agent("zed", "repo-alpha", AgentStatus::Dead);
     let state = state_with_selected_agent(agent);
 
-    let model = project_host_panel(&state, HostPanelModelSource::AgentPreview);
+    let model = project_host_panel(&state, HostPanelModelSource::AgentPreview, None);
     let PanelBody::Detail(body) = &model.body else {
         panic!(
             "agent preview must project a detail body, got {:?}",
@@ -65,7 +65,7 @@ fn dashboard_sidebar_falls_back_to_the_agent_id_when_values_have_no_name() {
     agent.name = String::new();
     let state = state_with_selected_agent(agent);
 
-    let model = project_host_panel(&state, HostPanelModelSource::AgentList);
+    let model = project_host_panel(&state, HostPanelModelSource::AgentList, None);
     let PanelBody::List(body) = &model.body else {
         panic!(
             "agent sidebar must project a list body, got {:?}",
@@ -91,7 +91,7 @@ fn dashboard_preview_metadata_budgets_values_after_the_label_split() {
         std::path::PathBuf::from("/tmp/jefe/workdirs/repo-alpha-very-long-checkout-path");
     let state = state_with_selected_agent(agent);
 
-    let model = project_host_panel(&state, HostPanelModelSource::AgentPreview);
+    let model = project_host_panel(&state, HostPanelModelSource::AgentPreview, None);
     let PanelBody::Detail(body) = &model.body else {
         panic!(
             "agent preview must project a detail body, got {:?}",
@@ -129,7 +129,7 @@ fn dashboard_preview_metadata_stays_five_rows_while_a_turn_is_active() {
     );
     state.observations.insert(agent.id.clone(), observation);
 
-    let model = project_host_panel(&state, HostPanelModelSource::AgentPreview);
+    let model = project_host_panel(&state, HostPanelModelSource::AgentPreview, None);
     let PanelBody::Detail(body) = &model.body else {
         panic!(
             "agent preview must project a detail body, got {:?}",
@@ -244,7 +244,7 @@ fn preview_observation() -> crate::domain::observation::AgentObservation {
 /// The rows the shipped panel actually paints, taken through the shared
 /// control projection rather than read off the model.
 fn projected_preview_rows(state: &AppState, width: usize) -> Vec<String> {
-    let model = project_host_panel(state, HostPanelModelSource::AgentPreview);
+    let model = project_host_panel(state, HostPanelModelSource::AgentPreview, None);
     crate::host_controls::project_control_body(
         &model.body,
         &model.action_affordances,
@@ -258,7 +258,7 @@ fn projected_preview_rows(state: &AppState, width: usize) -> Vec<String> {
 }
 
 fn preview_metadata_value(state: &AppState, label: &str) -> String {
-    let model = project_host_panel(state, HostPanelModelSource::AgentPreview);
+    let model = project_host_panel(state, HostPanelModelSource::AgentPreview, None);
     let PanelBody::Detail(body) = &model.body else {
         panic!(
             "agent preview must project a detail body, got {:?}",

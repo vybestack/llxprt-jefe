@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "3b6ebcdf7d4c89cc6858505071d7b375fc2b79ab350fe147c862837c54d09a86",
+  "scenario_manifest_sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -800,6 +800,18 @@
       "platform": "macos",
       "ci_job": "tui_scenarios_macos",
       "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json --install jefe=cargo-bin:jefe --install tmux=repo:scripts/harness-tmux-shim.sh --install tmux-real=host-path:tmux"
+    },
+    {
+      "path": "dev-docs/tmux-scenarios/issue730/agent-row-status-glyphs.json",
+      "sha256": "5379001e6d3a41a1becd9adb119514c991967244a6b69afa56af3baa79688273",
+      "mode": "100644",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ],
+      "platform": "macos",
+      "ci_job": "tui_scenarios_macos",
+      "command": "tmux_scenario --scenario dev-docs/tmux-scenarios/issue730/agent-row-status-glyphs.json --install git=repo:scripts/issue730-git-shim.sh --install jefe=cargo-bin:jefe --install tmux=repo:scripts/issue730-tmux-shim.sh"
     },
     {
       "path": "dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json",
@@ -2203,7 +2215,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "3b6ebcdf7d4c89cc6858505071d7b375fc2b79ab350fe147c862837c54d09a86",
+      "sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2610,6 +2622,24 @@
     {
       "path": "scripts/issue633-slow-probe-shim.sh",
       "sha256": "4ce597208c333b66ed70649f87607c6fa9e4d147d7d6b5d937877a251bc949bc",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue730-git-shim.sh",
+      "sha256": "7d22650fb6d587a892c11404d6f2a6eabfd44b2715461ca79610550b10d73fde",
+      "mode": "100755",
+      "criteria": [
+        "CW00B-02",
+        "CW00B-04"
+      ]
+    },
+    {
+      "path": "scripts/issue730-tmux-shim.sh",
+      "sha256": "40096b26c8e131959917aed8c2cbdd410a51295f65420018e5dfa1b1954ec56e",
       "mode": "100755",
       "criteria": [
         "CW00B-02",
@@ -3621,6 +3651,7 @@
         "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
+        "dev-docs/tmux-scenarios/issue730/agent-row-status-glyphs.json",
         "dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
@@ -3777,6 +3808,8 @@
         "scripts/issue621-gh-shim.sh",
         "scripts/issue621-run-scenarios.sh",
         "scripts/issue633-slow-probe-shim.sh",
+        "scripts/issue730-git-shim.sh",
+        "scripts/issue730-tmux-shim.sh",
         "scripts/regenerate-first-agent-tutorial.sh",
         "scripts/run-scenario-manifest.py",
         "src/app_input/action_handlers.rs",
@@ -3920,6 +3953,7 @@
         "dev-docs/tmux-scenarios/issue727/edit-agent-presentation.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-lifecycle.json",
         "dev-docs/tmux-scenarios/issue727/edit-repository-presentation.json",
+        "dev-docs/tmux-scenarios/issue730/agent-row-status-glyphs.json",
         "dev-docs/tmux-scenarios/issue731/dashboard-focus-chrome.json",
         "dev-docs/tmux-scenarios/issues-close-delete.json",
         "dev-docs/tmux-scenarios/issues-close-reason.json",
@@ -4062,6 +4096,8 @@
         "scripts/issue575-llxprt-shim.sh",
         "scripts/issue621-gh-shim.sh",
         "scripts/issue633-slow-probe-shim.sh",
+        "scripts/issue730-git-shim.sh",
+        "scripts/issue730-tmux-shim.sh",
         "scripts/publish-first-agent-tutorial.py",
         "scripts/regenerate-first-agent-tutorial.sh",
         "scripts/run-scenario-manifest.py",

@@ -331,6 +331,9 @@ fn affordance_and_list_item_types_compile_against_model() {
         description: None,
         status: None,
         count: None,
+        glyph: None,
+        badge: None,
+        suffix: None,
         actions: Vec::new(),
     };
     let _list = ListBody {

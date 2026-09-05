@@ -192,6 +192,30 @@ pub struct Affordance {
     pub unavailable_reason: Option<String>,
 }
 
+/// One indivisible glyph carried by a host-projected list item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListItemGlyph {
+    /// Glyph text, kept whole whenever it is rendered.
+    pub text: String,
+    /// Semantic color role resolved by the final renderer.
+    pub role: ListItemGlyphRole,
+}
+
+/// Semantic color roles available to a host-projected list-item glyph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListItemGlyphRole {
+    /// Theme-relative emphasized foreground.
+    Bright,
+    /// Theme-relative secondary foreground.
+    Dim,
+    /// Terminal red.
+    Red,
+    /// Terminal yellow.
+    Yellow,
+    /// Terminal blue.
+    Blue,
+}
+
 /// One selectable item in a list body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListItem {
@@ -215,6 +239,21 @@ pub struct ListItem {
     /// Host projections only. The provider wire has no `count` key, so a
     /// snapshot read from a plugin always leaves this `None`.
     pub count: Option<usize>,
+    /// An indivisible leading glyph with a semantic color role.
+    ///
+    /// Host projections only. The provider wire has no `glyph` key, so a
+    /// snapshot read from a plugin always leaves this `None`.
+    pub glyph: Option<ListItemGlyph>,
+    /// Shortcut text rendered as `[badge] ` before the label.
+    ///
+    /// Host projections only. The provider wire has no `badge` key, so a
+    /// snapshot read from a plugin always leaves this `None`.
+    pub badge: Option<String>,
+    /// A dim trailing suffix whose content is supplied with its own spacing.
+    ///
+    /// Host projections only. The provider wire has no `suffix` key, so a
+    /// snapshot read from a plugin always leaves this `None`.
+    pub suffix: Option<String>,
     /// Action affordance ids available on this item.
     pub actions: Vec<Id>,
 }
