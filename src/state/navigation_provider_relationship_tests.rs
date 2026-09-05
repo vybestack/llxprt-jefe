@@ -270,6 +270,7 @@ fn selection_bodies() -> Vec<(PanelBody, BodyKind, Id, &'static str)> {
                     label: "Selected".to_owned(),
                     description: None,
                     status: None,
+                    count: None,
                     actions: Vec::new(),
                 }],
                 selected_id: None,

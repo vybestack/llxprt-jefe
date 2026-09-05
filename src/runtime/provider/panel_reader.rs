@@ -500,6 +500,10 @@ fn read_list_item(value: &BoundedJson, path: &str) -> Result<ListItem, ProviderE
         label: read_string(members, path, "label")?.to_owned(),
         description: read_optional_string(members, path, "description")?,
         status: read_optional_string(members, path, "status")?,
+        // `LIST_ITEM_KEYS` has no `count`: the protected trailing count is a
+        // host-projection affordance (#745), and a `count` member on the wire
+        // is refused as an unknown key like any other.
+        count: None,
         actions,
     })
 }

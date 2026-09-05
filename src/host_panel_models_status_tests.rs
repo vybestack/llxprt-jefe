@@ -52,6 +52,26 @@ fn state_with_one_agent_per_bucket() -> AppState {
     state
 }
 
+/// The content width the resolver hands the STATUS pane on the shipped split:
+/// a 22-column rail less `LIST_PANE_CHROME`'s two side borders
+/// (`src/workbench/screens.rs`). Rows are asserted at that width, not at a
+/// comfortable one, because that is where #752's folded count was lost (#745).
+const STATUS_PANE_WIDTH: usize = 20;
+
+/// The rows the shared list control paints for this model at `width`.
+fn rendered_rows(model: &crate::host_panel_models::HostPanelModel, width: usize) -> Vec<String> {
+    crate::host_controls::project_control_body(
+        &model.body,
+        &model.action_affordances,
+        model.selected_id.as_ref(),
+        None,
+        width,
+    )
+    .into_iter()
+    .map(|row| row.text)
+    .collect()
+}
+
 fn status_items(model: &crate::host_panel_models::HostPanelModel) -> &Vec<ListItem> {
     let PanelBody::List(body) = &model.body else {
         panic!(
@@ -73,19 +93,29 @@ fn status_block_lists_four_buckets_in_filter_order_with_live_counts() {
     assert_eq!(
         items
             .iter()
-            .map(|item| item.label.as_str())
+            .map(|item| (item.label.as_str(), item.count))
             .collect::<Vec<_>>(),
         [
-            "[x] Needs you (1)",
-            "[x] Working (1)",
-            "[x] Ready (1)",
-            "[x] Stale (1)"
+            ("[x] Needs you", Some(1)),
+            ("[x] Working", Some(1)),
+            ("[x] Ready", Some(1)),
+            ("[x] Stale", Some(1))
         ],
-        "default mask is all-on, buckets in filter order, counts parenthesized"
+        "default mask is all-on, buckets in filter order, counts typed"
+    );
+    assert_eq!(
+        rendered_rows(&model, STATUS_PANE_WIDTH),
+        [
+            ">> [x] Needs you (1)",
+            "   [x] Working (1)",
+            "   [x] Ready (1)",
+            "   [x] Stale (1)"
+        ],
+        "and the rows the pane paints are the corpus form"
     );
     assert!(
         items.iter().all(|item| item.status.is_none()),
-        "the count is the projection's own suffix, not a shared status value: {items:?}"
+        "a count is not a status word, so the shared `[value]` suffix stays clear: {items:?}"
     );
     assert!(
         items.iter().all(|item| item.description.is_none()),
@@ -107,11 +137,20 @@ fn status_block_checkbox_reflects_the_mask_while_counts_stay_prefilter() {
 
     let items = status_items(&model);
     assert_eq!(
-        items[1].label, "[ ] Working (1)",
+        (items[1].label.as_str(), items[1].count),
+        ("[ ] Working", Some(1)),
         "a toggled-off bucket is unchecked and counts ignore the active \
          filter, like the legacy rail"
     );
-    assert_eq!(items[0].label, "[x] Needs you (1)");
+    assert_eq!(
+        (items[0].label.as_str(), items[0].count),
+        ("[x] Needs you", Some(1))
+    );
+    assert_eq!(
+        rendered_rows(&model, STATUS_PANE_WIDTH).get(1).cloned(),
+        Some("   [ ] Working (1)".to_owned()),
+        "and the unchecked row still paints its count"
+    );
 }
 
 #[test]
@@ -185,7 +224,8 @@ fn status_block_activation_toggles_the_bucket_under_the_cursor() {
     let model = project_host_panel(&state, HostPanelModelSource::WorkbenchStatus);
     let items = status_items(&model);
     assert_eq!(
-        items[1].label, "[ ] Working (1)",
+        (items[1].label.as_str(), items[1].count),
+        ("[ ] Working", Some(1)),
         "the count stays live for a toggled-off bucket"
     );
 }

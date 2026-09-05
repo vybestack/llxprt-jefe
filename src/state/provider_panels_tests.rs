@@ -794,6 +794,7 @@ fn list_snapshot(panel: u64, generation: u64, rev: u64, item_ids: &[&str]) -> Pa
             label: (*item_id).to_string(),
             description: None,
             status: None,
+            count: None,
             actions: vec![],
         })
         .collect();

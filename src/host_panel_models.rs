@@ -68,18 +68,19 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
         .map(
             |(index, bucket)| crate::runtime::provider::protocol::ListItem {
                 id: Id::internal_indexed(InternalId::StatusBucketItem, index),
-                // The bucket count is composed here rather than handed to the
-                // shared list control as a `status` value, for the reason
-                // `repository_list` records: the shared suffix is `" [{value}]"`
-                // and the corpus pins `Needs you (1)` (#745).
                 label: format!(
-                    "{} {} ({})",
+                    "{} {}",
                     if filter.allows(*bucket) { "[x]" } else { "[ ]" },
-                    bucket.label(),
-                    counts[bucket.as_index()]
+                    bucket.label()
                 ),
                 description: None,
+                // The count goes in the typed field rather than the label for
+                // the reason `repository_list` records: the shared control
+                // budgets the label against its suffixes, and the STATUS pane
+                // is 20 cells wide, which `[x] Needs you (12)` overflows
+                // (#745).
                 status: None,
+                count: Some(counts[bucket.as_index()]),
                 actions: Vec::new(),
             },
         )
@@ -158,6 +159,7 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
             label: input.agent.name.clone(),
             description: None,
             status: Some(bucket.label().to_owned()),
+            count: None,
             actions: Vec::new(),
         })
         .collect();
@@ -187,15 +189,18 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
 
 /// The repository sidebar, projected as a list control.
 ///
-/// The agent count is composed into the row's own label rather than handed to
-/// the shared list control as a `status` value. The shared suffix is
-/// `" [{value}]"` and every control carrying a status *word* pins it that way
-/// (`Alpha One [Running]`, a card's `[Working]`); a count is not a status word,
-/// and the corpus pins the pre-cutover round form, `LLxprt Jefe (0)` (#745).
-/// The retained component the other screens render spells it the same way
-/// (`src/ui/components/sidebar.rs`). Widening the shared suffix would rewrite
-/// every agent, session and card row, so this projection carries its own
-/// suffix formatting, exactly as `agent_type_availability` does below.
+/// The agent count is handed to the shared list control as a typed `count`
+/// rather than as a `status` value or folded into the label. The shared status
+/// suffix is `" [{value}]"` and every control carrying a status *word* pins it
+/// that way (`Alpha One [Running]`, a card's `[Working]`); a count is not a
+/// status word, and the corpus pins the pre-cutover round form,
+/// `LLxprt Jefe (0)` (#745). The retained component the other screens render
+/// spells it the same way (`src/ui/components/sidebar.rs`).
+///
+/// Folding it into the label instead, as #752 did, puts it inside the span the
+/// control elides to fit the pane: the sidebar's content rectangle is 18 cells,
+/// so a real-length repository name pushed the count off the row entirely. The
+/// typed field is protected from that budget.
 fn repository_list(state: &AppState) -> HostPanelModel {
     let visible = state.visible_repository_indices();
     let items = visible
@@ -207,15 +212,12 @@ fn repository_list(state: &AppState) -> HostPanelModel {
                 .get(*repository_index)
                 .map(|repository| ListItem {
                     id: Id::internal_indexed(InternalId::RepositoryItem, visible_index),
-                    label: format!(
-                        "{} ({})",
-                        repository.name,
-                        state.visible_agent_count_for_repository(&repository.id)
-                    ),
+                    label: repository.name.clone(),
                     // The dashboard sidebar is one row per repository; a
                     // description would project as a second row.
                     description: None,
                     status: None,
+                    count: Some(state.visible_agent_count_for_repository(&repository.id)),
                     actions: Vec::new(),
                 })
         })
@@ -282,6 +284,7 @@ fn agent_list(state: &AppState) -> HostPanelModel {
                 // would project as a second row.
                 description: None,
                 status: Some(format!("{:?}", agent.status)),
+                count: None,
                 actions: Vec::new(),
             })
         })
@@ -348,6 +351,7 @@ fn agent_type_availability(state: &AppState) -> HostPanelModel {
                     .map_or_else(|| reason.clone(), |code| format!("{code}  {reason}"))
             }),
             status: None,
+            count: None,
             actions: Vec::new(),
         })
         .collect();
@@ -481,6 +485,7 @@ fn session_list(state: &AppState) -> HostPanelModel {
                     }
                 )),
                 status: Some(row.status_label.clone()),
+                count: None,
                 actions: Vec::new(),
             }
         })
@@ -546,11 +551,16 @@ mod tests {
             "repository rows must not carry a second line: {:?}",
             repository_body.items[0].description
         );
-        assert_eq!(repository_body.items[0].label, "One Repo (1)");
+        assert_eq!(repository_body.items[0].label, "One Repo");
+        assert_eq!(
+            repository_body.items[0].count,
+            Some(1),
+            "the count is a typed count the control protects, not label text (#745)"
+        );
         assert_eq!(
             repository_body.items[0].status.as_deref(),
             None,
-            "the count is the projection's own suffix, not a shared status value (#745)"
+            "a count is not a status word, so the shared `[value]` suffix stays clear (#745)"
         );
 
         let agent_model = project_host_panel(&state, HostPanelModelSource::AgentList);
