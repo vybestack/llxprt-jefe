@@ -26,7 +26,7 @@ fn session_list_clamps_a_stale_selected_index_to_the_last_row() {
     state.shell_inventory.record(AgentId("beta".to_owned()));
     state.terminal_manager.selected_index = Some(9);
 
-    let model = project_host_panel(&state, HostPanelModelSource::SessionList);
+    let model = project_host_panel(&state, HostPanelModelSource::SessionList, None);
     let body = session_body(&model);
 
     assert_eq!(body.items.len(), 2);
@@ -42,7 +42,7 @@ fn session_list_carries_no_selection_when_the_row_list_empties() {
     let mut state = AppState::new(crate::test_support::published_workbench());
     state.terminal_manager.selected_index = Some(0);
 
-    let model = project_host_panel(&state, HostPanelModelSource::SessionList);
+    let model = project_host_panel(&state, HostPanelModelSource::SessionList, None);
     let body = session_body(&model);
 
     assert!(body.items.is_empty());

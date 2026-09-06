@@ -71,7 +71,7 @@ fn cards_capability() -> crate::workbench::HostPanelCapability {
 fn workbench_cards_list_agents_in_bucket_order() {
     let state = state_with_agents_across_buckets();
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards, None);
 
     assert_eq!(model.title, "Workbench");
     let items = card_items(&model);
@@ -115,7 +115,7 @@ fn workbench_cards_respect_the_status_mask() {
         .with(StatusBucket::Working, false);
     state.workbench.status_filter = crate::state::WorkbenchStatusFilter(mask);
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards, None);
 
     let items = card_items(&model);
     assert_eq!(
@@ -134,7 +134,7 @@ fn workbench_cards_selection_follows_the_selected_agent() {
     state.selected_repository_index = Some(0);
     state.selected_agent_index = Some(0);
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards, None);
 
     // Agent 0 is "working", which the order places second.
     let expected =
@@ -147,7 +147,7 @@ fn workbench_cards_empty_when_no_agents_pass_the_filter() {
     let mut state = state_with_agents_across_buckets();
     state.agents.clear();
 
-    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards);
+    let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards, None);
 
     assert!(card_items(&model).is_empty());
     assert_eq!(model.selected_id, None);

@@ -46,6 +46,79 @@ fn dashboard_projects_declared_host_controls_through_the_shared_screen_runtime()
 
 }
 
+fn run_render_boundary_git(path: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .unwrap_or_else(|error| panic!("run git {args:?}: {error}"));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn agent_list_render_boundary_resolves_git_and_passes_it_to_the_host_model() {
+    let worktree = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("create render-boundary worktree: {error}"));
+    run_render_boundary_git(worktree.path(), &["init", "--quiet"]);
+    run_render_boundary_git(
+        worktree.path(),
+        &["symbolic-ref", "HEAD", "refs/heads/render-boundary"],
+    );
+    run_render_boundary_git(worktree.path(), &["config", "user.email", "test@test.test"]);
+    run_render_boundary_git(worktree.path(), &["config", "user.name", "Test"]);
+    run_render_boundary_git(worktree.path(), &["config", "commit.gpgsign", "false"]);
+    std::fs::write(worktree.path().join("README.md"), "fixture\n")
+        .unwrap_or_else(|error| panic!("write fixture: {error}"));
+    run_render_boundary_git(worktree.path(), &["add", "README.md"]);
+    run_render_boundary_git(worktree.path(), &["commit", "--quiet", "-m", "fixture"]);
+    std::fs::write(worktree.path().join("operator-change.txt"), "dirty\n")
+        .unwrap_or_else(|error| panic!("write dirty fixture: {error}"));
+
+    let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
+    let mut repository = crate::test_support::host_panel_repository("alpha");
+    repository.github_repo = "owner/render-boundary".to_owned();
+    let mut agent = crate::test_support::host_panel_agent(
+        "Alpha One",
+        "repo-alpha",
+        crate::domain::AgentStatus::Dead,
+    );
+    agent.shortcut_slot = Some(1);
+    agent.work_dir = worktree.path().to_path_buf();
+    state.repositories = vec![repository];
+    state.agents = vec![agent];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(crate::workbench::DASHBOARD_IDENTITY)
+        .unwrap_or_else(|| panic!("dashboard descriptor must be published"));
+    let layout = crate::screen_layout::resolve_screen(&state, 120, 40)
+        .unwrap_or_else(|| panic!("dashboard layout must resolve"));
+
+    let view = crate::provider_panel_view::project_current_screen(&state, descriptor, &layout)
+        .unwrap_or_else(|error| panic!("dashboard projection: {error}"));
+    let agents = view
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "agents")
+        .unwrap_or_else(|| panic!("Agents projection must exist"));
+
+    assert!(
+        agents
+            .lines
+            .iter()
+            .any(|line| line.contains("owner/render-boundary @ render-boundary *")),
+        "the AgentList render boundary must pass its resolved snapshot into the pure model: {:?}",
+        agents.lines
+    );
+}
+
 #[test]
 fn current_projection_rejects_layout_from_a_suspended_same_definition_instance() {
     let mut state = crate::state::AppState::new(crate::test_support::published_workbench());

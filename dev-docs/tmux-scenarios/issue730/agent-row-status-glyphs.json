@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "name": "agent-row-status-glyphs",
+  "platform": "macos",
+  "terminal": {
+    "cols": 120,
+    "rows": 40
+  },
+  "workspace": {
+    "mode": 448,
+    "dirs": [
+      {
+        "path": "config",
+        "mode": 448
+      },
+      {
+        "path": "work",
+        "mode": 448
+      },
+      {
+        "path": "work/one",
+        "mode": 448
+      },
+      {
+        "path": "work/two",
+        "mode": 448
+      },
+      {
+        "path": "work/three",
+        "mode": 448
+      },
+      {
+        "path": "work/four",
+        "mode": 448
+      }
+    ],
+    "files": [
+      {
+        "path": "config/state.json",
+        "content": {
+          "utf8": "{\n  \"state_schema\": 2,\n  \"revision\": 1,\n  \"repositories\": [\n    {\n      \"id\": \"repo.widgets\",\n      \"location\": {\n        \"local_path\": \"work\"\n      },\n      \"display_name\": \"widgets\",\n      \"agent_defaults\": {\n        \"type_id\": \"core.llxprt\",\n        \"values\": {\n          \"github-issue-pr-repo\": {\n            \"type\": \"string\",\n            \"value\": \"\"\n          },\n          \"github-repo\": {\n            \"type\": \"string\",\n            \"value\": \"owner/widgets\"\n          },\n          \"remote\": {\n            \"type\": \"map\",\n            \"value\": {\n              \"enabled\": {\n                \"type\": \"bool\",\n                \"value\": false\n              },\n              \"host\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"identity-file\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"login-user\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"options\": {\n                \"type\": \"list\",\n                \"value\": []\n              },\n              \"run-as-user\": {\n                \"type\": \"string\",\n                \"value\": \"\"\n              },\n              \"setup-env-default\": {\n                \"type\": \"bool\",\n                \"value\": false\n              }\n            }\n          },\n          \"slug\": {\n            \"type\": \"string\",\n            \"value\": \"\"\n          },\n          \"transient-agent-dir\": {\n            \"type\": \"string\",\n            \"value\": \"\"\n          },\n          \"transient-max-concurrent\": {\n            \"type\": \"integer\",\n            \"value\": 0\n          }\n        }\n      }\n    }\n  ],\n  \"agents\": [\n    {\n      \"id\": \"agent.widgets.one\",\n      \"repository_id\": \"repo.widgets\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {\n        \"description\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha One description\"\n        },\n        \"display-id\": {\n          \"type\": \"string\",\n          \"value\": \"agent.widgets.one\"\n        },\n        \"name\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha One\"\n        },\n        \"origin\": {\n          \"type\": \"string\",\n          \"value\": \"persistent\"\n        },\n        \"shortcut-slot\": {\n          \"type\": \"integer\",\n          \"value\": 1\n        },\n        \"work-dir\": {\n          \"type\": \"string\",\n          \"value\": \"one\"\n        }\n      },\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": \"jefe-agent_widgets_one\",\n        \"invocation_generation\": 1,\n        \"last_known\": \"running\"\n      }\n    },\n    {\n      \"id\": \"agent.widgets.two\",\n      \"repository_id\": \"repo.widgets\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {\n        \"description\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha Two description\"\n        },\n        \"display-id\": {\n          \"type\": \"string\",\n          \"value\": \"agent.widgets.two\"\n        },\n        \"name\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha Two\"\n        },\n        \"origin\": {\n          \"type\": \"string\",\n          \"value\": \"persistent\"\n        },\n        \"shortcut-slot\": {\n          \"type\": \"integer\",\n          \"value\": 2\n        },\n        \"work-dir\": {\n          \"type\": \"string\",\n          \"value\": \"two\"\n        }\n      },\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": null,\n        \"invocation_generation\": 0,\n        \"last_known\": \"unknown\"\n      }\n    },\n    {\n      \"id\": \"agent.widgets.three\",\n      \"repository_id\": \"repo.widgets\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {\n        \"description\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha Three description\"\n        },\n        \"display-id\": {\n          \"type\": \"string\",\n          \"value\": \"agent.widgets.three\"\n        },\n        \"name\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha Three\"\n        },\n        \"origin\": {\n          \"type\": \"string\",\n          \"value\": \"persistent\"\n        },\n        \"shortcut-slot\": {\n          \"type\": \"integer\",\n          \"value\": 3\n        },\n        \"work-dir\": {\n          \"type\": \"string\",\n          \"value\": \"three\"\n        }\n      },\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": null,\n        \"invocation_generation\": 0,\n        \"last_known\": \"stopped\"\n      }\n    },\n    {\n      \"id\": \"agent.widgets.four\",\n      \"repository_id\": \"repo.widgets\",\n      \"type_id\": \"core.llxprt\",\n      \"values\": {\n        \"description\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha Four description\"\n        },\n        \"display-id\": {\n          \"type\": \"string\",\n          \"value\": \"agent.widgets.four\"\n        },\n        \"name\": {\n          \"type\": \"string\",\n          \"value\": \"Alpha Four\"\n        },\n        \"origin\": {\n          \"type\": \"string\",\n          \"value\": \"persistent\"\n        },\n        \"shortcut-slot\": {\n          \"type\": \"integer\",\n          \"value\": 4\n        },\n        \"work-dir\": {\n          \"type\": \"string\",\n          \"value\": \"four\"\n        }\n      },\n      \"launch_signature\": {\n        \"version\": 1,\n        \"definition_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"typed_value_hash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n        \"target_fingerprint\": \"0000000000000000000000000000000000000000000000000000000000000000\"\n      },\n      \"runtime\": {\n        \"session_id\": null,\n        \"invocation_generation\": 0,\n        \"last_known\": \"running\"\n      }\n    }\n  ],\n  \"selection\": {\n    \"repository_id\": \"repo.widgets\",\n    \"agent_id\": \"agent.widgets.one\",\n    \"screen_id\": \"core.dashboard\"\n  },\n  \"last_selected_agent_by_repo\": {\n    \"repo.widgets\": \"agent.widgets.one\"\n  },\n  \"preferences\": {\n    \"hide_idle_repositories\": false,\n    \"pane_focus\": \"repositories\",\n    \"terminal_focused\": false,\n    \"repository_preferences\": {}\n  },\n  \"dormant_records\": []\n}\n"
+        },
+        "mode": 384
+      }
+    ],
+    "env": [
+      {
+        "name": "JEFE_GIT_BIN",
+        "value": "${workspace}/bin/git"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "op": "launch",
+      "argv": [
+        "jefe",
+        "--config",
+        "${workspace}/config"
+      ],
+      "env": [],
+      "cwd": "work"
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "Alpha One",
+      "timeout_ms": 20000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "* [1]",
+        "o [2]",
+        "x [3]",
+        "~ [4]",
+        "owner/widgets @ main *"
+      ],
+      "absent": [
+        "[Running]",
+        "[Dead]",
+        "[Queued]",
+        "[Waiting]"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "a",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "╔ ▶ Agents",
+      "timeout_ms": 8000
+    },
+    {
+      "op": "key",
+      "key": "space",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "↕",
+      "timeout_ms": 8000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "↕"
+      ],
+      "absent": []
+    },
+    {
+      "op": "finish"
+    }
+  ],
+  "secrets": []
+}

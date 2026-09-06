@@ -146,6 +146,10 @@ pub mod workbench_view;
 mod workbench_view_tests;
 
 #[cfg(test)]
+#[path = "host_panel_models_agent_row_tests.rs"]
+mod host_panel_models_agent_row_tests;
+
+#[cfg(test)]
 #[path = "host_panel_models_agent_types_tests.rs"]
 mod host_panel_models_agent_types_tests;
 

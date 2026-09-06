@@ -795,6 +795,9 @@ fn list_snapshot(panel: u64, generation: u64, rev: u64, item_ids: &[&str]) -> Pa
             description: None,
             status: None,
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: vec![],
         })
         .collect();

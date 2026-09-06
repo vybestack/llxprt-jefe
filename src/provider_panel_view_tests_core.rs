@@ -201,6 +201,9 @@ fn list_item(value: &str, label: &str, description: Option<&str>, actions: &[&st
         description: description.map(ToOwned::to_owned),
         status: None,
         count: None,
+        glyph: None,
+        badge: None,
+        suffix: None,
         actions: actions.iter().map(|action| id(action)).collect(),
     }
 }
@@ -487,6 +490,9 @@ fn list_body_projects_with_selection_and_pagination() {
                     description: Some("first".to_owned()),
                     status: Some("ready".to_owned()),
                     count: None,
+                    glyph: None,
+                    badge: None,
+                    suffix: None,
                     actions: vec![id("open")],
                 }],
                 selected_id: Some(id("item-a")),
@@ -890,6 +896,7 @@ fn scroll_offset_clips_body_lines() {
         &PanelId::from_static("main"),
     );
     let main = &view.panels[0];
+    assert_eq!(main.visible_window_origin, 5);
     assert!(
         main.lines.len() <= content_height as usize,
         "clipped lines {} should not exceed content height {content_height}",
@@ -951,3 +958,18 @@ fn zero_content_height_produces_no_lines() {
 // ---------------------------------------------------------------------------
 // Stale state
 // ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "projected row spans must concatenate to row text")]
+fn projection_rejects_spans_that_disagree_with_their_line() {
+    let rows = vec![super::ProjectedRow {
+        text: "painted and copied text".to_owned(),
+        spans: vec![crate::host_controls::HostControlSpan {
+            text: "different painted text".to_owned(),
+            role: crate::host_controls::HostControlSpanRole::Themed,
+        }],
+        target: None,
+    }];
+
+    let _ = super::split_projected_rows(rows);
+}

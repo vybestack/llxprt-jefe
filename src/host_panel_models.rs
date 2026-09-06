@@ -1,13 +1,14 @@
 //! Host-owned models for definable panel types in the shared screen runtime.
 
-use crate::domain::InternalId;
+use crate::dashboard_git_info::DashboardGitInfoSnapshot;
 use crate::domain::action_registry::{ActionId, InternalActionId};
 use crate::domain::plugin::field::{Field, InternalField};
-use crate::domain::{Id, TypedMap, TypedValue};
+use crate::domain::{Agent, AgentStatus, Id, InternalId, TypedMap, TypedValue};
 use crate::runtime::provider::protocol::{
-    Affordance, DetailBody, DetailMetadata, FormBody, ListBody, ListItem, PanelBody,
+    Affordance, DetailBody, DetailMetadata, FormBody, ListBody, ListItem, ListItemGlyph,
+    ListItemGlyphRole, PanelBody,
 };
-use crate::state::AppState;
+use crate::state::{AppState, DashboardGrabPane};
 use crate::workbench::HostPanelModelSource;
 
 pub struct HostPanelModel {
@@ -15,15 +16,20 @@ pub struct HostPanelModel {
     pub(crate) body: PanelBody,
     pub(crate) action_affordances: Vec<Affordance>,
     pub(crate) selected_id: Option<Id>,
+    pub(crate) grabbed_id: Option<Id>,
     pub(crate) scroll_offset: u32,
 }
 
 #[must_use]
-pub fn project_host_panel(state: &AppState, source: HostPanelModelSource) -> HostPanelModel {
+pub fn project_host_panel(
+    state: &AppState,
+    source: HostPanelModelSource,
+    git: Option<&DashboardGitInfoSnapshot>,
+) -> HostPanelModel {
     match source {
         HostPanelModelSource::RepositoryList => repository_list(state),
         HostPanelModelSource::SearchInput => search_input(state),
-        HostPanelModelSource::AgentList => agent_list(state),
+        HostPanelModelSource::AgentList => agent_list(state, git),
         HostPanelModelSource::AgentTypeAvailability => agent_type_availability(state),
         HostPanelModelSource::AgentPreview => agent_preview(state),
         HostPanelModelSource::SessionList => session_list(state),
@@ -81,6 +87,9 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
                 // (#745).
                 status: None,
                 count: Some(counts[bucket.as_index()]),
+                glyph: None,
+                badge: None,
+                suffix: None,
                 actions: Vec::new(),
             },
         )
@@ -98,7 +107,38 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        grabbed_id: None,
         scroll_offset: 0,
+    }
+}
+
+fn status_icon(agent: &Agent) -> &'static str {
+    if agent.state_is_unconfirmed() {
+        return "~";
+    }
+    match agent.status {
+        AgentStatus::Running => "*",
+        AgentStatus::Completed => "+",
+        AgentStatus::Dead => "x",
+        AgentStatus::ServerLost | AgentStatus::Errored => "!",
+        AgentStatus::Waiting => "?",
+        AgentStatus::Paused => "-",
+        AgentStatus::Queued => "o",
+    }
+}
+
+fn status_role(agent: &Agent) -> ListItemGlyphRole {
+    if agent.state_is_unconfirmed() {
+        return ListItemGlyphRole::Yellow;
+    }
+    match agent.status {
+        AgentStatus::Running | AgentStatus::Completed => ListItemGlyphRole::Bright,
+        AgentStatus::Dead | AgentStatus::Errored | AgentStatus::ServerLost => {
+            ListItemGlyphRole::Red
+        }
+        AgentStatus::Waiting => ListItemGlyphRole::Yellow,
+        AgentStatus::Paused => ListItemGlyphRole::Blue,
+        AgentStatus::Queued => ListItemGlyphRole::Dim,
     }
 }
 
@@ -107,7 +147,7 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
 /// A restored schema-2 agent with no `name` value must not render as a
 /// blank row: the id it was restored under is the only identity the host
 /// still knows (#723).
-fn agent_display_name(agent: &crate::domain::Agent) -> String {
+fn agent_display_name(agent: &Agent) -> String {
     if agent.name.trim().is_empty() {
         agent.id.0.clone()
     } else {
@@ -160,6 +200,9 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
             description: None,
             status: Some(bucket.label().to_owned()),
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         })
         .collect();
@@ -181,6 +224,7 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        grabbed_id: None,
         // The grid pages rather than scrolls; the page index lives in the
         // workbench state and the projection clamps it at render time.
         scroll_offset: 0,
@@ -218,6 +262,9 @@ fn repository_list(state: &AppState) -> HostPanelModel {
                     description: None,
                     status: None,
                     count: Some(state.visible_agent_count_for_repository(&repository.id)),
+                    glyph: None,
+                    badge: None,
+                    suffix: None,
                     actions: Vec::new(),
                 })
         })
@@ -234,6 +281,7 @@ fn repository_list(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        grabbed_id: None,
         scroll_offset: state.repository_scroll_offset,
     }
 }
@@ -263,11 +311,12 @@ fn search_input(state: &AppState) -> HostPanelModel {
             unavailable_reason: None,
         }],
         selected_id: None,
+        grabbed_id: None,
         scroll_offset: 0,
     }
 }
 
-fn agent_list(state: &AppState) -> HostPanelModel {
+fn agent_list(state: &AppState, git: Option<&DashboardGitInfoSnapshot>) -> HostPanelModel {
     let indices = state
         .selected_repository()
         .map_or_else(Vec::new, |repository| {
@@ -277,15 +326,12 @@ fn agent_list(state: &AppState) -> HostPanelModel {
         .iter()
         .enumerate()
         .filter_map(|(local_index, agent_index)| {
-            state.agents.get(*agent_index).map(|agent| ListItem {
-                id: Id::internal_indexed(InternalId::AgentItem, local_index),
-                label: agent_display_name(agent),
-                // The dashboard sidebar is one row per agent; a description
-                // would project as a second row.
-                description: None,
-                status: Some(format!("{:?}", agent.status)),
-                count: None,
-                actions: Vec::new(),
+            state.agents.get(*agent_index).map(|agent| {
+                agent_list_item(
+                    agent,
+                    local_index,
+                    git.and_then(|snapshot| snapshot.agents.get(local_index)),
+                )
             })
         })
         .collect();
@@ -294,6 +340,19 @@ fn agent_list(state: &AppState) -> HostPanelModel {
             .iter()
             .position(|index| *index == selected)
             .map(|index| Id::internal_indexed(InternalId::AgentItem, index))
+    });
+    let grabbed_id = state.dashboard_grab.as_ref().and_then(|grab| match grab {
+        DashboardGrabPane::Agent {
+            repository_id,
+            local_index,
+        } if state
+            .selected_repository()
+            .is_some_and(|repository| repository.id == *repository_id)
+            && *local_index < indices.len() =>
+        {
+            Some(Id::internal_indexed(InternalId::AgentItem, *local_index))
+        }
+        DashboardGrabPane::Repository { .. } | DashboardGrabPane::Agent { .. } => None,
     });
     HostPanelModel {
         title: "Agents".to_owned(),
@@ -304,7 +363,38 @@ fn agent_list(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        grabbed_id,
         scroll_offset: state.agent_scroll_offset,
+    }
+}
+
+fn agent_list_item(
+    agent: &Agent,
+    local_index: usize,
+    git: Option<&crate::git_info::GitRepoInfo>,
+) -> ListItem {
+    let suffix = git
+        .map(crate::git_info::GitRepoInfo::list_suffix)
+        .filter(|suffix| !suffix.is_empty())
+        .map(|suffix| format!("  {suffix}"));
+    ListItem {
+        id: Id::internal_indexed(InternalId::AgentItem, local_index),
+        label: agent_display_name(agent),
+        // The dashboard sidebar is one row per agent; a description
+        // would project as a second row.
+        description: None,
+        status: None,
+        count: None,
+        glyph: Some(ListItemGlyph {
+            text: status_icon(agent).to_owned(),
+            role: status_role(agent),
+        }),
+        badge: agent
+            .shortcut_slot
+            .filter(|slot| (1..=9).contains(slot))
+            .map(|slot| slot.to_string()),
+        suffix,
+        actions: Vec::new(),
     }
 }
 
@@ -352,6 +442,9 @@ fn agent_type_availability(state: &AppState) -> HostPanelModel {
             }),
             status: None,
             count: None,
+            glyph: None,
+            badge: None,
+            suffix: None,
             actions: Vec::new(),
         })
         .collect();
@@ -373,6 +466,7 @@ fn agent_type_availability(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        grabbed_id: None,
         scroll_offset: 0,
     }
 }
@@ -388,6 +482,7 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
             }),
             action_affordances: Vec::new(),
             selected_id: None,
+            grabbed_id: None,
             scroll_offset: 0,
         };
     };
@@ -414,6 +509,7 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id: None,
+        grabbed_id: None,
         scroll_offset: 0,
     }
 }
@@ -486,6 +582,9 @@ fn session_list(state: &AppState) -> HostPanelModel {
                 )),
                 status: Some(row.status_label.clone()),
                 count: None,
+                glyph: None,
+                badge: None,
+                suffix: None,
                 actions: Vec::new(),
             }
         })
@@ -506,6 +605,7 @@ fn session_list(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
+        grabbed_id: None,
         scroll_offset: state.session_scroll_offset,
     }
 }
@@ -541,7 +641,8 @@ mod tests {
         state.agents = vec![agent];
         state.selected_repository_index = Some(0);
 
-        let repository_model = project_host_panel(&state, HostPanelModelSource::RepositoryList);
+        let repository_model =
+            project_host_panel(&state, HostPanelModelSource::RepositoryList, None);
         let PanelBody::List(repository_body) = repository_model.body else {
             panic!("repository sidebar must project a list body");
         };
@@ -563,7 +664,7 @@ mod tests {
             "a count is not a status word, so the shared `[value]` suffix stays clear (#745)"
         );
 
-        let agent_model = project_host_panel(&state, HostPanelModelSource::AgentList);
+        let agent_model = project_host_panel(&state, HostPanelModelSource::AgentList, None);
         let PanelBody::List(agent_body) = agent_model.body else {
             panic!("agent sidebar must project a list body");
         };

@@ -1,3 +1,58 @@
+#[test]
+fn host_list_projection_carries_spans_aligned_with_authoritative_text() {
+    let mut panel = super::unavailable_panel(
+        PanelId::from_static("main"),
+        true,
+        Rect::new(0, 0, 42, 5),
+        Rect::new(1, 1, 40, 3),
+    );
+    let model = crate::host_panel_models::HostPanelModel {
+        title: "Fixture".to_owned(),
+        body: PanelBody::List(ListBody {
+            items: vec![ListItem {
+                id: id("alpha"),
+                label: "Alpha".to_owned(),
+                description: None,
+                status: None,
+                count: None,
+                glyph: Some(crate::runtime::provider::protocol::ListItemGlyph {
+                    text: "~".to_owned(),
+                    role: crate::runtime::provider::protocol::ListItemGlyphRole::Yellow,
+                }),
+                badge: Some("1".to_owned()),
+                suffix: Some("  owner/repo @ main".to_owned()),
+                actions: Vec::new(),
+            }],
+            selected_id: None,
+            next_page_token: None,
+        }),
+        action_affordances: Vec::new(),
+        selected_id: None,
+        grabbed_id: None,
+        scroll_offset: 0,
+    };
+
+    super::project_host_model(&mut panel, model);
+
+    assert_eq!(panel.lines, vec![">> ~ [1] Alpha  owner/repo @ main"]);
+    assert_eq!(panel.spans.len(), panel.lines.len());
+    assert_eq!(
+        panel.spans[0]
+            .iter()
+            .map(|span| (span.text.as_str(), span.role))
+            .collect::<Vec<_>>(),
+        vec![
+            (">> ", crate::host_controls::HostControlSpanRole::Themed),
+            ("~", crate::host_controls::HostControlSpanRole::Yellow),
+            (" [1] Alpha", crate::host_controls::HostControlSpanRole::Themed),
+            (
+                "  owner/repo @ main",
+                crate::host_controls::HostControlSpanRole::Dim,
+            ),
+        ]
+    );
+}
+
 fn assert_provider_form_projection(
     panel: &PanelProjection,
     expected_status: PanelStatus,

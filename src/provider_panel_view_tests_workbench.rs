@@ -175,6 +175,7 @@ fn cards_grid_carries_card_hit_targets_over_their_rectangles() {
     let model = crate::host_panel_models::project_host_panel(
         &state,
         crate::workbench::HostPanelModelSource::WorkbenchCards,
+        None,
     );
     let PanelBody::List(body) = &model.body else {
         panic!("the cards model is a list body");

@@ -6,9 +6,11 @@
 use iocraft::prelude::*;
 use unicode_width::UnicodeWidthStr;
 
+use crate::host_controls::{HostControlSpan, HostControlSpanRole};
 use crate::provider_panel_view::{
     PanelProjection, PanelRender, PanelStatus, project_current_screen,
 };
+use crate::selection::{HighlightRange, SelectablePane, panel_to_selectable, row_highlight_range};
 use crate::state::AppState;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::TerminalView;
@@ -344,12 +346,7 @@ fn render_panel(
     let title_rect = panel_title_rect(chrome, &title);
     children.push(absolute_text(title_rect, title, border_color));
 
-    let rows = panel
-        .lines
-        .iter()
-        .cloned()
-        .map(|line| element! { Text(content: line, color: rc.fg) })
-        .collect::<Vec<_>>();
+    let rows = render_control_rows(panel, state, rc);
     let content = panel.content;
     children.push(
         element! {
@@ -367,6 +364,153 @@ fn render_panel(
         .into_any(),
     );
 }
+
+fn render_control_rows(
+    panel: &PanelProjection,
+    state: &AppState,
+    rc: &ResolvedColors,
+) -> Vec<AnyElement<'static>> {
+    let selection = (panel_to_selectable(panel.id) == Some(SelectablePane::AgentList))
+        .then_some(state.selection.as_ref())
+        .flatten()
+        .filter(|selection| selection.pane() == SelectablePane::AgentList);
+    panel
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let spans = panel.spans.get(index).map_or(&[][..], Vec::as_slice);
+            let highlight = selection.and_then(|selection| {
+                row_highlight_range(selection, panel.visible_window_origin.saturating_add(index))
+            });
+            render_control_row(line, spans, highlight, rc)
+        })
+        .collect()
+}
+fn render_control_row(
+    line: &str,
+    spans: &[HostControlSpan],
+    highlight: Option<HighlightRange>,
+    rc: &ResolvedColors,
+) -> AnyElement<'static> {
+    let segments = highlighted_control_segments(line, spans, highlight)
+        .into_iter()
+        .map(|segment| render_control_segment(segment, rc))
+        .collect::<Vec<_>>();
+    element! {
+        Box(flex_direction: FlexDirection::Row, height: 1u32) {
+            #(segments)
+        }
+    }
+    .into_any()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ControlRowSegment {
+    text: String,
+    role: HostControlSpanRole,
+    highlighted: bool,
+}
+
+fn highlighted_control_segments(
+    line: &str,
+    spans: &[HostControlSpan],
+    highlight: Option<HighlightRange>,
+) -> Vec<ControlRowSegment> {
+    if spans.is_empty() {
+        return split_control_span(line, HostControlSpanRole::Themed, 0, highlight);
+    }
+    let mut offset = 0usize;
+    let mut segments = Vec::new();
+    for span in spans {
+        segments.extend(split_control_span(&span.text, span.role, offset, highlight));
+        offset = offset.saturating_add(span.text.chars().count());
+    }
+    segments
+}
+
+fn split_control_span(
+    text: &str,
+    role: HostControlSpanRole,
+    offset: usize,
+    highlight: Option<HighlightRange>,
+) -> Vec<ControlRowSegment> {
+    let width = text.chars().count();
+    let Some(range) = highlight else {
+        return vec![control_row_segment(text, role, false)];
+    };
+    let span_end = offset.saturating_add(width);
+    let range_end = range.end.min(span_end);
+    if range.start >= span_end || range_end <= offset {
+        return vec![control_row_segment(text, role, false)];
+    }
+    let local = HighlightRange {
+        start: range.start.saturating_sub(offset),
+        end: range_end.saturating_sub(offset),
+    };
+    let (before, selected, after) = super::scrollable_text::split_for_highlight(text, local);
+    let mut segments = Vec::with_capacity(3);
+    push_control_row_segment(&mut segments, before, role, false);
+    push_control_row_segment(&mut segments, selected, role, true);
+    push_control_row_segment(&mut segments, after, role, false);
+    segments
+}
+
+fn control_row_segment(
+    text: impl Into<String>,
+    role: HostControlSpanRole,
+    highlighted: bool,
+) -> ControlRowSegment {
+    ControlRowSegment {
+        text: text.into(),
+        role,
+        highlighted,
+    }
+}
+
+fn push_control_row_segment(
+    segments: &mut Vec<ControlRowSegment>,
+    text: String,
+    role: HostControlSpanRole,
+    highlighted: bool,
+) {
+    if !text.is_empty() {
+        segments.push(control_row_segment(text, role, highlighted));
+    }
+}
+
+fn render_control_segment(segment: ControlRowSegment, rc: &ResolvedColors) -> AnyElement<'static> {
+    if segment.highlighted {
+        let width =
+            u32::try_from(UnicodeWidthStr::width(segment.text.as_str())).unwrap_or(u32::MAX);
+        return element! {
+            Box(width, height: 1u32, background_color: rc.sel_bg) {
+                Text(content: segment.text, color: rc.sel_fg, wrap: TextWrap::NoWrap)
+            }
+        }
+        .into_any();
+    }
+    element! {
+        Text(
+            content: segment.text,
+            color: resolve_span_role(segment.role, rc),
+            wrap: TextWrap::NoWrap,
+        )
+    }
+    .into_any()
+}
+
+fn resolve_span_role(role: HostControlSpanRole, rc: &ResolvedColors) -> Color {
+    match role {
+        HostControlSpanRole::Themed => rc.fg,
+        HostControlSpanRole::Bright => rc.bright,
+        HostControlSpanRole::Dim => rc.dim,
+        HostControlSpanRole::Red => Color::Red,
+        HostControlSpanRole::Yellow => Color::Yellow,
+        HostControlSpanRole::Blue => Color::Blue,
+    }
+}
+
 fn render_embedded_terminal(
     panel: &PanelProjection,
     state: &AppState,
@@ -441,6 +585,10 @@ mod focus_tests;
 #[cfg(test)]
 #[path = "provider_screen_count_render_tests.rs"]
 mod count_render_tests;
+
+#[cfg(test)]
+#[path = "provider_screen_agent_row_render_tests.rs"]
+mod agent_row_render_tests;
 
 /// Render the retained workbench card grid inside its panel content rect.
 ///
@@ -608,6 +756,8 @@ mod tests {
             content,
             status: PanelStatus::Active,
             lines: vec!["content".to_owned()],
+            spans: vec![Vec::new()],
+            visible_window_origin: 0,
             max_scroll_offset: 0,
             hit_targets: vec![None::<PanelHitTarget>],
             rect_hit_targets: Vec::new(),
