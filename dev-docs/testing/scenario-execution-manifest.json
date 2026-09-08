@@ -2995,7 +2995,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 14,
+        "steps_total": 15,
         "operations": [
           "assert-frame",
           "finish",
@@ -3004,7 +3004,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 2
+          "assert-frame": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -3170,7 +3170,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 22,
+        "steps_total": 24,
         "operations": [
           "assert-frame",
           "finish",
@@ -3180,7 +3180,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 2
+          "assert-frame": 4
         },
         "captures": 0,
         "capture_names": [],
@@ -3514,7 +3514,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 20,
+        "steps_total": 23,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3524,8 +3524,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 2
+          "assert-frame": 3,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -3575,7 +3575,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 20,
+        "steps_total": 23,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3585,8 +3585,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 2
+          "assert-frame": 3,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -3650,7 +3650,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 33,
+        "steps_total": 36,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3660,8 +3660,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 6
+          "assert-frame": 7,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -3710,7 +3710,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 33,
+        "steps_total": 36,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -3720,8 +3720,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 1,
-          "assert-frame": 6
+          "assert-frame": 7,
+          "assert-file": 1
         },
         "captures": 0,
         "capture_names": [],
@@ -3770,7 +3770,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 23,
+        "steps_total": 29,
         "operations": [
           "assert-frame",
           "finish",
@@ -3779,7 +3779,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 5
+          "assert-frame": 7
         },
         "captures": 0,
         "capture_names": [],
@@ -3828,7 +3828,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 23,
+        "steps_total": 29,
         "operations": [
           "assert-frame",
           "finish",
@@ -3837,7 +3837,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 5
+          "assert-frame": 7
         },
         "captures": 0,
         "capture_names": [],
@@ -5368,7 +5368,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 13,
+        "steps_total": 14,
         "operations": [
           "assert-frame",
           "finish",
@@ -5377,7 +5377,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 2
+          "assert-frame": 3
         },
         "captures": 0,
         "capture_names": [],

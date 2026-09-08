@@ -88,3 +88,13 @@
         state.resolved_layout = jefe::screen_layout::resolve_screen(&state, 120, 40);
         assert!(panel_projection(&state, &panel).is_some());
     }
+
+    #[test]
+    fn provider_wheel_can_leave_a_selection_revealed_window() {
+        let (mut state, panel) = active_list();
+        assert!(state.submit_provider_panel_event(panel, PanelEvent::Selected { id: id("beta") }));
+        let _ = state.take_staged_effects();
+        assert!(scroll_mouse_panel(&mut state, panel, ProviderPanelMouseAction::ScrollUp, (1, 1)));
+        assert_eq!(state.provider_panels().host_local(panel).map(|local| local.scroll_offset), Some(0));
+        assert!(state.take_staged_effects().is_empty());
+    }

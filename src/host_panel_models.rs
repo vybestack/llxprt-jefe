@@ -18,6 +18,7 @@ pub struct HostPanelModel {
     pub(crate) selected_id: Option<Id>,
     pub(crate) grabbed_id: Option<Id>,
     pub(crate) scroll_offset: u32,
+    pub(crate) reveal_selection: bool,
 }
 
 #[must_use]
@@ -26,7 +27,7 @@ pub fn project_host_panel(
     source: HostPanelModelSource,
     git: Option<&DashboardGitInfoSnapshot>,
 ) -> HostPanelModel {
-    match source {
+    let mut model = match source {
         HostPanelModelSource::RepositoryList => repository_list(state),
         HostPanelModelSource::SearchInput => search_input(state),
         HostPanelModelSource::AgentList => agent_list(state, git),
@@ -35,7 +36,12 @@ pub fn project_host_panel(
         HostPanelModelSource::SessionList => session_list(state),
         HostPanelModelSource::WorkbenchStatus => workbench_status(state),
         HostPanelModelSource::WorkbenchCards => workbench_cards(state),
-    }
+    };
+    model.reveal_selection = !state
+        .manual_list_scroll
+        .iter()
+        .any(|(kind, selected)| *kind == source && *selected == model.selected_id);
+    model
 }
 
 /// Borrow every agent as a workbench view input: no git info, with its live
@@ -109,6 +115,7 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: 0,
+        reveal_selection: true,
     }
 }
 
@@ -228,6 +235,7 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
         // The grid pages rather than scrolls; the page index lives in the
         // workbench state and the projection clamps it at render time.
         scroll_offset: 0,
+        reveal_selection: true,
     }
 }
 
@@ -283,6 +291,7 @@ fn repository_list(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: state.repository_scroll_offset,
+        reveal_selection: true,
     }
 }
 
@@ -313,6 +322,7 @@ fn search_input(state: &AppState) -> HostPanelModel {
         selected_id: None,
         grabbed_id: None,
         scroll_offset: 0,
+        reveal_selection: true,
     }
 }
 
@@ -365,6 +375,7 @@ fn agent_list(state: &AppState, git: Option<&DashboardGitInfoSnapshot>) -> HostP
         selected_id,
         grabbed_id,
         scroll_offset: state.agent_scroll_offset,
+        reveal_selection: true,
     }
 }
 
@@ -468,6 +479,7 @@ fn agent_type_availability(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: 0,
+        reveal_selection: true,
     }
 }
 
@@ -484,6 +496,7 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
             selected_id: None,
             grabbed_id: None,
             scroll_offset: 0,
+            reveal_selection: true,
         };
     };
     let git_info = crate::dashboard_git_info::resolve_preview_git_info(state);
@@ -511,6 +524,7 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         selected_id: None,
         grabbed_id: None,
         scroll_offset: 0,
+        reveal_selection: true,
     }
 }
 
@@ -555,9 +569,23 @@ fn agent_preview_document(
     document
 }
 
+fn empty_session_item() -> ListItem {
+    ListItem {
+        id: Id::internal_indexed(InternalId::SessionItem, 0),
+        label: "No shells.".to_owned(),
+        description: None,
+        status: None,
+        count: None,
+        glyph: None,
+        badge: None,
+        suffix: None,
+        actions: Vec::new(),
+    }
+}
+
 fn session_list(state: &AppState) -> HostPanelModel {
     let rows = crate::state::project_managed_shell_rows(state);
-    let items = rows
+    let mut items = rows
         .iter()
         .enumerate()
         .map(|(index, row)| {
@@ -588,7 +616,10 @@ fn session_list(state: &AppState) -> HostPanelModel {
                 actions: Vec::new(),
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        items.push(empty_session_item());
+    }
     // A stale selected index must resolve to a row that still exists, the
     // same clamp `workbench_status` applies to the filter cursor.
     let selected_id = state.terminal_manager.selected_index.and_then(|index| {
@@ -607,6 +638,7 @@ fn session_list(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: state.session_scroll_offset,
+        reveal_selection: true,
     }
 }
 

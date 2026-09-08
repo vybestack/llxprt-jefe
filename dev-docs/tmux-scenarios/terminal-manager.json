@@ -97,7 +97,7 @@
     },
     {
       "op": "text",
-      "text": "Alpha Repository"
+      "text": "Alpha Repo"
     },
     {
       "op": "key",
@@ -236,7 +236,7 @@
     },
     {
       "op": "text",
-      "text": "Beta Repository"
+      "text": "Beta Repo"
     },
     {
       "op": "key",
@@ -255,7 +255,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Beta Repository",
+      "literal": "Beta Repo",
       "timeout_ms": 12000
     },
     {

@@ -104,6 +104,28 @@
     {
       "op": "wait",
       "source": "frame",
+      "literal": "Enter Retry   Esc Close",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Provider Action",
+        "Navigate to",
+        "vendor.controls.open [Retry: retry]"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
       "literal": "Native Control Review",
       "timeout_ms": 15000
     },

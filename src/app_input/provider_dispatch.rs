@@ -429,11 +429,32 @@ fn apply_provider_host_action_state(
     action: &ProviderHostAction,
 ) {
     if let ProviderHostAction::Navigate { route, values } = action {
-        transition::commit_pure_site(
-            state,
-            AppMessage::Provider(Box::new(ProviderMessage::DismissTerminals)),
-        );
+        let old_open_instance = state.nav.current().id;
+        let old_screen = Id::parse(state.nav.current().screen.as_str());
+        let old_instance = Id::parse(&old_open_instance.to_string());
+
         state.enter_provider_route(*route, values.clone());
+        let current = state.nav.current();
+        if current.id == old_open_instance {
+            return;
+        }
+
+        let new_screen = Id::parse(current.screen.as_str());
+        let new_instance = Id::parse(&current.id.to_string());
+        let (Ok(old_screen), Ok(old_instance), Ok(new_screen), Ok(new_instance)) =
+            (old_screen, old_instance, new_screen, new_instance)
+        else {
+            state.error_message =
+                Some("provider navigation produced an invalid request context".to_owned());
+            return;
+        };
+
+        state.provider_requests.rebind_terminal_context(
+            &old_screen,
+            &old_instance,
+            &new_screen,
+            &new_instance,
+        );
     }
 }
 

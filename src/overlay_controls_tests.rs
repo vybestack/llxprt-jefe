@@ -6,8 +6,8 @@
 //! panel snapshot and without any screen/origin/package identity dispatch.
 
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
-use crate::domain::{Id, TypedValue};
-use crate::host_controls::{ControlAction, ControlIntent};
+use crate::domain::{Id, InternalId, TypedValue};
+use crate::host_controls::{ControlAction, ControlIntent, PanelHitTarget};
 use crate::overlay_controls::{
     ConfirmationCommand, ConfirmationContent, HostOverlayLayout, ProviderConfirmationContent,
     confirmation_command, overlay_intent, project_confirmation, project_help,
@@ -191,26 +191,78 @@ fn production_confirmation_submit_reflects_the_focused_decision() {
 }
 
 #[test]
-fn confirmation_prompt_and_decision_are_distinct_factory_rows() {
+fn generic_confirmation_projects_both_choices_without_the_internal_submit_id() {
     let projection = project_confirmation(
         ConfirmationContent {
-            title: "Confirm",
-            message: "Proceed?",
+            title: "Delete Agent",
+            message: "Delete agent 0?",
             show_delete_work_dir: false,
             delete_work_dir: false,
             focus: ConfirmFocus::Cancel,
         },
         60,
     );
-    let rows = projection
-        .rows
-        .iter()
-        .map(|row| row.text.as_str())
-        .collect::<Vec<_>>();
 
-    assert!(rows.contains(&"Proceed?"));
-    assert!(rows.contains(&"Decision: Cancel"));
-    assert!(!rows.contains(&"Proceed?: Cancel"));
+    assert_eq!(projection.title, "Delete Agent");
+    assert!(
+        projection
+            .rows
+            .iter()
+            .any(|row| row.text == "Delete agent 0?")
+    );
+    assert!(projection.rows.iter().any(|row| {
+        row.text == "( Cancel )  [ Confirm ]"
+            && row.target
+                == Some(PanelHitTarget::Field(Id::internal(
+                    InternalId::OverlayDecision,
+                )))
+    }));
+    assert!(
+        projection
+            .rows
+            .iter()
+            .all(|row| !row.text.contains("submit:"))
+    );
+}
+
+#[test]
+fn generic_confirmation_projects_checkbox_state_and_confirm_focus() {
+    for (delete_work_dir, expected_checkbox) in [
+        (false, "[ ] Delete work directory"),
+        (true, "[x] Delete work directory"),
+    ] {
+        let projection = project_confirmation(
+            ConfirmationContent {
+                title: "Delete Agent",
+                message: "Delete agent 0?",
+                show_delete_work_dir: true,
+                delete_work_dir,
+                focus: ConfirmFocus::Confirm,
+            },
+            60,
+        );
+
+        assert!(projection.rows.iter().any(|row| {
+            row.text == expected_checkbox
+                && row.target
+                    == Some(PanelHitTarget::Field(Id::internal(
+                        InternalId::OverlayDeleteWorkDir,
+                    )))
+        }));
+        assert!(projection.rows.iter().any(|row| {
+            row.text == "[ Cancel ]  ( Confirm )"
+                && row.target
+                    == Some(PanelHitTarget::Field(Id::internal(
+                        InternalId::OverlayDecision,
+                    )))
+        }));
+        assert!(
+            projection
+                .rows
+                .iter()
+                .all(|row| !row.text.contains("submit:"))
+        );
+    }
 }
 
 #[test]
@@ -255,47 +307,75 @@ fn confirmation_commands_derive_from_the_factory_intents() {
     );
 }
 
-#[test]
-fn provider_confirmation_projects_the_declared_decision_without_a_provider_snapshot() {
-    let values = TypedMap::new();
-    let confirmation = project_provider_confirmation(
+fn deployment_confirmation(
+    focus: ConfirmFocus,
+    values: &TypedMap,
+) -> crate::overlay_controls::OverlayControlProjection {
+    project_provider_confirmation(
         ProviderConfirmationContent {
             title: "Confirm deployment?",
             body: "This action changes production.",
             confirm_label: "Deploy now",
-            focus: ConfirmFocus::Confirm,
+            focus,
             continuation_schema: &[],
-            continuation_values: &values,
+            continuation_values: values,
             focused_field: None,
         },
         64,
-    );
+    )
+}
+
+#[test]
+fn provider_confirmation_projects_the_declared_decision_without_a_provider_snapshot() {
+    let values = TypedMap::new();
+    let confirmation = deployment_confirmation(ConfirmFocus::Confirm, &values);
 
     assert_eq!(confirmation.kind, crate::host_controls::ControlKind::Form);
-    assert_eq!(confirmation.title, "Confirm deployment?");
+    assert_eq!(confirmation.title, "Provider Action");
     assert!(
         confirmation
             .rows
             .iter()
-            .any(|row| row.text.contains("Deploy now")),
-        "the focused decision must render its declared label"
+            .any(|row| row.text == "Confirm deployment?")
+    );
+    assert!(
+        confirmation
+            .rows
+            .iter()
+            .any(|row| row.text == "This action changes production.")
+    );
+    assert!(confirmation.rows.iter().any(|row| {
+        row.text == "[ Cancel ]  ( Deploy now )"
+            && row.target
+                == Some(PanelHitTarget::Field(Id::internal(
+                    InternalId::OverlayDecision,
+                )))
+    }));
+    assert!(
+        confirmation
+            .rows
+            .iter()
+            .all(|row| !row.text.contains("submit:"))
     );
     assert_eq!(
         confirmation_command(&confirmation, ControlAction::Activate),
         Some(ConfirmationCommand::ChooseConfirm)
     );
 
-    let cancelled = project_provider_confirmation(
-        ProviderConfirmationContent {
-            title: "Confirm deployment?",
-            body: "This action changes production.",
-            confirm_label: "Deploy now",
-            focus: ConfirmFocus::Cancel,
-            continuation_schema: &[],
-            continuation_values: &values,
-            focused_field: None,
-        },
-        64,
+    let cancelled = deployment_confirmation(ConfirmFocus::Cancel, &values);
+    assert_eq!(cancelled.title, "Provider Action");
+    assert!(cancelled.rows.iter().any(|row| {
+        row.text == "( Cancel )  [ Deploy now ]"
+            && row.target
+                == Some(PanelHitTarget::Field(Id::internal(
+                    InternalId::OverlayDecision,
+                )))
+    }));
+    assert!(
+        cancelled
+            .rows
+            .iter()
+            .all(|row| !row.text.contains("submit:"))
     );
     assert_eq!(
         confirmation_command(&cancelled, ControlAction::Activate),
@@ -308,6 +388,78 @@ fn provider_row(label: &str, status: ProviderRowStatus, focused: bool) -> Provid
         label: label.to_owned(),
         status,
         focused,
+    }
+}
+
+#[test]
+fn clipped_confirmation_choices_do_not_target_ellipsis_or_hidden_cells() {
+    for width in 0..24 {
+        let projection = project_confirmation(
+            ConfirmationContent {
+                title: "Confirm",
+                message: "Proceed?",
+                show_delete_work_dir: false,
+                delete_work_dir: false,
+                focus: ConfirmFocus::Cancel,
+            },
+            width,
+        );
+        let Some(row) = projection.rows.last() else {
+            panic!("confirmation must have a choice row");
+        };
+        let visible = row.text.strip_suffix('…').unwrap_or(&row.text);
+        let visible_width = unicode_width::UnicodeWidthStr::width(visible);
+        for column in visible_width..30 {
+            assert_eq!(
+                row.hit_target_at(column),
+                None,
+                "width {width}, cell {column}"
+            );
+        }
+    }
+}
+
+#[test]
+fn provider_choice_targets_follow_custom_label_cells_with_stable_focus_geometry() {
+    for label in ["Deploy now", "Deploy alpha", "发布 release"] {
+        for focus in [ConfirmFocus::Cancel, ConfirmFocus::Confirm] {
+            let values = TypedMap::new();
+            let projection = project_provider_confirmation(
+                ProviderConfirmationContent {
+                    title: "Confirm release?",
+                    body: "Publish release.",
+                    confirm_label: label,
+                    focus,
+                    continuation_schema: &[],
+                    continuation_values: &values,
+                    focused_field: None,
+                },
+                56,
+            );
+            let Some(row) = projection.rows.last() else {
+                panic!("confirmation must display its choices");
+            };
+            let end = 16 + unicode_width::UnicodeWidthStr::width(label);
+            for col in 0..10 {
+                assert_eq!(row.hit_target_at(col), Some(PanelHitTarget::Cancel));
+            }
+            for col in 12..end {
+                assert_eq!(row.hit_target_at(col), Some(PanelHitTarget::Submit));
+            }
+            for col in [10, 11, end, 55] {
+                assert_eq!(row.hit_target_at(col), None);
+            }
+            assert_eq!(projection.title, "Provider Action");
+            assert!(row.text.contains(label));
+            assert_eq!(
+                confirmation_command(&projection, ControlAction::Submit),
+                Some(if focus == ConfirmFocus::Cancel {
+                    ConfirmationCommand::ChooseCancel
+                } else {
+                    ConfirmationCommand::ChooseConfirm
+                })
+            );
+        }
     }
 }
 

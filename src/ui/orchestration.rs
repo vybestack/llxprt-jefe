@@ -108,11 +108,12 @@ pub fn derive_confirm_modal_data(snapshot: &AppState) -> Option<ConfirmModalData
     })
 }
 
-/// Resolve one displayed confirmation content line to its typed control target.
+/// Resolve one displayed confirmation content cell to its typed control target.
 #[must_use]
-pub fn confirmation_hit_target_at_content_line(
+pub fn confirmation_hit_target_at_content_cell(
     snapshot: &AppState,
     content_line: usize,
+    content_column: usize,
     cols: u16,
     rows: u16,
 ) -> Option<PanelHitTarget> {
@@ -140,7 +141,7 @@ pub fn confirmation_hit_target_at_content_line(
             .viewport
             .checked_add(content_line.checked_sub(1)?)?,
     )?;
-    row.target.clone()
+    row.hit_target_at(content_column)
 }
 
 /// Consume one mouse event owned by the current blocking overlay.

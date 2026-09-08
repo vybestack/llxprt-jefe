@@ -243,7 +243,7 @@ fn a_shell_overlay_keeps_the_required_terminal_visible() {
 
     let titles = visible_titles(&view);
     assert!(
-        titles.iter().any(|title| title == "Terminal"),
+        titles.iter().any(|title| title == "Agent Shell"),
         "the required terminal survives every hiding rule, visible panes were {titles:?}"
     );
     assert!(

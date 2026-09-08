@@ -178,7 +178,15 @@ fn apply_mouse_to_state(
     match action {
         ProviderPanelMouseAction::ScrollUp | ProviderPanelMouseAction::ScrollDown => {
             let consumed = if let Some(instance) = panel {
-                scroll_mouse_panel(state, instance, action, projection.max_scroll_offset)
+                scroll_mouse_panel(
+                    state,
+                    instance,
+                    action,
+                    (
+                        u32::try_from(projection.visible_window_origin).unwrap_or(u32::MAX),
+                        projection.max_scroll_offset,
+                    ),
+                )
             } else if host_owned
                 && let Some(capability) = current_host_panel_capability(state, &projection.id)
             {
@@ -319,32 +327,19 @@ fn scroll_mouse_panel(
     state: &mut jefe::state::AppState,
     panel: PanelInstanceId,
     action: ProviderPanelMouseAction,
-    max_scroll_offset: u32,
+    (origin, maximum): (u32, u32),
 ) -> bool {
-    let prior = state
-        .provider_panels()
-        .host_local(panel)
-        .cloned()
-        .unwrap_or_default();
     let scroll_offset = match action {
-        ProviderPanelMouseAction::ScrollUp => prior.scroll_offset.saturating_sub(1),
-        ProviderPanelMouseAction::ScrollDown => {
-            prior.scroll_offset.saturating_add(1).min(max_scroll_offset)
-        }
+        ProviderPanelMouseAction::ScrollUp => origin.saturating_sub(1),
+        ProviderPanelMouseAction::ScrollDown => origin.saturating_add(1).min(maximum),
         ProviderPanelMouseAction::Click => return false,
     };
-    if scroll_offset == prior.scroll_offset {
+    if scroll_offset == origin {
         return false;
     }
     state
         .provider_panels_mut()
-        .update_host_local(
-            panel,
-            jefe::runtime::provider::protocol::HostLocal {
-                scroll_offset,
-                ..prior
-            },
-        )
+        .scroll_host_local(panel, scroll_offset)
         .is_ok()
 }
 

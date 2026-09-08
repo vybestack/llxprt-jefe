@@ -55,6 +55,10 @@ pub struct InstancePresentationState {
     pub repository_scroll_offset: u32,
     pub agent_scroll_offset: u32,
     pub session_scroll_offset: u32,
+    pub(crate) manual_list_scroll: Vec<(
+        crate::workbench::HostPanelModelSource,
+        Option<crate::domain::Id>,
+    )>,
     pub terminal_history_offset: Option<usize>,
     pub terminal_viewport_rows: usize,
     pub terminal_total_lines: usize,

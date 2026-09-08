@@ -71,6 +71,10 @@ pub(crate) mod provider_action_context;
 /// Handle-free provider request reducer state (issue #390 CW-10, Slice B).
 #[cfg(test)]
 mod provider_confirmation_admission_tests;
+/// Terminal navigate outcomes carried across the route push (issue #758).
+#[cfg(test)]
+#[path = "provider_outcome_navigation_tests.rs"]
+mod provider_outcome_navigation_tests;
 pub mod provider_panels;
 /// Provider request reducer data model (issue #390 CW-10, Slice B).
 mod provider_request_model;

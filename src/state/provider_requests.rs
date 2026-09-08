@@ -253,6 +253,31 @@ impl ProviderRequestState {
         before - self.requests.len()
     }
 
+    /// Move matching terminal requests onto a new screen instance.
+    ///
+    /// Pending confirmation bindings and live requests retain the context that
+    /// authorized them. Returns how many terminal requests were rebound.
+    pub fn rebind_terminal_context(
+        &mut self,
+        old_screen: &Id,
+        old_instance: &Id,
+        new_screen: &Id,
+        new_instance: &Id,
+    ) -> usize {
+        let mut rebound = 0;
+        for request in &mut self.requests {
+            if request.is_terminal()
+                && request.context_screen == *old_screen
+                && request.context_instance == *old_instance
+            {
+                request.context_screen = new_screen.clone();
+                request.context_instance = new_instance.clone();
+                rebound += 1;
+            }
+        }
+        rebound
+    }
+
     /// Allocate the next fixed positive generation.
     fn fresh_generation(&mut self) -> Result<u64, ProviderRequestError> {
         let value = next_generation(self.next_generation)?;

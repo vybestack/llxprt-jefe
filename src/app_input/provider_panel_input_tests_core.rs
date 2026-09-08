@@ -823,7 +823,7 @@
             &mut state,
             panel,
             ProviderPanelMouseAction::ScrollDown,
-            1,
+            (0, 1),
         ));
         assert_eq!(
             state
@@ -836,13 +836,13 @@
             &mut state,
             panel,
             ProviderPanelMouseAction::ScrollDown,
-            1,
+            (1, 1),
         ));
         assert!(scroll_mouse_panel(
             &mut state,
             panel,
             ProviderPanelMouseAction::ScrollUp,
-            1,
+            (1, 1),
         ));
         assert_eq!(
             state

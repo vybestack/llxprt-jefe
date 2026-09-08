@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
+  "scenario_manifest_sha256": "e3d6b5de5c0e3782d5e1e92f1311da7b242211dd257c75b64c3d4fe68ac6691f",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -100,7 +100,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/dashboard-list-windowing.json",
-      "sha256": "c51cf1b7f80a2ac05c725ebaa7cb7dd8523cdcd64030d6dcfb6b98acfcf20e7d",
+      "sha256": "328363d8f69ffe19bd1e9dd9dea49dc8c565fbb409b0b2023bd22d45562c692a",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -547,7 +547,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/atomic-success.json",
-      "sha256": "d3318da2eaa44fde70ab785bc5af4b1ea170db5af51337a577130e6c319c4de0",
+      "sha256": "9f68f5d38fc2983a8a01a5b7c910a00ab8a6ba64497adb50fe16994467c7a163",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -583,7 +583,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/restart-publication.json",
-      "sha256": "2b2fc4619d5a5f1fe8d78c803dc2617807c6d08064e773cca54a7ad6b143aa5a",
+      "sha256": "b08fdce322b5ad31c0e173723d5024b6e7a0d50cc66dc1847920d4e3700c99a8",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -657,7 +657,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
-      "sha256": "6f996ca95b7fa859f1ca8f0ed4b60a4a14b2e1db9c437c3989fa9551db5ce765",
+      "sha256": "3a4710ca703981ea388c9725ecfdcc0d4f98d7b62d7a5e526f6f3b3320986a12",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -670,7 +670,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
-      "sha256": "d10af922c51e89fa0448723334af04f27210860242ce31d1f8e2d57696f342f8",
+      "sha256": "e6172dd72472fcfa3b0b1528bb77ee927fac2d20a288eb37b4876501af8ed81a",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -683,7 +683,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
-      "sha256": "1a8e193bf665c5554839110f452dd8cc6c95fac3397d442b9a7f1e8c587c15e0",
+      "sha256": "7712aeab87949cc8047b23cd786635950f79448d4f508e46e95645cc2203ae1a",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -695,7 +695,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
-      "sha256": "3da4039abff3b863f1c1c045963eda4d7988c7e976a37921f91226f70708dcbe",
+      "sha256": "4bc7f53ca9138ef474ac6a3a938e7dbe4e0a42ca8216930a2a42e2e01c1b3766",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -707,7 +707,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
-      "sha256": "e9170696088a0c9dd4117c256fe14eb75d51802b2900f19411ac29fca33d9564",
+      "sha256": "bcecac34072ac619f3f75232898b8284be9ef59586caf845a3062df976397d16",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -719,7 +719,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
-      "sha256": "237512ae575296cd0acea35ab34d1e79b9dac1e26b92c6dca4dfb1e5edad17ba",
+      "sha256": "6101330f8044e7ce24799525f7dfa1e93bb48366746a2145a9652f60d333e250",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1019,7 +1019,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/package-panel-lifecycle.json",
-      "sha256": "426c66f7c730112d68fb5632536ff40aeb0f47386afe43d0b4316410726c8b3b",
+      "sha256": "576e06019887affa688bc87fba784a1f4d3cc9f253ec59b6a56fb3ab530471fa",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1571,7 +1571,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/terminal-manager.json",
-      "sha256": "342e9e0b74d74af32849453ec8f2116e00e71ec970c7b91ef89efb8b4c49a857",
+      "sha256": "600bd534157b9be19721fcbaafd564b1191b390a4af8efe4a30ed64931bc0980",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2215,7 +2215,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
+      "sha256": "e3d6b5de5c0e3782d5e1e92f1311da7b242211dd257c75b64c3d4fe68ac6691f",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2793,7 +2793,7 @@
     },
     {
       "path": "src/state/mod.rs",
-      "sha256": "94459b0e0ac86fc5f6221ab7a359bcb67f2f6486ce76b1544f52fc0d7ef9fe6a",
+      "sha256": "ff361f36d74eb5917025d5bebc1672358810bd5b57ae7f6c3c5357b05a04b46b",
       "mode": "100644",
       "criteria": [
         "CW00B-02",

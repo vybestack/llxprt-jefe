@@ -117,6 +117,54 @@ pub struct ConfirmationContent<'a> {
     pub focus: ConfirmFocus,
 }
 
+fn confirmation_checkbox_row(checked: bool, width: usize) -> HostControlRow {
+    let marker = if checked { "[x]" } else { "[ ]" };
+    HostControlRow::targeted(
+        crate::ui::util::truncate_with_ellipsis(&format!("{marker} Delete work directory"), width),
+        crate::host_controls::PanelHitTarget::Field(Id::internal(InternalId::OverlayDeleteWorkDir)),
+    )
+}
+
+fn confirmation_choice_row(
+    focus: ConfirmFocus,
+    confirm_label: &str,
+    width: usize,
+) -> HostControlRow {
+    let text = match focus {
+        ConfirmFocus::Cancel => format!("( Cancel )  [ {confirm_label} ]"),
+        ConfirmFocus::Confirm => format!("[ Cancel ]  ( {confirm_label} )"),
+    };
+    let mut row = HostControlRow::targeted(
+        crate::ui::util::truncate_with_ellipsis(&text, width),
+        crate::host_controls::PanelHitTarget::Field(Id::internal(InternalId::OverlayDecision)),
+    );
+    // Keep hit regions on the displayed choices, excluding the separator and
+    // any truncated suffix. Focus punctuation has the same terminal-cell width.
+    let cancel_end = unicode_width::UnicodeWidthStr::width("( Cancel )");
+    let confirm_start = cancel_end + 2;
+    let confirm_end = unicode_width::UnicodeWidthStr::width(text.as_str());
+    // Truncation appends exactly one ellipsis, so strip exactly one: a label
+    // whose own final character is an ellipsis keeps its displayed width.
+    let visible_width = if confirm_end > width {
+        unicode_width::UnicodeWidthStr::width(
+            row.text.strip_suffix('…').unwrap_or(row.text.as_str()),
+        )
+    } else {
+        confirm_end
+    };
+    row.cell_targets = vec![
+        (
+            0..cancel_end.min(visible_width),
+            crate::host_controls::PanelHitTarget::Cancel,
+        ),
+        (
+            confirm_start..visible_width,
+            crate::host_controls::PanelHitTarget::Submit,
+        ),
+    ];
+    row
+}
+
 pub fn project_help(state: &AppState, width: usize) -> OverlayControlProjection {
     let body = PanelBody::Detail(DetailBody {
         document: state.help_content_lines().join("\n"),
@@ -193,7 +241,16 @@ pub fn project_confirmation(
         fields.push(delete_field);
     }
     let mut projection = project_form(content.title, fields, values, 0, width);
+    projection.rows.clear();
     prepend_detail_rows(&mut projection.rows, content.message, width);
+    if content.show_delete_work_dir {
+        projection
+            .rows
+            .push(confirmation_checkbox_row(content.delete_work_dir, width));
+    }
+    projection
+        .rows
+        .push(confirmation_choice_row(content.focus, "Confirm", width));
     projection
 }
 
@@ -253,7 +310,21 @@ pub fn project_provider_confirmation(
         TypedValue::String(decision.to_owned()),
     );
     let mut projection = project_form(content.title, fields, values, 0, width);
+    "Provider Action".clone_into(&mut projection.title);
+    projection.rows.retain(|row| {
+        matches!(
+            row.target.as_ref(),
+            Some(crate::host_controls::PanelHitTarget::Field(field_id))
+                if field_id != decision_field.id()
+        )
+    });
     prepend_detail_rows(&mut projection.rows, content.body, width);
+    prepend_detail_rows(&mut projection.rows, content.title, width);
+    projection.rows.push(confirmation_choice_row(
+        content.focus,
+        content.confirm_label,
+        width,
+    ));
     projection.focus_target = content.focused_field.cloned();
     projection
 }
@@ -696,7 +767,7 @@ mod tests {
             confirmation
                 .rows
                 .iter()
-                .any(|row| row.text == "Decision: Cancel")
+                .any(|row| row.text == "( Cancel )  [ Confirm ]")
         );
         assert!(matches!(
             overlay_intent(&confirmation, ControlAction::Activate),

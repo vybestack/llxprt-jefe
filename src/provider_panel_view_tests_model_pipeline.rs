@@ -30,6 +30,7 @@ fn host_list_projection_carries_spans_aligned_with_authoritative_text() {
         selected_id: None,
         grabbed_id: None,
         scroll_offset: 0,
+        reveal_selection: true,
     };
 
     super::project_host_model(&mut panel, model);
@@ -49,6 +50,61 @@ fn host_list_projection_carries_spans_aligned_with_authoritative_text() {
                 "  owner/repo @ main",
                 crate::host_controls::HostControlSpanRole::Dim,
             ),
+        ]
+    );
+}
+
+#[test]
+fn host_list_projection_reveals_selected_row_outside_retained_window() {
+    let content = Rect::new(1, 1, 20, 3);
+    let mut panel = super::unavailable_panel(
+        PanelId::from_static("repositories"),
+        true,
+        Rect::new(0, 0, 22, 5),
+        content,
+    );
+    let selected = id("item-4");
+    let model = crate::host_panel_models::HostPanelModel {
+        title: "Repositories".to_owned(),
+        body: PanelBody::List(ListBody {
+            items: (0..5)
+                .map(|index| ListItem {
+                    id: id(&format!("item-{index}")),
+                    label: format!("Item {index}"),
+                    description: None,
+                    status: None,
+                    count: None,
+                    glyph: None,
+                    badge: None,
+                    suffix: None,
+                    actions: Vec::new(),
+                })
+                .collect(),
+            selected_id: Some(selected.clone()),
+            next_page_token: None,
+        }),
+        action_affordances: Vec::new(),
+        selected_id: Some(selected),
+        grabbed_id: None,
+        scroll_offset: 0,
+        reveal_selection: true,
+    };
+
+    super::project_host_model(&mut panel, model);
+
+    assert_eq!(panel.content, content, "windowing must not change geometry");
+    assert_eq!(panel.visible_window_origin, 2);
+    assert_eq!(
+        panel.lines,
+        ["   Item 2", "   Item 3", ">> Item 4"],
+        "the existing three-row window keeps item order and includes the selected row"
+    );
+    assert_eq!(
+        panel.hit_targets,
+        [
+            Some(PanelHitTarget::ListItem(id("item-2"))),
+            Some(PanelHitTarget::ListItem(id("item-3"))),
+            Some(PanelHitTarget::ListItem(id("item-4"))),
         ]
     );
 }

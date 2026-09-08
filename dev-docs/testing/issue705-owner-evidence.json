@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "4fcf41c765354d4d2500b9792797b24f4ec738489a2b04ac4407cce46b5834c4"
+    "artifact_set_sha256": "addb6e9ad60ee41d8dd428b23d7a6dfe1c2b3bd1c026541d412b038389498af6"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "f5c1dbdd62dd759e951dc6c44135b50bd3c151acaa9ce7a669cce9f97eb591e6",
+      "sha256": "0ab3f51c2dd7b54e61bdb5c959eb45f20ca6591f418f30ec307bea14229ecb7a",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -42,7 +42,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
+      "sha256": "e3d6b5de5c0e3782d5e1e92f1311da7b242211dd257c75b64c3d4fe68ac6691f",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "d7980a62b2d2301a3893dd139f99b841b3c21ca47541684be7577eef08225fb9",
+      "sha256": "a9f7403ab6fde38a7021723e8793344c2655aabb5ae00f1dd8cbbc9f71a084f8",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -98,7 +98,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
-      "sha256": "6f996ca95b7fa859f1ca8f0ed4b60a4a14b2e1db9c437c3989fa9551db5ce765",
+      "sha256": "3a4710ca703981ea388c9725ecfdcc0d4f98d7b62d7a5e526f6f3b3320986a12",
       "mode": "100644",
       "criteria": [
         "CWR2-03",
@@ -108,7 +108,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
-      "sha256": "d10af922c51e89fa0448723334af04f27210860242ce31d1f8e2d57696f342f8",
+      "sha256": "e6172dd72472fcfa3b0b1528bb77ee927fac2d20a288eb37b4876501af8ed81a",
       "mode": "100644",
       "criteria": [
         "CWR2-03",
@@ -118,7 +118,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
-      "sha256": "1a8e193bf665c5554839110f452dd8cc6c95fac3397d442b9a7f1e8c587c15e0",
+      "sha256": "7712aeab87949cc8047b23cd786635950f79448d4f508e46e95645cc2203ae1a",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -131,7 +131,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
-      "sha256": "3da4039abff3b863f1c1c045963eda4d7988c7e976a37921f91226f70708dcbe",
+      "sha256": "4bc7f53ca9138ef474ac6a3a938e7dbe4e0a42ca8216930a2a42e2e01c1b3766",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -144,7 +144,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
-      "sha256": "e9170696088a0c9dd4117c256fe14eb75d51802b2900f19411ac29fca33d9564",
+      "sha256": "bcecac34072ac619f3f75232898b8284be9ef59586caf845a3062df976397d16",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -159,7 +159,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
-      "sha256": "237512ae575296cd0acea35ab34d1e79b9dac1e26b92c6dca4dfb1e5edad17ba",
+      "sha256": "6101330f8044e7ce24799525f7dfa1e93bb48366746a2145a9652f60d333e250",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -191,7 +191,7 @@
     },
     {
       "path": "src/app_input/provider_panel_input.rs",
-      "sha256": "77e45e862a6c297340f13f1cb4692273a17b3ae334a765cc62d7d5d99fafea05",
+      "sha256": "3797fe0a7a53e7ea8ca81b88c7ee4761579e3d5317a77bc1e8fe011037f949d0",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -201,7 +201,7 @@
     },
     {
       "path": "src/app_input/provider_panel_input_tests_live.rs",
-      "sha256": "a02104b318c2d42efd2fae0182409355dc216a1e9ecfd96a267d792fd68842f9",
+      "sha256": "d5564113492630804c762955393d63dacc1d62b228aa58c45186967aae045cb3",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -229,7 +229,7 @@
     },
     {
       "path": "src/host_controls.rs",
-      "sha256": "77c73cc533ddc2a564c41c27addd41639ceee320601333b1d85131a314376ae6",
+      "sha256": "a27d0512d6a0789b9ee82a98ac269e203d5167938b224ec8dc822cbc691f2861",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -254,7 +254,7 @@
     },
     {
       "path": "src/host_panel_models.rs",
-      "sha256": "0347163364ffcc84e96496b17aec5a4630763f21ee019ca5861b648f6fbb0480",
+      "sha256": "ae5fb25757c891e5bdfbba1fb9a4c81c925d8eb461602f4b8df256b3ae76c1bf",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -264,7 +264,7 @@
     },
     {
       "path": "src/mouse_action_routing.rs",
-      "sha256": "98109bf2a141b96827589489ec2ba964f6efcf7d96f801377fcf4b4e5dc3d311",
+      "sha256": "202a392185e088553df2c904b74bf823e62d6ca98dabbf173f16f3046f51f9ff",
       "mode": "100644",
       "criteria": [
         "CWR2-06",
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "066961949b50be49eb6003b9732867372bd1821be91fc7d745d02e95d55e4d60",
+      "sha256": "3f420fe332f8802e701eba6dfc51d65f73476512a31714ace43282fcafe9900c",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -294,7 +294,7 @@
     },
     {
       "path": "src/overlay_controls_tests.rs",
-      "sha256": "c4940521144379021b4def85d756efeaffb4051722c024a495b6d427945e0532",
+      "sha256": "9041a55764b79c9ce6ec03156e6823927b32bff7532f49045ccdfb72791482ca",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -304,7 +304,7 @@
     },
     {
       "path": "src/provider_panel_view.rs",
-      "sha256": "26185f057e59d06fdf324fe98fa5cb530cd809b84b2ec26b8023fc14490b2ce7",
+      "sha256": "839363082b9a085594d2c7401b85e68b94658af1ccf5086bd097ce513e2d1cfd",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -318,7 +318,7 @@
     },
     {
       "path": "src/provider_panel_view_tests_host.rs",
-      "sha256": "bf3a437af0300afdd36011c355d417a7f10c13a36d1a211e63fb81e560d1808b",
+      "sha256": "916d9a463050820268937d47984d8d813b64440816203b53aefc1bf66a46960f",
       "mode": "100644",
       "criteria": [
         "CWR2-01",
@@ -413,7 +413,7 @@
     },
     {
       "path": "src/state/host_panel_input_ops.rs",
-      "sha256": "149b5685880ea48bc511f25260ec1d5cddf1abafd399d45982f91f66a479c1fd",
+      "sha256": "68f964e8f993905f755ebd4a825be8c6162a759d230573f6b4c501e0242ea1ea",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -433,7 +433,7 @@
     },
     {
       "path": "src/state/navigation.rs",
-      "sha256": "4a75d8e8b14785822c8a536566fc9f85c4f414337e61aff01a492232726dbf6f",
+      "sha256": "40372d5e25e32367a5976bb211e3faef8627af40c3d0a757192fe7b148a3dfb7",
       "mode": "100644",
       "criteria": [
         "CWR2-02",
@@ -518,7 +518,7 @@
     },
     {
       "path": "src/state/provider_panels.rs",
-      "sha256": "a6cb81b6bf3a0b542d51332ceaaabb111f35f33506f4767fd034f99ee7a3dc98",
+      "sha256": "b895720553027bc1054f9fe445e8ae0f162d536f7f7a58720bd35ae1b71cceb8",
       "mode": "100644",
       "criteria": [
         "CWR2-02",
@@ -631,7 +631,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "sha256": "ef4bcf657a05fd77c10233a1fc661fb9ac58d5c960a1af60f471904905c68deb",
+      "sha256": "4f6dcb3a21134203d0c397873ae9a24dddf4abbf53b4aebf086b5a8ce2b8516d",
       "mode": "100644",
       "criteria": [
         "CWR2-06",
@@ -758,7 +758,7 @@
     },
     {
       "path": "tests/issue705_owner_evidence.rs",
-      "sha256": "6a2f505e055d9e38129fd5f10ac79c11552061cd5b6d2d7824dbec64c18c4122",
+      "sha256": "a33c2b499f34934313b2efc15c12befb72f460d603870c31d13fc13e89d85f5f",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -1695,7 +1695,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "symbol": "pub fn confirmation_hit_target_at_content_line",
+      "symbol": "pub fn confirmation_hit_target_at_content_cell",
       "criteria": [
         "CWR2-06",
         "CWR2-09"

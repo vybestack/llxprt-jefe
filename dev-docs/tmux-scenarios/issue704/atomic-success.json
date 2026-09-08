@@ -136,8 +136,19 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Navigate to vendor.panel.open",
+      "literal": "Enter Retry   Esc Close",
       "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Provider Action",
+        "Navigate to",
+        "vendor.panel.open [Retry: retry]"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
     },
     {
       "op": "key",
