@@ -20,6 +20,26 @@ fn session_body(
 }
 
 #[test]
+fn session_list_projects_the_no_shells_empty_state_row() {
+    let mut state = AppState::new(crate::test_support::published_workbench());
+    state.terminal_manager.selected_index = Some(0);
+
+    let model = project_host_panel(&state, HostPanelModelSource::SessionList, None);
+    let body = session_body(&model);
+
+    assert_eq!(
+        body.items.len(),
+        1,
+        "an empty shell list projects the No shells. placeholder row"
+    );
+    assert_eq!(body.items[0].label, "No shells.");
+    assert_eq!(
+        body.selected_id, None,
+        "the placeholder row cannot carry a selection"
+    );
+}
+
+#[test]
 fn session_list_clamps_a_stale_selected_index_to_the_last_row() {
     let mut state = AppState::new(crate::test_support::published_workbench());
     state.shell_inventory.record(AgentId("alpha".to_owned()));
@@ -40,14 +60,17 @@ fn session_list_clamps_a_stale_selected_index_to_the_last_row() {
 #[test]
 fn session_list_carries_no_selection_when_the_row_list_empties() {
     let mut state = AppState::new(crate::test_support::published_workbench());
-    state.terminal_manager.selected_index = Some(0);
+    // A stale index left over from rows that no longer exist must not select
+    // anything — not even the `No shells.` placeholder row.
+    state.terminal_manager.selected_index = Some(3);
 
     let model = project_host_panel(&state, HostPanelModelSource::SessionList, None);
     let body = session_body(&model);
 
-    assert!(body.items.is_empty());
+    assert_eq!(body.items.len(), 1);
+    assert_eq!(body.items[0].label, "No shells.");
     assert_eq!(
         body.selected_id, None,
-        "an empty row list cannot carry a selection"
+        "an emptied row list cannot carry a selection"
     );
 }

@@ -555,40 +555,62 @@ fn agent_preview_document(
     document
 }
 
+/// The zero-sessions placeholder row the Terminal Manager has always shown
+/// (pre-#720: `src/ui/screens/terminal_manager.rs` rendered `No shells.`), so
+/// an empty manager reads as "up, zero shells" instead of a blank pane.
+fn no_shells_placeholder() -> ListItem {
+    ListItem {
+        id: Id::internal_indexed(InternalId::SessionItem, 0),
+        label: "No shells.".to_owned(),
+        description: None,
+        status: None,
+        count: None,
+        glyph: None,
+        badge: None,
+        suffix: None,
+        actions: Vec::new(),
+    }
+}
+
+fn session_row_item(index: usize, row: &crate::state::ManagedShellRow) -> ListItem {
+    let label = if row.close_only {
+        format!("{} (close-only)", row.agent_name)
+    } else {
+        row.agent_name.clone()
+    };
+    ListItem {
+        id: Id::internal_indexed(InternalId::SessionItem, index),
+        label,
+        description: Some(format!(
+            "{} · {} · {}{}",
+            row.repository_name,
+            row.work_dir,
+            row.status_label,
+            if row.close_only {
+                " · dead/non-running"
+            } else {
+                ""
+            }
+        )),
+        status: Some(row.status_label.clone()),
+        count: None,
+        glyph: None,
+        badge: None,
+        suffix: None,
+        actions: Vec::new(),
+    }
+}
+
 fn session_list(state: &AppState) -> HostPanelModel {
     let rows = crate::state::project_managed_shell_rows(state);
-    let items = rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let label = if row.close_only {
-                format!("{} (close-only)", row.agent_name)
-            } else {
-                row.agent_name.clone()
-            };
-            ListItem {
-                id: Id::internal_indexed(InternalId::SessionItem, index),
-                label,
-                description: Some(format!(
-                    "{} · {} · {}{}",
-                    row.repository_name,
-                    row.work_dir,
-                    row.status_label,
-                    if row.close_only {
-                        " · dead/non-running"
-                    } else {
-                        ""
-                    }
-                )),
-                status: Some(row.status_label.clone()),
-                count: None,
-                glyph: None,
-                badge: None,
-                suffix: None,
-                actions: Vec::new(),
-            }
-        })
-        .collect();
+    let items: Vec<ListItem> = if rows.is_empty() {
+        vec![no_shells_placeholder()]
+    } else {
+        rows.iter()
+            .enumerate()
+            .map(|(index, row)| session_row_item(index, row))
+            .collect()
+    };
     // A stale selected index must resolve to a row that still exists, the
     // same clamp `workbench_status` applies to the filter cursor.
     let selected_id = state.terminal_manager.selected_index.and_then(|index| {
