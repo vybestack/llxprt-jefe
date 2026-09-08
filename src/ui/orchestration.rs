@@ -113,6 +113,7 @@ pub fn derive_confirm_modal_data(snapshot: &AppState) -> Option<ConfirmModalData
 pub fn confirmation_hit_target_at_content_line(
     snapshot: &AppState,
     content_line: usize,
+    content_col: usize,
     cols: u16,
     rows: u16,
 ) -> Option<PanelHitTarget> {
@@ -140,6 +141,25 @@ pub fn confirmation_hit_target_at_content_line(
             .viewport
             .checked_add(content_line.checked_sub(1)?)?,
     )?;
+    // The decision row is the restored #228/#233 button pair. A click on the
+    // Cancel button cancels outright. The confirm button's span accepts only
+    // while Confirm holds focus, because `confirm.accept` dispatches the
+    // focus-relative Enter handler (#228): an unfocused Confirm click first
+    // cycles focus there (the markers make the focused button visible), and
+    // every other column of the row keeps the decision field target so a
+    // click there cycles focus.
+    if let Some(PanelHitTarget::Field(id)) = &row.target
+        && *id == crate::domain::overlay_decision_id()
+        && let Some((cancel_span, confirm_span)) =
+            crate::overlay_controls::confirm_button_spans(&row.text)
+    {
+        if cancel_span.contains(&content_col) {
+            return Some(PanelHitTarget::Cancel);
+        }
+        if confirm_span.contains(&content_col) && data.confirm_focus == ConfirmFocus::Confirm {
+            return Some(PanelHitTarget::Submit);
+        }
+    }
     row.target.clone()
 }
 

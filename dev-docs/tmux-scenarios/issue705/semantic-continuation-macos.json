@@ -149,7 +149,7 @@
       "op": "assert-frame",
       "contains": [
         "Confirm alpha deployment?",
-        "Decision: Cancel"
+        "( Cancel )  [ Deploy alpha ]"
       ],
       "absent": [
         "provider unavailable"
@@ -163,7 +163,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Decision: Deploy alpha",
+      "literal": "[ Cancel ]  ( Deploy alpha )",
       "timeout_ms": 5000
     },
     {

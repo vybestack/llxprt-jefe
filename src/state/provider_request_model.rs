@@ -335,6 +335,7 @@ pub(super) struct PendingConfirmation {
     pub(super) title: String,
     pub(super) body: String,
     pub(super) confirm_label: String,
+    pub(super) destructive: bool,
     pub(super) continuation_schema: Vec<Field>,
     pub(super) arguments: TypedMap,
     pub(super) policy: ActionPolicy,
@@ -353,6 +354,7 @@ impl PendingConfirmation {
             title: &self.title,
             body: &self.body,
             confirm_label: &self.confirm_label,
+            destructive: self.destructive,
             continuation_schema: &self.continuation_schema,
         }
     }
@@ -374,6 +376,7 @@ pub struct PendingConfirmationView<'a> {
     title: &'a str,
     body: &'a str,
     confirm_label: &'a str,
+    destructive: bool,
     continuation_schema: &'a [Field],
 }
 
@@ -443,6 +446,12 @@ impl<'a> PendingConfirmationView<'a> {
     #[must_use]
     pub const fn confirm_label(self) -> &'a str {
         self.confirm_label
+    }
+
+    /// Whether the provider declared the confirmed continuation destructive.
+    #[must_use]
+    pub const fn destructive(self) -> bool {
+        self.destructive
     }
 
     /// The exact declared continuation field schema.

@@ -14,10 +14,11 @@
 //! renders. Both paths spell the row the same way, and each is pinned where
 //! it is rendered.
 
-use crate::host_controls::project_control_body;
+use crate::domain::{Id, InternalId};
+use crate::host_controls::{project_control_body, project_control_body_with_marked_id};
 use crate::host_panel_models::{HostPanelModel, project_host_panel};
 use crate::runtime::provider::protocol::{ListItem, PanelBody};
-use crate::state::AppState;
+use crate::state::{AppState, DashboardGrabPane};
 use crate::test_support::{host_panel_agent, host_panel_repository};
 use crate::workbench::HostPanelModelSource;
 
@@ -137,5 +138,66 @@ fn an_overlong_repository_row_truncates_the_name_and_keeps_the_count() {
     assert!(
         first.ends_with(" (0)"),
         "the count outlives the name it belongs to: {first:?}"
+    );
+}
+
+/// Rows projected with the model's own grab marker, the way the pane paints
+/// them during an active dashboard reorder (mirrors the agent-row test).
+fn marked_rows(model: &HostPanelModel, width: usize) -> Vec<String> {
+    project_control_body_with_marked_id(
+        &model.body,
+        &model.action_affordances,
+        model.selected_id.as_ref(),
+        model.grabbed_id.as_ref(),
+        None,
+        width,
+    )
+    .into_iter()
+    .map(|row| row.text)
+    .collect()
+}
+
+/// Issue #719: a repository grab must survive the sidebar projection onto the
+/// same item id the rows carry, so the shared control paints the `↕` reorder
+/// marker — mirroring how the agent list projects its grab.
+#[test]
+fn grabbed_repository_id_reaches_the_list_marker() {
+    let mut state = state_with_two_repositories();
+    state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
+
+    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList, None);
+
+    assert_eq!(
+        model.grabbed_id,
+        Some(Id::internal_indexed(InternalId::RepositoryItem, 0)),
+        "the grab projects onto the item id the rows already use"
+    );
+    assert_eq!(
+        marked_rows(&model, 40)[0],
+        "↕ Repo one (0)",
+        "the reorder marker overrides the selection marker on the grabbed row"
+    );
+}
+
+/// The agents pane owns an agent grab: the repository sidebar must not light
+/// up for it, mirroring how the agent list ignores repository grabs.
+#[test]
+fn an_agent_grab_does_not_mark_a_repository_row() {
+    let mut state = state_with_two_repositories();
+    state.dashboard_grab = Some(DashboardGrabPane::Agent {
+        repository_id: state.repositories[0].id.clone(),
+        local_index: 0,
+    });
+
+    let model = project_host_panel(&state, HostPanelModelSource::RepositoryList, None);
+
+    assert_eq!(
+        model.grabbed_id, None,
+        "a cross-pane grab never marks this list"
+    );
+    assert_eq!(
+        marked_rows(&model, 40)[0],
+        ">> Repo one (0)",
+        "the row keeps the plain selection marker"
     );
 }

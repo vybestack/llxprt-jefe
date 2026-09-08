@@ -131,7 +131,7 @@ fn the_availability_pane_replaces_the_agent_list_terminal_and_preview() {
     let view = projected(&mut state, SCENARIO_COLS, SCENARIO_ROWS);
 
     let titles = visible_titles(&view);
-    for replaced in ["Agents", "Terminal", "Agent preview"] {
+    for replaced in ["Agents", "Agent Shell", "Agent preview"] {
         assert!(
             !titles.iter().any(|title| title == replaced),
             "the availability pane replaced {replaced} pre-cutover, visible panes were {titles:?}"
@@ -203,7 +203,7 @@ fn a_dashboard_with_an_agent_keeps_the_agent_list_and_hides_the_availability_pan
         !titles.iter().any(|title| title == "Agent Types"),
         "one agent is enough to restore the ordinary dashboard, visible panes were {titles:?}"
     );
-    for restored in ["Agents", "Terminal", "Agent preview"] {
+    for restored in ["Agents", "Agent Shell", "Agent preview"] {
         assert!(
             titles.iter().any(|title| title == restored),
             "{restored} must come back once an agent exists, visible panes were {titles:?}"
@@ -243,7 +243,7 @@ fn a_shell_overlay_keeps_the_required_terminal_visible() {
 
     let titles = visible_titles(&view);
     assert!(
-        titles.iter().any(|title| title == "Terminal"),
+        titles.iter().any(|title| title == "Agent Shell"),
         "the required terminal survives every hiding rule, visible panes were {titles:?}"
     );
     assert!(

@@ -94,6 +94,8 @@ pub enum ProviderViewMode {
         body: String,
         /// Confirm-button label, byte-identical to the provider declaration.
         confirm_label: String,
+        /// Whether the provider declared the confirmed continuation destructive.
+        destructive: bool,
         /// Exact declared continuation field schema.
         continuation_schema: Vec<Field>,
         /// Exact typed values displayed by the owning screen instance.
@@ -218,6 +220,7 @@ pub(crate) fn project_provider_view_with_confirmation(
             title: pending.title().to_owned(),
             body: pending.body().to_owned(),
             confirm_label: pending.confirm_label().to_owned(),
+            destructive: pending.destructive(),
             continuation_schema: pending.continuation_schema().to_owned(),
             continuation_values: TypedMap::new(),
             focused_field: None,

@@ -37,9 +37,9 @@ fn projected_action_point(state: &AppState, target: &str) -> ((u16, u16), MouseA
 
 #[test]
 fn confirm_targets_follow_projected_form_rows_and_emit_action_ids() {
-    let state = state_with_confirm_modal();
+    let cancel_focused = state_with_confirm_modal();
 
-    let (_, decision) = projected_action_point(&state, "confirm.cycle-focus");
+    let (_, decision) = projected_action_point(&cancel_focused, "confirm.cycle-focus");
     assert!(matches!(
         decision.resolution,
         Resolution::Dispatch {
@@ -48,13 +48,43 @@ fn confirm_targets_follow_projected_form_rows_and_emit_action_ids() {
         } if action == action_id("confirm.cycle-focus")
     ));
 
-    let (_, submit) = projected_action_point(&state, "confirm.accept");
+    let (_, cancel) = projected_action_point(&cancel_focused, "confirm.cancel");
+    assert!(matches!(
+        cancel.resolution,
+        Resolution::Dispatch { action, handler: HandlerKey::ConfirmCancel }
+            if action == action_id("confirm.cancel")
+    ));
+
+    // `confirm.accept` dispatches the focus-relative Enter handler (#228),
+    // so the confirm span only submits while Confirm holds focus.
+    let confirm_focused = cancel_focused
+        .clone()
+        .apply(AppEvent::ConfirmCycleFocus)
+        .committed_pure();
+    let (_, submit) = projected_action_point(&confirm_focused, "confirm.accept");
     assert_eq!(submit.chord.to_string(), "Enter");
     assert!(matches!(
         submit.resolution,
         Resolution::Dispatch { action, handler: HandlerKey::ConfirmAccept }
             if action == action_id("confirm.accept")
     ));
+}
+
+#[test]
+fn unfocused_confirm_span_never_accepts() {
+    // The modal opens Cancel-focused; a click on the bracketed but unfocused
+    // Confirm button must cycle focus, never dispatch the Enter accept.
+    let state = state_with_confirm_modal();
+    for row in 0..40 {
+        for col in 0..120 {
+            let point = (col, row);
+            if let Some(route) = resolve_action_click(&state, click(Some(point), point, (120, 40)))
+                && route.action.as_str() == "confirm.accept"
+            {
+                panic!("Cancel-focused confirmation must not route an accept at ({col},{row})");
+            }
+        }
+    }
 }
 
 #[test]
@@ -70,9 +100,18 @@ fn focus_value_does_not_change_projected_confirm_row_geometry() {
         projected_action_point(&confirm, "confirm.cycle-focus").0
     );
     assert_eq!(
-        projected_action_point(&cancel, "confirm.accept").0,
-        projected_action_point(&confirm, "confirm.accept").0
+        projected_action_point(&cancel, "confirm.cancel").0,
+        projected_action_point(&confirm, "confirm.cancel").0
     );
+
+    // The confirm span keeps its geometry across the focus flip; only its
+    // routed action changes (accept when Confirm-focused, cycle otherwise).
+    let (accept_point, _) = projected_action_point(&confirm, "confirm.accept");
+    let route = resolve_action_click(&cancel, click(Some(accept_point), accept_point, (120, 40)))
+        .unwrap_or_else(|| {
+            panic!("the confirm span must stay a routed control in the Cancel-focused modal")
+        });
+    assert_eq!(route.action.as_str(), "confirm.cycle-focus");
 }
 
 #[test]

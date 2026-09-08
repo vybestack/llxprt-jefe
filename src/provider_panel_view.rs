@@ -263,7 +263,7 @@ fn project_declared_content(
             project_shell_preview(projection, state);
             return;
         }
-        "Terminal".clone_into(&mut projection.title);
+        "Agent Shell".clone_into(&mut projection.title);
         // The embedded PTY answers to terminal focus, not to the pane
         // ordinal: `t`/F12 is what forwards keystrokes into it, and
         // `normalize_terminal_focus` already keeps `terminal_focused` a

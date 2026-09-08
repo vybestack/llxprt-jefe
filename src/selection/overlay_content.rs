@@ -358,8 +358,7 @@ mod tests {
             vec![
                 "Delete Repository".to_string(),
                 "Delete my-repo and all its agents?".to_string(),
-                "Decision: Cancel".to_string(),
-                "submit: host.overlay-submit".to_string(),
+                "( Cancel )  [ Confirm ]".to_string(),
                 crate::overlay_controls::CONFIRMATION_FOOTER.to_owned(),
             ]
         );
@@ -392,7 +391,7 @@ mod tests {
         let content = confirm_modal_lines(&state);
         assert_eq!(content.lines[0], "Kill Agent");
         assert_eq!(content.lines[1], "Kill running-agent?");
-        assert_eq!(content.lines[2], "Decision: Cancel");
+        assert_eq!(content.lines[2], "( Cancel )  [ Confirm ]");
     }
 
     #[test]
@@ -410,7 +409,12 @@ mod tests {
             std::path::PathBuf::from("/tmp/repo"),
         ));
         let content = confirm_modal_lines(&state);
-        assert!(content.lines.iter().any(|line| line == "Decision: Cancel"));
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|line| line == "( Cancel )  [ Confirm ]")
+        );
     }
 
     #[test]
@@ -431,7 +435,50 @@ mod tests {
             std::path::PathBuf::from("/tmp/repo"),
         ));
         let content = confirm_modal_lines(&state);
-        assert!(content.lines.iter().any(|line| line == "Decision: Confirm"));
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|line| line == "[ Cancel ]  ( Confirm )")
+        );
+    }
+
+    #[test]
+    fn confirm_modal_frame_renders_button_rows_without_internal_ids() {
+        let mut state = AppState::test_fixture();
+        state.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: RepositoryId("r1".to_string()),
+        });
+        state.repositories.push(Repository::new(
+            RepositoryId("r1".to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
+            "my-repo".to_string(),
+            "my-repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let content = confirm_modal_lines(&state);
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|line| line == "( Cancel )  [ Confirm ]"),
+            "the frame carries the #233 Cancel-focused button row: {:?}",
+            content.lines
+        );
+        assert!(
+            !content
+                .lines
+                .iter()
+                .any(|line| line.starts_with("Decision:")),
+            "no internal decision row may reach the frame: {:?}",
+            content.lines
+        );
+        assert!(
+            !content.lines.iter().any(|line| line.starts_with("submit:")),
+            "no internal submit row may reach the frame: {:?}",
+            content.lines
+        );
     }
 
     #[test]
