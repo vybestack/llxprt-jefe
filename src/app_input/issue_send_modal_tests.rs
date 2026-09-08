@@ -277,7 +277,8 @@ fn issue_send_info_carries_valid_clone_identity_only() {
         .clone_identity
         .as_ref()
         .value_or_panic("a valid github_repo must yield a clone identity");
-    assert_eq!(identity.clone_url(), "https://github.com/acme/widgets.git");
+    // Issue #759: the clone URL is the SSH scp-form.
+    assert_eq!(identity.clone_url(), "git@github.com:acme/widgets.git");
 }
 
 /// When `github_repo` is empty but `slug` is set, issue-send info must NOT
@@ -340,7 +341,8 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
         .clone_identity
         .as_ref()
         .value_or_panic("CodePuppy must carry the same validated clone identity");
-    assert_eq!(identity.clone_url(), "https://github.com/acme/widgets.git");
+    // Issue #759: the clone URL is the SSH scp-form.
+    assert_eq!(identity.clone_url(), "git@github.com:acme/widgets.git");
 
     let issue_prompt = "Issue body for clone-identity test.";
     let launch_request = prepare_issue_launch_signature(send_info.signature, issue_prompt);

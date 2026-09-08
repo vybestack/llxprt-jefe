@@ -16,7 +16,7 @@
 //! # Sequence
 //!
 //! 1. Detect a valid git worktree at `work_dir`.
-//! 2. If the path is **absent**, clone using the validated HTTPS identity.
+//! 2. If the path is **absent**, clone using the validated SSH clone identity.
 //! 3. If the path **exists but is not a git worktree**, fail safely.
 //! 4. Check dirty status (ignoring `.jefe/`/`.llxprt/`).
 //! 5. `Stop` policy: return `Dirty` without altering the worktree.
@@ -163,10 +163,10 @@ fn prepare_local_force_reclone(
 ///
 /// Split from [`prepare_local_force_reclone`] so the sequence (remove → clone
 /// → prep) is exercisable in tests against a local clone source (a bare repo
-/// path), independent of the HTTPS-only `CloneIdentity::clone_url`. Production
-/// always enters via [`prepare_local_force_reclone`], which resolves the URL
-/// from a validated identity first — guaranteeing the URL is known before the
-/// destructive removal.
+/// path), independent of the github.com scp-form `CloneIdentity::clone_url`.
+/// Production always enters via [`prepare_local_force_reclone`], which
+/// resolves the URL from a validated identity first — guaranteeing the URL is
+/// known before the destructive removal.
 pub(super) fn force_reclone_local_with_url(
     work_dir: &Path,
     clone_url: &str,

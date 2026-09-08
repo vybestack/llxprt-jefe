@@ -3,9 +3,12 @@
 //! Clone identity derives **only** from a valid `Repository.github_repo`
 //! `owner/repo` value — never from `Repository.slug`. The slug may be a
 //! display name or an arbitrary local identifier and is not a safe clone
-//! target. The canonical HTTPS clone URL is used regardless of whether the
-//! agent runs locally or remotely; SSH transport is never inferred from
-//! `remote.enabled` (issue #184).
+//! target. The SSH scp-form clone URL (`git@github.com:owner/repo.git`) is
+//! used regardless of whether the agent runs locally or remotely; it never
+//! varies with `remote.enabled` (issue #184). SSH is the default transport
+//! (issue #759) because HTTPS hard-fails with `GIT_TERMINAL_PROMPT=0` without
+//! a credential helper; sites that need HTTPS rewrite the URL with git's
+//! `url.<base>.insteadOf` rather than a config knob here.
 //!
 //! The validation here is intentionally strict: it must reject URLs, paths
 //! with extra components, internal whitespace, option-like malformed values,
@@ -15,8 +18,8 @@
 /// A validated GitHub `owner/repo` identity safe to build a clone URL from.
 ///
 /// Constructed via [`CloneIdentity::parse`], which performs all validation.
-/// Once a `CloneIdentity` exists, its [`clone_url`] is the canonical HTTPS
-/// form and is safe to pass to `git clone`.
+/// Once a `CloneIdentity` exists, its [`clone_url`] is the canonical SSH
+/// scp-form and is safe to pass to `git clone`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CloneIdentity {
     /// Validated `owner/repo` (no surrounding whitespace, exactly two
@@ -89,12 +92,15 @@ impl CloneIdentity {
         Self::parse(&repo.github_repo)
     }
 
-    /// Build the canonical HTTPS clone URL.
+    /// Build the canonical SSH scp-form clone URL
+    /// (`git@github.com:owner/repo.git`).
     ///
-    /// Always HTTPS regardless of local/remote execution (issue #184).
+    /// SSH is the default transport regardless of local/remote execution
+    /// (issues #759, #184). Sites that need HTTPS rewrite it with git's
+    /// `url.<base>.insteadOf`; there is no per-deployment config knob.
     #[must_use]
     pub(super) fn clone_url(&self) -> String {
-        format!("https://github.com/{}.git", self.owner_repo)
+        format!("git@github.com:{}.git", self.owner_repo)
     }
 
     /// The validated `owner/repo` string, used as the expected origin
@@ -145,7 +151,8 @@ mod tests {
     fn parses_valid_owner_repo() {
         let id = CloneIdentity::parse("acme/widgets").value_or_panic("parse acme/widgets");
         assert_eq!(id.owner_repo(), "acme/widgets");
-        assert_eq!(id.clone_url(), "https://github.com/acme/widgets.git");
+        // Issue #759: the clone URL is the SSH scp-form, not HTTPS.
+        assert_eq!(id.clone_url(), "git@github.com:acme/widgets.git");
     }
 
     #[test]
@@ -238,10 +245,20 @@ mod tests {
     }
 
     #[test]
-    fn always_uses_https_clone_url() {
-        let id = CloneIdentity::parse("acme/widgets").value_or_panic("parse for https check");
-        assert!(id.clone_url().starts_with("https://"));
-        assert!(!id.clone_url().contains("git@"));
+    fn always_uses_ssh_scp_clone_url() {
+        // Issue #759: the clone URL is always the SSH scp-form, regardless of
+        // local/remote execution (issue #184). HTTPS is an opt-out via git's
+        // `url.<base>.insteadOf`, never synthesized here.
+        let id = CloneIdentity::parse("acme/widgets").value_or_panic("parse for scp check");
+        let url = id.clone_url();
+        assert!(
+            url.starts_with("git@github.com:"),
+            "clone URL must be scp-form, got: {url}"
+        );
+        assert!(
+            !url.contains("https://"),
+            "clone URL must not be HTTPS: {url}"
+        );
     }
 
     // ── from_repository: no fallback to slug ───────────────────────────
@@ -264,7 +281,8 @@ mod tests {
         let repo = repo_with("owner/repo", "some-local-slug");
         let id = CloneIdentity::from_repository(&repo).value_or_panic("from_repository");
         assert_eq!(id.owner_repo(), "owner/repo");
-        assert_eq!(id.clone_url(), "https://github.com/owner/repo.git");
+        // Issue #759: scp-form clone URL.
+        assert_eq!(id.clone_url(), "git@github.com:owner/repo.git");
     }
 
     #[test]

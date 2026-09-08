@@ -426,10 +426,11 @@ fn local_clone_when_missing_with_url() {
         std::process::id(),
         rand_label()
     ));
-    // CloneIdentity forces HTTPS, so we cannot use it against a local
-    // file:// bare repo. Instead, exercise the production clone seam
-    // (ensure_workdir_cloned) with the bare path directly, then run the
-    // full post-clone prep sequence via the production prep function.
+    // CloneIdentity synthesizes an SSH github.com URL (issue #759), so we
+    // cannot use it against a local bare repo. Instead, exercise the
+    // production clone seam (ensure_workdir_cloned) with the bare path
+    // directly, then run the full post-clone prep sequence via the
+    // production prep function.
     let clone_url = origin.to_string_lossy().into_owned();
     ensure_workdir_cloned(&work, Some(&clone_url)).value_or_panic("ensure_workdir_cloned");
     assert!(work.join(".git").exists(), "work dir must be cloned");

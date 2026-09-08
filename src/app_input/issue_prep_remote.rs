@@ -47,7 +47,7 @@ pub enum WorkdirPresence {
 pub struct PlanInputs<'a> {
     /// Work dir the clone/checkout targets.
     pub work_dir: &'a Path,
-    /// Validated clone identity (HTTPS URL), if any.
+    /// Validated clone identity (SSH scp-form URL), if any.
     pub identity: Option<&'a CloneIdentity>,
     /// Whether the remote work dir is absent, non-git, or a git worktree.
     pub presence: WorkdirPresence,
