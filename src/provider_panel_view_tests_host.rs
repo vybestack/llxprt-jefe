@@ -348,3 +348,40 @@ fn terminals_preview_projects_placeholders_not_a_second_viewer() {
         "the preview must lead with the owner header, got {lines:?}"
     );
 }
+
+#[test]
+fn live_shell_viewer_pane_is_titled_agent_shell() {
+    // Pre-#715 presentation (issue #719): while the shell overlay runs, the
+    // Terminal Manager's preview pane IS the live viewer and must carry the
+    // `Agent Shell` title the scenario suite pins.
+    let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
+    state.repositories = vec![repository_fixture()];
+    let agent = agent_fixture();
+    state.agents = vec![agent.clone()];
+    state.terminal_manager.selected_index = Some(0);
+    let _ = state.show_terminal_manager();
+    state.open_shell_overlay(agent.id.clone());
+    assert!(state.shell_overlay_active());
+
+    let descriptor = state
+        .published_workbench()
+        .screen_registry()
+        .get_identity(crate::workbench::TERMINALS_IDENTITY)
+        .unwrap_or_else(|| panic!("terminals descriptor must be published"));
+    let layout = crate::screen_layout::resolve_screen(&state, 120, 40)
+        .unwrap_or_else(|| panic!("terminals layout must resolve"));
+    let view = crate::provider_panel_view::project_current_screen(&state, descriptor, &layout)
+        .unwrap_or_else(|error| panic!("terminals projection: {error}"));
+
+    let live = view
+        .panels
+        .iter()
+        .find(|panel| panel.id.as_str() == "shell-preview")
+        .unwrap_or_else(|| panic!("shell-preview projection must exist"));
+    assert_eq!(
+        live.render,
+        crate::provider_panel_view::PanelRender::EmbeddedTerminal,
+        "the overlay-active preview pane must be the live viewer"
+    );
+    assert_eq!(live.title, "Agent Shell");
+}
