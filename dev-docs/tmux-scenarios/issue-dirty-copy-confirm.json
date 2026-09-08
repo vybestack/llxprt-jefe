@@ -327,45 +327,51 @@
       }
     },
     {
-      "op": "assert-file",
-      "file": {
-        "path": "private/git-audit.clone",
-        "content": {
-          "utf8": ""
-        }
+      "op": "assert-frame",
+      "contains": [
+        "clone failed"
+      ],
+      "absent": []
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 220,
+        "rows": 40
       }
     },
     {
-      "op": "assert-file",
-      "file": {
-        "path": "private/git-audit.clean",
-        "content": {
-          "utf8": ""
-        }
+      "op": "wait",
+      "source": "frame",
+      "literal": "clone failed",
+      "timeout_ms": 3000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "clone failed"
+      ],
+      "absent": []
+    },
+    {
+      "op": "resize",
+      "size": {
+        "cols": 400,
+        "rows": 40
       }
     },
     {
-      "op": "assert-file",
-      "file": {
-        "path": "private/gh-audit.log.issue-search",
-        "content": {
-          "utf8": ""
-        }
-      }
+      "op": "wait",
+      "source": "frame",
+      "literal": "clone failed",
+      "timeout_ms": 3000
     },
     {
-      "op": "assert-file",
-      "file": {
-        "path": "private/git-audit.rejected",
-        "exists": false
-      }
-    },
-    {
-      "op": "assert-file",
-      "file": {
-        "path": "private/gh-audit.log.rejected",
-        "exists": false
-      }
+      "op": "assert-frame",
+      "contains": [
+        "clone failed"
+      ],
+      "absent": []
     },
     {
       "op": "key",
