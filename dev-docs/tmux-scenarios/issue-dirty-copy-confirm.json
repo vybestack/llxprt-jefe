@@ -330,7 +330,7 @@
       "op": "wait",
       "source": "frame",
       "literal": "CLONEDIAG",
-      "timeout_ms": 5000
+      "timeout_ms": 30000
     },
     {
       "op": "resize",
