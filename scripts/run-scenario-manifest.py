@@ -135,6 +135,33 @@ def validate_report(entry: dict, report: dict, returncode: int) -> None:
         raise RuntimeError("; ".join(errors))
 
 
+def report_failure_evidence(report: dict) -> str:
+    lines = []
+    steps = report.get("steps") if isinstance(report, dict) else None
+    if isinstance(steps, list):
+        for step in steps:
+            if not isinstance(step, dict) or step.get("status") != "failed":
+                continue
+            error = step.get("error")
+            detail = f": {error}" if error else ""
+            index = step.get("index")
+            op = step.get("op")
+            lines.append(f"  failed step {index} ({op}){detail}")
+    frames = report.get("frames") if isinstance(report, dict) else None
+    if isinstance(frames, list) and frames:
+        frame = frames[-1]
+        if isinstance(frame, dict):
+            cols = frame.get("cols")
+            rows = frame.get("rows")
+            lines.append(f"  last observed frame ({cols}x{rows}):")
+            frame_lines = frame.get("lines")
+            if isinstance(frame_lines, list):
+                lines.extend(f"    {line}" for line in frame_lines)
+    if not lines:
+        return ""
+    return "\n" + "\n".join(lines)
+
+
 def report_name(scenario_path: str) -> str:
     relative = pathlib.PurePosixPath(scenario_path)
     return "__".join(relative.with_suffix("").parts) + ".json"
@@ -195,7 +222,11 @@ def run_entry(entry: dict, args: argparse.Namespace) -> None:
             raise RuntimeError(f"invalid report JSON: {error}: {completed.stdout!r}") from error
         report_path = args.reports / report_name(entry["path"])
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-        validate_report(entry, report, completed.returncode)
+        try:
+            validate_report(entry, report, completed.returncode)
+        except RuntimeError as error:
+            evidence = report_failure_evidence(report)
+            raise RuntimeError(f"{error}{evidence}") from None
     else:
         raise RuntimeError(
             f"missing report, exit={completed.returncode}, stderr={completed.stderr!r}"

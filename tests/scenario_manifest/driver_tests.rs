@@ -320,6 +320,162 @@ fn timeout_command(root: &Path, runner: &Path, reports: &Path) -> Command {
     command
 }
 
+#[test]
+fn driver_embeds_report_failure_evidence_in_the_shard_log() {
+    let temporary = TempDir::new("failure-evidence");
+    let runner = write_failure_evidence_fixture(temporary.path());
+    let reports = temporary.path().join("reports");
+    let output = failure_evidence_command(temporary.path(), &runner, &reports)
+        .output()
+        .must("driver evidence setup");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("report step count=2, expected=3"),
+        "stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("failed step 1 (wait): literal 'Ready' not observed within 5000 ms"),
+        "stderr={stderr}"
+    );
+    assert!(
+        stderr.contains("Semantic Continuation Review"),
+        "stderr={stderr}"
+    );
+    assert!(!stderr.contains("Traceback"), "stderr={stderr}");
+    assert!(
+        reports
+            .join(driver_report_name(
+                "dev-docs/tmux-scenarios/failure-evidence-fixture.json"
+            ))
+            .exists()
+    );
+}
+
+fn write_failure_evidence_fixture(root: &Path) -> PathBuf {
+    let scripts = root.join("scripts");
+    let evidence = root.join("dev-docs/testing");
+    let scenarios = root.join("dev-docs/tmux-scenarios");
+    fs::create_dir(&scripts).must("driver evidence setup");
+    fs::create_dir_all(&evidence).must("driver evidence setup");
+    fs::create_dir_all(&scenarios).must("driver evidence setup");
+    fs::copy(
+        repo_path("scripts/run-scenario-manifest.py"),
+        scripts.join("run-scenario-manifest.py"),
+    )
+    .must("driver evidence setup");
+    fs::write(
+        scenarios.join("failure-evidence-fixture.json"),
+        serde_json::to_vec(&failure_evidence_scenario()).must("driver evidence setup"),
+    )
+    .must("driver evidence setup");
+    fs::write(
+        evidence.join("scenario-execution-manifest.json"),
+        serde_json::to_vec(&failure_evidence_manifest()).must("driver evidence setup"),
+    )
+    .must("driver evidence setup");
+    let runner = root.join("runner");
+    write_failure_evidence_runner(&runner);
+    runner
+}
+
+fn failure_evidence_scenario() -> Value {
+    json!({
+        "schema": 1,
+        "name": "failure-evidence-fixture",
+        "platform": "macos",
+        "terminal": {"cols": 80, "rows": 24},
+        "workspace": {"mode": 448, "dirs": [], "files": [], "env": []},
+        "steps": [
+            {"op": "launch", "argv": ["jefe"], "env": [], "cwd": "."},
+            {"op": "wait", "source": "frame", "literal": "Ready", "timeout_ms": 5000},
+            {"op": "key", "key": "f3", "modifiers": []}
+        ],
+        "secrets": []
+    })
+}
+
+fn failure_evidence_manifest() -> Value {
+    json!({
+        "schema": 1,
+        "scenarios": [{
+            "path": "dev-docs/tmux-scenarios/failure-evidence-fixture.json",
+            "scenario_schema": 1,
+            "criteria": ["CW00B-02"],
+            "platforms": {
+                "linux": {"disposition": "unsupported", "reason": "fixture"},
+                "macos": {"disposition": "required"},
+                "windows": {"disposition": "unsupported", "reason": "fixture"}
+            },
+            "command": {"binary": "tmux_scenario", "installs": []},
+            "timeout_ms": 30000,
+            "ci_job": "tui_scenarios_macos",
+            "expect": {
+                "exit_code": 0,
+                "report_status": "passed",
+                "steps_total": 3,
+                "operations": ["key", "launch", "wait"],
+                "assertions": {},
+                "captures": 0,
+                "capture_names": [],
+                "failed_step": null
+            }
+        }]
+    })
+}
+
+fn write_failure_evidence_runner(runner: &Path) {
+    fs::write(
+        runner,
+        r#"#!/usr/bin/env python3
+import json, sys
+report = {
+    "schema": 1,
+    "scenario": "failure-evidence-fixture",
+    "status": "failed",
+    "workspace": "/tmp/ws",
+    "steps": [
+        {"index": 0, "op": "launch", "status": "passed"},
+        {"index": 1, "op": "wait", "status": "failed",
+         "error": "literal 'Ready' not observed within 5000 ms"}
+    ],
+    "captures": [],
+    "frames": [{
+        "cols": 80,
+        "rows": 24,
+        "lines": ["Semantic Continuation Review", "Alpha resource"]
+    }],
+    "app_exit": None,
+    "redaction_count": 0
+}
+print(json.dumps(report))
+sys.exit(124)
+"#,
+    )
+    .must("driver evidence setup");
+    fs::set_permissions(runner, fs::Permissions::from_mode(0o755)).must("driver evidence setup");
+}
+
+fn failure_evidence_command(root: &Path, runner: &Path, reports: &Path) -> Command {
+    let mut command = Command::new("python3");
+    let true_path = host_true();
+    command
+        .arg(root.join("scripts/run-scenario-manifest.py"))
+        .args(["--platform", "macos", "--tmux-scenario"])
+        .arg(runner)
+        .arg("--jefe")
+        .arg(true_path)
+        .arg("--probe")
+        .arg(true_path)
+        .arg("--jsp-fixture")
+        .arg(true_path)
+        .arg("--shim")
+        .arg(true_path)
+        .arg("--reports")
+        .arg(reports);
+    command
+}
+
 fn execution_command(platform: &str, runner: &Path, reports: &Path) -> Command {
     let mut command = Command::new("python3");
     let true_path = host_true();
