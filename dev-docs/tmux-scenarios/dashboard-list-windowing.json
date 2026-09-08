@@ -250,7 +250,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Repository 24",
+      "literal": "Name: Agent 24",
       "timeout_ms": 30000
     },
     {
@@ -263,7 +263,7 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Repository 7"
+        "25 repos | 0/25 running"
       ],
       "absent": []
     },
