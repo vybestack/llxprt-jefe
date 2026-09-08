@@ -272,6 +272,12 @@ fn repository_list(state: &AppState) -> HostPanelModel {
     let selected_id = state
         .selected_repository_visible_index()
         .map(|index| Id::internal_indexed(InternalId::RepositoryItem, index));
+    let grabbed_id = state.dashboard_grab.as_ref().and_then(|grab| match grab {
+        DashboardGrabPane::Repository { visible_index } if *visible_index < visible.len() => Some(
+            Id::internal_indexed(InternalId::RepositoryItem, *visible_index),
+        ),
+        DashboardGrabPane::Repository { .. } | DashboardGrabPane::Agent { .. } => None,
+    });
     HostPanelModel {
         title: "Repositories".to_owned(),
         body: PanelBody::List(ListBody {
@@ -281,7 +287,7 @@ fn repository_list(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
-        grabbed_id: None,
+        grabbed_id,
         scroll_offset: state.repository_scroll_offset,
     }
 }
