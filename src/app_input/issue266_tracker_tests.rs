@@ -258,8 +258,8 @@ fn issue_send_clone_identity_remains_fork_not_upstream() {
         .value_or_panic("fork github_repo must yield a clone identity");
     assert_eq!(
         identity.clone_url(),
-        "https://github.com/acme/llxprt-jefe.git",
-        "clone identity must remain the fork, not the upstream override"
+        "git@github.com:acme/llxprt-jefe.git",
+        "clone identity must remain the fork, not the upstream override (scp-form, issue #759)"
     );
 }
 

@@ -224,8 +224,11 @@ pub(super) fn origin_raw_url(work_dir: &Path) -> Option<String> {
     Some(url)
 }
 
-/// The expected GitHub host for origin-mismatch comparison. The configured
-/// clone identity always uses `github.com` (see `CloneIdentity::clone_url`).
+/// The expected GitHub host for origin-mismatch comparison. Origin matching
+/// is transport-agnostic: the configured identity clones via SSH
+/// (`git@github.com:...`, issue #759) while an existing origin may be either
+/// scp-form or HTTPS — both identify `github.com` (see
+/// `CloneIdentity::clone_url` and `origins_match`).
 const EXPECTED_GITHUB_HOST: &str = "github.com";
 
 /// Host-aware predicate: verify the actual origin URL is on GitHub
@@ -296,7 +299,9 @@ fn clone_repository(work_dir: &Path, clone_url: &str) -> PrepResult {
         _ => Path::new("."),
     };
     let output = git_capture(clone_cwd, ["clone", clone_url, &work_dir.to_string_lossy()])?;
-    require_success(&output, &format!("git clone {clone_url}"))?;
+    // `require_success` prefixes its context with `git ` — the context must
+    // not repeat it, or the diagnostic reads "git git clone ..." (issue #759).
+    require_success(&output, &format!("clone {clone_url}"))?;
     Ok(())
 }
 
@@ -901,6 +906,31 @@ mod tests {
         assert!(
             msg.contains("failed"),
             "error should describe the git failure, got: {msg}"
+        );
+    }
+
+    // ── clone_repository: failure diagnostic (issue #759) ───────────────
+
+    #[test]
+    fn clone_failure_diagnostic_has_single_git_prefix() {
+        // `require_success` already prefixes its context with `git `, so the
+        // caller must pass a context WITHOUT a leading `git`. The message
+        // must read `git clone <url> failed: <detail>` — never the doubled
+        // `git git clone ...` (issue #759).
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let target = dir.path().join("clone-target");
+        let missing_origin = dir.path().join("missing-origin");
+        let result = clone_repository(&target, &missing_origin.to_string_lossy());
+        let Err(err) = result else {
+            panic!("clone from a missing origin must fail");
+        };
+        assert!(
+            err.starts_with("git clone "),
+            "diagnostic must start with exactly one `git clone` prefix: {err}"
+        );
+        assert!(
+            !err.contains("git git"),
+            "diagnostic must not double the git prefix: {err}"
         );
     }
 }

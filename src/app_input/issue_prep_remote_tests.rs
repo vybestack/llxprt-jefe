@@ -273,13 +273,13 @@ fn plan_clone_when_missing() {
             .any(|op| op.ssh_argv.iter().any(|a| a.contains("git clone"))),
         "missing worktree must plan a clone: {ops:?}"
     );
-    // Clone uses the canonical HTTPS URL.
+    // Clone uses the canonical SSH scp-form URL (issue #759).
     assert!(
         ops.iter().any(|op| op
             .ssh_argv
             .iter()
-            .any(|a| a.contains("https://github.com/acme/widgets.git"))),
-        "clone must use canonical HTTPS URL: {ops:?}"
+            .any(|a| a.contains("git clone -- ") && a.contains("git@github.com:acme/widgets.git"))),
+        "clone must use canonical scp-form URL: {ops:?}"
     );
 }
 
@@ -307,9 +307,10 @@ fn plan_absent_without_identity_emits_no_ops() {
 }
 
 #[test]
-fn plan_https_url_regardless_of_remote_enabled() {
-    // Remote is enabled but clone URL must still be HTTPS (no SSH
-    // inference from remote.enabled).
+fn plan_uses_scp_url_regardless_of_remote_enabled() {
+    // The clone transport is the SSH scp-form (issue #759) regardless of
+    // remote settings — it never varies with remote.enabled (issue #184).
+    // Sites needing HTTPS rewrite it via git's `url.<base>.insteadOf`.
     let planner = RemotePrepPlanner::new(remote_settings());
     let ops = planner
         .plan(&PlanInputs {
@@ -329,15 +330,15 @@ fn plan_https_url_regardless_of_remote_enabled() {
         clone_op
             .ssh_argv
             .iter()
-            .any(|a| a.contains("https://github.com/")),
-        "clone must use HTTPS even when remote enabled: {clone_op:?}"
+            .any(|a| a.contains("git@github.com:")),
+        "clone must use scp-form even when remote enabled: {clone_op:?}"
     );
     assert!(
         clone_op
             .ssh_argv
             .iter()
-            .all(|a| !a.contains("git@github.com")),
-        "clone must not use SSH form: {clone_op:?}"
+            .all(|a| !a.contains("https://github.com")),
+        "clone must not use HTTPS form: {clone_op:?}"
     );
 }
 
@@ -388,14 +389,14 @@ fn plan_force_reclone_resolves_url_before_rm() {
         "rm must precede clone in force-reclone plan: {ops:?}"
     );
 
-    // The clone op must use the HTTPS URL from the identity.
+    // The clone op must use the scp-form URL from the identity (issue #759).
     let clone_op = &ops[clone_idx];
     assert!(
         clone_op
             .ssh_argv
             .iter()
-            .any(|a| a.contains("https://github.com/acme/widgets.git")),
-        "force-reclone must use the identity's HTTPS clone URL: {clone_op:?}"
+            .any(|a| a.contains("git@github.com:acme/widgets.git")),
+        "force-reclone must use the identity's scp-form clone URL: {clone_op:?}"
     );
 
     // A checkout op must follow the clone.
