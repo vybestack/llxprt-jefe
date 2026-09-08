@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "7d6a22dc616291eec65cd3ea542917e24acadcc1bc0ed399d482cf581a3714fc"
+    "artifact_set_sha256": "b2e85b0421a144b78a8c420658a46ed99866be7f04d6f631bd51051ea690b623"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "36343a740555209b48700b4870e342551995b982832af19a6d18ab546a69cc17",
+      "sha256": "2b97b6fe7647b7927917a5b3b4646d5b29a45fc2507418f20e857fc734e29669",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -42,7 +42,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "784fa7a350057808eb9b034522d74d43a9159ce1bbd19e90b3db5d80414de11e",
+      "sha256": "6678b4ca6fbe6f002d4ab7e6f006840b6a7164b66c614b83c7b04c40296a38e4",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "3453cc968b55e82782433373fe16ac265e703387910c69ecc65d55be966d4f71",
+      "sha256": "da947becee529c50d9bec1252c73092152c71c1b7e6f2c245eca381ee6362084",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -264,7 +264,7 @@
     },
     {
       "path": "src/mouse_action_routing.rs",
-      "sha256": "98109bf2a141b96827589489ec2ba964f6efcf7d96f801377fcf4b4e5dc3d311",
+      "sha256": "c738e4616c2c5c356c08aa19dc5f429be67b2bf88fc01894d21f9ac939500b05",
       "mode": "100644",
       "criteria": [
         "CWR2-06",
@@ -631,7 +631,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "sha256": "ef4bcf657a05fd77c10233a1fc661fb9ac58d5c960a1af60f471904905c68deb",
+      "sha256": "fd178cf86b97757d4f8072c8b0631c2d76accc430ad630e504f2aec57139c068",
       "mode": "100644",
       "criteria": [
         "CWR2-06",
