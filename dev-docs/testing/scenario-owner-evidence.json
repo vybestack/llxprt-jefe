@@ -40,7 +40,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/agent-shell-overlay.json",
-      "sha256": "07049ea6dd8c25913adf0ae4b755030126f9372a3789598baa0f0344e7dfbb72",
+      "sha256": "393a71781fd90121bc665b54ff376f53f65f2d615164ee55d07ac619d2964f4b",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
