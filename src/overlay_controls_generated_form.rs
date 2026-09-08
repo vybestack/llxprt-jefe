@@ -226,6 +226,12 @@ fn field_rows(form: &GeneratedAgentForm, width: usize) -> LoweredFields {
 /// Rows the shared shell reserves for the create/back affordance pair.
 const ACTION_ROW_COUNT: usize = 2;
 
+/// Decoration rows of the unclipped assembly: the display name, the three
+/// section headers, and the blank separator. The clipped branch must reserve
+/// exactly this many non-content rows; [`windowed_rows_keeps_the_floor_at_the_decoration_count`]
+/// pins the two branches together.
+const DECORATION_ROWS: usize = 5;
+
 /// Visible rows the shared shell's viewport offers on the committed frame.
 ///
 /// The shell windows every projection through `HostOverlayLayout::form`; the
@@ -244,12 +250,13 @@ fn committed_viewport_rows(state: &AppState) -> Option<usize> {
 /// The #382-era renderer reserved the trailing create/back rows and clipped
 /// the body; the shared shell adds title and footer rows inside the same box,
 /// so the window is tighter and what yields first matters. Section headers
-/// and the blank separator are decoration and go first, tailmost field rows
-/// go next, and the display name, operation/target support rows, and action
-/// rows always render (issue #719). Focus keeps walking fields the window
-/// hides through state, exactly as it walked the legacy renderer's clipped
-/// fields. Below the support-plus-action floor the window cannot be honored;
-/// the shell then clips the tail as it did before the fix.
+/// and the blank separator are decoration and go first, support rows
+/// (operations/targets) go next, tailmost field rows after that, and the
+/// display name and action rows always render (issue #719). Focus keeps
+/// walking fields the window hides through state, exactly as it walked the
+/// legacy renderer's clipped fields. Below the support-plus-action floor the
+/// window still wins: support rows drop before the reserved action rows do,
+/// so the widest pane that can show anything keeps the affordances.
 fn windowed_rows(
     name: HostControlRow,
     operations: Vec<HostControlRow>,
@@ -259,12 +266,21 @@ fn windowed_rows(
     viewport_rows: Option<usize>,
 ) -> Vec<HostControlRow> {
     if let Some(viewport_rows) = viewport_rows
-        && 5 + operations.len() + targets.len() + fields.len() + actions.len() > viewport_rows
+        && DECORATION_ROWS + operations.len() + targets.len() + fields.len() + actions.len()
+            > viewport_rows
     {
         let mut rows = Vec::with_capacity(viewport_rows);
         rows.push(name);
-        rows.extend(operations);
-        rows.extend(targets);
+        let support_room = viewport_rows
+            .saturating_sub(rows.len() + ACTION_ROW_COUNT)
+            .min(operations.len() + targets.len());
+        let operations_room = support_room.min(operations.len());
+        rows.extend(operations.into_iter().take(operations_room));
+        rows.extend(
+            targets
+                .into_iter()
+                .take(support_room.saturating_sub(operations_room)),
+        );
         let room = viewport_rows
             .saturating_sub(rows.len() + ACTION_ROW_COUNT)
             .min(fields.len());
@@ -385,5 +401,99 @@ mod values_tests {
                 declaration.id()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod windowed_rows_tests {
+    use super::*;
+
+    fn row(text: &str) -> HostControlRow {
+        HostControlRow::plain(text.to_owned())
+    }
+
+    fn parts(
+        operations: usize,
+        targets: usize,
+        fields: usize,
+    ) -> (
+        HostControlRow,
+        Vec<HostControlRow>,
+        Vec<HostControlRow>,
+        Vec<HostControlRow>,
+        Vec<HostControlRow>,
+    ) {
+        let name = row("name");
+        let operations = (0..operations).map(|i| row(&format!("op{i}"))).collect();
+        let targets = (0..targets).map(|i| row(&format!("target{i}"))).collect();
+        let fields = (0..fields).map(|i| row(&format!("field{i}"))).collect();
+        let actions = vec![row("[Create disabled]"), row("[Back]")];
+        (name, operations, targets, fields, actions)
+    }
+
+    /// The unclipped assembly must reserve exactly `DECORATION_ROWS` rows for
+    /// decoration, or the clipped branch reserves the wrong floor.
+    #[test]
+    fn windowed_rows_keeps_the_floor_at_the_decoration_count() {
+        let (name, operations, targets, fields, actions) = parts(3, 2, 4);
+        let rows = windowed_rows(name, operations, targets, fields, actions, None);
+        let texts: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
+        let content = 3 + 2 + 4 + ACTION_ROW_COUNT;
+        assert_eq!(
+            rows.len(),
+            DECORATION_ROWS + content,
+            "unclipped rows must equal decoration plus content: {texts:?}"
+        );
+        let expected = [vec![
+            "name",
+            "Operations",
+            "op0",
+            "op1",
+            "op2",
+            "Targets",
+            "target0",
+            "target1",
+            "Fields",
+            "field0",
+            "field1",
+            "field2",
+            "field3",
+            "",
+            "[Create disabled]",
+            "[Back]",
+        ]]
+        .concat();
+        assert_eq!(texts, expected, "the decoration rows pin the floor count");
+    }
+
+    /// Below the support-plus-action floor the window still wins: support
+    /// rows drop before the reserved action rows do (issue #719).
+    #[test]
+    fn windowed_rows_below_the_floor_drops_support_before_actions() {
+        let (name, operations, targets, fields, actions) = parts(4, 2, 5);
+        let rows = windowed_rows(name, operations, targets, fields, actions, Some(10));
+        let texts: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
+        assert!(
+            rows.len() <= 10,
+            "the window must never be exceeded: {texts:?}"
+        );
+        assert_eq!(texts.first(), Some(&"name"));
+        assert!(
+            texts.iter().any(|text| text.contains("[Create")),
+            "the create affordance survives below the floor: {texts:?}"
+        );
+        assert_eq!(
+            texts.last(),
+            Some(&"[Back]"),
+            "the back affordance closes the window: {texts:?}"
+        );
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.starts_with("field"))
+                .count(),
+            1,
+            "room left after support goes to fields: {texts:?}"
+        );
     }
 }

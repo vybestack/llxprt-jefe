@@ -141,29 +141,26 @@ pub fn confirmation_hit_target_at_content_line(
             .viewport
             .checked_add(content_line.checked_sub(1)?)?,
     )?;
-    // The decision row is the restored #228/#233 button pair: the confirm
-    // button's span accepts, every other column of the row keeps the decision
-    // field target so a click there cycles focus.
+    // The decision row is the restored #228/#233 button pair. A click on the
+    // Cancel button cancels outright. The confirm button's span accepts only
+    // while Confirm holds focus, because `confirm.accept` dispatches the
+    // focus-relative Enter handler (#228): an unfocused Confirm click first
+    // cycles focus there (the markers make the focused button visible), and
+    // every other column of the row keeps the decision field target so a
+    // click there cycles focus.
     if let Some(PanelHitTarget::Field(id)) = &row.target
         && *id == crate::domain::overlay_decision_id()
-        && confirm_button_span_contains(&row.text, content_col)
+        && let Some((cancel_span, confirm_span)) =
+            crate::overlay_controls::confirm_button_spans(&row.text)
     {
-        return Some(PanelHitTarget::Submit);
+        if cancel_span.contains(&content_col) {
+            return Some(PanelHitTarget::Cancel);
+        }
+        if confirm_span.contains(&content_col) && data.confirm_focus == ConfirmFocus::Confirm {
+            return Some(PanelHitTarget::Submit);
+        }
     }
     row.target.clone()
-}
-
-/// Whether a content column lands inside the confirm button's span, brackets
-/// included, mirroring the pre-cutover button hit test.
-fn confirm_button_span_contains(row: &str, column: usize) -> bool {
-    let Some(label_start) = row.rfind("Confirm") else {
-        return false;
-    };
-    let start = label_start.saturating_sub(2);
-    let end = label_start
-        .saturating_add("Confirm".len())
-        .saturating_add(2);
-    (start..end).contains(&column)
 }
 
 /// Consume one mouse event owned by the current blocking overlay.

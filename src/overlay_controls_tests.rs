@@ -7,7 +7,7 @@
 
 use crate::domain::plugin::field::{Field, FieldDraft, FieldKind, RestartScope};
 use crate::domain::{Id, TypedValue};
-use crate::host_controls::{ControlAction, ControlIntent};
+use crate::host_controls::{ControlAction, ControlIntent, HostControlRowStyle};
 use crate::overlay_controls::{
     ConfirmationCommand, ConfirmationContent, HostOverlayLayout, ProviderConfirmationContent,
     confirmation_command, overlay_intent, project_confirmation, project_help,
@@ -217,6 +217,16 @@ fn confirmation_renders_the_delete_work_dir_checkbox_row() {
             .any(|row| row.starts_with("Delete work directory:")),
         "the delete-work-dir form row must not render: {rows:?}"
     );
+    let button = projection
+        .rows
+        .iter()
+        .find(|row| row.text.contains("[ Confirm ]"))
+        .unwrap_or_else(|| panic!("the host confirm button row must project"));
+    assert_eq!(
+        button.style,
+        HostControlRowStyle::Normal,
+        "the host confirmation button row stays in the normal style"
+    );
 }
 
 #[test]
@@ -239,6 +249,16 @@ fn provider_confirmation_projects_declared_label_button_rows_without_submit_leak
     assert!(
         rows.contains(&"( Cancel )  [ Deploy now ]"),
         "the Cancel-focused provider dialog renders the declared-label button row: {rows:?}"
+    );
+    let button = cancel
+        .rows
+        .iter()
+        .find(|row| row.text.contains("Deploy now"))
+        .unwrap_or_else(|| panic!("the declared-label button row must project"));
+    assert_eq!(
+        button.style,
+        HostControlRowStyle::Bright,
+        "a destructive provider confirmation renders the button row bright"
     );
     assert!(
         !rows.iter().any(|row| row.starts_with("Decision:")),

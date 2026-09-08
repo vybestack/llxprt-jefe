@@ -62,10 +62,14 @@ fn confirm_action_at(
         render_cols,
         render_rows,
     )? {
-        // The typed internal decision field is the closed Confirm/Cancel row.
+        // The typed internal decision field is the closed Confirm/Cancel row;
+        // its Confirm-span hit only submits while Confirm holds focus (the
+        // orchestration hit target encodes that), so the Enter handler and
+        // the clicked button can never disagree.
         PanelHitTarget::Field(id) if id == jefe::domain::overlay_decision_id() => {
             "confirm.cycle-focus"
         }
+        PanelHitTarget::Cancel => "confirm.cancel",
         PanelHitTarget::Submit => "confirm.accept",
         _ => return None,
     };

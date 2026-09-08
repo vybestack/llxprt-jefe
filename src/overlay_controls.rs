@@ -1,5 +1,7 @@
 //! Deterministic host-control models for host-owned screen overlays.
 
+use std::ops::Range;
+
 use crate::domain::action_registry::{ActionId, InternalActionId};
 use crate::domain::plugin::field::{Field, InternalField};
 use crate::domain::{InternalId, TypedValue};
@@ -222,6 +224,26 @@ fn confirm_button_row(focus: ConfirmFocus, confirm_label: &str) -> String {
         ConfirmFocus::Confirm => ("[ Cancel ]".to_owned(), format!("( {confirm_label} )")),
     };
     format!("{cancel}  {confirm}")
+}
+
+/// Byte-column spans of the two buttons inside a rendered decision row,
+/// markers included, cancel first.
+///
+/// The spans are derived from the same shape [`confirm_button_row`] renders,
+/// and live beside it so the hit test and the renderer cannot drift apart.
+/// A row the width clamp truncated past a button yields no span for it.
+#[must_use]
+pub fn confirm_button_spans(row: &str) -> Option<(Range<usize>, Range<usize>)> {
+    let cancel = button_span(row, "Cancel")?;
+    let confirm = button_span(row, "Confirm")?;
+    Some((cancel, confirm))
+}
+
+/// One button's span: its label plus the two marker/spacing columns on each
+/// side, mirroring the pre-cutover button hit test.
+fn button_span(row: &str, label: &str) -> Option<Range<usize>> {
+    let start = row.find(label)?;
+    Some(start.saturating_sub(2)..start.saturating_add(label.len()).saturating_add(2))
 }
 
 /// Replace the decision and submit form rows with the restored #233 button row.
