@@ -189,6 +189,13 @@ jobs:
           name: tui-scenarios-linux-${{ matrix.shard }}
           path: target/tmux-scenarios/linux-${{ matrix.shard }}
           if-no-files-found: error
+      - name: Upload failed Linux scenario reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-failures-linux-${{ matrix.shard }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+          path: target/tmux-scenarios/linux-${{ matrix.shard }}
+          if-no-files-found: ignore
 
   tui_scenarios_macos:
     name: Required schema-1 TUI scenarios (macOS shard ${{ matrix.shard }})
@@ -228,6 +235,13 @@ jobs:
           name: tui-scenarios-macos-${{ matrix.shard }}
           path: target/tmux-scenarios/macos-${{ matrix.shard }}
           if-no-files-found: error
+      - name: Upload failed macOS scenario reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-failures-macos-${{ matrix.shard }}-run${{ github.run_id }}-attempt${{ github.run_attempt }}
+          path: target/tmux-scenarios/macos-${{ matrix.shard }}
+          if-no-files-found: ignore
 
   tui_scenarios_complete:
     name: Required TUI scenario completion gate
