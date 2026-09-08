@@ -146,7 +146,7 @@ fn lowered_field(field: &GeneratedFormField) -> Option<Field> {
 }
 
 fn operation_rows(form: &GeneratedAgentForm) -> Vec<HostControlRow> {
-    let mut rows = vec![HostControlRow::plain("Operations".to_owned())];
+    let mut rows = Vec::new();
     for operation in OPERATIONS {
         let focused = form.focus() == &GeneratedAgentFormFocus::Operation(operation);
         rows.push(HostControlRow::plain(support_text(
@@ -159,7 +159,7 @@ fn operation_rows(form: &GeneratedAgentForm) -> Vec<HostControlRow> {
 }
 
 fn target_rows(form: &GeneratedAgentForm) -> Vec<HostControlRow> {
-    let mut rows = vec![HostControlRow::plain("Targets".to_owned())];
+    let mut rows = Vec::new();
     for target in TARGETS {
         let focused = form.focus() == &GeneratedAgentFormFocus::Target(target);
         rows.push(HostControlRow::plain(support_text(
@@ -172,7 +172,8 @@ fn target_rows(form: &GeneratedAgentForm) -> Vec<HostControlRow> {
 }
 
 /// Visible field rows plus their lowered declarations, typed values, and the
-/// focused declaration id.
+/// focused declaration id. The rows exclude the section header; assembly adds
+/// it so the viewport window can weigh it separately (issue #719).
 struct LoweredFields {
     rows: Vec<HostControlRow>,
     fields: Vec<Field>,
@@ -181,7 +182,7 @@ struct LoweredFields {
 }
 
 fn field_rows(form: &GeneratedAgentForm, width: usize) -> LoweredFields {
-    let mut rows = vec![HostControlRow::plain("Fields".to_owned())];
+    let mut rows = Vec::new();
     let mut fields = Vec::new();
     let mut values = TypedMap::new();
     let mut focus_target = None;
@@ -222,6 +223,87 @@ fn field_rows(form: &GeneratedAgentForm, width: usize) -> LoweredFields {
     }
 }
 
+/// Rows the shared shell reserves for the create/back affordance pair.
+const ACTION_ROW_COUNT: usize = 2;
+
+/// Visible rows the shared shell's viewport offers on the committed frame.
+///
+/// The shell windows every projection through `HostOverlayLayout::form`; the
+/// committed layout is the exact display basis the renderer drew, so the
+/// projection reads its window from there instead of shipping rows that
+/// cannot fit (issue #719). No committed frame means no window is knowable,
+/// so the whole form projects (frame-less callers and unit tests).
+fn committed_viewport_rows(state: &AppState) -> Option<usize> {
+    let layout = state.resolved_layout.as_ref()?;
+    let (cols, rows) = crate::screen_layout::committed_render_size(layout);
+    Some(crate::overlay_controls::HostOverlayLayout::form(cols, rows).viewport_rows)
+}
+
+/// Assemble the projected rows, honoring the committed viewport window.
+///
+/// The #382-era renderer reserved the trailing create/back rows and clipped
+/// the body; the shared shell adds title and footer rows inside the same box,
+/// so the window is tighter and what yields first matters. Section headers
+/// and the blank separator are decoration and go first, tailmost field rows
+/// go next, and the display name, operation/target support rows, and action
+/// rows always render (issue #719). Focus keeps walking fields the window
+/// hides through state, exactly as it walked the legacy renderer's clipped
+/// fields. Below the support-plus-action floor the window cannot be honored;
+/// the shell then clips the tail as it did before the fix.
+fn windowed_rows(
+    name: HostControlRow,
+    operations: Vec<HostControlRow>,
+    targets: Vec<HostControlRow>,
+    fields: Vec<HostControlRow>,
+    actions: Vec<HostControlRow>,
+    viewport_rows: Option<usize>,
+) -> Vec<HostControlRow> {
+    if let Some(viewport_rows) = viewport_rows
+        && 5 + operations.len() + targets.len() + fields.len() + actions.len() > viewport_rows
+    {
+        let mut rows = Vec::with_capacity(viewport_rows);
+        rows.push(name);
+        rows.extend(operations);
+        rows.extend(targets);
+        let room = viewport_rows
+            .saturating_sub(rows.len() + ACTION_ROW_COUNT)
+            .min(fields.len());
+        rows.extend(fields.into_iter().take(room));
+        rows.extend(actions);
+        return rows;
+    }
+    let mut rows = vec![name];
+    rows.push(HostControlRow::plain("Operations".to_owned()));
+    rows.extend(operations);
+    rows.push(HostControlRow::plain("Targets".to_owned()));
+    rows.extend(targets);
+    rows.push(HostControlRow::plain("Fields".to_owned()));
+    rows.extend(fields);
+    rows.push(HostControlRow::plain(String::new()));
+    rows.extend(actions);
+    rows
+}
+
+fn affordance_rows(form: &GeneratedAgentForm, create_enabled: bool) -> Vec<HostControlRow> {
+    let create_focused = form.focus() == &GeneratedAgentFormFocus::Create;
+    let back_focused = form.focus() == &GeneratedAgentFormFocus::Back;
+    vec![
+        HostControlRow::targeted(
+            format!(
+                "{}[Create {}]",
+                marker(create_focused),
+                if create_enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            ),
+            PanelHitTarget::Submit,
+        ),
+        HostControlRow::plain(format!("{}[Back]", marker(back_focused))),
+    ]
+}
+
 /// Project the open definition-generated New Agent form as a shared-shell
 /// form control, mirroring the legacy thin renderer's content lines.
 #[must_use]
@@ -234,32 +316,15 @@ pub fn project_generated_agent_form(
     };
     let lowered = field_rows(form, width);
     let create_enabled = form.create_enabled();
-    let mut rows = vec![HostControlRow::plain(truncate_with_ellipsis(
-        form.draft().display_name(),
-        width,
-    ))];
-    rows.extend(operation_rows(form));
-    rows.extend(target_rows(form));
-    rows.extend(lowered.rows);
-    rows.push(HostControlRow::plain(String::new()));
-    let create_focused = form.focus() == &GeneratedAgentFormFocus::Create;
-    rows.push(HostControlRow::targeted(
-        format!(
-            "{}[Create {}]",
-            marker(create_focused),
-            if create_enabled {
-                "enabled"
-            } else {
-                "disabled"
-            }
-        ),
-        PanelHitTarget::Submit,
-    ));
-    let back_focused = form.focus() == &GeneratedAgentFormFocus::Back;
-    rows.push(HostControlRow::plain(format!(
-        "{}[Back]",
-        marker(back_focused)
-    )));
+    let name = HostControlRow::plain(truncate_with_ellipsis(form.draft().display_name(), width));
+    let rows = windowed_rows(
+        name,
+        operation_rows(form),
+        target_rows(form),
+        lowered.rows,
+        affordance_rows(form, create_enabled),
+        committed_viewport_rows(state),
+    );
     let affordances = vec![Affordance {
         id: Id::internal(InternalId::OverlaySubmit),
         label: "Create".to_owned(),

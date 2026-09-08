@@ -66,6 +66,64 @@ fn focus_first_field(state: &mut AppState) {
     panic!("focus must reach a generated field within one cycle");
 }
 
+/// The shell's drawn window for a projection at the committed frame size.
+///
+/// `HostControlOverlay` draws `rows.skip(viewport).take(viewport_rows)`; this
+/// reproduces that window so the test asserts exactly what renders.
+fn shell_window(
+    state: &AppState,
+    cols: u16,
+    rows: u16,
+) -> (
+    crate::overlay_controls::OverlayControlProjection,
+    Vec<String>,
+) {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(cols, rows);
+    let projection = project_generated_agent_form(state, layout.content_width)
+        .unwrap_or_else(|| panic!("generated form must project"));
+    let visible = projection
+        .text_rows()
+        .skip(projection.viewport)
+        .take(layout.viewport_rows)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    (projection, visible)
+}
+
+/// Issue #719: at a 54x16 terminal the shared shell's viewport cannot hold
+/// the whole form, and the create/back affordance rows were clipped off
+/// below `Fields`. The #382-era contract reserves those action rows; the
+/// projection must never ship them outside the drawn window.
+#[test]
+fn generated_form_keeps_affordance_rows_inside_the_small_viewport_window() {
+    let mut state = generated_state();
+    let resolved = crate::screen_layout::resolve_screen(&state, 54, 16)
+        .unwrap_or_else(|| panic!("a 54x16 frame must resolve for the fixture screen"));
+    let (cols, rows) = crate::screen_layout::committed_render_size(&resolved);
+    state.resolved_layout = Some(resolved);
+
+    let (projection, visible) = shell_window(&state, cols, rows);
+    assert!(
+        projection.rows.len() <= usize::from(rows).saturating_sub(6),
+        "the projection must fit the committed viewport, rows={:?}",
+        projection.text_rows().collect::<Vec<_>>()
+    );
+    assert!(
+        visible.iter().any(|row| row.contains("[Create ")),
+        "the create affordance must stay visible at 54x16, visible={visible:?}"
+    );
+    assert!(
+        visible.iter().any(|row| row.contains("[Back]")),
+        "the back affordance must stay visible at 54x16, visible={visible:?}"
+    );
+    assert!(
+        visible
+            .iter()
+            .any(|row| row.contains("Claude Code") || row.contains("LLxprt")),
+        "the display name must stay visible at 54x16, visible={visible:?}"
+    );
+}
+
 #[test]
 fn generated_form_projects_sections_support_and_fields() {
     let state = generated_state();
