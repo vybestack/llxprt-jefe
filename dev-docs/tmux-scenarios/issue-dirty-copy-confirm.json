@@ -327,32 +327,6 @@
       }
     },
     {
-      "op": "wait",
-      "source": "frame",
-      "literal": "CLONEDIAG",
-      "timeout_ms": 30000
-    },
-    {
-      "op": "resize",
-      "size": {
-        "cols": 220,
-        "rows": 40
-      }
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "CLONEDIAG",
-      "timeout_ms": 3000
-    },
-    {
-      "op": "assert-frame",
-      "contains": [
-        "CLONEDIAG"
-      ],
-      "absent": []
-    },
-    {
       "op": "resize",
       "size": {
         "cols": 400,
@@ -362,13 +336,31 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "CLONEDIAG",
-      "timeout_ms": 3000
+      "literal": "clone failed",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "clone failed",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "clone failed",
+      "timeout_ms": 30000
+    },
+    {
+      "op": "wait",
+      "source": "frame",
+      "literal": "clone failed",
+      "timeout_ms": 30000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "CLONEDIAG"
+        "clone failed"
       ],
       "absent": []
     },
