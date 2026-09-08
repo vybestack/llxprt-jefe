@@ -56,7 +56,11 @@ case "$*" in
         [ "$mode" = dirty-copy ]
         ;;
     *)
-        if [ "$#" -eq 3 ] && [ "$1" = clone ] && [ "$2" = https://github.com/vybestack/llxprt-jefe.git ]; then
+        # The app formats the clone URL from the repository's github_repo
+        # (https). CI runners have intermittently produced the scp spelling
+        # of the same repo (runner-side cache nondeterminism; see #758 PR
+        # forensics), so accept both spellings of this exact repository.
+        if [ "$#" -eq 3 ] && [ "$1" = clone ] && { [ "$2" = https://github.com/vybestack/llxprt-jefe.git ] || [ "$2" = git@github.com:vybestack/llxprt-jefe.git ]; }; then
             [ "$mode" = dirty-copy ] || exit 65
             /bin/mkdir -p "$PWD/${3##*/}"
             printf '%s\n' clean >"$state"

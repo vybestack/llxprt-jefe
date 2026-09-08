@@ -2428,7 +2428,7 @@
     },
     {
       "path": "scripts/harness-repository-prep-git-shim.sh",
-      "sha256": "41db0aff59cd0939d28edba3547db36d0ee41ac0ccf12df5224c0ae3fe0c47b5",
+      "sha256": "58ee015f16768ed19099f73dff168edb885cfa11c51da5e17c50f2185ade0662",
       "mode": "100755",
       "criteria": [
         "CW00B-02",
