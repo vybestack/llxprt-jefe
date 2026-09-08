@@ -345,7 +345,9 @@ fn driver_embeds_report_failure_evidence_in_the_shard_log() {
     assert!(!stderr.contains("Traceback"), "stderr={stderr}");
     assert!(
         reports
-            .join(driver_report_name("dev-docs/tmux-scenarios/failure-evidence-fixture.json"))
+            .join(driver_report_name(
+                "dev-docs/tmux-scenarios/failure-evidence-fixture.json"
+            ))
             .exists()
     );
 }
