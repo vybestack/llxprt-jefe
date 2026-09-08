@@ -148,6 +148,147 @@ fn production_search_submit_flows_through_the_form_factory() {
 }
 
 #[test]
+fn confirmation_projects_focusable_button_rows_instead_of_decision_form_rows() {
+    let cancel = project_confirmation(
+        ConfirmationContent {
+            title: "Confirm",
+            message: "Proceed?",
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+            focus: ConfirmFocus::Cancel,
+        },
+        60,
+    );
+    let rows: Vec<&str> = cancel.rows.iter().map(|row| row.text.as_str()).collect();
+    assert!(
+        rows.contains(&"( Cancel )  [ Confirm ]"),
+        "issue #233: the Cancel-focused dialog renders the focusable button row: {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.starts_with("Decision:")),
+        "the internal decision form row must not render: {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.starts_with("submit:")),
+        "the internal submit affordance row must not render: {rows:?}"
+    );
+
+    let confirm = project_confirmation(
+        ConfirmationContent {
+            title: "Confirm",
+            message: "Proceed?",
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+            focus: ConfirmFocus::Confirm,
+        },
+        60,
+    );
+    let rows: Vec<&str> = confirm.rows.iter().map(|row| row.text.as_str()).collect();
+    assert!(
+        rows.contains(&"[ Cancel ]  ( Confirm )"),
+        "issue #233: the Confirm-focused dialog renders the focusable button row: {rows:?}"
+    );
+}
+
+#[test]
+fn confirmation_renders_the_delete_work_dir_checkbox_row() {
+    let projection = project_confirmation(
+        ConfirmationContent {
+            title: "Delete agent",
+            message: "Delete agent-0?",
+            show_delete_work_dir: true,
+            delete_work_dir: true,
+            focus: ConfirmFocus::Cancel,
+        },
+        60,
+    );
+    let rows: Vec<&str> = projection
+        .rows
+        .iter()
+        .map(|row| row.text.as_str())
+        .collect();
+    assert!(
+        rows.contains(&"[x] Delete work directory"),
+        "the delete-work-dir option renders as the checkbox row: {rows:?}"
+    );
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row.starts_with("Delete work directory:")),
+        "the delete-work-dir form row must not render: {rows:?}"
+    );
+}
+
+#[test]
+fn provider_confirmation_projects_declared_label_button_rows_without_submit_leak() {
+    let values = TypedMap::new();
+    let cancel = project_provider_confirmation(
+        ProviderConfirmationContent {
+            title: "Confirm deployment?",
+            body: "This action changes production.",
+            confirm_label: "Deploy now",
+            destructive: true,
+            focus: ConfirmFocus::Cancel,
+            continuation_schema: &[],
+            continuation_values: &values,
+            focused_field: None,
+        },
+        64,
+    );
+    let rows: Vec<&str> = cancel.rows.iter().map(|row| row.text.as_str()).collect();
+    assert!(
+        rows.contains(&"( Cancel )  [ Deploy now ]"),
+        "the Cancel-focused provider dialog renders the declared-label button row: {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.starts_with("Decision:")),
+        "the internal decision form row must not render: {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.starts_with("submit:")),
+        "the internal submit affordance row must not render: {rows:?}"
+    );
+
+    let confirm = project_provider_confirmation(
+        ProviderConfirmationContent {
+            title: "Confirm deployment?",
+            body: "This action changes production.",
+            confirm_label: "Deploy now",
+            destructive: true,
+            focus: ConfirmFocus::Confirm,
+            continuation_schema: &[],
+            continuation_values: &values,
+            focused_field: None,
+        },
+        64,
+    );
+    let rows: Vec<&str> = confirm.rows.iter().map(|row| row.text.as_str()).collect();
+    assert!(
+        rows.contains(&"[ Cancel ]  ( Deploy now )"),
+        "the Confirm-focused provider dialog renders the declared-label button row: {rows:?}"
+    );
+}
+
+#[test]
+fn confirmation_button_rows_keep_the_submit_intent_through_the_form_body() {
+    let cancel = project_confirmation(
+        ConfirmationContent {
+            title: "Confirm",
+            message: "Proceed?",
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+            focus: ConfirmFocus::Cancel,
+        },
+        60,
+    );
+    assert_eq!(
+        confirmation_command(&cancel, ControlAction::Activate),
+        Some(ConfirmationCommand::ChooseCancel),
+        "Enter keeps activating the focused Cancel button after the row restore"
+    );
+}
+
+#[test]
 fn production_confirmation_submit_reflects_the_focused_decision() {
     let cancel = project_confirmation(
         ConfirmationContent {
@@ -209,7 +350,8 @@ fn confirmation_prompt_and_decision_are_distinct_factory_rows() {
         .collect::<Vec<_>>();
 
     assert!(rows.contains(&"Proceed?"));
-    assert!(rows.contains(&"Decision: Cancel"));
+    assert!(rows.contains(&"( Cancel )  [ Confirm ]"));
+    assert!(!rows.iter().any(|row| row.starts_with("Decision:")));
     assert!(!rows.contains(&"Proceed?: Cancel"));
 }
 
@@ -263,6 +405,7 @@ fn provider_confirmation_projects_the_declared_decision_without_a_provider_snaps
             title: "Confirm deployment?",
             body: "This action changes production.",
             confirm_label: "Deploy now",
+            destructive: true,
             focus: ConfirmFocus::Confirm,
             continuation_schema: &[],
             continuation_values: &values,
@@ -290,6 +433,7 @@ fn provider_confirmation_projects_the_declared_decision_without_a_provider_snaps
             title: "Confirm deployment?",
             body: "This action changes production.",
             confirm_label: "Deploy now",
+            destructive: true,
             focus: ConfirmFocus::Cancel,
             continuation_schema: &[],
             continuation_values: &values,
@@ -340,6 +484,7 @@ fn provider_confirmation_projects_instance_owned_fields_and_exact_typed_values()
             title: "Confirm release?".to_owned(),
             body: "Publish the selected release.".to_owned(),
             confirm_label: "Publish".to_owned(),
+            destructive: false,
             continuation_schema: vec![field.clone()],
             continuation_values,
             focused_field: Some(field.id().clone()),
@@ -428,6 +573,7 @@ fn provider_surface_footer_matches_terminal_unavailable_and_confirmation_states(
             title: "Confirm deployment?".to_owned(),
             body: "This action changes production.".to_owned(),
             confirm_label: "Deploy now".to_owned(),
+            destructive: true,
             continuation_schema: Vec::new(),
             continuation_values: crate::domain::TypedMap::new(),
             focused_field: None,

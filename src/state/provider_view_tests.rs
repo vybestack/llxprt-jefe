@@ -293,6 +293,7 @@ fn confirmation_mode_carries_exact_declared_fields() {
             title,
             body,
             confirm_label,
+            destructive,
             continuation_schema,
             continuation_values,
             focused_field,
@@ -301,6 +302,7 @@ fn confirmation_mode_carries_exact_declared_fields() {
             assert_eq!(title, "Destroy Branch");
             assert_eq!(body, "This cannot be undone.");
             assert_eq!(confirm_label, "Delete");
+            assert!(!destructive);
             assert_eq!(continuation_schema, schema);
             assert!(continuation_values.is_empty());
             assert_eq!(focused_field, None);
@@ -340,6 +342,7 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             title,
             body,
             confirm_label,
+            destructive,
             continuation_schema,
             continuation_values,
             focused_field,
@@ -352,6 +355,7 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             assert_eq!(title, "Confirm Action");
             assert_eq!(body, "Are you sure?");
             assert_eq!(confirm_label, "Yes, proceed");
+            assert!(!destructive);
             assert!(continuation_schema.is_empty());
             assert!(continuation_values.is_empty());
             assert_eq!(focused_field, None);
