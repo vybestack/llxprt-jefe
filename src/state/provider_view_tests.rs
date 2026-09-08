@@ -37,14 +37,14 @@ fn empty_map() -> TypedMap {
     TypedMap::new()
 }
 
-fn continuation_policy() -> ActionPolicy {
+fn continuation_policy(destructive: bool) -> ActionPolicy {
     ActionPolicy::new(
         ActionConfirmation::ProviderContinuation,
         vec![
             ActionOutcome::RequestHostConfirmation,
             ActionOutcome::Notice,
         ],
-        false,
+        destructive,
     )
 }
 
@@ -78,12 +78,13 @@ fn register_confirmation(
     body: &str,
     label: &str,
     schema: Vec<Field>,
+    destructive: bool,
 ) -> ProviderRequestKey {
     let o = owner();
     let a = action();
     let s = screen();
     let empty = empty_map();
-    let policy = continuation_policy();
+    let policy = continuation_policy(destructive);
     let outcome = state
         .invoke(InvokeInput {
             owner: &o,
@@ -103,7 +104,7 @@ fn register_confirmation(
                 title: title.to_owned(),
                 body: body.to_owned(),
                 confirm_label: label.to_owned(),
-                destructive: false,
+                destructive,
                 continuation_schema: schema,
             },
             1000,
@@ -273,6 +274,7 @@ fn confirmation_mode_carries_exact_declared_fields() {
         "This cannot be undone.",
         "Delete",
         schema.clone(),
+        false,
     );
 
     let input = ProviderViewInput {
@@ -312,6 +314,47 @@ fn confirmation_mode_carries_exact_declared_fields() {
 }
 
 #[test]
+fn destructive_confirmation_mode_carries_the_declared_flag() {
+    let mut state = ProviderRequestState::new();
+    register_confirmation(
+        &mut state,
+        "conf.destructive",
+        "Destroy Branch",
+        "This cannot be undone.",
+        "Delete",
+        vec![],
+        true,
+    );
+
+    let input = ProviderViewInput {
+        requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
+        availability: Some(&Availability::Available),
+        focused: false,
+        confirm: Some(ConfirmFocus::Cancel),
+        viewport_rows: 32,
+        focused_index: None,
+        action_label: Some("Run Action"),
+    };
+    let projection = project_provider_view(&input);
+    match projection.mode {
+        ProviderViewMode::Confirmation {
+            confirm_label,
+            destructive,
+            ..
+        } => {
+            assert_eq!(confirm_label, "Delete");
+            assert!(
+                destructive,
+                "a destructive-declared confirmation must project destructive: true"
+            );
+        }
+        other => panic!("expected Confirmation, got {other:?}"),
+    }
+}
+
+#[test]
 fn confirmation_mode_defaults_focus_to_cancel() {
     let mut state = ProviderRequestState::new();
     register_confirmation(
@@ -321,6 +364,7 @@ fn confirmation_mode_defaults_focus_to_cancel() {
         "Are you sure?",
         "Yes, proceed",
         vec![],
+        false,
     );
 
     // No explicit focus override supplied.
@@ -526,7 +570,15 @@ fn mode_precedence_small_beats_recovery() {
 #[test]
 fn mode_precedence_confirmation_beats_unavailable() {
     let mut state = ProviderRequestState::new();
-    register_confirmation(&mut state, "conf.prec", "Confirm", "Body", "OK", vec![]);
+    register_confirmation(
+        &mut state,
+        "conf.prec",
+        "Confirm",
+        "Body",
+        "OK",
+        vec![],
+        false,
+    );
     let reason = "provider not installed";
     let availability = Availability::Unavailable {
         reason: reason.to_owned(),

@@ -114,12 +114,6 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Package Review",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "wait",
-      "source": "frame",
       "literal": "Original Package Review",
       "timeout_ms": 15000
     },
@@ -173,12 +167,6 @@
       "op": "key",
       "key": "f2",
       "modifiers": []
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "Package Review",
-      "timeout_ms": 15000
     },
     {
       "op": "wait",

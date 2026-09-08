@@ -142,12 +142,6 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Package Review",
-      "timeout_ms": 15000
-    },
-    {
-      "op": "wait",
-      "source": "frame",
       "literal": "Selected package review",
       "timeout_ms": 15000
     },
