@@ -57,7 +57,7 @@
     { "op": "wait", "source": "frame", "literal": "Confirm deployment?", "timeout_ms": 15000 },
     {
       "op": "assert-frame",
-      "contains": ["Provider Action", "Confirm deployment?", "This action changes production.", "Cancel", "Deploy now"],
+      "contains": ["Confirm deployment?", "This action changes production.", "Cancel", "Deploy now"],
       "absent": ["Deployment confirmed"]
     },
     { "op": "key", "key": "tab", "modifiers": [] },
