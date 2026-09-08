@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "scenario_manifest_sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
+  "scenario_manifest_sha256": "784fa7a350057808eb9b034522d74d43a9159ce1bbd19e90b3db5d80414de11e",
   "scenarios": [
     {
       "path": "dev-docs/tmux-scenarios/actions-mode.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/agent-shell-overlay.json",
-      "sha256": "47c5a45b1ea5ac9e914d607ceb520af4d6045b300a068163e008cc4ca18acfc1",
+      "sha256": "07049ea6dd8c25913adf0ae4b755030126f9372a3789598baa0f0344e7dfbb72",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -100,7 +100,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/dashboard-list-windowing.json",
-      "sha256": "c51cf1b7f80a2ac05c725ebaa7cb7dd8523cdcd64030d6dcfb6b98acfcf20e7d",
+      "sha256": "8da06a448ca280ebe9ee6df611d57565fa2798196098cfb5de0318f0bc3e8a46",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -207,7 +207,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue265-linux-keys.json",
-      "sha256": "7f7ae56921d1fa8da7fc828623b8da740ce61d70e0b4bf2789b3e2b33cb1c734",
+      "sha256": "082e93e414f4e3821b16804604440767766dcc20b697c92c2188887af6b35a54",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -547,7 +547,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/atomic-success.json",
-      "sha256": "d3318da2eaa44fde70ab785bc5af4b1ea170db5af51337a577130e6c319c4de0",
+      "sha256": "f86411281bbc201e2cc12c2bd37db84502c95d3693163930f6928eea08d7b242",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -583,7 +583,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/restart-publication.json",
-      "sha256": "2b2fc4619d5a5f1fe8d78c803dc2617807c6d08064e773cca54a7ad6b143aa5a",
+      "sha256": "a6e2cdc71a4b5ad622e19f155ea35a3f4458e3018a5a96e4c7b563407a1b3b58",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -657,7 +657,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
-      "sha256": "6f996ca95b7fa859f1ca8f0ed4b60a4a14b2e1db9c437c3989fa9551db5ce765",
+      "sha256": "1f33a86fcdfd417c33ea87462cf0fc16a54ee5af84496d5e924cc84f077cc75d",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -670,7 +670,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
-      "sha256": "d10af922c51e89fa0448723334af04f27210860242ce31d1f8e2d57696f342f8",
+      "sha256": "87fad5d39a1db6b70e084c7757c38414d5488a593f1d5aa361e9372f5b8ad17b",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1019,7 +1019,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/package-panel-lifecycle.json",
-      "sha256": "426c66f7c730112d68fb5632536ff40aeb0f47386afe43d0b4316410726c8b3b",
+      "sha256": "487fe96551457d0836d7b2a146eea2e449b95118c9e70a7d615222cfddbe9fdf",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1155,7 +1155,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/provider-action-confirmation.json",
-      "sha256": "39bcea2d3ebcb24003ab616d3eaca245caa1f314549d246bbcea27b8cca1acd3",
+      "sha256": "79a2c5c26c4edb98d8473a805cac37ec6abfaadb47b6b97ee3b7321dfebdb890",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -1427,7 +1427,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/settings-keys-normal.json",
-      "sha256": "a49a00d40fd4d638581471245b2903a578d40bd509b8cd93c4ec6a48e0d722f7",
+      "sha256": "ac558375fe3d1b92c42ea1f280c66d94520ccfc1a8797c6bd51142266d4d24c2",
       "mode": "100644",
       "criteria": [
         "CW00B-02",
@@ -2215,7 +2215,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
+      "sha256": "784fa7a350057808eb9b034522d74d43a9159ce1bbd19e90b3db5d80414de11e",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -2428,7 +2428,7 @@
     },
     {
       "path": "scripts/harness-repository-prep-git-shim.sh",
-      "sha256": "41db0aff59cd0939d28edba3547db36d0ee41ac0ccf12df5224c0ae3fe0c47b5",
+      "sha256": "3ea53aa73dcf23d884630065a156a5099373015d3afc76463b3acc4964d4f275",
       "mode": "100755",
       "criteria": [
         "CW00B-02",

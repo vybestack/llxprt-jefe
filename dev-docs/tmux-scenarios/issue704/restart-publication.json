@@ -114,13 +114,8 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Navigate to vendor.panel.open",
+      "literal": "Package Review",
       "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "escape",
-      "modifiers": []
     },
     {
       "op": "wait",
@@ -182,13 +177,8 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Navigate to vendor.panel.open",
+      "literal": "Package Review",
       "timeout_ms": 15000
-    },
-    {
-      "op": "key",
-      "key": "escape",
-      "modifiers": []
     },
     {
       "op": "wait",

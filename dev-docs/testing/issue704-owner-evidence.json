@@ -20,7 +20,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "3ff68340db60c980b30eae653185712db7d9b6c02505a30c94c79f8186a550f7",
+      "sha256": "784fa7a350057808eb9b034522d74d43a9159ce1bbd19e90b3db5d80414de11e",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "d7980a62b2d2301a3893dd139f99b841b3c21ca47541684be7577eef08225fb9",
+      "sha256": "3453cc968b55e82782433373fe16ac265e703387910c69ecc65d55be966d4f71",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -36,7 +36,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/atomic-success.json",
-      "sha256": "d3318da2eaa44fde70ab785bc5af4b1ea170db5af51337a577130e6c319c4de0",
+      "sha256": "f86411281bbc201e2cc12c2bd37db84502c95d3693163930f6928eea08d7b242",
       "mode": "100644",
       "criteria": [
         "CWR1-06",
@@ -64,7 +64,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue704/restart-publication.json",
-      "sha256": "2b2fc4619d5a5f1fe8d78c803dc2617807c6d08064e773cca54a7ad6b143aa5a",
+      "sha256": "a6e2cdc71a4b5ad622e19f155ea35a3f4458e3018a5a96e4c7b563407a1b3b58",
       "mode": "100644",
       "criteria": [
         "CWR1-06",

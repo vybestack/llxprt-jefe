@@ -248,7 +248,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Terminal",
+      "literal": "Agent Shell",
       "timeout_ms": 15000
     },
     {

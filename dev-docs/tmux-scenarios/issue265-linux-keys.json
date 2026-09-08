@@ -129,7 +129,7 @@
     },
     {
       "op": "key",
-      "key": "escape",
+      "key": "i",
       "modifiers": []
     },
     {
@@ -190,10 +190,10 @@
     {
       "op": "assert-file",
       "file": {
-        "path": "private/gh-audit.log",
-        "content": {
-          "utf8": "ACCEPTED search\nACCEPTED issue-view\nACCEPTED comments\nACCEPTED search\n"
-        }
+      "path": "private/gh-audit.log",
+      "content": {
+        "utf8": "ACCEPTED search\nACCEPTED issue-view\nACCEPTED comments\nACCEPTED search\nACCEPTED search\n"
+      }
       }
     },
     {

@@ -337,13 +337,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Terminal",
+      "literal": "Agent Shell",
       "timeout_ms": 20000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "Terminal"
+        "Agent Shell"
       ],
       "absent": [
         "[x] Needs you"
