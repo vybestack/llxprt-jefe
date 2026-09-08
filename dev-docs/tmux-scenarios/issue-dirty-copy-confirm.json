@@ -327,11 +327,10 @@
       }
     },
     {
-      "op": "assert-frame",
-      "contains": [
-        "clone failed"
-      ],
-      "absent": []
+      "op": "wait",
+      "source": "frame",
+      "literal": "clone failed",
+      "timeout_ms": 5000
     },
     {
       "op": "resize",

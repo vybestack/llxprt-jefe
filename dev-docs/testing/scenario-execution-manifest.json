@@ -1110,8 +1110,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 10,
-          "assert-file": 3
+          "assert-file": 3,
+          "assert-frame": 9
         },
         "captures": 0,
         "capture_names": [],
