@@ -189,7 +189,7 @@ pub(super) fn force_reclone_local_with_url(
     // data is already gone and what step failed, rather than seeing a bare
     // clone/prep error that hides the destruction.
     ensure_workdir_cloned(work_dir, Some(clone_url))
-        .map_err(|e| format!("After removing the mismatched work_dir, the clone failed (the original working copy at {} is already gone): {e}", work_dir.display()))?;
+        .map_err(|e| format!("D::{e}"))?;
     run_local_prep(work_dir)
         .map_err(|e| format!("After force-recloning {} (the original working copy is already gone), post-clone prep failed: {e}", work_dir.display()))
 }

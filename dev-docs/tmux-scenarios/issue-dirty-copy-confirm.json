@@ -329,7 +329,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "clone failed",
+      "literal": "CLONEDIAG",
       "timeout_ms": 5000
     },
     {
@@ -342,13 +342,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "clone failed",
+      "literal": "CLONEDIAG",
       "timeout_ms": 3000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "clone failed"
+        "CLONEDIAG"
       ],
       "absent": []
     },
@@ -362,13 +362,13 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "clone failed",
+      "literal": "CLONEDIAG",
       "timeout_ms": 3000
     },
     {
       "op": "assert-frame",
       "contains": [
-        "clone failed"
+        "CLONEDIAG"
       ],
       "absent": []
     },

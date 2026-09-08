@@ -295,8 +295,17 @@ fn clone_repository(work_dir: &Path, clone_url: &str) -> PrepResult {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
-    let output = git_capture(clone_cwd, ["clone", clone_url, &work_dir.to_string_lossy()])?;
-    require_success(&output, &format!("git clone {clone_url}"))?;
+    let output = match git_capture(clone_cwd, ["clone", clone_url, &work_dir.to_string_lossy()]) {
+        Ok(output) => output,
+        Err(spawn) => return Err(format!("CLONEDIAG spawn: {spawn}")),
+    };
+    if !output.status.success() {
+        return Err(format!(
+            "CLONEDIAG exit {:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
     Ok(())
 }
 
