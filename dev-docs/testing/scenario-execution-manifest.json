@@ -1099,7 +1099,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 43,
+        "steps_total": 39,
         "operations": [
           "assert-file",
           "assert-frame",
@@ -1110,8 +1110,8 @@
           "wait"
         ],
         "assertions": {
-          "assert-file": 3,
-          "assert-frame": 8
+          "assert-frame": 8,
+          "assert-file": 3
         },
         "captures": 0,
         "capture_names": [],

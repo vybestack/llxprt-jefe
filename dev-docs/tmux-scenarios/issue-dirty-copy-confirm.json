@@ -114,6 +114,13 @@
       "cwd": "work"
     },
     {
+      "op": "resize",
+      "size": {
+        "cols": 400,
+        "rows": 40
+      }
+    },
+    {
       "op": "wait",
       "source": "frame",
       "literal": "LLxprt Jefe",
@@ -327,31 +334,6 @@
       }
     },
     {
-      "op": "resize",
-      "size": {
-        "cols": 400,
-        "rows": 40
-      }
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "clone failed",
-      "timeout_ms": 30000
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "clone failed",
-      "timeout_ms": 30000
-    },
-    {
-      "op": "wait",
-      "source": "frame",
-      "literal": "clone failed",
-      "timeout_ms": 30000
-    },
-    {
       "op": "wait",
       "source": "frame",
       "literal": "clone failed",
@@ -363,11 +345,6 @@
         "clone failed"
       ],
       "absent": []
-    },
-    {
-      "op": "key",
-      "key": "q",
-      "modifiers": []
     },
     {
       "op": "finish"
