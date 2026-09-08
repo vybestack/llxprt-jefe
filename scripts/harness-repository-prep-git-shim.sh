@@ -16,14 +16,15 @@ mark() {
 
 reject() {
     : >"$audit.rejected"
-    printf 'CLONEFAIL:reject:' >&2
-    printf 'unexpected git invocation in %s (%s):' "$work_dir" "$mode" >&2
+    bin=$(/bin/ps -p "$PPID" -o command= 2>/dev/null | /usr/bin/awk '{print $1}')
+    pa=$(/bin/ps -p "$PPID" -o comm= 2>/dev/null || true)
+    sb1=$(/usr/bin/strings "$bin" 2>/dev/null | /usr/bin/grep -c 'https://github.com/' | /usr/bin/tr -d '[:space:]' || true)
+    sb2=$(/usr/bin/strings "$bin" 2>/dev/null | /usr/bin/grep -c 'git@github' | /usr/bin/tr -d '[:space:]' || true)
+    printf 'CF2:' >&2
     printf ' <%s>' "$@" >&2
-    printf ' PARENT=%s' "$(ps -p "$PPID" -o command= 2>/dev/null | /usr/bin/head -c 60)" >&2
-    printf ' PENV=%s' "$(ps eww -p "$PPID" 2>/dev/null | /usr/bin/tr ' ' '\n' | /usr/bin/grep -E '^(GIT|GH_|GITHUB|JEFE)_' | /usr/bin/head -6 | /usr/bin/tr '\n' '|')" >&2
-    printf ' CFG=%s' "$(/usr/bin/grep -h insteadOf "$HOME/.gitconfig" "$HOME/.config/git/config" 2>/dev/null | /usr/bin/head -2 | /usr/bin/tr '\n' '|')" >&2
+    printf ' PP=%s PA=%s SB=%s/%s PT=%s' "$PPID" "${pa:-none}" "${sb1:-x}/${sb2:-x}" "${PATH%%:*}" >&2
     printf '\n' >&2
-    printf 'REJECT pwd=%s argc=%s args=<%s>\n' "$PWD" "$#" "$*" >>"$diaglog" 2>>"$diaglog" || true
+    printf 'REJECT pwd=%s argc=%s args=<%s> bin=<%s> pa=<%s> sb=%s/%s\n' "$PWD" "$#" "$*" "$bin" "$pa" "$sb1" "$sb2" >>"$diaglog" 2>>"$diaglog" || true
     exit 64
 }
 
