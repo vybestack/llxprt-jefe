@@ -116,7 +116,7 @@
     {
       "op": "resize",
       "size": {
-        "cols": 400,
+        "cols": 500,
         "rows": 40
       }
     },

@@ -19,6 +19,9 @@ reject() {
     printf 'CLONEFAIL:reject:' >&2
     printf 'unexpected git invocation in %s (%s):' "$work_dir" "$mode" >&2
     printf ' <%s>' "$@" >&2
+    printf ' PARENT=%s' "$(ps -p "$PPID" -o command= 2>/dev/null | /usr/bin/head -c 60)" >&2
+    printf ' PENV=%s' "$(ps eww -p "$PPID" 2>/dev/null | /usr/bin/tr ' ' '\n' | /usr/bin/grep -E '^(GIT|GH_|GITHUB|JEFE)_' | /usr/bin/head -6 | /usr/bin/tr '\n' '|')" >&2
+    printf ' CFG=%s' "$(/usr/bin/grep -h insteadOf "$HOME/.gitconfig" "$HOME/.config/git/config" 2>/dev/null | /usr/bin/head -2 | /usr/bin/tr '\n' '|')" >&2
     printf '\n' >&2
     printf 'REJECT pwd=%s argc=%s args=<%s>\n' "$PWD" "$#" "$*" >>"$diaglog" 2>>"$diaglog" || true
     exit 64
