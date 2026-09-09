@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "a9eaa9faf0f16ce9a6211b53de5f40630826c108b3a417afb693656e3f6ac2e6"
+    "artifact_set_sha256": "3d6abf9e9835714bb035a9f6bf8add8ec1c89ecf6f0eb7ca2916225eb20dba6d"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "f1daa25f7a9da848e8241cb52a046d6835938ad6a1b00fa60bc43f58aed8c17e",
+      "sha256": "e6f63a5f8407ac165af57064840db649ab53a344feaa889adf3019ddaa2f3eb3",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "2ba43950fbefb0551342f85498633d876039703a6492ba36d8a77ae6db7d001a",
+      "sha256": "de2328b5dfacc6591daa4882cca7d81147f67ba8de94cf46f4466cb2b1cc1a4c",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -211,7 +211,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "6b5ff62e5efbadd42465690b1d6101d02d207477796ec19179933bc3cf85a1a7",
+      "sha256": "9491bea14f40971ce4d981ab02e14369c48c21911960f1aec88d4a40289e3745",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -254,7 +254,7 @@
     },
     {
       "path": "src/host_panel_models.rs",
-      "sha256": "ae5fb25757c891e5bdfbba1fb9a4c81c925d8eb461602f4b8df256b3ae76c1bf",
+      "sha256": "984fa9590b50a8ae9c4e6bcd0e3b311c5f4b9669bf7373bbd529e25e8957b9bf",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "3f420fe332f8802e701eba6dfc51d65f73476512a31714ace43282fcafe9900c",
+      "sha256": "13f0b4c7b7fa7da0d5c0794adc13e14e13a7c8f9b59474059f7569f8b340c832",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -466,7 +466,7 @@
     },
     {
       "path": "src/state/navigation_unwind.rs",
-      "sha256": "0470821836b1ecf9c735805dae6fc2c44da06a683902eedd388249199329278b",
+      "sha256": "05589bcdce358f751ddeec61d235a8dc24110d089c3df04f6dae9331effd17a3",
       "mode": "100644",
       "criteria": [
         "CWR2-06"
@@ -631,7 +631,7 @@
     },
     {
       "path": "src/ui/orchestration.rs",
-      "sha256": "4f6dcb3a21134203d0c397873ae9a24dddf4abbf53b4aebf086b5a8ce2b8516d",
+      "sha256": "dc6b842c2ba9573f422a0d17e45a0884159c9e1bcf4f000a9d6ac19cc8aff70c",
       "mode": "100644",
       "criteria": [
         "CWR2-06",

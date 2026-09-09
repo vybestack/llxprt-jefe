@@ -280,6 +280,15 @@ fn repository_list(state: &AppState) -> HostPanelModel {
     let selected_id = state
         .selected_repository_visible_index()
         .map(|index| Id::internal_indexed(InternalId::RepositoryItem, index));
+    let grabbed_id = state.dashboard_grab.as_ref().and_then(|grab| match grab {
+        DashboardGrabPane::Repository { visible_index } if (*visible_index) < visible.len() => {
+            Some(Id::internal_indexed(
+                InternalId::RepositoryItem,
+                *visible_index,
+            ))
+        }
+        DashboardGrabPane::Repository { .. } | DashboardGrabPane::Agent { .. } => None,
+    });
     HostPanelModel {
         title: "Repositories".to_owned(),
         body: PanelBody::List(ListBody {
@@ -289,7 +298,7 @@ fn repository_list(state: &AppState) -> HostPanelModel {
         }),
         action_affordances: Vec::new(),
         selected_id,
-        grabbed_id: None,
+        grabbed_id,
         scroll_offset: state.repository_scroll_offset,
         reveal_selection: true,
     }
@@ -707,5 +716,31 @@ mod tests {
             agent_body.items[0].description
         );
         assert_eq!(agent_body.items[0].label, "One Agent");
+    }
+
+    /// Dashboards reorder grab: a grabbed repository must expose its marker id on
+    /// the repository list projection so the list control renders the grab marker,
+    /// mirroring what `agent_list` already does for grabbed agents.
+    #[test]
+    fn grabbed_repository_id_reaches_the_list_marker() {
+        let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
+        let repository = crate::domain::Repository::new(
+            crate::domain::RepositoryId("repo-one".to_owned()),
+            crate::domain::shipped_agent_type(1),
+            crate::domain::TypedMap::new(),
+            "One Repo".to_owned(),
+            "one-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/one-repo"),
+        );
+        state.repositories = vec![repository];
+        state.selected_repository_index = Some(0);
+        state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
+
+        let model = repository_list(&state);
+
+        assert_eq!(
+            model.grabbed_id,
+            Some(Id::internal_indexed(InternalId::RepositoryItem, 0))
+        );
     }
 }

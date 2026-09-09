@@ -631,6 +631,7 @@ pub enum SystemMessage {
     Quit,
     ClearError,
     ClearWarning,
+    ClearGlobalWarning,
     /// Open the in-app device-code auth dialog (issue #244).
     OpenAuthDialog,
     /// One-time code + verification URL parsed from `gh auth login` stderr.
@@ -654,6 +655,8 @@ pub enum SystemMessage {
     },
     /// A transient agent was dequeued and is being launched (issue #213).
     TransientAgentDequeued,
+    /// Dismiss the focused panel's non-blocking notice.
+    DismissPanelNotice,
 }
 
 /// Top-level typed message routed by the bus.

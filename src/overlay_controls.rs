@@ -5,7 +5,7 @@ use crate::domain::plugin::field::{Field, InternalField};
 use crate::domain::{InternalId, TypedValue};
 use crate::host_controls::{
     ControlAction, ControlIntent, ControlKind, HostControlRow, HostControlTitleStyle,
-    control_intent_body, project_control_body,
+    PanelHitTarget, control_intent_body, project_control_body,
 };
 pub use crate::overlay_controls_repository_form::project_repository_form;
 use crate::runtime::provider::protocol::{
@@ -718,6 +718,45 @@ pub fn bespoke_form_projection(
     }
 }
 
+/// Indices into `rows` that fit the caller's `viewport_rows` window.
+///
+/// Issue #741: form overlays reserve their action tail (everything from the first
+/// `Submit` row onward) so the `[Create]`/`[Back]` affordances are never
+/// clipped, and the body window above it follows the focused field. Every other
+/// control keeps the caller's plain `viewport` window unchanged.
+#[must_use]
+pub fn visible_row_indices(
+    rows: &[HostControlRow],
+    focus_target: Option<&Id>,
+    viewport: usize,
+    viewport_rows: usize,
+) -> Vec<usize> {
+    let Some(action_start) = rows
+        .iter()
+        .position(|row| row.target.as_ref() == Some(&PanelHitTarget::Submit))
+    else {
+        return (viewport..(viewport + viewport_rows).min(rows.len())).collect();
+    };
+    let action_count = rows.len() - action_start;
+    let body_capacity = viewport_rows.saturating_sub(action_count).max(1);
+    let body_len = action_start;
+    let mut start = viewport.min(body_len.saturating_sub(body_capacity));
+    if let Some(focus) = focus_target
+        && let Some(index) = rows
+            .iter()
+            .position(|row| row.target.as_ref() == Some(&PanelHitTarget::Field(focus.clone())))
+        && index >= start + body_capacity
+        && index < body_len
+    {
+        start = (index + 1)
+            .saturating_sub(body_capacity)
+            .min(body_len.saturating_sub(body_capacity));
+    }
+    (start..(start + body_capacity).min(body_len))
+        .chain(action_start..rows.len())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -869,5 +908,76 @@ mod tests {
         );
         // Row count unchanged.
         assert_eq!(projection.rows.len(), 3, "row count must not change");
+    }
+
+    #[test]
+    fn form_rows_reserve_the_submit_row_beyond_the_viewport() {
+        let mut rows: Vec<HostControlRow> = (0..13)
+            .map(|index| HostControlRow::plain(format!("body {index}")))
+            .collect();
+        rows.push(HostControlRow::targeted(
+            "[Create enabled]",
+            PanelHitTarget::Submit,
+        ));
+        rows.push(HostControlRow::plain("[Back]"));
+        let indices = visible_row_indices(&rows, None, 0, 10);
+        assert_eq!(indices.len(), 10, "the window is ten rows: {indices:?}");
+        let visible_texts: Vec<&str> = indices
+            .iter()
+            .map(|&index| rows[index].text.as_str())
+            .collect();
+        assert!(
+            visible_texts.contains(&"[Create enabled]"),
+            "the submit row is reserved: {visible_texts:?}"
+        );
+        assert!(
+            visible_texts.contains(&"[Back]"),
+            "the back row follows the submit row: {visible_texts:?}"
+        );
+        assert_eq!(
+            visible_texts[0], "body 0",
+            "the body starts at the first row: {visible_texts:?}"
+        );
+    }
+
+    #[test]
+    fn form_rows_follow_a_focused_body_row() {
+        let field_id = Field::internal(InternalField::SearchQuery).id().clone();
+        let mut rows: Vec<HostControlRow> = (0..13)
+            .map(|index| HostControlRow::plain(format!("body {index}")))
+            .collect();
+        rows[10] = HostControlRow::targeted("focused", PanelHitTarget::Field(field_id.clone()));
+        rows.push(HostControlRow::targeted(
+            "[Create enabled]",
+            PanelHitTarget::Submit,
+        ));
+        rows.push(HostControlRow::plain("[Back]"));
+        let indices = visible_row_indices(&rows, Some(&field_id), 0, 10);
+        let visible_texts: Vec<&str> = indices
+            .iter()
+            .map(|&index| rows[index].text.as_str())
+            .collect();
+        assert!(
+            visible_texts.contains(&"focused"),
+            "the focused row is visible: {visible_texts:?}"
+        );
+        assert!(
+            visible_texts.contains(&"[Create enabled]"),
+            "the submit row stays reserved: {visible_texts:?}"
+        );
+    }
+
+    #[test]
+    fn non_form_rows_keep_the_caller_viewport() {
+        let rows: Vec<HostControlRow> = (0..20)
+            .map(|index| HostControlRow::plain(format!("row {index}")))
+            .collect();
+        let indices = visible_row_indices(&rows, None, 5, 10);
+        assert_eq!(
+            indices.first(),
+            Some(&5),
+            "the caller viewport is kept: {indices:?}"
+        );
+        assert_eq!(indices.len(), 10, "the window is ten rows: {indices:?}");
     }
 }

@@ -69,7 +69,7 @@ fn focus_first_field(state: &mut AppState) {
 #[test]
 fn generated_form_projects_sections_support_and_fields() {
     let state = generated_state();
-    let projection = project_generated_agent_form(&state, WIDTH)
+    let projection = project_generated_agent_form(&state, WIDTH, 40)
         .unwrap_or_else(|| panic!("generated form must project"));
     assert_eq!(projection.title, "New Agent");
     let rows = projection.text_rows().collect::<Vec<_>>();
@@ -105,7 +105,7 @@ fn generated_form_projects_sections_support_and_fields() {
 fn generated_form_marks_the_focused_field_with_a_caret() {
     let mut state = generated_state();
     focus_first_field(&mut state);
-    let projection = project_generated_agent_form(&state, WIDTH)
+    let projection = project_generated_agent_form(&state, WIDTH, 40)
         .unwrap_or_else(|| panic!("generated form must project"));
     assert!(
         projection.focus_target.is_some(),
@@ -123,7 +123,7 @@ fn generated_form_marks_the_focused_field_with_a_caret() {
 #[test]
 fn generated_form_edit_field_yields_a_typed_change() {
     let state = generated_state();
-    let projection = project_generated_agent_form(&state, WIDTH)
+    let projection = project_generated_agent_form(&state, WIDTH, 40)
         .unwrap_or_else(|| panic!("generated form must project"));
     let field_id = projection
         .rows
@@ -159,7 +159,7 @@ fn generated_form_reflects_create_enablement() {
     } else {
         "[Create disabled]"
     };
-    let projection = project_generated_agent_form(&state, WIDTH)
+    let projection = project_generated_agent_form(&state, WIDTH, 40)
         .unwrap_or_else(|| panic!("generated form must project"));
     assert!(
         projection
@@ -180,7 +180,7 @@ fn generated_form_marks_the_focused_operation_row_and_lists_targets() {
     let mut state = generated_state();
     let form = generated_form(&mut state);
     let selected = form.selected_operation();
-    let projection = project_generated_agent_form(&state, WIDTH)
+    let projection = project_generated_agent_form(&state, WIDTH, 40)
         .unwrap_or_else(|| panic!("generated form must project"));
     let operation_label = match selected {
         Operation::Normal => "Normal",
@@ -200,4 +200,50 @@ fn generated_form_marks_the_focused_operation_row_and_lists_targets() {
             "the {label} target row rides the projection, rows={rows:?}"
         );
     }
+}
+
+#[test]
+fn small_viewport_elides_operations_and_keeps_actions() {
+    let state = generated_state();
+    let projection = project_generated_agent_form(&state, WIDTH, 10)
+        .unwrap_or_else(|| panic!("generated form must project"));
+    assert!(
+        projection
+            .rows
+            .iter()
+            .any(|row| row.text.contains("[Create")),
+        "the create action stays visible, rows={:?}",
+        projection.rows
+    );
+    assert!(
+        !projection.rows.iter().any(|row| row.text == "Operations"),
+        "the Operations section is elided at a small viewport, rows={:?}",
+        projection.rows
+    );
+    assert!(
+        projection
+            .rows
+            .iter()
+            .any(|row| row.text.contains("Local: ") || row.text.contains("Remote: ")),
+        "the target rows stay visible, rows={:?}",
+        projection.rows
+    );
+    let visible = crate::overlay_controls::visible_row_indices(
+        &projection.rows,
+        projection.focus_target.as_ref(),
+        projection.viewport,
+        10,
+    );
+    assert!(
+        visible.len() <= 10,
+        "the visible window must fit the viewport: {} visible, rows={:?}",
+        visible.len(),
+        projection
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| visible.contains(index))
+            .map(|(_, row)| row.text.as_str())
+            .collect::<Vec<_>>()
+    );
 }

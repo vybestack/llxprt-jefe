@@ -48,6 +48,9 @@ impl AppState {
         if self.plain_overlay_open() {
             open.push(BackLayer::Overlay);
         }
+        if self.panel_notice_open() {
+            open.push(BackLayer::PanelNotice);
+        }
         if self.panel_transient_open() {
             open.push(BackLayer::PanelTransient);
         }
@@ -119,6 +122,7 @@ impl AppState {
             } else {
                 AppEvent::CloseModal
             }),
+            LocalIntent::ClearPanelNotice => Some(AppEvent::DismissPanelNotice),
             LocalIntent::ClearPanelTransient => self.clear_panel_transient_event(),
         }
     }
@@ -327,6 +331,16 @@ impl AppState {
     fn plain_overlay_open(&self) -> bool {
         self.active_overlay_kind() == Some(OverlayKind::Help)
             || !matches!(self.modal, ModalState::None) && !self.host_confirmation_open()
+    }
+
+    /// A non-blocking notice is overlaying the focused detail panel (issue #744).
+    fn panel_notice_open(&self) -> bool {
+        self.detail_panel_focused()
+            && match self.compiled_screen() {
+                Some(ScreenId::Issues) => self.issues_state.draft_notice.is_some(),
+                Some(ScreenId::PullRequests) => self.prs_state.draft_notice.is_some(),
+                _ => false,
+            }
     }
 
     /// The focused panel holds transient state of its own.

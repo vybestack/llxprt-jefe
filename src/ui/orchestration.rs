@@ -373,13 +373,7 @@ pub fn build_modal_element(
             crate::overlay_controls_agent_form::project_agent_form,
             crate::overlay_controls_agent_form::AGENT_FORM_FOOTER,
         ),
-        ModalState::GeneratedAgent { .. } => form_overlay(
-            snapshot,
-            viewport,
-            colors,
-            crate::overlay_controls_generated_form::project_generated_agent_form,
-            crate::overlay_controls_generated_form::GENERATED_FORM_FOOTER,
-        ),
+        ModalState::GeneratedAgent { .. } => generated_agent_overlay(snapshot, viewport, colors),
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
         }
@@ -426,6 +420,7 @@ fn host_overlay_element(
     colors: &ThemeColors,
     footer: &str,
 ) -> AnyElement<'static> {
+    let focus_target = projection.focus_target.clone();
     element! {
         HostControlOverlay(
             title: projection.title,
@@ -433,6 +428,7 @@ fn host_overlay_element(
             rows: projection.rows,
             viewport: projection.viewport,
             viewport_rows: layout.viewport_rows,
+            focus_target,
             width: u32::from(layout.width),
             height: u32::from(layout.height),
             colors: colors.clone(),
@@ -440,6 +436,30 @@ fn host_overlay_element(
         )
     }
     .into_any()
+}
+
+/// Route the definition-generated New Agent form through the shared overlay shell,
+/// passing the height-aware viewport so it can elide sections that would clip the
+/// action tail (issue #741).
+fn generated_agent_overlay(
+    snapshot: &AppState,
+    viewport: ModalViewport,
+    colors: &ThemeColors,
+) -> Option<AnyElement<'static>> {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(viewport.cols, viewport.rows);
+    crate::overlay_controls_generated_form::project_generated_agent_form(
+        snapshot,
+        layout.content_width,
+        layout.viewport_rows,
+    )
+    .map(|projection| {
+        host_overlay_element(
+            projection,
+            layout,
+            colors,
+            crate::overlay_controls_generated_form::GENERATED_FORM_FOOTER,
+        )
+    })
 }
 
 /// Build the render-only auth remediation modal element (issue #244).

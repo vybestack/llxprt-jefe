@@ -18,6 +18,8 @@ pub struct HostControlOverlayProps {
     pub viewport: usize,
     /// Maximum visible projected rows.
     pub viewport_rows: usize,
+    /// Focused field carried by the projection, if any.
+    pub(crate) focus_target: Option<crate::domain::Id>,
     /// Overlay width.
     pub width: u32,
     /// Overlay height from the same typed layout used by hit-testing.
@@ -32,20 +34,23 @@ pub struct HostControlOverlayProps {
 #[component]
 pub fn HostControlOverlay(props: &HostControlOverlayProps) -> impl Into<AnyElement<'static>> {
     let colors = ResolvedColors::from_theme(Some(&props.colors));
-    let visible: Vec<AnyElement<'static>> = props
-        .rows
-        .iter()
-        .skip(props.viewport)
-        .take(props.viewport_rows)
-        .map(|row| {
-            let color = match row.style {
-                HostControlRowStyle::Normal => colors.fg,
-                HostControlRowStyle::Bright => colors.bright,
-                HostControlRowStyle::Dim => colors.dim,
-            };
-            element! { Text(content: row.text.clone(), color) }.into_any()
-        })
-        .collect();
+    let visible: Vec<AnyElement<'static>> = crate::overlay_controls::visible_row_indices(
+        &props.rows,
+        props.focus_target.as_ref(),
+        props.viewport,
+        props.viewport_rows,
+    )
+    .into_iter()
+    .map(|index| {
+        let row = &props.rows[index];
+        let color = match row.style {
+            HostControlRowStyle::Normal => colors.fg,
+            HostControlRowStyle::Bright => colors.bright,
+            HostControlRowStyle::Dim => colors.dim,
+        };
+        element! { Text(content: row.text.clone(), color) }.into_any()
+    })
+    .collect();
     let title_weight = match props.title_style {
         HostControlTitleStyle::Emphasized => Weight::Bold,
         HostControlTitleStyle::Plain => Weight::Normal,

@@ -752,7 +752,12 @@ fn handle_key_event(
     let clear_warning_during_back = should_clear_warning_during_back(&state, &key_event);
     drop(state);
     if dismiss_warning || clear_warning_during_back {
-        dispatch_app_event(app_state, &ctx.cloned(), AppEvent::ClearWarning);
+        let clear_event = if dismiss_warning {
+            AppEvent::ClearWarning
+        } else {
+            AppEvent::ClearGlobalWarning
+        };
+        dispatch_app_event(app_state, &ctx.cloned(), clear_event);
         if dismiss_warning {
             return;
         }

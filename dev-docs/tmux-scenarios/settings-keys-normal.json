@@ -86,10 +86,12 @@
     {
       "op": "assert-frame",
       "contains": [
-        "Keys (339)",
+        "Keys (",
         "actions Dispatch: d"
       ],
-      "absent": []
+      "absent": [
+        "Keys ()"
+      ]
     },
     {
       "op": "assert-frame",

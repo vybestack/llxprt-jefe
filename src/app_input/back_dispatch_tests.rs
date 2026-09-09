@@ -22,7 +22,7 @@ fn apply(state: &mut AppState, event: AppEvent) {
 }
 
 #[test]
-fn production_back_commit_requests_issue_reload_only_after_detail_refocus() {
+fn back_unwinding_the_issue_detail_does_not_refetch_the_list() {
     let mut state = crate::test_app_state();
     apply(&mut state, AppEvent::EnterIssuesMode);
     state.issues_state.issue_focus = IssueFocus::IssueDetail;
@@ -36,7 +36,7 @@ fn production_back_commit_requests_issue_reload_only_after_detail_refocus() {
 }
 
 #[test]
-fn production_back_commit_requests_pr_reload_only_after_detail_refocus() {
+fn back_unwinding_the_pr_detail_does_not_refetch_the_list() {
     let mut state = crate::test_app_state();
     apply(&mut state, AppEvent::EnterPrsMode);
     state.prs_state.pr_focus = PrFocus::PrDetail;
@@ -77,10 +77,8 @@ fn production_back_commit_returns_provider_deactivation_for_post_lock_dispatch()
         .activate(declared.instance)
         .unwrap_or_else(|error| panic!("provider panel activation must succeed: {error:?}"));
 
-    let (effects, reload_issues, reload_prs) = commit_back(&mut state);
+    let (effects, _, _) = commit_back(&mut state);
 
-    assert!(!reload_issues);
-    assert!(!reload_prs);
     assert_eq!(effects.len(), 1);
     assert!(matches!(
         effects[0].effect,

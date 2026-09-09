@@ -920,6 +920,15 @@ impl AppState {
                 self.apply_transient_queued(queue_position);
             }
             SystemMessage::TransientAgentDequeued => self.clear_transient_notice(),
+            SystemMessage::DismissPanelNotice => match self.compiled_screen() {
+                Some(ScreenId::Issues) => self.issues_state.draft_notice = None,
+                Some(ScreenId::PullRequests) => self.prs_state.draft_notice = None,
+                _ => {}
+            },
+            SystemMessage::ClearGlobalWarning => {
+                self.warning_message = None;
+                self.provider_notice = None;
+            }
             auth => self.apply_auth_message(auth),
         }
     }

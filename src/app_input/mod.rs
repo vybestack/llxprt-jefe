@@ -262,7 +262,10 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     }
 }
 
-use jefe::state::{AppEvent, AppState, IssueFocus, PaneFocus, PrFocus, RepositoryFormFocus};
+use jefe::state::navigation_unwind::{BackResolution, LocalIntent};
+use jefe::state::{
+    AppEvent, AppState, IssueFocus, PaneFocus, PrFocus, RepositoryFormFocus, ScreenId,
+};
 
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
@@ -337,22 +340,33 @@ fn apply_back_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     schedule_durable_save(ctx, persisted);
     schedule_provider_effects(app_state, ctx, effects);
     if reload_issues {
-        issues_list_dispatch::dispatch_issue_list_fetch(app_state, ctx, true);
+        dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
     }
     if reload_prs {
-        prs_list_dispatch::dispatch_pr_list_fetch(app_state, ctx, true, false);
+        dispatch_app_event(app_state, ctx, AppEvent::RefocusPrList);
     }
 }
 
 fn commit_back(state: &mut AppState) -> (Vec<jefe::domain::effects::IssuedEffect>, bool, bool) {
-    let issue_detail = state.issues_state.issue_focus == IssueFocus::IssueDetail;
-    let pr_detail = state.prs_state.pr_focus == PrFocus::PrDetail;
+    // Only the panel-transient unwind is a return-from-detail; layer closes
+    // (editor/chooser) refocus within their own contracts (#454) and must not fetch.
+    let reload_intent_issues = matches!(
+        state.back_resolution(),
+        BackResolution::Local(LocalIntent::ClearPanelTransient)
+    ) && state.compiled_screen() == Some(ScreenId::Issues)
+        && state.issues_state.issue_focus == IssueFocus::IssueDetail;
+    let reload_intent_prs = matches!(
+        state.back_resolution(),
+        BackResolution::Local(LocalIntent::ClearPanelTransient)
+    ) && state.compiled_screen() == Some(ScreenId::PullRequests)
+        && state.prs_state.pr_focus == PrFocus::PrDetail;
     let effects = jefe::state::transition::commit_in_place(
         state,
         AppMessage::UiNavigation(UiNavigationMessage::Back),
     );
-    let reload_issues = issue_detail && state.issues_state.issue_focus == IssueFocus::IssueList;
-    let reload_prs = pr_detail && state.prs_state.pr_focus == PrFocus::PrList;
+    let reload_issues =
+        reload_intent_issues && state.issues_state.issue_focus == IssueFocus::IssueList;
+    let reload_prs = reload_intent_prs && state.prs_state.pr_focus == PrFocus::PrList;
     (effects, reload_issues, reload_prs)
 }
 
@@ -848,3 +862,57 @@ mod pty_passthrough_tests;
 #[cfg(test)]
 #[path = "split_mode_key_tests.rs"]
 mod split_mode_key_tests;
+
+#[cfg(test)]
+mod back_reload_tests {
+    use super::commit_back;
+    use crate::state::navigation::NavState;
+    use jefe::state::{ComposerTarget, InlineState, IssueFocus, NewIssueFormState, ScreenId};
+
+    fn issues_detail_state(form_open: bool) -> crate::state::AppState {
+        let mut state = crate::test_app_state();
+        state.nav = NavState::rooted(ScreenId::Issues);
+        state.issues_state.active = true;
+        state.issues_state.issue_focus = IssueFocus::IssueDetail;
+        if form_open {
+            state.issues_state.inline_state = InlineState::Composer {
+                target: ComposerTarget::NewIssue,
+                text: String::new(),
+                cursor: 0,
+            };
+            state.issues_state.new_issue_form = Some(NewIssueFormState::default());
+        }
+        state
+    }
+
+    /// Closing the composer returns to the list within the detail's own contract
+    /// (#454): the form holds keys, so Back closes the editor, not the panel
+    /// transient. The list must NOT be refetched — this is the regression.
+    #[test]
+    fn composer_close_refocus_must_not_reload_the_issues_list() {
+        let mut state = issues_detail_state(true);
+
+        let (effects, reload_issues, _reload_prs) = commit_back(&mut state);
+
+        assert!(effects.is_empty());
+        assert!(!reload_issues, "composer-close refocus must not reload");
+        assert!(
+            state.issues_state.new_issue_form.is_none(),
+            "Back closes the new-issue form"
+        );
+        assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
+    }
+
+    /// A plain return-from-detail with no layers open is the panel-transient
+    /// unwind, which still refocuses and must reload.
+    #[test]
+    fn panel_transient_unwind_still_reloads_the_issues_list() {
+        let mut state = issues_detail_state(false);
+
+        let (effects, reload_issues, _reload_prs) = commit_back(&mut state);
+
+        assert!(effects.is_empty());
+        assert!(reload_issues);
+        assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
+    }
+}

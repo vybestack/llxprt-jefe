@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "2ba43950fbefb0551342f85498633d876039703a6492ba36d8a77ae6db7d001a",
+      "sha256": "de2328b5dfacc6591daa4882cca7d81147f67ba8de94cf46f4466cb2b1cc1a4c",
       "mode": "100644",
       "criteria": [
         "CWR1-10"

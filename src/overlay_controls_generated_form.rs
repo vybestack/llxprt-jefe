@@ -145,27 +145,29 @@ fn lowered_field(field: &GeneratedFormField) -> Option<Field> {
     .ok()
 }
 
-fn operation_rows(form: &GeneratedAgentForm) -> Vec<HostControlRow> {
+fn operation_rows(form: &GeneratedAgentForm, width: usize) -> Vec<HostControlRow> {
     let mut rows = vec![HostControlRow::plain("Operations".to_owned())];
     for operation in OPERATIONS {
         let focused = form.focus() == &GeneratedAgentFormFocus::Operation(operation);
-        rows.push(HostControlRow::plain(support_text(
-            focused,
-            operation_label(operation),
-            form.operation_support(operation),
+        rows.push(HostControlRow::plain(truncate_with_ellipsis(
+            &support_text(
+                focused,
+                operation_label(operation),
+                form.operation_support(operation),
+            ),
+            width,
         )));
     }
     rows
 }
 
-fn target_rows(form: &GeneratedAgentForm) -> Vec<HostControlRow> {
+fn target_rows(form: &GeneratedAgentForm, width: usize) -> Vec<HostControlRow> {
     let mut rows = vec![HostControlRow::plain("Targets".to_owned())];
     for target in TARGETS {
         let focused = form.focus() == &GeneratedAgentFormFocus::Target(target);
-        rows.push(HostControlRow::plain(support_text(
-            focused,
-            target_label(target),
-            form.target_support(target),
+        rows.push(HostControlRow::plain(truncate_with_ellipsis(
+            &support_text(focused, target_label(target), form.target_support(target)),
+            width,
         )));
     }
     rows
@@ -228,6 +230,7 @@ fn field_rows(form: &GeneratedAgentForm, width: usize) -> LoweredFields {
 pub fn project_generated_agent_form(
     state: &AppState,
     width: usize,
+    viewport_rows: usize,
 ) -> Option<OverlayControlProjection> {
     let ModalState::GeneratedAgent { form, .. } = &state.modal else {
         return None;
@@ -238,8 +241,18 @@ pub fn project_generated_agent_form(
         form.draft().display_name(),
         width,
     ))];
-    rows.extend(operation_rows(form));
-    rows.extend(target_rows(form));
+    let operations_len = OPERATIONS.len();
+    let targets_len = TARGETS.len();
+    // Issue #741: when the viewport cannot hold the full section stack, drop the
+    // Operations section first and keep the action tail on screen. The `1`s are
+    // the display-name row and the blank row before the actions; the `2` is the
+    // [Create]+[Back] action tail.
+    let include_operations =
+        1 + operations_len + targets_len + lowered.rows.len() + 1 + 2 <= viewport_rows;
+    if include_operations {
+        rows.extend(operation_rows(form, width));
+    }
+    rows.extend(target_rows(form, width));
     rows.extend(lowered.rows);
     rows.push(HostControlRow::plain(String::new()));
     let create_focused = form.focus() == &GeneratedAgentFormFocus::Create;
