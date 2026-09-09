@@ -244,6 +244,7 @@ impl AppState {
                 title: pending.title(),
                 body: pending.body(),
                 confirm_label: pending.confirm_label(),
+                destructive: pending.destructive(),
                 focus,
                 continuation_schema: pending.continuation_schema(),
                 continuation_values: overlays.confirmation_values().unwrap_or(&empty_values),

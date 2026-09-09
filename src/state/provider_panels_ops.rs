@@ -108,14 +108,6 @@ impl ProviderPanelState {
             .and_then(|i| self.panels[i].host_local.as_ref())
     }
 
-    /// Selection-following yields to a manual viewport until the selection changes.
-    pub(crate) fn list_selection_to_reveal(&self, panel: PanelInstanceId) -> Option<&Id> {
-        let record = &self.panels[self.index(panel)?];
-        record.selected_list_id().filter(|selected| {
-            record.manual_scroll_selection.as_ref() != Some(*selected)
-        })
-    }
-
     /// Mark one live panel failed after its provider transport becomes unavailable.
     ///
     /// A complete accepted model remains available and is marked stale. Disposed

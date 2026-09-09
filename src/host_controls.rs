@@ -205,19 +205,6 @@ impl HostControlRow {
         }
     }
 
-    pub(crate) fn hit_target_at(&self, column: usize) -> Option<PanelHitTarget> {
-        if column >= unicode_width::UnicodeWidthStr::width(self.text.as_str()) {
-            return None;
-        }
-        if self.cell_targets.is_empty() {
-            return self.target.clone();
-        }
-        self.cell_targets
-            .iter()
-            .find(|(columns, _)| columns.contains(&column))
-            .map(|(_, target)| target.clone())
-    }
-
     pub fn plain(text: impl Into<String>) -> Self {
         Self::new(text, None)
     }

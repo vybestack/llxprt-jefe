@@ -37,14 +37,14 @@ fn empty_map() -> TypedMap {
     TypedMap::new()
 }
 
-fn continuation_policy() -> ActionPolicy {
+fn continuation_policy(destructive: bool) -> ActionPolicy {
     ActionPolicy::new(
         ActionConfirmation::ProviderContinuation,
         vec![
             ActionOutcome::RequestHostConfirmation,
             ActionOutcome::Notice,
         ],
-        false,
+        destructive,
     )
 }
 
@@ -69,21 +69,36 @@ fn invoke<'a>(
         .unwrap_or_else(|_e| panic!("invoke"))
 }
 
+/// Declared confirmation fields, bundled to keep the registration helper
+/// under the argument limit (clippy::too_many_arguments).
+struct ConfirmSpec<'a> {
+    conf_id: &'a str,
+    title: &'a str,
+    body: &'a str,
+    label: &'a str,
+    schema: Vec<Field>,
+    destructive: bool,
+}
+
 /// Register a pending confirmation carrying exact declared UI fields and
 /// return the request key that owns it.
 fn register_confirmation(
     state: &mut ProviderRequestState,
-    conf_id: &str,
-    title: &str,
-    body: &str,
-    label: &str,
-    schema: Vec<Field>,
+    spec: ConfirmSpec<'_>,
 ) -> ProviderRequestKey {
+    let ConfirmSpec {
+        conf_id,
+        title,
+        body,
+        label,
+        schema,
+        destructive,
+    } = spec;
     let o = owner();
     let a = action();
     let s = screen();
     let empty = empty_map();
-    let policy = continuation_policy();
+    let policy = continuation_policy(destructive);
     let outcome = state
         .invoke(InvokeInput {
             owner: &o,
@@ -103,7 +118,7 @@ fn register_confirmation(
                 title: title.to_owned(),
                 body: body.to_owned(),
                 confirm_label: label.to_owned(),
-                destructive: false,
+                destructive,
                 continuation_schema: schema,
             },
             1000,
@@ -268,11 +283,14 @@ fn confirmation_mode_carries_exact_declared_fields() {
     let schema = vec![boolean_field("confirm.flag")];
     register_confirmation(
         &mut state,
-        "conf.exact",
-        "Destroy Branch",
-        "This cannot be undone.",
-        "Delete",
-        schema.clone(),
+        ConfirmSpec {
+            conf_id: "conf.exact",
+            title: "Destroy Branch",
+            body: "This cannot be undone.",
+            label: "Delete",
+            schema: schema.clone(),
+            destructive: false,
+        },
     );
 
     let input = ProviderViewInput {
@@ -293,6 +311,7 @@ fn confirmation_mode_carries_exact_declared_fields() {
             title,
             body,
             confirm_label,
+            destructive,
             continuation_schema,
             continuation_values,
             focused_field,
@@ -301,9 +320,53 @@ fn confirmation_mode_carries_exact_declared_fields() {
             assert_eq!(title, "Destroy Branch");
             assert_eq!(body, "This cannot be undone.");
             assert_eq!(confirm_label, "Delete");
+            assert!(!destructive);
             assert_eq!(continuation_schema, schema);
             assert!(continuation_values.is_empty());
             assert_eq!(focused_field, None);
+        }
+        other => panic!("expected Confirmation, got {other:?}"),
+    }
+}
+
+#[test]
+fn destructive_confirmation_mode_carries_the_declared_flag() {
+    let mut state = ProviderRequestState::new();
+    register_confirmation(
+        &mut state,
+        ConfirmSpec {
+            conf_id: "conf.destructive",
+            title: "Destroy Branch",
+            body: "This cannot be undone.",
+            label: "Delete",
+            schema: vec![],
+            destructive: true,
+        },
+    );
+
+    let input = ProviderViewInput {
+        requests: &state,
+        context_screen: "dashboard",
+        context_instance: "dashboard",
+        availability: Some(&Availability::Available),
+        focused: false,
+        confirm: Some(ConfirmFocus::Cancel),
+        viewport_rows: 32,
+        focused_index: None,
+        action_label: Some("Run Action"),
+    };
+    let projection = project_provider_view(&input);
+    match projection.mode {
+        ProviderViewMode::Confirmation {
+            confirm_label,
+            destructive,
+            ..
+        } => {
+            assert_eq!(confirm_label, "Delete");
+            assert!(
+                destructive,
+                "a destructive-declared confirmation must project destructive: true"
+            );
         }
         other => panic!("expected Confirmation, got {other:?}"),
     }
@@ -314,11 +377,14 @@ fn confirmation_mode_defaults_focus_to_cancel() {
     let mut state = ProviderRequestState::new();
     register_confirmation(
         &mut state,
-        "conf.default",
-        "Confirm Action",
-        "Are you sure?",
-        "Yes, proceed",
-        vec![],
+        ConfirmSpec {
+            conf_id: "conf.default",
+            title: "Confirm Action",
+            body: "Are you sure?",
+            label: "Yes, proceed",
+            schema: vec![],
+            destructive: false,
+        },
     );
 
     // No explicit focus override supplied.
@@ -340,6 +406,7 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             title,
             body,
             confirm_label,
+            destructive,
             continuation_schema,
             continuation_values,
             focused_field,
@@ -352,6 +419,7 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             assert_eq!(title, "Confirm Action");
             assert_eq!(body, "Are you sure?");
             assert_eq!(confirm_label, "Yes, proceed");
+            assert!(!destructive);
             assert!(continuation_schema.is_empty());
             assert!(continuation_values.is_empty());
             assert_eq!(focused_field, None);
@@ -522,7 +590,17 @@ fn mode_precedence_small_beats_recovery() {
 #[test]
 fn mode_precedence_confirmation_beats_unavailable() {
     let mut state = ProviderRequestState::new();
-    register_confirmation(&mut state, "conf.prec", "Confirm", "Body", "OK", vec![]);
+    register_confirmation(
+        &mut state,
+        ConfirmSpec {
+            conf_id: "conf.prec",
+            title: "Confirm",
+            body: "Body",
+            label: "OK",
+            schema: vec![],
+            destructive: false,
+        },
+    );
     let reason = "provider not installed";
     let availability = Availability::Unavailable {
         reason: reason.to_owned(),

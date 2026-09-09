@@ -66,10 +66,68 @@ fn focus_first_field(state: &mut AppState) {
     panic!("focus must reach a generated field within one cycle");
 }
 
+/// The shell's drawn window for a projection at the committed frame size.
+///
+/// `HostControlOverlay` draws `rows.skip(viewport).take(viewport_rows)`; this
+/// reproduces that window so the test asserts exactly what renders.
+fn shell_window(
+    state: &AppState,
+    cols: u16,
+    rows: u16,
+) -> (
+    crate::overlay_controls::OverlayControlProjection,
+    Vec<String>,
+) {
+    let layout = crate::overlay_controls::HostOverlayLayout::form(cols, rows);
+    let projection = project_generated_agent_form(state, layout.content_width)
+        .unwrap_or_else(|| panic!("generated form must project"));
+    let visible = projection
+        .text_rows()
+        .skip(projection.viewport)
+        .take(layout.viewport_rows)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    (projection, visible)
+}
+
+/// Issue #719: at a 54x16 terminal the shared shell's viewport cannot hold
+/// the whole form, and the create/back affordance rows were clipped off
+/// below `Fields`. The #382-era contract reserves those action rows; the
+/// projection must never ship them outside the drawn window.
+#[test]
+fn generated_form_keeps_affordance_rows_inside_the_small_viewport_window() {
+    let mut state = generated_state();
+    let resolved = crate::screen_layout::resolve_screen(&state, 54, 16)
+        .unwrap_or_else(|| panic!("a 54x16 frame must resolve for the fixture screen"));
+    let (cols, rows) = crate::screen_layout::committed_render_size(&resolved);
+    state.resolved_layout = Some(resolved);
+
+    let (projection, visible) = shell_window(&state, cols, rows);
+    assert!(
+        projection.rows.len() <= usize::from(rows).saturating_sub(6),
+        "the projection must fit the committed viewport, rows={:?}",
+        projection.text_rows().collect::<Vec<_>>()
+    );
+    assert!(
+        visible.iter().any(|row| row.contains("[Create ")),
+        "the create affordance must stay visible at 54x16, visible={visible:?}"
+    );
+    assert!(
+        visible.iter().any(|row| row.contains("[Back]")),
+        "the back affordance must stay visible at 54x16, visible={visible:?}"
+    );
+    assert!(
+        visible
+            .iter()
+            .any(|row| row.contains("Claude Code") || row.contains("LLxprt")),
+        "the display name must stay visible at 54x16, visible={visible:?}"
+    );
+}
+
 #[test]
 fn generated_form_projects_sections_support_and_fields() {
     let state = generated_state();
-    let projection = project_generated_agent_form(&state, WIDTH, 40)
+    let projection = project_generated_agent_form(&state, WIDTH)
         .unwrap_or_else(|| panic!("generated form must project"));
     assert_eq!(projection.title, "New Agent");
     let rows = projection.text_rows().collect::<Vec<_>>();
@@ -105,7 +163,7 @@ fn generated_form_projects_sections_support_and_fields() {
 fn generated_form_marks_the_focused_field_with_a_caret() {
     let mut state = generated_state();
     focus_first_field(&mut state);
-    let projection = project_generated_agent_form(&state, WIDTH, 40)
+    let projection = project_generated_agent_form(&state, WIDTH)
         .unwrap_or_else(|| panic!("generated form must project"));
     assert!(
         projection.focus_target.is_some(),
@@ -123,7 +181,7 @@ fn generated_form_marks_the_focused_field_with_a_caret() {
 #[test]
 fn generated_form_edit_field_yields_a_typed_change() {
     let state = generated_state();
-    let projection = project_generated_agent_form(&state, WIDTH, 40)
+    let projection = project_generated_agent_form(&state, WIDTH)
         .unwrap_or_else(|| panic!("generated form must project"));
     let field_id = projection
         .rows
@@ -159,7 +217,7 @@ fn generated_form_reflects_create_enablement() {
     } else {
         "[Create disabled]"
     };
-    let projection = project_generated_agent_form(&state, WIDTH, 40)
+    let projection = project_generated_agent_form(&state, WIDTH)
         .unwrap_or_else(|| panic!("generated form must project"));
     assert!(
         projection
@@ -180,7 +238,7 @@ fn generated_form_marks_the_focused_operation_row_and_lists_targets() {
     let mut state = generated_state();
     let form = generated_form(&mut state);
     let selected = form.selected_operation();
-    let projection = project_generated_agent_form(&state, WIDTH, 40)
+    let projection = project_generated_agent_form(&state, WIDTH)
         .unwrap_or_else(|| panic!("generated form must project"));
     let operation_label = match selected {
         Operation::Normal => "Normal",
@@ -200,50 +258,4 @@ fn generated_form_marks_the_focused_operation_row_and_lists_targets() {
             "the {label} target row rides the projection, rows={rows:?}"
         );
     }
-}
-
-#[test]
-fn small_viewport_elides_operations_and_keeps_actions() {
-    let state = generated_state();
-    let projection = project_generated_agent_form(&state, WIDTH, 10)
-        .unwrap_or_else(|| panic!("generated form must project"));
-    assert!(
-        projection
-            .rows
-            .iter()
-            .any(|row| row.text.contains("[Create")),
-        "the create action stays visible, rows={:?}",
-        projection.rows
-    );
-    assert!(
-        !projection.rows.iter().any(|row| row.text == "Operations"),
-        "the Operations section is elided at a small viewport, rows={:?}",
-        projection.rows
-    );
-    assert!(
-        projection
-            .rows
-            .iter()
-            .any(|row| row.text.contains("Local: ") || row.text.contains("Remote: ")),
-        "the target rows stay visible, rows={:?}",
-        projection.rows
-    );
-    let visible = crate::overlay_controls::visible_row_indices(
-        &projection.rows,
-        projection.focus_target.as_ref(),
-        projection.viewport,
-        10,
-    );
-    assert!(
-        visible.len() <= 10,
-        "the visible window must fit the viewport: {} visible, rows={:?}",
-        visible.len(),
-        projection
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| visible.contains(index))
-            .map(|(_, row)| row.text.as_str())
-            .collect::<Vec<_>>()
-    );
 }

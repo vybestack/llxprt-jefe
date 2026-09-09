@@ -134,7 +134,7 @@ const REQUIRED_PRODUCTION_SYMBOLS: [(&str, &str); 22] = [
     ("src/state/types.rs", "pub fn publish_resolved_layout"),
     (
         "src/ui/orchestration.rs",
-        "pub fn confirmation_hit_target_at_content_cell",
+        "pub fn confirmation_hit_target_at_content_line",
     ),
     (
         "src/workbench/compose.rs",

@@ -58,7 +58,7 @@ pub struct PanelProjection {
     /// Typed display segments aligned with `lines`; an empty row is uniformly themed.
     pub(crate) spans: Vec<Vec<HostControlSpan>>,
     /// Content-row index represented by the first visible display line.
-    pub visible_window_origin: usize,
+    pub(crate) visible_window_origin: usize,
     /// Largest valid host-local scroll offset for this projection.
     pub max_scroll_offset: u32,
     /// Semantic target occupying each display line, aligned with `lines`.
@@ -263,12 +263,7 @@ fn project_declared_content(
             project_shell_preview(projection, state);
             return;
         }
-        if state.shell_overlay_active() {
-            "Agent Shell"
-        } else {
-            "Terminal"
-        }
-        .clone_into(&mut projection.title);
+        "Agent Shell".clone_into(&mut projection.title);
         // The embedded PTY answers to terminal focus, not to the pane
         // ordinal: `t`/F12 is what forwards keystrokes into it, and
         // `normalize_terminal_focus` already keeps `terminal_focused` a
@@ -513,15 +508,7 @@ fn project_host_model(
         .len()
         .saturating_sub(usize::from(projection.content.height));
     projection.max_scroll_offset = u32::try_from(maximum).unwrap_or(u32::MAX);
-    let window = visible_projected_window(
-        rows,
-        model.scroll_offset,
-        projection.content.height,
-        model
-            .selected_id
-            .as_ref()
-            .filter(|_| model.reveal_selection),
-    );
+    let window = visible_projected_window(rows, model.scroll_offset, projection.content.height);
     let (lines, spans, hit_targets) = split_projected_rows(window.rows);
     projection.lines = lines;
     projection.spans = spans;
@@ -647,12 +634,10 @@ fn project_one_panel(input: PanelProjectionInput<'_>) -> PanelProjection {
             body_width: usize::from(input.content.width.max(1)),
         })
     });
-    let selected_list_id = input.panels.list_selection_to_reveal(instance);
     let max_scroll_offset =
         u32::try_from(rows.len().saturating_sub(usize::from(input.content.height)))
             .unwrap_or(u32::MAX);
-    let window =
-        visible_projected_window(rows, scroll_offset, input.content.height, selected_list_id);
+    let window = visible_projected_window(rows, scroll_offset, input.content.height);
     let (lines, spans, hit_targets) = split_projected_rows(window.rows);
     PanelProjection {
         id: input.id,
@@ -727,47 +712,24 @@ fn panel_status(lifecycle: Option<PanelLifecycle>, has_snapshot: bool, stale: bo
     }
 }
 
-/// Clip projected rows to a visible content window that includes the selected List item.
+/// Clip projected rows to a visible content window at the host scroll offset.
 pub(crate) fn visible_projected_window(
     rows: Vec<ProjectedRow>,
     scroll_offset: u32,
     content_height: u16,
-    selected_list_id: Option<&crate::domain::Id>,
 ) -> ProjectedWindow {
-    let mut origin = usize::try_from(scroll_offset).unwrap_or(usize::MAX);
-    let max = usize::from(content_height);
-    if max > 0
-        && let Some(selected_row) = selected_list_row(&rows, selected_list_id)
-    {
-        if selected_row < origin {
-            origin = selected_row;
-        } else if selected_row >= origin.saturating_add(max) {
-            origin = selected_row.saturating_add(1).saturating_sub(max);
-        }
-    }
+    let origin = usize::try_from(scroll_offset).unwrap_or(usize::MAX);
     if content_height == 0 || origin >= rows.len() {
         return ProjectedWindow {
             origin,
             rows: Vec::new(),
         };
     }
+    let max = usize::from(content_height);
     ProjectedWindow {
         origin,
         rows: rows.into_iter().skip(origin).take(max).collect(),
     }
-}
-
-fn selected_list_row(
-    rows: &[ProjectedRow],
-    selected_list_id: Option<&crate::domain::Id>,
-) -> Option<usize> {
-    let selected_list_id = selected_list_id?;
-    rows.iter().position(|row| {
-        matches!(
-            row.target.as_ref(),
-            Some(PanelHitTarget::ListItem(item_id)) if item_id == selected_list_id
-        )
-    })
 }
 
 fn split_projected_rows(

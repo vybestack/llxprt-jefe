@@ -137,7 +137,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Shell",
+      "literal": "Agent Shell (F12 hide shell)",
       "timeout_ms": 10000
     },
     {
@@ -198,7 +198,7 @@
       "op": "assert-frame",
       "contains": [],
       "absent": [
-        "Agent Shell"
+        "Agent Shell (F12 hide shell)"
       ]
     },
     {
@@ -219,7 +219,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Shell",
+      "literal": "Agent Shell (F12 hide shell)",
       "timeout_ms": 10000
     },
     {
@@ -255,7 +255,7 @@
       "op": "assert-frame",
       "contains": [],
       "absent": [
-        "Agent Shell"
+        "Agent Shell (F12 hide shell)"
       ]
     },
     {
@@ -266,7 +266,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Agent Shell",
+      "literal": "Agent Shell (F12 hide shell)",
       "timeout_ms": 10000
     },
     {
@@ -293,7 +293,7 @@
       "op": "assert-frame",
       "contains": [],
       "absent": [
-        "Agent Shell"
+        "Agent Shell (F12 hide shell)"
       ]
     },
     {

@@ -1,11 +1,13 @@
 //! Deterministic host-control models for host-owned screen overlays.
 
+use std::ops::Range;
+
 use crate::domain::action_registry::{ActionId, InternalActionId};
 use crate::domain::plugin::field::{Field, InternalField};
 use crate::domain::{InternalId, TypedValue};
 use crate::host_controls::{
-    ControlAction, ControlIntent, ControlKind, HostControlRow, HostControlTitleStyle,
-    PanelHitTarget, control_intent_body, project_control_body,
+    ControlAction, ControlIntent, ControlKind, HostControlRow, HostControlRowStyle,
+    HostControlTitleStyle, PanelHitTarget, control_intent_body, project_control_body,
 };
 pub use crate::overlay_controls_repository_form::project_repository_form;
 use crate::runtime::provider::protocol::{
@@ -117,54 +119,6 @@ pub struct ConfirmationContent<'a> {
     pub focus: ConfirmFocus,
 }
 
-fn confirmation_checkbox_row(checked: bool, width: usize) -> HostControlRow {
-    let marker = if checked { "[x]" } else { "[ ]" };
-    HostControlRow::targeted(
-        crate::ui::util::truncate_with_ellipsis(&format!("{marker} Delete work directory"), width),
-        crate::host_controls::PanelHitTarget::Field(Id::internal(InternalId::OverlayDeleteWorkDir)),
-    )
-}
-
-fn confirmation_choice_row(
-    focus: ConfirmFocus,
-    confirm_label: &str,
-    width: usize,
-) -> HostControlRow {
-    let text = match focus {
-        ConfirmFocus::Cancel => format!("( Cancel )  [ {confirm_label} ]"),
-        ConfirmFocus::Confirm => format!("[ Cancel ]  ( {confirm_label} )"),
-    };
-    let mut row = HostControlRow::targeted(
-        crate::ui::util::truncate_with_ellipsis(&text, width),
-        crate::host_controls::PanelHitTarget::Field(Id::internal(InternalId::OverlayDecision)),
-    );
-    // Keep hit regions on the displayed choices, excluding the separator and
-    // any truncated suffix. Focus punctuation has the same terminal-cell width.
-    let cancel_end = unicode_width::UnicodeWidthStr::width("( Cancel )");
-    let confirm_start = cancel_end + 2;
-    let confirm_end = unicode_width::UnicodeWidthStr::width(text.as_str());
-    // Truncation appends exactly one ellipsis, so strip exactly one: a label
-    // whose own final character is an ellipsis keeps its displayed width.
-    let visible_width = if confirm_end > width {
-        unicode_width::UnicodeWidthStr::width(
-            row.text.strip_suffix('…').unwrap_or(row.text.as_str()),
-        )
-    } else {
-        confirm_end
-    };
-    row.cell_targets = vec![
-        (
-            0..cancel_end.min(visible_width),
-            crate::host_controls::PanelHitTarget::Cancel,
-        ),
-        (
-            confirm_start..visible_width,
-            crate::host_controls::PanelHitTarget::Submit,
-        ),
-    ];
-    row
-}
-
 pub fn project_help(state: &AppState, width: usize) -> OverlayControlProjection {
     let body = PanelBody::Detail(DetailBody {
         document: state.help_content_lines().join("\n"),
@@ -241,17 +195,104 @@ pub fn project_confirmation(
         fields.push(delete_field);
     }
     let mut projection = project_form(content.title, fields, values, 0, width);
-    projection.rows.clear();
     prepend_detail_rows(&mut projection.rows, content.message, width);
     if content.show_delete_work_dir {
-        projection
-            .rows
-            .push(confirmation_checkbox_row(content.delete_work_dir, width));
+        swap_delete_work_dir_form_row_for_checkbox(
+            &mut projection.rows,
+            content.delete_work_dir,
+            width,
+        );
     }
+    swap_decision_form_rows_for_button_row(
+        &mut projection.rows,
+        content.focus,
+        "Confirm",
+        false,
+        width,
+    );
     projection
-        .rows
-        .push(confirmation_choice_row(content.focus, "Confirm", width));
-    projection
+}
+
+/// Format the confirm-dialog button row with the focused button visually
+/// distinct (issue #228/#233): the focused button uses `( … )` and the
+/// unfocused button uses `[ … ]`. `confirm_label` is the declared confirm
+/// label; host confirmations pass "Confirm".
+#[must_use]
+fn confirm_button_row(focus: ConfirmFocus, confirm_label: &str) -> String {
+    let (cancel, confirm) = match focus {
+        ConfirmFocus::Cancel => ("( Cancel )".to_owned(), format!("[ {confirm_label} ]")),
+        ConfirmFocus::Confirm => ("[ Cancel ]".to_owned(), format!("( {confirm_label} )")),
+    };
+    format!("{cancel}  {confirm}")
+}
+
+/// Byte-column spans of the two buttons inside a rendered decision row,
+/// markers included, cancel first.
+///
+/// The spans are derived from the same shape [`confirm_button_row`] renders,
+/// and live beside it so the hit test and the renderer cannot drift apart.
+/// A row the width clamp truncated past a button yields no span for it.
+#[must_use]
+pub fn confirm_button_spans(row: &str) -> Option<(Range<usize>, Range<usize>)> {
+    let cancel = button_span(row, "Cancel")?;
+    let confirm = button_span(row, "Confirm")?;
+    Some((cancel, confirm))
+}
+
+/// One button's span: its label plus the two marker/spacing columns on each
+/// side, mirroring the pre-cutover button hit test.
+fn button_span(row: &str, label: &str) -> Option<Range<usize>> {
+    let start = row.find(label)?;
+    Some(start.saturating_sub(2)..start.saturating_add(label.len()).saturating_add(2))
+}
+
+/// Replace the decision and submit form rows with the restored #233 button row.
+///
+/// The typed `FormBody` keeps carrying the decision value, so intent routing
+/// through [`confirmation_command`] is unchanged; only the rendered rows
+/// change. The button row keeps the decision field's hit target, so a click
+/// still cycles focus exactly as the old `Decision:` row did, and a declared
+/// destructive confirmation renders the row in the bright style.
+fn swap_decision_form_rows_for_button_row(
+    rows: &mut Vec<HostControlRow>,
+    focus: ConfirmFocus,
+    confirm_label: &str,
+    destructive: bool,
+    width: usize,
+) {
+    let decision_id = Id::internal(InternalId::OverlayDecision);
+    rows.retain(|row| match &row.target {
+        Some(PanelHitTarget::Field(id)) => *id != decision_id,
+        Some(PanelHitTarget::Submit) => false,
+        _ => true,
+    });
+    let mut button = HostControlRow::targeted(
+        crate::ui::util::truncate_with_ellipsis(&confirm_button_row(focus, confirm_label), width),
+        PanelHitTarget::Field(decision_id),
+    );
+    if destructive {
+        button = button.with_style(HostControlRowStyle::Bright);
+    }
+    rows.push(button);
+}
+
+/// Replace the `Delete work directory: <bool>` form row with the checkbox
+/// rendering (`[x] Delete work directory`) the confirm modal has always shown.
+fn swap_delete_work_dir_form_row_for_checkbox(
+    rows: &mut Vec<HostControlRow>,
+    delete_work_dir: bool,
+    width: usize,
+) {
+    let delete_id = Id::internal(InternalId::OverlayDeleteWorkDir);
+    rows.retain(|row| match &row.target {
+        Some(PanelHitTarget::Field(id)) => *id != delete_id,
+        _ => true,
+    });
+    let mark = if delete_work_dir { 'x' } else { ' ' };
+    rows.push(HostControlRow::targeted(
+        crate::ui::util::truncate_with_ellipsis(&format!("[{mark}] Delete work directory"), width),
+        PanelHitTarget::Field(delete_id),
+    ));
 }
 
 pub fn confirmation_delete_work_dir_value(
@@ -287,6 +328,7 @@ pub struct ProviderConfirmationContent<'a> {
     pub title: &'a str,
     pub body: &'a str,
     pub confirm_label: &'a str,
+    pub destructive: bool,
     pub focus: ConfirmFocus,
     pub continuation_schema: &'a [Field],
     pub continuation_values: &'a TypedMap,
@@ -311,20 +353,15 @@ pub fn project_provider_confirmation(
     );
     let mut projection = project_form(content.title, fields, values, 0, width);
     "Provider Action".clone_into(&mut projection.title);
-    projection.rows.retain(|row| {
-        matches!(
-            row.target.as_ref(),
-            Some(crate::host_controls::PanelHitTarget::Field(field_id))
-                if field_id != decision_field.id()
-        )
-    });
     prepend_detail_rows(&mut projection.rows, content.body, width);
     prepend_detail_rows(&mut projection.rows, content.title, width);
-    projection.rows.push(confirmation_choice_row(
+    swap_decision_form_rows_for_button_row(
+        &mut projection.rows,
         content.focus,
         content.confirm_label,
+        content.destructive,
         width,
-    ));
+    );
     projection.focus_target = content.focused_field.cloned();
     projection
 }
@@ -343,6 +380,7 @@ pub fn provider_confirmation_focus(
             title: pending.title(),
             body: pending.body(),
             confirm_label: pending.confirm_label(),
+            destructive: pending.destructive(),
             focus,
             continuation_schema: pending.continuation_schema(),
             continuation_values: overlays.confirmation_values().unwrap_or(&empty_values),
@@ -435,6 +473,7 @@ pub fn project_provider_surface(
                 title,
                 body,
                 confirm_label,
+                destructive,
                 continuation_schema,
                 continuation_values,
                 focused_field,
@@ -443,6 +482,7 @@ pub fn project_provider_surface(
                     title,
                     body,
                     confirm_label,
+                    destructive: *destructive,
                     focus: *confirm_focus,
                     continuation_schema,
                     continuation_values,
@@ -718,45 +758,6 @@ pub fn bespoke_form_projection(
     }
 }
 
-/// Indices into `rows` that fit the caller's `viewport_rows` window.
-///
-/// Issue #741: form overlays reserve their action tail (everything from the first
-/// `Submit` row onward) so the `[Create]`/`[Back]` affordances are never
-/// clipped, and the body window above it follows the focused field. Every other
-/// control keeps the caller's plain `viewport` window unchanged.
-#[must_use]
-pub fn visible_row_indices(
-    rows: &[HostControlRow],
-    focus_target: Option<&Id>,
-    viewport: usize,
-    viewport_rows: usize,
-) -> Vec<usize> {
-    let Some(action_start) = rows
-        .iter()
-        .position(|row| row.target.as_ref() == Some(&PanelHitTarget::Submit))
-    else {
-        return (viewport..(viewport + viewport_rows).min(rows.len())).collect();
-    };
-    let action_count = rows.len() - action_start;
-    let body_capacity = viewport_rows.saturating_sub(action_count).max(1);
-    let body_len = action_start;
-    let mut start = viewport.min(body_len.saturating_sub(body_capacity));
-    if let Some(focus) = focus_target
-        && let Some(index) = rows
-            .iter()
-            .position(|row| row.target.as_ref() == Some(&PanelHitTarget::Field(focus.clone())))
-        && index >= start + body_capacity
-        && index < body_len
-    {
-        start = (index + 1)
-            .saturating_sub(body_capacity)
-            .min(body_len.saturating_sub(body_capacity));
-    }
-    (start..(start + body_capacity).min(body_len))
-        .chain(action_start..rows.len())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -908,76 +909,5 @@ mod tests {
         );
         // Row count unchanged.
         assert_eq!(projection.rows.len(), 3, "row count must not change");
-    }
-
-    #[test]
-    fn form_rows_reserve_the_submit_row_beyond_the_viewport() {
-        let mut rows: Vec<HostControlRow> = (0..13)
-            .map(|index| HostControlRow::plain(format!("body {index}")))
-            .collect();
-        rows.push(HostControlRow::targeted(
-            "[Create enabled]",
-            PanelHitTarget::Submit,
-        ));
-        rows.push(HostControlRow::plain("[Back]"));
-        let indices = visible_row_indices(&rows, None, 0, 10);
-        assert_eq!(indices.len(), 10, "the window is ten rows: {indices:?}");
-        let visible_texts: Vec<&str> = indices
-            .iter()
-            .map(|&index| rows[index].text.as_str())
-            .collect();
-        assert!(
-            visible_texts.contains(&"[Create enabled]"),
-            "the submit row is reserved: {visible_texts:?}"
-        );
-        assert!(
-            visible_texts.contains(&"[Back]"),
-            "the back row follows the submit row: {visible_texts:?}"
-        );
-        assert_eq!(
-            visible_texts[0], "body 0",
-            "the body starts at the first row: {visible_texts:?}"
-        );
-    }
-
-    #[test]
-    fn form_rows_follow_a_focused_body_row() {
-        let field_id = Field::internal(InternalField::SearchQuery).id().clone();
-        let mut rows: Vec<HostControlRow> = (0..13)
-            .map(|index| HostControlRow::plain(format!("body {index}")))
-            .collect();
-        rows[10] = HostControlRow::targeted("focused", PanelHitTarget::Field(field_id.clone()));
-        rows.push(HostControlRow::targeted(
-            "[Create enabled]",
-            PanelHitTarget::Submit,
-        ));
-        rows.push(HostControlRow::plain("[Back]"));
-        let indices = visible_row_indices(&rows, Some(&field_id), 0, 10);
-        let visible_texts: Vec<&str> = indices
-            .iter()
-            .map(|&index| rows[index].text.as_str())
-            .collect();
-        assert!(
-            visible_texts.contains(&"focused"),
-            "the focused row is visible: {visible_texts:?}"
-        );
-        assert!(
-            visible_texts.contains(&"[Create enabled]"),
-            "the submit row stays reserved: {visible_texts:?}"
-        );
-    }
-
-    #[test]
-    fn non_form_rows_keep_the_caller_viewport() {
-        let rows: Vec<HostControlRow> = (0..20)
-            .map(|index| HostControlRow::plain(format!("row {index}")))
-            .collect();
-        let indices = visible_row_indices(&rows, None, 5, 10);
-        assert_eq!(
-            indices.first(),
-            Some(&5),
-            "the caller viewport is kept: {indices:?}"
-        );
-        assert_eq!(indices.len(), 10, "the window is ten rows: {indices:?}");
     }
 }

@@ -53,22 +53,23 @@ fn confirm_action_at(
     if pane != SelectablePane::ConfirmModal {
         return None;
     }
-    if col < geometry.content_origin_col || row < geometry.content_origin_row {
-        return None;
-    }
-    let (line, column) = point_to_content_coords(col, row, 0, &geometry);
+    let (line, content_col) = point_to_content_coords(col, row, 0, &geometry);
     let (render_cols, render_rows) = jefe::layout::effective_render_size(cols, rows);
-    let action = match jefe::ui::orchestration::confirmation_hit_target_at_content_cell(
+    let action = match jefe::ui::orchestration::confirmation_hit_target_at_content_line(
         state,
         line,
-        column,
+        content_col,
         render_cols,
         render_rows,
     )? {
+        // The typed internal decision field is the closed Confirm/Cancel row;
+        // its Confirm-span hit only submits while Confirm holds focus (the
+        // orchestration hit target encodes that), so the Enter handler and
+        // the clicked button can never disagree.
+        PanelHitTarget::Field(id) if id == jefe::domain::overlay_decision_id() => {
+            "confirm.cycle-focus"
+        }
         PanelHitTarget::Cancel => "confirm.cancel",
-        // Generic confirmations expose only the optional delete-work-dir field;
-        // their decision row resolves through its explicit choice cell targets.
-        PanelHitTarget::Field(_) => "confirm.toggle-workdir",
         PanelHitTarget::Submit => "confirm.accept",
         _ => return None,
     };

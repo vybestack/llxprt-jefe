@@ -18,7 +18,6 @@ pub struct HostPanelModel {
     pub(crate) selected_id: Option<Id>,
     pub(crate) grabbed_id: Option<Id>,
     pub(crate) scroll_offset: u32,
-    pub(crate) reveal_selection: bool,
 }
 
 #[must_use]
@@ -27,7 +26,7 @@ pub fn project_host_panel(
     source: HostPanelModelSource,
     git: Option<&DashboardGitInfoSnapshot>,
 ) -> HostPanelModel {
-    let mut model = match source {
+    match source {
         HostPanelModelSource::RepositoryList => repository_list(state),
         HostPanelModelSource::SearchInput => search_input(state),
         HostPanelModelSource::AgentList => agent_list(state, git),
@@ -36,12 +35,7 @@ pub fn project_host_panel(
         HostPanelModelSource::SessionList => session_list(state),
         HostPanelModelSource::WorkbenchStatus => workbench_status(state),
         HostPanelModelSource::WorkbenchCards => workbench_cards(state),
-    };
-    model.reveal_selection = !state
-        .manual_list_scroll
-        .iter()
-        .any(|(kind, selected)| *kind == source && *selected == model.selected_id);
-    model
+    }
 }
 
 /// Borrow every agent as a workbench view input: no git info, with its live
@@ -115,7 +109,6 @@ fn workbench_status(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: 0,
-        reveal_selection: true,
     }
 }
 
@@ -235,7 +228,6 @@ fn workbench_cards(state: &AppState) -> HostPanelModel {
         // The grid pages rather than scrolls; the page index lives in the
         // workbench state and the projection clamps it at render time.
         scroll_offset: 0,
-        reveal_selection: true,
     }
 }
 
@@ -281,12 +273,9 @@ fn repository_list(state: &AppState) -> HostPanelModel {
         .selected_repository_visible_index()
         .map(|index| Id::internal_indexed(InternalId::RepositoryItem, index));
     let grabbed_id = state.dashboard_grab.as_ref().and_then(|grab| match grab {
-        DashboardGrabPane::Repository { visible_index } if (*visible_index) < visible.len() => {
-            Some(Id::internal_indexed(
-                InternalId::RepositoryItem,
-                *visible_index,
-            ))
-        }
+        DashboardGrabPane::Repository { visible_index } if *visible_index < visible.len() => Some(
+            Id::internal_indexed(InternalId::RepositoryItem, *visible_index),
+        ),
         DashboardGrabPane::Repository { .. } | DashboardGrabPane::Agent { .. } => None,
     });
     HostPanelModel {
@@ -300,7 +289,6 @@ fn repository_list(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id,
         scroll_offset: state.repository_scroll_offset,
-        reveal_selection: true,
     }
 }
 
@@ -331,7 +319,6 @@ fn search_input(state: &AppState) -> HostPanelModel {
         selected_id: None,
         grabbed_id: None,
         scroll_offset: 0,
-        reveal_selection: true,
     }
 }
 
@@ -384,7 +371,6 @@ fn agent_list(state: &AppState, git: Option<&DashboardGitInfoSnapshot>) -> HostP
         selected_id,
         grabbed_id,
         scroll_offset: state.agent_scroll_offset,
-        reveal_selection: true,
     }
 }
 
@@ -488,7 +474,6 @@ fn agent_type_availability(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: 0,
-        reveal_selection: true,
     }
 }
 
@@ -505,7 +490,6 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
             selected_id: None,
             grabbed_id: None,
             scroll_offset: 0,
-            reveal_selection: true,
         };
     };
     let git_info = crate::dashboard_git_info::resolve_preview_git_info(state);
@@ -533,7 +517,6 @@ fn agent_preview(state: &AppState) -> HostPanelModel {
         selected_id: None,
         grabbed_id: None,
         scroll_offset: 0,
-        reveal_selection: true,
     }
 }
 
@@ -578,7 +561,10 @@ fn agent_preview_document(
     document
 }
 
-fn empty_session_item() -> ListItem {
+/// The zero-sessions placeholder row the Terminal Manager has always shown
+/// (pre-#720: `src/ui/screens/terminal_manager.rs` rendered `No shells.`), so
+/// an empty manager reads as "up, zero shells" instead of a blank pane.
+fn no_shells_placeholder() -> ListItem {
     ListItem {
         id: Id::internal_indexed(InternalId::SessionItem, 0),
         label: "No shells.".to_owned(),
@@ -592,43 +578,45 @@ fn empty_session_item() -> ListItem {
     }
 }
 
+fn session_row_item(index: usize, row: &crate::state::ManagedShellRow) -> ListItem {
+    let label = if row.close_only {
+        format!("{} (close-only)", row.agent_name)
+    } else {
+        row.agent_name.clone()
+    };
+    ListItem {
+        id: Id::internal_indexed(InternalId::SessionItem, index),
+        label,
+        description: Some(format!(
+            "{} · {} · {}{}",
+            row.repository_name,
+            row.work_dir,
+            row.status_label,
+            if row.close_only {
+                " · dead/non-running"
+            } else {
+                ""
+            }
+        )),
+        status: Some(row.status_label.clone()),
+        count: None,
+        glyph: None,
+        badge: None,
+        suffix: None,
+        actions: Vec::new(),
+    }
+}
+
 fn session_list(state: &AppState) -> HostPanelModel {
     let rows = crate::state::project_managed_shell_rows(state);
-    let mut items = rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let label = if row.close_only {
-                format!("{} (close-only)", row.agent_name)
-            } else {
-                row.agent_name.clone()
-            };
-            ListItem {
-                id: Id::internal_indexed(InternalId::SessionItem, index),
-                label,
-                description: Some(format!(
-                    "{} · {} · {}{}",
-                    row.repository_name,
-                    row.work_dir,
-                    row.status_label,
-                    if row.close_only {
-                        " · dead/non-running"
-                    } else {
-                        ""
-                    }
-                )),
-                status: Some(row.status_label.clone()),
-                count: None,
-                glyph: None,
-                badge: None,
-                suffix: None,
-                actions: Vec::new(),
-            }
-        })
-        .collect::<Vec<_>>();
-    if items.is_empty() {
-        items.push(empty_session_item());
-    }
+    let items: Vec<ListItem> = if rows.is_empty() {
+        vec![no_shells_placeholder()]
+    } else {
+        rows.iter()
+            .enumerate()
+            .map(|(index, row)| session_row_item(index, row))
+            .collect()
+    };
     // A stale selected index must resolve to a row that still exists, the
     // same clamp `workbench_status` applies to the filter cursor.
     let selected_id = state.terminal_manager.selected_index.and_then(|index| {
@@ -647,7 +635,6 @@ fn session_list(state: &AppState) -> HostPanelModel {
         selected_id,
         grabbed_id: None,
         scroll_offset: state.session_scroll_offset,
-        reveal_selection: true,
     }
 }
 
@@ -716,31 +703,5 @@ mod tests {
             agent_body.items[0].description
         );
         assert_eq!(agent_body.items[0].label, "One Agent");
-    }
-
-    /// Dashboards reorder grab: a grabbed repository must expose its marker id on
-    /// the repository list projection so the list control renders the grab marker,
-    /// mirroring what `agent_list` already does for grabbed agents.
-    #[test]
-    fn grabbed_repository_id_reaches_the_list_marker() {
-        let mut state = crate::state::AppState::new(crate::test_support::published_workbench());
-        let repository = crate::domain::Repository::new(
-            crate::domain::RepositoryId("repo-one".to_owned()),
-            crate::domain::shipped_agent_type(1),
-            crate::domain::TypedMap::new(),
-            "One Repo".to_owned(),
-            "one-repo".to_owned(),
-            std::path::PathBuf::from("/tmp/one-repo"),
-        );
-        state.repositories = vec![repository];
-        state.selected_repository_index = Some(0);
-        state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
-
-        let model = repository_list(&state);
-
-        assert_eq!(
-            model.grabbed_id,
-            Some(Id::internal_indexed(InternalId::RepositoryItem, 0))
-        );
     }
 }

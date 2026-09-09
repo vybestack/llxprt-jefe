@@ -97,7 +97,7 @@
     },
     {
       "op": "text",
-      "text": "Alpha Repo"
+      "text": "Alpha Repository"
     },
     {
       "op": "key",
@@ -236,7 +236,7 @@
     },
     {
       "op": "text",
-      "text": "Beta Repo"
+      "text": "Beta Repository"
     },
     {
       "op": "key",
@@ -255,7 +255,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "Beta Repo",
+      "literal": "2 repos",
       "timeout_ms": 12000
     },
     {
@@ -416,7 +416,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "F12 list | F10 close shell",
+      "literal": "F12 hide shell",
       "timeout_ms": 12000
     },
     {
@@ -460,7 +460,7 @@
     {
       "op": "wait",
       "source": "frame",
-      "literal": "F12 list | F10 close shell",
+      "literal": "F12 hide shell",
       "timeout_ms": 12000
     },
     {

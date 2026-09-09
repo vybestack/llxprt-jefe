@@ -9,5 +9,3 @@ include!("provider_panel_view_tests_model_pipeline.rs");
 mod focus;
 #[path = "provider_panel_view_tests_origins.rs"]
 mod origins;
-#[path = "provider_panel_view_tests_windowing.rs"]
-mod windowing;

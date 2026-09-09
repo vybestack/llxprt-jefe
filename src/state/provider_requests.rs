@@ -60,6 +60,7 @@ struct ConfirmationFields<'a> {
     title: &'a str,
     body: &'a str,
     confirm_label: &'a str,
+    destructive: bool,
     continuation_schema: &'a [crate::domain::plugin::field::Field],
 }
 
@@ -419,7 +420,7 @@ impl ProviderRequestState {
             title,
             body,
             confirm_label,
-            destructive: _,
+            destructive,
             continuation_schema,
         } = &outcome
         {
@@ -430,6 +431,7 @@ impl ProviderRequestState {
                     title,
                     body,
                     confirm_label,
+                    destructive: *destructive,
                     continuation_schema,
                 },
                 now_epoch,
@@ -471,6 +473,7 @@ impl ProviderRequestState {
             title: fields.title.to_owned(),
             body: fields.body.to_owned(),
             confirm_label: fields.confirm_label.to_owned(),
+            destructive: fields.destructive,
             continuation_schema: fields.continuation_schema.to_vec(),
             arguments,
             policy,

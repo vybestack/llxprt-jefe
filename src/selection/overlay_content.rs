@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_modal_delete_repo_renders_both_choices_without_internal_submit_id() {
+    fn confirm_modal_delete_repo_exact_layout_without_checkbox() {
         let mut state = AppState::test_fixture();
         state.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
             id: RepositoryId("r1".to_string()),
@@ -440,6 +440,44 @@ mod tests {
                 .lines
                 .iter()
                 .any(|line| line == "[ Cancel ]  ( Confirm )")
+        );
+    }
+
+    #[test]
+    fn confirm_modal_frame_renders_button_rows_without_internal_ids() {
+        let mut state = AppState::test_fixture();
+        state.open_confirmation_payload(ConfirmationRequest::DeleteRepository {
+            id: RepositoryId("r1".to_string()),
+        });
+        state.repositories.push(Repository::new(
+            RepositoryId("r1".to_string()),
+            crate::domain::shipped_agent_type(3),
+            crate::domain::TypedMap::new(),
+            "my-repo".to_string(),
+            "my-repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let content = confirm_modal_lines(&state);
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|line| line == "( Cancel )  [ Confirm ]"),
+            "the frame carries the #233 Cancel-focused button row: {:?}",
+            content.lines
+        );
+        assert!(
+            !content
+                .lines
+                .iter()
+                .any(|line| line.starts_with("Decision:")),
+            "no internal decision row may reach the frame: {:?}",
+            content.lines
+        );
+        assert!(
+            !content.lines.iter().any(|line| line.starts_with("submit:")),
+            "no internal submit row may reach the frame: {:?}",
+            content.lines
         );
     }
 

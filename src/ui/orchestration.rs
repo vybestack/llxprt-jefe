@@ -108,12 +108,12 @@ pub fn derive_confirm_modal_data(snapshot: &AppState) -> Option<ConfirmModalData
     })
 }
 
-/// Resolve one displayed confirmation content cell to its typed control target.
+/// Resolve one displayed confirmation content line to its typed control target.
 #[must_use]
-pub fn confirmation_hit_target_at_content_cell(
+pub fn confirmation_hit_target_at_content_line(
     snapshot: &AppState,
     content_line: usize,
-    content_column: usize,
+    content_col: usize,
     cols: u16,
     rows: u16,
 ) -> Option<PanelHitTarget> {
@@ -141,7 +141,26 @@ pub fn confirmation_hit_target_at_content_cell(
             .viewport
             .checked_add(content_line.checked_sub(1)?)?,
     )?;
-    row.hit_target_at(content_column)
+    // The decision row is the restored #228/#233 button pair. A click on the
+    // Cancel button cancels outright. The confirm button's span accepts only
+    // while Confirm holds focus, because `confirm.accept` dispatches the
+    // focus-relative Enter handler (#228): an unfocused Confirm click first
+    // cycles focus there (the markers make the focused button visible), and
+    // every other column of the row keeps the decision field target so a
+    // click there cycles focus.
+    if let Some(PanelHitTarget::Field(id)) = &row.target
+        && *id == crate::domain::overlay_decision_id()
+        && let Some((cancel_span, confirm_span)) =
+            crate::overlay_controls::confirm_button_spans(&row.text)
+    {
+        if cancel_span.contains(&content_col) {
+            return Some(PanelHitTarget::Cancel);
+        }
+        if confirm_span.contains(&content_col) && data.confirm_focus == ConfirmFocus::Confirm {
+            return Some(PanelHitTarget::Submit);
+        }
+    }
+    row.target.clone()
 }
 
 /// Consume one mouse event owned by the current blocking overlay.
@@ -373,7 +392,13 @@ pub fn build_modal_element(
             crate::overlay_controls_agent_form::project_agent_form,
             crate::overlay_controls_agent_form::AGENT_FORM_FOOTER,
         ),
-        ModalState::GeneratedAgent { .. } => generated_agent_overlay(snapshot, viewport, colors),
+        ModalState::GeneratedAgent { .. } => form_overlay(
+            snapshot,
+            viewport,
+            colors,
+            crate::overlay_controls_generated_form::project_generated_agent_form,
+            crate::overlay_controls_generated_form::GENERATED_FORM_FOOTER,
+        ),
         ModalState::WorkflowDispatch { .. } => {
             Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
         }
@@ -420,7 +445,6 @@ fn host_overlay_element(
     colors: &ThemeColors,
     footer: &str,
 ) -> AnyElement<'static> {
-    let focus_target = projection.focus_target.clone();
     element! {
         HostControlOverlay(
             title: projection.title,
@@ -428,7 +452,6 @@ fn host_overlay_element(
             rows: projection.rows,
             viewport: projection.viewport,
             viewport_rows: layout.viewport_rows,
-            focus_target,
             width: u32::from(layout.width),
             height: u32::from(layout.height),
             colors: colors.clone(),
@@ -436,30 +459,6 @@ fn host_overlay_element(
         )
     }
     .into_any()
-}
-
-/// Route the definition-generated New Agent form through the shared overlay shell,
-/// passing the height-aware viewport so it can elide sections that would clip the
-/// action tail (issue #741).
-fn generated_agent_overlay(
-    snapshot: &AppState,
-    viewport: ModalViewport,
-    colors: &ThemeColors,
-) -> Option<AnyElement<'static>> {
-    let layout = crate::overlay_controls::HostOverlayLayout::form(viewport.cols, viewport.rows);
-    crate::overlay_controls_generated_form::project_generated_agent_form(
-        snapshot,
-        layout.content_width,
-        layout.viewport_rows,
-    )
-    .map(|projection| {
-        host_overlay_element(
-            projection,
-            layout,
-            colors,
-            crate::overlay_controls_generated_form::GENERATED_FORM_FOOTER,
-        )
-    })
 }
 
 /// Build the render-only auth remediation modal element (issue #244).
