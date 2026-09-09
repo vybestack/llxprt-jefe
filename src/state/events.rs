@@ -100,6 +100,7 @@ pub enum AppEvent {
     Quit,
     ClearError,
     ClearWarning,
+    ClearGlobalWarning,
     /// Open the auth dialog and start the device-code flow.
     OpenAuthDialog,
     /// The one-time code + verification URL were parsed from `gh` stderr.
@@ -133,6 +134,7 @@ pub enum AppEvent {
     EnterIssuesMode,
     ExitIssuesMode,
     RefocusIssueList,
+    DismissPanelNotice,
     IssuesNavigateUp,
     IssuesNavigateDown,
     IssuesNavigatePageUp(PageItemCount),

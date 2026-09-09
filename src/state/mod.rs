@@ -71,6 +71,10 @@ pub(crate) mod provider_action_context;
 /// Handle-free provider request reducer state (issue #390 CW-10, Slice B).
 #[cfg(test)]
 mod provider_confirmation_admission_tests;
+/// Terminal navigate outcomes carried across the route push (issue #758).
+#[cfg(test)]
+#[path = "provider_outcome_navigation_tests.rs"]
+mod provider_outcome_navigation_tests;
 pub mod provider_panels;
 /// Provider request reducer data model (issue #390 CW-10, Slice B).
 mod provider_request_model;
@@ -916,6 +920,15 @@ impl AppState {
                 self.apply_transient_queued(queue_position);
             }
             SystemMessage::TransientAgentDequeued => self.clear_transient_notice(),
+            SystemMessage::DismissPanelNotice => match self.compiled_screen() {
+                Some(ScreenId::Issues) => self.issues_state.draft_notice = None,
+                Some(ScreenId::PullRequests) => self.prs_state.draft_notice = None,
+                _ => {}
+            },
+            SystemMessage::ClearGlobalWarning => {
+                self.warning_message = None;
+                self.provider_notice = None;
+            }
             auth => self.apply_auth_message(auth),
         }
     }

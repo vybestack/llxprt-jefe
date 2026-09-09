@@ -352,7 +352,9 @@ pub fn project_provider_confirmation(
         TypedValue::String(decision.to_owned()),
     );
     let mut projection = project_form(content.title, fields, values, 0, width);
+    "Provider Action".clone_into(&mut projection.title);
     prepend_detail_rows(&mut projection.rows, content.body, width);
+    prepend_detail_rows(&mut projection.rows, content.title, width);
     swap_decision_form_rows_for_button_row(
         &mut projection.rows,
         content.focus,

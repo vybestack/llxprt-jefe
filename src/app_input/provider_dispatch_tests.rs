@@ -879,6 +879,9 @@ fn provider_navigation_refuses_to_bypass_the_dirty_guard() {
     assert_eq!(state.screen(), original_screen);
 }
 
+#[path = "provider_dispatch_navigation_tests.rs"]
+mod navigation_outcomes;
+
 #[test]
 fn outcome_completion_closes_the_ledger_before_navigation_changes_generation() {
     let mut state = crate::test_app_state();

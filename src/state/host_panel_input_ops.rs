@@ -125,16 +125,16 @@ impl AppState {
         viewport_rows: usize,
     ) -> bool {
         let model = project_host_panel(self, kind, None);
-        let PanelBody::List(body) = model.body else {
+        let PanelBody::List(body) = &model.body else {
             return false;
         };
         let Ok(maximum) = u32::try_from(body.items.len().saturating_sub(viewport_rows)) else {
             return false;
         };
-        let next = model
-            .scroll_offset
-            .saturating_add_signed(i32::from(delta))
-            .min(maximum);
+        let (origin, maximum) = self
+            .host_list_window_bounds(kind)
+            .unwrap_or((model.scroll_offset, maximum));
+        let next = origin.saturating_add_signed(i32::from(delta)).min(maximum);
         let offset = match kind {
             HostPanelModelSource::RepositoryList => &mut self.repository_scroll_offset,
             HostPanelModelSource::AgentList => &mut self.agent_scroll_offset,
@@ -148,9 +148,38 @@ impl AppState {
             | HostPanelModelSource::AgentTypeAvailability
             | HostPanelModelSource::AgentPreview => return false,
         };
-        let changed = *offset != next;
+        let changed = origin != next;
         *offset = next;
+        if changed {
+            self.manual_list_scroll
+                .retain(|(source, _)| *source != kind);
+            self.manual_list_scroll.push((kind, model.selected_id));
+        }
         changed
+    }
+
+    fn host_list_window_bounds(&self, kind: HostPanelModelSource) -> Option<(u32, u32)> {
+        let descriptor = self
+            .published_workbench()
+            .screen_registry()
+            .get_identity(self.screen())?;
+        let panel_id = descriptor
+            .panels
+            .iter()
+            .find(|panel| {
+                panel
+                    .host_capability
+                    .is_some_and(|capability| capability.model_source() == kind)
+            })?
+            .id;
+        let layout = self.resolved_layout.as_ref()?;
+        let view =
+            crate::provider_panel_view::project_current_screen(self, descriptor, layout).ok()?;
+        let panel = view.panels.iter().find(|panel| panel.id == panel_id)?;
+        Some((
+            u32::try_from(panel.visible_window_origin).unwrap_or(u32::MAX),
+            panel.max_scroll_offset,
+        ))
     }
 
     fn apply_host_panel_event(
@@ -254,6 +283,8 @@ impl AppState {
     }
 
     fn reveal_host_panel_selection(&mut self, kind: HostPanelModelSource, viewport_rows: usize) {
+        self.manual_list_scroll
+            .retain(|(source, _)| *source != kind);
         let selected = match kind {
             HostPanelModelSource::RepositoryList => self.selected_repository_visible_index(),
             HostPanelModelSource::AgentList => self.selected_agent_local_index(),

@@ -542,7 +542,8 @@ fn render_embedded_terminal(
                     override_theme: state.override_agent_theme,
                     pane_rows: props.terminal_pane_rows,
                     pane_cols: props.terminal_pane_cols,
-                    focused_hint: None,
+                    focused_hint: (state.screen() == crate::workbench::TERMINALS_IDENTITY)
+                        .then(|| "F12 list | F10 close shell".to_owned()),
                 )
             }
         }
@@ -585,6 +586,10 @@ mod focus_tests;
 #[cfg(test)]
 #[path = "provider_screen_count_render_tests.rs"]
 mod count_render_tests;
+
+#[cfg(test)]
+#[path = "provider_screen_terminal_render_tests.rs"]
+mod terminal_render_tests;
 
 #[cfg(test)]
 #[path = "provider_screen_agent_row_render_tests.rs"]

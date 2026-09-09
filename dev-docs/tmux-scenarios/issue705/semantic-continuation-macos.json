@@ -104,6 +104,28 @@
     {
       "op": "wait",
       "source": "frame",
+      "literal": "Enter Retry   Esc Close",
+      "timeout_ms": 15000
+    },
+    {
+      "op": "assert-frame",
+      "contains": [
+        "Provider Action",
+        "Navigate to",
+        "vendor.semantic.open [Retry: retry]"
+      ],
+      "absent": [
+        "provider unavailable"
+      ]
+    },
+    {
+      "op": "key",
+      "key": "escape",
+      "modifiers": []
+    },
+    {
+      "op": "wait",
+      "source": "frame",
       "literal": "Typed semantic resources",
       "timeout_ms": 15000
     },
@@ -148,10 +170,13 @@
     {
       "op": "assert-frame",
       "contains": [
+        "Provider Action",
         "Confirm alpha deployment?",
         "( Cancel )  [ Deploy alpha ]"
       ],
       "absent": [
+        "host.overlay-submit",
+        "Decision:",
         "provider unavailable"
       ]
     },

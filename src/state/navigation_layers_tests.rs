@@ -251,6 +251,80 @@ fn shared_back_applies_each_issues_owner_without_falling_through() {
 }
 
 #[test]
+fn a_back_that_closes_the_agent_chooser_does_not_also_unwind_the_detail_panel() {
+    use crate::state::transition::TransitionExt;
+
+    let mut state = issues();
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+    state.issues_state.agent_chooser = Some(AgentChooserState::default());
+
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(
+        state.issues_state.agent_chooser.is_none(),
+        "one Back closes the agent chooser"
+    );
+    assert_eq!(
+        state.issues_state.issue_focus,
+        IssueFocus::IssueDetail,
+        "one Back must not also pop the issue detail panel (issue #744)"
+    );
+}
+
+#[test]
+fn a_back_that_dismisses_the_detail_notice_keeps_the_detail_focused() {
+    use crate::state::transition::TransitionExt;
+    let mut state = issues();
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+    state.issues_state.draft_notice = Some("No agents available".to_owned());
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(
+        state.issues_state.draft_notice.is_none(),
+        "first Back dismisses the notice"
+    );
+    assert_eq!(
+        state.issues_state.issue_focus,
+        IssueFocus::IssueDetail,
+        "first Back must keep the detail focused (issue #744)"
+    );
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert_eq!(
+        state.issues_state.issue_focus,
+        IssueFocus::IssueList,
+        "second Back then returns to the list"
+    );
+}
+
+#[test]
+fn a_back_while_a_global_warning_shows_still_dismisses_the_notice_as_its_own_transition() {
+    use crate::state::transition::TransitionExt;
+    let mut state = issues();
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+    state.issues_state.draft_notice = Some("No agents available".to_owned());
+    state.warning_message = Some("runtime unavailable".to_owned());
+    state = state
+        .apply(super::AppEvent::ClearGlobalWarning)
+        .committed_pure();
+    assert!(
+        state.warning_message.is_none(),
+        "global warning band clears"
+    );
+    assert!(
+        state.issues_state.draft_notice.is_some(),
+        "during-back clear must spare the screen notice (issue #744)"
+    );
+    let state = state.apply(super::AppEvent::Back).committed_pure();
+    assert!(
+        state.issues_state.draft_notice.is_none(),
+        "Back then dismisses the notice"
+    );
+    assert_eq!(
+        state.issues_state.issue_focus,
+        IssueFocus::IssueDetail,
+        "Back keeps the detail focused"
+    );
+}
+
+#[test]
 fn dirty_interception_does_not_finalize_a_compiled_screen() {
     use crate::state::transition::TransitionExt;
 
@@ -376,6 +450,11 @@ fn every_layer_is_reachable_from_some_real_screen_state() {
     let mut overlay = issues();
     overlay.nav.current_mut().overlays_mut().open_help();
     produced.extend(overlay.open_back_layers());
+
+    let mut notice = issues();
+    notice.issues_state.issue_focus = IssueFocus::IssueDetail;
+    notice.issues_state.draft_notice = Some("No agents available".to_owned());
+    produced.extend(notice.open_back_layers());
 
     let mut transient = issues();
     transient.issues_state.issue_focus = IssueFocus::IssueDetail;

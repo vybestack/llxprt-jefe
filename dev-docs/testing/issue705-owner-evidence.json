@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "29a3310f5619417975896d828ac7fd8e06d8add1ec4b3672c4453276138b1872"
+    "artifact_set_sha256": "88a67490412874847d2fc350b02d3dc038dbfa04ec891396fd3db73932fe97a4"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "ef1c39e53265ca7ffb6a9b2889671521ec1ab227cc531f6d3de18ba1bfa6bb78",
+      "sha256": "b9c3b54152c5d3e6ce92e89f8dcee3ac934daa82f3e0ddc4b6a733fc1a587ebf",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -42,7 +42,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-execution-manifest.json",
-      "sha256": "6678b4ca6fbe6f002d4ab7e6f006840b6a7164b66c614b83c7b04c40296a38e4",
+      "sha256": "ad013aa59194169057fdd77a19fd94daabdde678499acec3d2a837badd770ecd",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "2d1afee99243dbcc8721101f424b424adae5fd4221864ead3edca3bdb89900be",
+      "sha256": "50288e228b6d28a0bca8196394fed8671df84593e34b550f570e50392fa2b71a",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -98,7 +98,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-linux.json",
-      "sha256": "1f33a86fcdfd417c33ea87462cf0fc16a54ee5af84496d5e924cc84f077cc75d",
+      "sha256": "3a4710ca703981ea388c9725ecfdcc0d4f98d7b62d7a5e526f6f3b3320986a12",
       "mode": "100644",
       "criteria": [
         "CWR2-03",
@@ -108,7 +108,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/semantic-continuation-macos.json",
-      "sha256": "87fad5d39a1db6b70e084c7757c38414d5488a593f1d5aa361e9372f5b8ad17b",
+      "sha256": "e6172dd72472fcfa3b0b1528bb77ee927fac2d20a288eb37b4876501af8ed81a",
       "mode": "100644",
       "criteria": [
         "CWR2-03",
@@ -118,7 +118,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-linux.json",
-      "sha256": "1a8e193bf665c5554839110f452dd8cc6c95fac3397d442b9a7f1e8c587c15e0",
+      "sha256": "7712aeab87949cc8047b23cd786635950f79448d4f508e46e95645cc2203ae1a",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -131,7 +131,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/tree-structured-diff-macos.json",
-      "sha256": "3da4039abff3b863f1c1c045963eda4d7988c7e976a37921f91226f70708dcbe",
+      "sha256": "4bc7f53ca9138ef474ac6a3a938e7dbe4e0a42ca8216930a2a42e2e01c1b3766",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -144,7 +144,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-linux.json",
-      "sha256": "e9170696088a0c9dd4117c256fe14eb75d51802b2900f19411ac29fca33d9564",
+      "sha256": "bcecac34072ac619f3f75232898b8284be9ef59586caf845a3062df976397d16",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -159,7 +159,7 @@
     },
     {
       "path": "dev-docs/tmux-scenarios/issue705/workbench-runtime-macos.json",
-      "sha256": "237512ae575296cd0acea35ab34d1e79b9dac1e26b92c6dca4dfb1e5edad17ba",
+      "sha256": "6101330f8044e7ce24799525f7dfa1e93bb48366746a2145a9652f60d333e250",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -211,7 +211,7 @@
     },
     {
       "path": "src/app_shell.rs",
-      "sha256": "6b5ff62e5efbadd42465690b1d6101d02d207477796ec19179933bc3cf85a1a7",
+      "sha256": "9491bea14f40971ce4d981ab02e14369c48c21911960f1aec88d4a40289e3745",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -229,7 +229,7 @@
     },
     {
       "path": "src/host_controls.rs",
-      "sha256": "77c73cc533ddc2a564c41c27addd41639ceee320601333b1d85131a314376ae6",
+      "sha256": "2714def8e5602458a8d01ba6ccb6686d879727ec16adcd17ff465ac0d1f9a07f",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "ddcc6c2183d1ae00224a9eeb8366269915ec168a64441f24346aab2c23d87b02",
+      "sha256": "75c127aa79cce981352469b88378b1856de9eb155f396c88f6a4dd1a2a48363f",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -294,7 +294,7 @@
     },
     {
       "path": "src/overlay_controls_tests.rs",
-      "sha256": "399ba519292f37ccf5f83048bfe408eb33377acf198b21527ddf2671ef101843",
+      "sha256": "ebe24bd2f74f61e2f730a57e240bd58c071cf37a3bdc0476824c02ede8546e34",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -413,7 +413,7 @@
     },
     {
       "path": "src/state/host_panel_input_ops.rs",
-      "sha256": "149b5685880ea48bc511f25260ec1d5cddf1abafd399d45982f91f66a479c1fd",
+      "sha256": "68f964e8f993905f755ebd4a825be8c6162a759d230573f6b4c501e0242ea1ea",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -433,7 +433,7 @@
     },
     {
       "path": "src/state/navigation.rs",
-      "sha256": "4a75d8e8b14785822c8a536566fc9f85c4f414337e61aff01a492232726dbf6f",
+      "sha256": "40372d5e25e32367a5976bb211e3faef8627af40c3d0a757192fe7b148a3dfb7",
       "mode": "100644",
       "criteria": [
         "CWR2-02",
@@ -466,7 +466,7 @@
     },
     {
       "path": "src/state/navigation_unwind.rs",
-      "sha256": "0470821836b1ecf9c735805dae6fc2c44da06a683902eedd388249199329278b",
+      "sha256": "05589bcdce358f751ddeec61d235a8dc24110d089c3df04f6dae9331effd17a3",
       "mode": "100644",
       "criteria": [
         "CWR2-06"
@@ -518,7 +518,7 @@
     },
     {
       "path": "src/state/provider_panels.rs",
-      "sha256": "a6cb81b6bf3a0b542d51332ceaaabb111f35f33506f4767fd034f99ee7a3dc98",
+      "sha256": "b895720553027bc1054f9fe445e8ae0f162d536f7f7a58720bd35ae1b71cceb8",
       "mode": "100644",
       "criteria": [
         "CWR2-02",
