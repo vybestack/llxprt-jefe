@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "005ec25c4b1790cc87b1e66c7f46a8eb9357030c3d811296f331fcf083c5cc64"
+    "artifact_set_sha256": "e6420f893c39fc4520b581621acb4a460851233bf280bd49f527f3ec7459d90a"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "258288180e07cfe435ec2ffcd45153370bd48c21c34a8064dc1398f8c25ea4c6",
+      "sha256": "e277acbc60cd568a3b40d74273530bda9e979a5fa1cf889b9164a4d8b25a3583",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "61d8eb0022ff5c5ce9c2c6d341e839964e7eb8c4b77e8adb9240ae095dd3e489",
+      "sha256": "ab19e3e06f05cfd7a5e3a038e2e7d1119b3f4d99a4f6d71b3cd4fb619fff7e10",
       "mode": "100644",
       "criteria": [
         "CWR2-11"

@@ -112,3 +112,40 @@ fn self_exiting_command_reports_its_own_exit_code() {
         "teardown replaced the command's successful exit with a signalled status"
     );
 }
+
+/// The harness screen must match what the app wrote even when a PTY read ends
+/// inside a multibyte UTF-8 character. The pause forces `c3` and `a9 58 c3 a9`
+/// into separate reads; the rendered line must still be `éXé`.
+#[test]
+fn utf8_char_split_across_reads_keeps_the_following_ascii_on_screen() {
+    let mut env = BTreeMap::new();
+    env.insert("PATH".to_string(), "/usr/bin:/bin".to_string());
+    let argv = vec![
+        "/bin/sh".to_string(),
+        "-c".to_string(),
+        "printf '\\303'; sleep 0.3; printf '\\251X\\303\\251\\n'; sleep 5".to_string(),
+    ];
+    let mut session = PtySession::launch(
+        &argv,
+        &env,
+        std::env::temp_dir().as_path(),
+        Size { cols: 80, rows: 24 },
+    )
+    .unwrap_or_else(|err| panic!("launch: {err}"));
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut first_line = String::new();
+    while Instant::now() < deadline {
+        let lines = session
+            .frame_lines()
+            .unwrap_or_else(|err| panic!("frame: {err}"));
+        first_line = lines.first().cloned().unwrap_or_default();
+        // Both writes have rendered once the line ends with the second `é`.
+        if first_line.trim_end().chars().count() >= 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = session.stop();
+    assert_eq!(first_line.trim_end(), "\u{e9}X\u{e9}");
+}

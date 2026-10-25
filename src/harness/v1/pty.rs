@@ -453,7 +453,11 @@ fn spawn_reader(
                 }
                 Ok(count) => {
                     if let Ok(mut term) = term.lock() {
-                        parser.advance(&mut *term, &buffer[..count]);
+                        // One byte per call: vte 0.15's slice path drops the ASCII
+                        // that follows a UTF-8 character completed across two reads.
+                        for byte in &buffer[..count] {
+                            parser.advance(&mut *term, std::slice::from_ref(byte));
+                        }
                     }
                     append_bounded(&stream, &buffer[..count]);
                     generation.fetch_add(1, Ordering::Relaxed);

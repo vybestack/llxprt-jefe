@@ -3193,7 +3193,7 @@
     },
     {
       "path": "src/harness/v1/pty.rs",
-      "sha256": "78375d1816b0bebdcf1590694c611b4fcbaab543da475e4b4f5a76c315c1ca4f",
+      "sha256": "aedf7d393d09104b5a0dd6382effda8d2dfa7ac01900e81b2e58ad1a6bbf4dfe",
       "mode": "100644",
       "criteria": [
         "CW00B-03",
@@ -3204,7 +3204,7 @@
     },
     {
       "path": "src/harness/v1/pty_tests.rs",
-      "sha256": "7e26b62c87c9fea73fa5b37b915dd9d00857d0745977c7600272d2571a0190e8",
+      "sha256": "48725b2c0b2da8f0dd2691e05634e55f29c39437c719525b2f2e22e9e25fa9bd",
       "mode": "100644",
       "criteria": [
         "CW00B-03",
