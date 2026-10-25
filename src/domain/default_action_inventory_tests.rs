@@ -29,15 +29,21 @@ fn projection_rows() -> Vec<super::default_action_inventory::GoldenProjectionRow
 #[test]
 fn compiled_inventory_is_valid_and_metadata_complete() {
     let inventory = inventory();
-    assert!(!inventory.actions.is_empty());
+    assert_ne!(
+        inventory.actions,
+        [] as [crate::domain::action_registry::Action; 0]
+    );
     assert_eq!(inventory.actions.len(), inventory.bindings.len());
     for action in &inventory.actions {
         assert!(!action.label.trim().is_empty(), "{}", action.id.as_str());
         assert!(UnicodeWidthStr::width(action.label.as_str()) <= ACTION_LABEL_CELL_LIMIT);
-        assert!(!action.description.trim().is_empty());
+        assert_ne!(action.description.trim(), "");
         assert!(action.description.len() <= ACTION_DESCRIPTION_BYTE_LIMIT);
-        assert!(!action.category.trim().is_empty());
-        assert!(!action.contexts.is_empty());
+        assert_ne!(action.category.trim(), "");
+        assert_ne!(
+            action.contexts,
+            [] as [crate::domain::input_context::ContextId; 0]
+        );
     }
 }
 

@@ -68,7 +68,7 @@ fn parses_full_scenario_with_every_op() {
     let Step::Key { modifiers, .. } = &scenario.steps[5] else {
         panic!("expected key step");
     };
-    assert!(modifiers.is_empty());
+    assert_eq!(modifiers.as_slice(), []);
     let Step::Wait { source, .. } = &scenario.steps[4] else {
         panic!("expected wait step");
     };

@@ -378,7 +378,10 @@ fn stale_availability_completion_is_a_no_op() {
         .unwrap_or_else(|error| panic!("stale completion must commit as a no-op: {error}"));
 
     assert_eq!(format!("{:?}", after.next_state), before);
-    assert!(after.effects.is_empty());
+    assert_eq!(
+        after.effects,
+        [] as [jefe::domain::effects::IssuedEffect; 0]
+    );
 }
 // ---- CW02-06: local plan golden ----
 

@@ -223,7 +223,10 @@ enabled_screens = ["local.alpha"]
         rendered(&candidate),
         "settings_schema = 2\n[workbench]\nenabled_screens = []\n"
     );
-    assert!(candidate.published().workbench.enabled_screens.is_empty());
+    assert_eq!(
+        candidate.published().workbench.enabled_screens,
+        [] as [Id; 0]
+    );
 }
 
 #[test]

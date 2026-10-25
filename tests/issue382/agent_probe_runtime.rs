@@ -214,7 +214,7 @@ fn assert_compatible(result: &AgentProbeResult, generation: u64) {
             identity,
             generation: actual,
         } => {
-            assert!(!identity.is_empty());
+            assert_ne!(identity, "");
             assert_eq!(*actual, generation);
         }
         other => panic!("expected compatible, got {other:?}"),

@@ -197,5 +197,8 @@ fn the_recovery_notice_states_that_nothing_ran() {
 
 #[test]
 fn projecting_an_empty_inventory_yields_no_rows() {
-    assert!(project(&[], &none_trusted).is_empty());
+    assert_eq!(
+        project(&[], &none_trusted),
+        [] as [crate::state::plugins_editor::PluginRow; 0]
+    );
 }

@@ -624,7 +624,7 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
     // Verify the PrSendPayload carries structured fields.
     assert_eq!(send_info.payload.pr_number, 42);
     assert_eq!(send_info.payload.repository, "owner/repo");
-    assert!(!send_info.payload.pr_title.is_empty());
+    assert_ne!(send_info.payload.pr_title, "");
 
     // (2) Apply the PrAgentChooserConfirm reducer (closes chooser) — this runs
     // BEFORE launch in the real dispatch.

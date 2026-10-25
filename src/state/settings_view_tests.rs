@@ -469,7 +469,7 @@ fn the_diagnostics_section_is_read_only() {
     let rows =
         settings_view::detail_rows(&state.settings_state, state.settings_projection_authority());
 
-    assert!(!rows.is_empty());
+    assert_ne!(rows, [] as [crate::state::settings_view::SettingsRow; 0]);
     assert!(rows.iter().all(|row| row.activation().is_none()));
     assert!(rows.iter().all(|row| row.toggle().is_none()));
     assert!(rows.iter().all(|row| row.reset().is_none()));

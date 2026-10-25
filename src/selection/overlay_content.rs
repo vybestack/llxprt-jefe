@@ -523,7 +523,7 @@ mod tests {
             payload,
         });
         let content = confirm_modal_lines(&state);
-        assert!(!content.lines.is_empty());
+        assert_ne!(content.lines, [] as [std::string::String; 0]);
         assert_eq!(content.lines[0], "Working Copy Not Ready");
         // Issue #479: the dirty-copy confirm must offer to DELETE the working
         // copy and re-clone (not merely discard changes), matching what the
@@ -565,7 +565,7 @@ mod tests {
             expected: "acme/widgets".to_string(),
         });
         let content = confirm_modal_lines(&state);
-        assert!(!content.lines.is_empty());
+        assert_ne!(content.lines, [] as [std::string::String; 0]);
         assert_eq!(content.lines[0], "Wrong Repository");
         assert!(
             content.lines[2].contains("other/repo"),

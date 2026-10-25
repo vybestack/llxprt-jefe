@@ -225,7 +225,10 @@ fn unbound_list_send_is_discoverable_in_footer_and_help() {
         let Some(keys_row) = keys.iter().find(|row| row.action.as_str() == case.action) else {
             panic!("Keys did not project unbound list send-to-agent: {keys:?}");
         };
-        assert!(keys_row.chords.is_empty());
+        assert_eq!(
+            keys_row.chords,
+            [] as [crate::state::keys_editor_project::ChordText; 0]
+        );
         assert!(
             matches!(keys_row.provenance, Provenance::Settings { .. }),
             "an explicit empty settings binding must remain identified as an override"

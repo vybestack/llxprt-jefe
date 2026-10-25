@@ -98,7 +98,10 @@ fn stale_completion_keeps_persisted_state_byte_identical() {
         before, after,
         "a stale completion must leave the serialized persisted state byte-identical"
     );
-    assert!(transition.effects.is_empty());
+    assert_eq!(
+        transition.effects,
+        [] as [jefe::domain::effects::IssuedEffect; 0]
+    );
 }
 
 /// Serialize the durable candidate this state would stage.

@@ -44,7 +44,7 @@ fn back_unwinds_the_stack_of_layers_one_press_at_a_time() {
         );
         open.retain(|candidate| *candidate != layer);
     }
-    assert!(open.is_empty());
+    assert_eq!(open, [] as [crate::state::navigation_unwind::BackLayer; 0]);
     assert_eq!(resolve_back(&open, true), BackResolution::Leave);
 }
 

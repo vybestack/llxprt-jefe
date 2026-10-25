@@ -473,7 +473,7 @@
 
         assert!(!state.submit_provider_panel_event(panel, selected));
         assert_eq!(state.provider_panels().host_local(panel), Some(&prior));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     fn id(value: &str) -> Id {
@@ -590,7 +590,7 @@
         );
         assert!(consumed);
         assert_eq!(staged.as_ref().map(Vec::len), Some(1));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -623,7 +623,7 @@
         );
         assert!(activated);
         assert_eq!(activated_effects.as_ref().map(Vec::len), Some(1));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -648,7 +648,7 @@
                 .map(Id::as_str),
             Some("region")
         );
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -673,7 +673,7 @@
             prior_local.as_ref()
         );
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -691,7 +691,7 @@
         assert!(!consumed);
         assert!(staged.is_none());
         assert_eq!(state.nav.current().panel_focus, prior_focus);
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -720,7 +720,7 @@
             prior_local.as_ref()
         );
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -851,7 +851,7 @@
                 .map(|local| local.scroll_offset),
             Some(0)
         );
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]

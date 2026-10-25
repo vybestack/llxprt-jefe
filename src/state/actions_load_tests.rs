@@ -235,7 +235,7 @@ fn empty_list_load_page1() {
         has_more: false,
     });
 
-    assert!(state.actions_state.runs().is_empty());
+    assert_eq!(state.actions_state.runs(), []);
     assert_eq!(
         state.actions_state.selected_run_index(),
         None,
@@ -378,7 +378,7 @@ fn search_commit_and_clear() {
         state.actions_state.committed_filter.search.is_empty(),
         "ClearSearch resets committed search"
     );
-    assert!(state.actions_state.search_query.is_empty());
+    assert_eq!(state.actions_state.search_query, "");
     assert!(
         state.actions_state.list_pending(),
         "ClearSearch must trigger a list reload"

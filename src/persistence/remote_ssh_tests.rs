@@ -36,5 +36,5 @@ fn remote_ssh_settings_round_trip_and_legacy_defaults_are_compatible() {
         serde_json::from_str(legacy).value_or_panic("deserialize legacy SSH settings");
     assert_eq!(decoded.port, None);
     assert!(decoded.identity_file.as_os_str().is_empty());
-    assert!(decoded.options.is_empty());
+    assert_eq!(decoded.options, [] as [std::string::String; 0]);
 }

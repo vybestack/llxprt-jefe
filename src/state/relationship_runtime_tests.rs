@@ -691,7 +691,10 @@ fn destructive_confirmation_rejects_changed_semantic_identity_without_consuming_
     );
 
     let rejected = apply_provider(changed, confirm_message(&fixture, 101));
-    assert!(rejected.effects.is_empty());
+    assert_eq!(
+        rejected.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(
         rejected.next_state.provider_requests.requests().len(),
         request_count
@@ -732,7 +735,10 @@ fn destructive_pr_confirmation_rejects_changed_head_without_consuming_intent() {
     changed.sync_pr_selected_resource();
 
     let rejected = apply_provider(changed, confirm_message(&fixture, 101));
-    assert!(rejected.effects.is_empty());
+    assert_eq!(
+        rejected.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(
         rejected.next_state.provider_requests.requests().len(),
         request_count

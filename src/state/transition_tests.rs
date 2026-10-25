@@ -261,7 +261,10 @@ fn exact_runtime_failure_completion_surfaces_a_typed_error_once() {
         before,
         "a duplicate completion must be a byte-equivalent no-op"
     );
-    assert!(transition.effects.is_empty());
+    assert_eq!(
+        transition.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
 }
 
 #[test]
@@ -300,7 +303,10 @@ fn stale_completion_message_is_a_full_reducer_no_op() {
         before,
         "a stale completion must leave the state byte-equivalent"
     );
-    assert!(transition.effects.is_empty());
+    assert_eq!(
+        transition.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
 }
 
 #[test]

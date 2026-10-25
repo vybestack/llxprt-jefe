@@ -44,7 +44,7 @@ fn paging_first_page_renders() {
     let agents = four_column_agents(12, &[(TodoState::Pending, "x")]);
     let view = project_page(agents, 0, 200, 24);
     assert_eq!(view.layout.page, 0);
-    assert!(!view.cards.is_empty());
+    assert_ne!(view.cards, [] as [crate::workbench_view::WorkbenchCard; 0]);
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn all_filters_off_yields_explicit_empty_state() {
         200,
         40,
     );
-    assert!(view.cards.is_empty());
+    assert_eq!(view.cards, [] as [crate::workbench_view::WorkbenchCard; 0]);
     assert!(
         view.empty_reason
             .as_ref()
@@ -305,7 +305,7 @@ fn all_filters_off_yields_explicit_empty_state() {
 #[test]
 fn no_agents_yields_empty_state() {
     let view = project(vec![], 200, 40);
-    assert!(view.cards.is_empty());
+    assert_eq!(view.cards, [] as [crate::workbench_view::WorkbenchCard; 0]);
     assert!(view.empty_reason.is_some());
 }
 

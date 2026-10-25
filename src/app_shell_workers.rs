@@ -599,7 +599,10 @@ mod history_cache_resolve_tests {
 
     #[test]
     fn resolve_empty_when_both_missing() {
-        assert!(resolve_cached_history_lines(None, None).is_empty());
+        assert_eq!(
+            resolve_cached_history_lines(None, None),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
@@ -610,7 +613,10 @@ mod history_cache_resolve_tests {
 
     #[test]
     fn contention_empty_when_no_prior() {
-        assert!(history_lines_under_contention(None).is_empty());
+        assert_eq!(
+            history_lines_under_contention(None),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
@@ -618,6 +624,9 @@ mod history_cache_resolve_tests {
         // Simulate the attach-scheduler clearing last-good on agent switch,
         // then a contended render frame arriving before the new cache fills.
         super::clear_last_history_lines();
-        assert!(super::last_history_under_contention().is_empty());
+        assert_eq!(
+            super::last_history_under_contention(),
+            [] as [std::string::String; 0]
+        );
     }
 }

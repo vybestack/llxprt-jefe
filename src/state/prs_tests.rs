@@ -89,12 +89,12 @@ fn test_enter_prs_mode_default_committed_filter_is_open() {
         new_state.prs_state.committed_filter.state,
         Some(PrFilterState::Open)
     );
-    assert!(new_state.prs_state.committed_filter.author.is_empty());
-    assert!(new_state.prs_state.committed_filter.assignee.is_empty());
-    assert!(new_state.prs_state.committed_filter.reviewer.is_empty());
+    assert_eq!(new_state.prs_state.committed_filter.author, "");
+    assert_eq!(new_state.prs_state.committed_filter.assignee, "");
+    assert_eq!(new_state.prs_state.committed_filter.reviewer, "");
     assert!(new_state.prs_state.committed_filter.is_draft.is_none());
-    assert!(new_state.prs_state.committed_filter.labels.is_empty());
-    assert!(new_state.prs_state.committed_filter.query_text.is_empty());
+    assert_eq!(new_state.prs_state.committed_filter.labels, [] as [std::string::String; 0]);
+    assert_eq!(new_state.prs_state.committed_filter.query_text, "");
 }
 
 /// ClearFilter resets committed_filter to the default with state=Some(Open)
@@ -118,12 +118,12 @@ fn test_clear_committed_filter_resets_state_to_open() {
         new_state.prs_state.committed_filter.state,
         Some(PrFilterState::Open)
     );
-    assert!(new_state.prs_state.committed_filter.author.is_empty());
-    assert!(new_state.prs_state.committed_filter.query_text.is_empty());
-    assert!(new_state.prs_state.committed_filter.assignee.is_empty());
-    assert!(new_state.prs_state.committed_filter.reviewer.is_empty());
+    assert_eq!(new_state.prs_state.committed_filter.author, "");
+    assert_eq!(new_state.prs_state.committed_filter.query_text, "");
+    assert_eq!(new_state.prs_state.committed_filter.assignee, "");
+    assert_eq!(new_state.prs_state.committed_filter.reviewer, "");
     assert!(new_state.prs_state.committed_filter.is_draft.is_none());
-    assert!(new_state.prs_state.committed_filter.labels.is_empty());
+    assert_eq!(new_state.prs_state.committed_filter.labels, [] as [std::string::String; 0]);
 }
 
 /// ExitPrsMode restores prior focus with bounds fallback.

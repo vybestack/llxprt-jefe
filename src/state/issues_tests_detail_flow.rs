@@ -749,7 +749,7 @@ fn test_esc_chain_all_six_levels_integrated() {
     state.issues_state.search_input_focused = true;
     state.issues_state.search_query = "open bug".to_string();
     let state = state.apply(AppEvent::ClearSearch).committed_pure();
-    assert!(state.issues_state.search_query.is_empty());
+    assert_eq!(state.issues_state.search_query, "");
     assert!(state.issues_state.search_input_focused);
 
     // Level 4: Search empty — BlurSearchInput removes focus

@@ -49,7 +49,7 @@ fn create_repository_accepts_blank_issue_pr_repo() {
         AppState::create_repository_from_fields(&fields),
         "blank issue_pr_repo must be accepted",
     );
-    assert!(repo.github_issue_pr_repo.is_empty());
+    assert_eq!(repo.github_issue_pr_repo, "");
 }
 
 /// A valid `owner/repo` override is accepted and persisted.

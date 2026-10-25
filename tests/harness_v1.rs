@@ -115,7 +115,7 @@ fn runner_rejects_unsafe_or_duplicate_install_names_before_workspace_allocation(
             outcome.error.as_ref().map(HarnessError::code),
             Some(HarCode::E001)
         );
-        assert!(outcome.report.workspace.is_empty());
+        assert_eq!(outcome.report.workspace, "");
     }
 }
 
@@ -133,7 +133,7 @@ fn cli_rejects_terminal_limits_before_execution_without_a_report() {
         .output()
         .unwrap_or_else(|err| panic!("run tmux_scenario parser fixture: {err}"));
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         "HAR-E002: scenario.terminal.cols: 501 is outside 1..=500\n"
@@ -456,7 +456,7 @@ fn materialization_failure_reports_retained_workspace() {
     );
     let outcome = run_scenario(&json);
     assert!(outcome.error.is_some(), "materialization must fail");
-    assert!(!outcome.report.workspace.is_empty());
+    assert_ne!(outcome.report.workspace, "");
     assert!(
         std::path::Path::new(&outcome.report.workspace).is_dir(),
         "allocated workspace must be retained and reported"

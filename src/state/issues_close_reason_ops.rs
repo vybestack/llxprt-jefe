@@ -317,7 +317,7 @@ mod tests {
     fn filter_no_match_returns_empty() {
         let candidates = vec![(1u64, "First".to_string()), (42u64, "Second".to_string())];
         let filtered = filter_duplicate_candidates(&candidates, "999");
-        assert!(filtered.is_empty());
+        assert_eq!(filtered, [] as [&(u64, std::string::String); 0]);
     }
 
     #[test]

@@ -108,7 +108,10 @@ fn assert_queued(state: &AppState, presented: &Id, hidden: &Id, screen: &str, in
 }
 
 fn assert_rejected_unchanged(rejected: &Transition, before: &ConfirmationSnapshot) {
-    assert!(rejected.effects.is_empty());
+    assert_eq!(
+        rejected.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(
         rejected.next_state.nav.current().overlays(),
         &before.overlay
@@ -197,7 +200,10 @@ fn reject_hidden_edit(
             value: TypedValue::String("must-not-reach-hidden".to_owned()),
         },
     );
-    assert!(rejected.effects.is_empty());
+    assert_eq!(
+        rejected.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(
         rejected
             .next_state
@@ -224,7 +230,10 @@ fn cancel_and_promote_hidden(
     presented: &ProviderConfirmationIdentity,
 ) -> AppState {
     let cancelled = apply_provider(state, ProviderMessage::CancelConfirmation);
-    assert!(cancelled.effects.is_empty());
+    assert_eq!(
+        cancelled.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(
         cancelled
             .next_state

@@ -807,7 +807,10 @@ fn legacy_state_without_preferences_deserializes_to_default() {
         "selected_agent_index": null
     }"#;
     let state: State = serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
-    assert!(state.user_preferences.by_repo.is_empty());
+    assert_eq!(
+        state.user_preferences.by_repo,
+        [] as [(crate::domain::RepositoryId, crate::domain::RepoPreferences); 0]
+    );
 }
 
 // ── Issue #163 FIX 8: Full restart-hydration integration test ─────────────

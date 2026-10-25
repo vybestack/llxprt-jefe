@@ -29,7 +29,7 @@ fn production_back_commit_requests_issue_reload_only_after_detail_refocus() {
 
     let (effects, reload_issues, reload_prs) = commit_back(&mut state);
 
-    assert!(effects.is_empty());
+    assert_eq!(effects, [] as [jefe::domain::effects::IssuedEffect; 0]);
     assert!(reload_issues);
     assert!(!reload_prs);
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
@@ -43,7 +43,7 @@ fn production_back_commit_requests_pr_reload_only_after_detail_refocus() {
 
     let (effects, reload_issues, reload_prs) = commit_back(&mut state);
 
-    assert!(effects.is_empty());
+    assert_eq!(effects, [] as [jefe::domain::effects::IssuedEffect; 0]);
     assert!(!reload_issues);
     assert!(reload_prs);
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrList);

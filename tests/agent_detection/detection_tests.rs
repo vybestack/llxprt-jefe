@@ -46,7 +46,7 @@ fn temp_dir_with_binaries(binaries: &[&str]) -> PathBuf {
 fn detect_neither_installed() {
     let dir = temp_dir_with_binaries(&[]);
     let detected = detect_agent_type_ids(std::slice::from_ref(&dir));
-    assert!(detected.is_empty());
+    assert_eq!(detected, [] as [jefe::domain::AgentTypeId; 0]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -125,7 +125,7 @@ fn detect_requires_executable_permission() {
 fn detect_ignores_nonexistent_dirs() {
     let fake_dir = PathBuf::from("/this/path/does/not/exist/jefe-test");
     let detected = detect_agent_type_ids(&[fake_dir]);
-    assert!(detected.is_empty());
+    assert_eq!(detected, [] as [jefe::domain::AgentTypeId; 0]);
 }
 
 fn installed_observations() -> Vec<AgentAvailabilityObservation> {

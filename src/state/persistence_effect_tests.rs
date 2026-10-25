@@ -170,7 +170,7 @@ fn persisted_completion_advances_durable_revision_and_clears_error() {
         AppMessage::EffectCompletion(Box::new(completion)),
     );
 
-    assert!(follow_ups.is_empty());
+    assert_eq!(follow_ups, [] as [crate::domain::effects::IssuedEffect; 0]);
     assert_eq!(state.durable_revision, revision);
     assert_eq!(state.error_message, None);
     assert!(state.pending_effects.is_empty());
@@ -352,7 +352,7 @@ fn taking_a_save_request_does_not_advance_the_durable_revision() {
         AppMessage::EffectCompletion(Box::new(superseded)),
     );
 
-    assert!(effects.is_empty());
+    assert_eq!(effects, [] as [crate::domain::effects::IssuedEffect; 0]);
     assert_eq!(
         state.durable_revision, settled,
         "a superseded candidate never became the authority"

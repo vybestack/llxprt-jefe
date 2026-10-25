@@ -232,7 +232,10 @@ fn a_missing_marker_directory_reads_as_no_prior_runs() {
     let root = temp_root("missing");
     let absent = root.join("never-created");
 
-    assert!(run_marker::read_markers(&absent).is_empty());
+    assert_eq!(
+        run_marker::read_markers(&absent),
+        [] as [jefe::persistence::run_marker::StoredMarker; 0]
+    );
 }
 
 #[test]

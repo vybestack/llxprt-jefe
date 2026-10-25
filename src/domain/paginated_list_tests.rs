@@ -209,7 +209,7 @@ fn matching_empty_reload_clears_items_and_selection() {
         next_page: PageToken::Done,
     });
     assert_eq!(outcome, AcceptOutcome::Empty);
-    assert!(list.items().is_empty());
+    assert_eq!(list.items(), [] as [u32; 0]);
     assert_eq!(list.selected_index(), None);
 }
 
@@ -227,7 +227,7 @@ fn stale_reload_request_id_changes_nothing() {
         next_page: PageToken::Done,
     });
     assert_eq!(outcome, AcceptOutcome::Stale);
-    assert!(list.items().is_empty());
+    assert_eq!(list.items(), [] as [u32; 0]);
     assert!(list.has_pending_request());
 }
 
@@ -244,7 +244,7 @@ fn stale_reload_identity_changes_nothing() {
         next_page: PageToken::Done,
     });
     assert_eq!(outcome, AcceptOutcome::Stale);
-    assert!(list.items().is_empty());
+    assert_eq!(list.items(), [] as [u32; 0]);
 }
 
 // ── Silent reload ─────────────────────────────────────────────────────────

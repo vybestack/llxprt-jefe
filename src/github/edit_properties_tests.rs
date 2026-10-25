@@ -24,7 +24,7 @@ fn label_diff_adds_new_labels() {
     let desired = vec!["bug".to_string(), "enhancement".to_string()];
     let (add, remove) = compute_label_diff(&current, &desired);
     assert_eq!(add, vec!["enhancement"]);
-    assert!(remove.is_empty());
+    assert_eq!(remove, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn label_diff_removes_dropped_labels() {
     let current = vec!["bug".to_string(), "wontfix".to_string()];
     let desired = vec!["bug".to_string()];
     let (add, remove) = compute_label_diff(&current, &desired);
-    assert!(add.is_empty());
+    assert_eq!(add, [] as [std::string::String; 0]);
     assert_eq!(remove, vec!["wontfix"]);
 }
 
@@ -41,8 +41,8 @@ fn label_diff_case_insensitive_match() {
     let current = vec!["Bug".to_string()];
     let desired = vec!["bug".to_string()];
     let (add, remove) = compute_label_diff(&current, &desired);
-    assert!(add.is_empty());
-    assert!(remove.is_empty());
+    assert_eq!(add, [] as [std::string::String; 0]);
+    assert_eq!(remove, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -50,8 +50,8 @@ fn label_diff_noop_when_identical() {
     let current = vec!["bug".to_string(), "enhancement".to_string()];
     let desired = current.clone();
     let (add, remove) = compute_label_diff(&current, &desired);
-    assert!(add.is_empty());
-    assert!(remove.is_empty());
+    assert_eq!(add, [] as [std::string::String; 0]);
+    assert_eq!(remove, [] as [std::string::String; 0]);
 }
 
 // ── Assignee diff ───────────────────────────────────────────────────
@@ -71,7 +71,7 @@ fn label_diff_empty_current_adds_all() {
     let desired = vec!["bug".to_string(), "enhancement".to_string()];
     let (add, remove) = compute_label_diff(&current, &desired);
     assert_eq!(add, vec!["bug", "enhancement"]);
-    assert!(remove.is_empty());
+    assert_eq!(remove, [] as [std::string::String; 0]);
 }
 
 // ── Arg builders ────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ fn build_edit_labels_args_noop_returns_empty() {
         &[],
         &[],
     );
-    assert!(args.is_empty());
+    assert_eq!(args, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn parse_issue_types_extracts_id_name_pairs() {
 fn parse_issue_types_empty_list() {
     let json = r#"{"data":{"repository":{"issueTypes":{"nodes":[]}}}}"#;
     let types = parse_issue_types(json).value_or_panic("should parse");
-    assert!(types.is_empty());
+    assert_eq!(types, [] as [(std::string::String, std::string::String); 0]);
 }
 
 #[test]

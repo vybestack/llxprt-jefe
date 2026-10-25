@@ -208,7 +208,7 @@ fn test_issue_detail_all_fields() {
     assert_eq!(loaded.labels, vec!["bug".to_string(), "ui".to_string()]);
     assert_eq!(loaded.assignees, vec!["dev1".to_string()]);
     assert_eq!(loaded.milestone, Some("v1.0".to_string()));
-    assert!(!loaded.external_url.is_empty());
+    assert_ne!(loaded.external_url, "");
     assert_eq!(loaded.repo_owner_name, "owner/repo");
 }
 

@@ -223,7 +223,10 @@ fn a_sandbox_with_no_configured_engine_is_refused_rather_than_launched_unchecked
         ),
         "a sandboxed launch must never proceed against a host nothing checked"
     );
-    assert!(host.consulted_engines().is_empty());
+    assert_eq!(
+        host.consulted_engines(),
+        [] as [jefe::domain::SandboxEngine; 0]
+    );
 }
 
 #[test]

@@ -3,8 +3,8 @@
 use crate::domain::{PrFileBlob, PrFileChange, PrFileStatus, RepositoryId};
 use crate::state::transition::TransitionExt;
 use crate::state::{
-    AppEvent, AppState, PrChangesBlobLoadedPayload, PrChangesFocus, PrChangesLoadFailedPayload,
-    PrChangesLoadedPayload, PrDiffViewMode, PrFocus,
+    AppEvent, AppState, PrChangesBlobCache, PrChangesBlobLoadedPayload, PrChangesFocus,
+    PrChangesLoadFailedPayload, PrChangesLoadedPayload, PrDiffViewMode, PrFocus,
 };
 
 use super::prs_test_fixtures::prs_state_with_detail;
@@ -71,7 +71,7 @@ fn stale_file_completion_is_ignored_and_current_completion_selects_first_file() 
             truncated: false,
         }),
     );
-    assert!(state.prs_state.changes.files.is_empty());
+    assert_eq!(state.prs_state.changes.files, [] as [PrFileChange; 0]);
 
     state = apply(
         state,
@@ -916,7 +916,7 @@ fn changed_head_detail_refresh_invalidates_changes_visit() {
     // Changed head → Changes visit is invalidated and focus returns to detail.
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrDetail);
     assert!(state.prs_state.changes.identity.is_none());
-    assert!(state.prs_state.changes.files.is_empty());
+    assert_eq!(state.prs_state.changes.files, [] as [PrFileChange; 0]);
 }
 
 #[test]
@@ -990,7 +990,7 @@ fn content_navigation_in_full_file_mode_before_blob_load_keeps_selection() {
     state = apply(state, AppEvent::PrChangesFocusContent);
     state = apply(state, AppEvent::PrChangesToggleView);
     assert_eq!(state.prs_state.changes.view_mode, PrDiffViewMode::FullFile);
-    assert!(state.prs_state.changes.blobs.is_empty());
+    assert_eq!(state.prs_state.changes.blobs, [] as [PrChangesBlobCache; 0]);
     assert_eq!(state.prs_state.changes.selected_row, Some(0));
     for msg in [AppEvent::PrNavigateDown, AppEvent::PrNavigateUp] {
         state = apply(state, msg);

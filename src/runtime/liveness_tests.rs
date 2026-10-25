@@ -177,7 +177,7 @@ fn reconcile_dead_agents_all_alive() {
         .collect();
 
     let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
-    assert!(dead.is_empty());
+    assert_eq!(dead, [] as [crate::domain::AgentId; 0]);
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn reconcile_dead_agents_excludes_remote_targets() {
 #[test]
 fn reconcile_dead_agents_empty_targets() {
     let dead = reconcile_dead_agents(&[], &HashSet::new(), &HashSet::new());
-    assert!(dead.is_empty());
+    assert_eq!(dead, [] as [crate::domain::AgentId; 0]);
 }
 
 // --- alive_session_set (integration, needs tmux) ---

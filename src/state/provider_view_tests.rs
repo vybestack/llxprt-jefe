@@ -420,7 +420,10 @@ fn confirmation_mode_defaults_focus_to_cancel() {
             assert_eq!(body, "Are you sure?");
             assert_eq!(confirm_label, "Yes, proceed");
             assert!(!destructive);
-            assert!(continuation_schema.is_empty());
+            assert_eq!(
+                continuation_schema,
+                [] as [crate::domain::plugin::field::Field; 0]
+            );
             assert!(continuation_values.is_empty());
             assert_eq!(focused_field, None);
         }
