@@ -63,7 +63,7 @@ fn normalizes_windows_separators_and_absolute_paths() {
     }];
     // An absolute path from the coverage tool must still satisfy a
     // repository-relative floor.
-    assert!(evaluate_floors(&parsed, &floors).is_empty());
+    assert_eq!(evaluate_floors(&parsed, &floors), [] as [FloorViolation; 0]);
 }
 
 /// V5: the deliberate regression. A module below its floor fails the gate and
@@ -104,7 +104,10 @@ fn module_exactly_at_its_floor_passes() {
         floor_percent: 60,
     }];
     let coverage = parse_lcov(&lcov(&[("src/runtime/job_object.rs", 100, 60)]));
-    assert!(evaluate_floors(&coverage, &floors).is_empty());
+    assert_eq!(
+        evaluate_floors(&coverage, &floors),
+        [] as [FloorViolation; 0]
+    );
 }
 
 /// A module that vanishes from the report must fail, otherwise renaming a file
