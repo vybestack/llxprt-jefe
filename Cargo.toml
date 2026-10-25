@@ -34,7 +34,7 @@ taffy = "0.5"
 unicode-width = "0.2"
 
 # Terminal/PTY
-portable-pty = "0.8"
+portable-pty = "0.9"
 alacritty_terminal = "0.24"
 
 # Async
@@ -52,7 +52,7 @@ dirs = "6.0"
 
 # Bounded cache for dead-session signatures (prevents unbounded memory growth
 # from repeated kill/recreate cycles of different agents).
-lru = "0.12"
+lru = "0.18.5"
 
 # Markdown parsing for the PR/Issue detail body rendering (issue #155).
 # comrak is the maintained Rust cmark-gfm successor (BSD-2-Clause, permissive).
