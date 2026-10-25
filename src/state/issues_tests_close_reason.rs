@@ -264,7 +264,7 @@ fn select_duplicate_enters_search_sub_state() {
     let Some(search) = c.duplicate_search.as_ref() else {
         panic!("search sub-state should be present");
     };
-    assert!(search.query.is_empty());
+    assert_eq!(search.query, "");
     assert_eq!(search.selected_index, 0);
     // Candidates should be seeded from loaded issues excluding the issue being closed (#1)
     assert_eq!(

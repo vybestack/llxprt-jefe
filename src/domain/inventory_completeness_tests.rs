@@ -95,10 +95,10 @@ fn completeness_is_bidirectional_over_the_same_handler_set() {
 #[test]
 fn every_golden_row_carries_its_context_chord_action_and_handler() {
     for row in golden() {
-        assert!(!row.context.as_str().is_empty());
-        assert!(!row.chord_text.is_empty());
-        assert!(!row.action.as_str().is_empty());
-        assert!(!row.handler_name.is_empty());
+        assert_ne!(row.context.as_str(), "");
+        assert_ne!(row.chord_text, "");
+        assert_ne!(row.action.as_str(), "");
+        assert_ne!(row.handler_name, "");
         assert_eq!(
             row.chord_text,
             row.chord.to_string(),

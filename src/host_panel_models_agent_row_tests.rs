@@ -303,7 +303,7 @@ fn empty_agent_list_projects_no_shared_control_rows() {
 
     let rows = projected_rows(&state, None, 40);
 
-    assert!(rows.is_empty());
+    assert_eq!(rows, [] as [crate::provider_panel_view::ProjectedRow; 0]);
 }
 
 #[test]

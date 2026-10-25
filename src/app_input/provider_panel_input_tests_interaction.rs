@@ -429,7 +429,7 @@
         // Suspend drops the model, so action_event has no snapshot to read
         // and correctly produces nothing.
         assert!(control_event(&state, panel, ControlAction::FocusedAction).is_none());
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -466,7 +466,7 @@
             panic!("enabled action must project an event");
         };
         assert!(!state.submit_provider_panel_event(panel, event));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
         assert_eq!(state.provider_panels().host_local(panel), prior_host.as_ref());
         assert_eq!(state.error_message.as_deref(), Some("existing error"));
     }
@@ -528,7 +528,7 @@
 
         let event = field_change_event(id("name"), TypedValue::String("test".to_owned()));
         assert!(state.submit_provider_panel_event(panel, event));
-        assert!(!state.take_staged_effects().is_empty());
+        assert_ne!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -561,7 +561,7 @@
 
         let event = field_change_event(id("nonexistent"), TypedValue::String("x".to_owned()));
         assert!(!state.submit_provider_panel_event(panel, event));
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -638,7 +638,7 @@
                 .and_then(|draft| draft.get(&id("name"))),
             Some(&TypedValue::String("oldx".to_owned()))
         );
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -655,7 +655,7 @@
 
         assert!(edit_form_field(&state, panel, &key).is_none());
         assert_eq!(state.provider_panels().host_local(panel), prior.as_ref());
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }
 
     #[test]
@@ -670,5 +670,5 @@
         assert!(edit_form_field(&state, panel, &escape).is_none());
         assert!(edit_form_field(&state, panel, &emergency).is_none());
         assert!(state.provider_panels().host_local(panel).is_none());
-        assert!(state.take_staged_effects().is_empty());
+        assert_eq!(state.take_staged_effects(), [] as [jefe::domain::effects::IssuedEffect; 0]);
     }

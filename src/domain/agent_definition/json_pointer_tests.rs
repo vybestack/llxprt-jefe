@@ -7,7 +7,7 @@ use super::*;
 fn empty_pointer_is_root() {
     let pointer =
         JsonPointer::parse("").unwrap_or_else(|error| panic!("empty pointer must parse: {error}"));
-    assert!(pointer.tokens().is_empty());
+    assert_eq!(pointer.tokens(), [] as [String; 0]);
     let root = BoundedJson::Int(7);
     assert_eq!(pointer.evaluate(&root), Some(&BoundedJson::Int(7)));
 }

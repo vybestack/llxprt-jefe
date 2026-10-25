@@ -147,7 +147,7 @@ fn scan_ignores_non_clippy_inner_allows() {
         "#![allow(unused_imports)]\nfn f() {}\n",
     );
     let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
-    assert!(found.is_empty());
+    assert_eq!(found, [] as [CrateWideAllow; 0]);
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn scan_skips_missing_directories() {
     let dir = TempDir::new().expect("temp");
     // No src/ or tests/ dirs at all.
     let (found, _infra) = find_crate_wide_clippy_allows(dir.path());
-    assert!(found.is_empty());
+    assert_eq!(found, [] as [CrateWideAllow; 0]);
 }
 
 #[test]

@@ -24,7 +24,7 @@ fn find(name: &str) -> &'static Divergence {
 #[test]
 fn every_divergence_cites_what_discovered_it() {
     let divergences = declared_divergences();
-    assert!(!divergences.is_empty());
+    assert_ne!(divergences, []);
 
     for entry in divergences {
         assert!(

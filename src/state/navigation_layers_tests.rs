@@ -31,7 +31,10 @@ fn composing(state: &mut AppState) {
 
 #[test]
 fn a_screen_with_nothing_open_reports_no_layers() {
-    assert!(issues().open_back_layers().is_empty());
+    assert_eq!(
+        issues().open_back_layers(),
+        [] as [crate::state::navigation_unwind::BackLayer; 0]
+    );
 }
 
 #[test]
@@ -230,7 +233,7 @@ fn shared_back_applies_each_issues_owner_without_falling_through() {
     assert!(state.issues_state.search_input_focused);
 
     let state = state.apply(super::AppEvent::Back).committed_pure();
-    assert!(state.issues_state.search_query.is_empty());
+    assert_eq!(state.issues_state.search_query, "");
     assert!(state.issues_state.search_input_focused);
 
     let state = state.apply(super::AppEvent::Back).committed_pure();

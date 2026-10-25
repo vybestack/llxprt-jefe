@@ -62,7 +62,10 @@ fn an_enabled_definition_joins_the_registry_after_the_compiled_screens() {
         identities.len(),
         ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS + 1
     );
-    assert!(composition.warnings.is_empty());
+    assert_eq!(
+        composition.warnings,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -242,7 +245,10 @@ fn a_valid_dormant_definition_is_omitted_without_a_warning() {
         composition.registry.screens().len(),
         ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
-    assert!(composition.warnings.is_empty());
+    assert_eq!(
+        composition.warnings,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -404,7 +410,10 @@ fn composing_no_candidates_publishes_exactly_the_compiled_screens() {
     let composition = composed(&[], &[]);
 
     assert_eq!(composition.registry, compiled());
-    assert!(composition.warnings.is_empty());
+    assert_eq!(
+        composition.warnings,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -677,8 +686,14 @@ fn a_screen_declaring_neither_carries_neither() {
         .get_identity(review_identity())
         .unwrap_or_else(|| unreachable!("the lowered screen must be registered"));
 
-    assert!(screen.activation.is_empty());
-    assert!(screen.bindings.is_empty());
+    assert_eq!(
+        screen.activation,
+        [] as [crate::workbench::activation::ActivationField; 0]
+    );
+    assert_eq!(
+        screen.bindings,
+        [] as [crate::workbench::activation::ScreenBinding; 0]
+    );
 }
 
 #[test]

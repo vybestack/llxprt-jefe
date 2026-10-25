@@ -56,7 +56,7 @@ fn test_esc_clears_nonempty_search() {
     state.issues_state.agent_chooser = None;
 
     let new_state = state.apply(AppEvent::ClearSearch).committed_pure();
-    assert!(new_state.issues_state.search_query.is_empty());
+    assert_eq!(new_state.issues_state.search_query, "");
     assert!(new_state.issues_state.search_input_focused);
 }
 

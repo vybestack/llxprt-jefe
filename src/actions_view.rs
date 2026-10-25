@@ -201,9 +201,15 @@ mod tests {
 
     #[test]
     fn empty_and_zero_height_are_total() {
-        assert!(project_runs_list(&[], None, 5).visible_runs.is_empty());
+        assert_eq!(
+            project_runs_list(&[], None, 5).visible_runs,
+            [] as [crate::actions_view::ProjectedRun; 0]
+        );
         let runs: Vec<_> = (0..3).map(run).collect();
-        assert!(project_runs_list(&runs, Some(2), 0).visible_runs.is_empty());
+        assert_eq!(
+            project_runs_list(&runs, Some(2), 0).visible_runs,
+            [] as [crate::actions_view::ProjectedRun; 0]
+        );
     }
 
     #[test]

@@ -686,7 +686,7 @@ fn cli_non_utf8_argument_reports_json_without_echoing_bytes() {
         .output()
         .unwrap_or_else(|error| panic!("run non-UTF-8 CLI argument: {error}"));
     assert!(!output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, [] as [u8; 0]);
     let report: Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("non-UTF-8 failure JSON stdout: {error}"));
     assert_eq!(report["outcome"], "fail");
@@ -746,7 +746,7 @@ fn cli_input_error_is_json_stdout_and_nonzero() {
         .output()
         .unwrap_or_else(|error| panic!("run failing CLI: {error}"));
     assert!(!output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, [] as [u8; 0]);
     let report: Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("failure JSON stdout: {error}"));
     assert_eq!(report["outcome"], "fail");

@@ -306,7 +306,7 @@ mod tests {
         let rows = wrap_document("", 10);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].line, 0);
-        assert!(rows[0].text.is_empty());
+        assert_eq!(rows[0].text, "");
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
         // line 0 "abc", line 1 "" (from trailing newline)
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1].line, 1);
-        assert!(rows[1].text.is_empty());
+        assert_eq!(rows[1].text, "");
     }
 
     #[test]

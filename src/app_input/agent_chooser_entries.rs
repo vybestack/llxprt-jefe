@@ -172,7 +172,7 @@ mod tests {
     fn build_metadata_empty_when_no_agents() {
         let state = state_with_repo_and_agents("r1", &[]);
         let md = build_chooser_metadata(&state);
-        assert!(md.is_empty());
+        assert_eq!(md, [] as [jefe::domain::AgentChooserGitMetadata; 0]);
     }
 
     #[test]

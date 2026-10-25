@@ -303,7 +303,7 @@ fn the_candidate_composes_one_registry_with_provider_actions_and_the_inventory()
     );
     assert_eq!(candidate.inventory().packages().len(), 1);
     assert!(!candidate.agent_registry().is_empty());
-    assert!(!candidate.screen_registry().screens().is_empty());
+    assert_ne!(candidate.screen_registry().screens(), []);
     assert_eq!(candidate.screen_warnings().len(), 0);
     assert!(!candidate.providers().catalog().is_empty());
 }

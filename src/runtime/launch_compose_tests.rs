@@ -153,7 +153,10 @@ fn fresh_llxprt_plan_emits_one_prompt_without_continuation() {
             plan.argv,
             ["--profile-load", "glm", "--yolo", "-i", PROMPT].map(OsString::from)
         );
-        assert!(plan.env.is_empty());
+        assert_eq!(
+            plan.env,
+            [] as [(std::ffi::OsString, std::ffi::OsString); 0]
+        );
         assert_eq!(plan.cwd, PathBuf::from("/srv/project"));
         assert_eq!(
             plan.argv

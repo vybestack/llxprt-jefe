@@ -440,12 +440,11 @@ pub fn parse_text_identity(stream: &str, recognizer: &IdentityRecognizer) -> Opt
                     return Some(candidate.to_owned());
                 }
             }
-            None
         }
         IdentityRecognizer::JsonPointer { .. } => {
             // JSON pointer identity is resolved against a parsed JSON document
             // in the runtime probe adapter; here we return None for raw text.
-            None
         }
     }
+    None
 }

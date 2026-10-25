@@ -102,7 +102,10 @@ fn a_config_with_no_definitions_directory_composes_the_shipped_screens() {
         composition.registry.screens().len(),
         ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
-    assert!(composition.warnings.is_empty());
+    assert_eq!(
+        composition.warnings,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -130,7 +133,10 @@ fn an_enabled_definition_on_disk_joins_the_registry() {
         composition.registry.screens().len(),
         ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS + 1
     );
-    assert!(composition.warnings.is_empty());
+    assert_eq!(
+        composition.warnings,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -145,8 +151,14 @@ fn a_definition_settings_do_not_enable_is_left_out_without_complaint() {
         composition.registry.screens().len(),
         ScreenId::ALL.len() + crate::workbench::screens::SHIPPED_BUILTIN_SCREENS
     );
-    assert!(composition.resource_schemas.is_empty());
-    assert!(composition.warnings.is_empty());
+    assert_eq!(
+        composition.resource_schemas,
+        [] as [crate::workbench::resource_schemas::ResourceSchema; 0]
+    );
+    assert_eq!(
+        composition.warnings,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]

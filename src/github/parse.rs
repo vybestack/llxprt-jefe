@@ -658,13 +658,13 @@ mod linked_pr_parse_tests {
     #[test]
     fn empty_when_timeline_items_absent() {
         let item = json!({"number": 1});
-        assert!(parse_linked_pr_numbers(&item).is_empty());
+        assert_eq!(parse_linked_pr_numbers(&item), [] as [u64; 0]);
     }
 
     #[test]
     fn empty_when_nodes_empty() {
         let item = json!({"timelineItems": {"nodes": []}});
-        assert!(parse_linked_pr_numbers(&item).is_empty());
+        assert_eq!(parse_linked_pr_numbers(&item), [] as [u64; 0]);
     }
 
     #[test]
@@ -676,6 +676,6 @@ mod linked_pr_parse_tests {
                 ]
             }
         });
-        assert!(parse_linked_pr_numbers(&item).is_empty());
+        assert_eq!(parse_linked_pr_numbers(&item), [] as [u64; 0]);
     }
 }

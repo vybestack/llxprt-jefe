@@ -660,7 +660,7 @@ mod tests {
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
                 assert_eq!(field, "author");
-                assert!(value.is_empty());
+                assert_eq!(value, "");
             }
             _ => panic!("expected active-field author clear"),
         }

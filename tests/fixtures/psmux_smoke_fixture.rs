@@ -210,8 +210,8 @@ mod tests {
     fn non_probe_input_emits_nothing_before_marker() {
         assert!(!is_readiness_probe(0x04));
         assert!(!is_readiness_probe(0x12));
-        assert!(readiness_response(0x04).is_empty());
-        assert!(readiness_response(0x12).is_empty());
+        assert_eq!(readiness_response(0x04), [] as [u8; 0]);
+        assert_eq!(readiness_response(0x12), [] as [u8; 0]);
     }
 }
 

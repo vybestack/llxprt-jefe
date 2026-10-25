@@ -256,9 +256,9 @@ fn untrusted_package_contributes_nothing() {
 
     let composition = compose_for(&root, temp.path(), &[]);
 
-    assert!(composition.actions().is_empty());
+    assert_eq!(composition.actions(), []);
     assert!(composition.catalog().is_empty());
-    assert!(composition.availability().is_empty());
+    assert_eq!(composition.availability(), []);
 }
 
 #[test]
@@ -310,7 +310,7 @@ fn package_without_provider_contributes_nothing() {
 
     let composition = compose_for(&root, temp.path(), &["vendor.inert"]);
 
-    assert!(composition.actions().is_empty());
+    assert_eq!(composition.actions(), []);
     assert!(composition.catalog().is_empty());
     assert!(composition.persistent_candidates().is_empty());
 }

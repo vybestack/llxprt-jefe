@@ -530,7 +530,10 @@ mod tests {
             generation: state.terminal_manager.generation.wrapping_add(99),
             result: Ok(vec!["stale".into()]),
         });
-        assert!(state.terminal_manager.preview.lines.is_empty());
+        assert_eq!(
+            state.terminal_manager.preview.lines,
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
@@ -548,7 +551,10 @@ mod tests {
             generation,
             result: Err(()),
         });
-        assert!(state.terminal_manager.preview.lines.is_empty());
+        assert_eq!(
+            state.terminal_manager.preview.lines,
+            [] as [std::string::String; 0]
+        );
         assert!(state.terminal_manager.preview.failed);
     }
 
@@ -569,7 +575,10 @@ mod tests {
         state.apply_terminal_manager_message(TerminalManagerMessage::ShellClosed(AgentId(
             "agent-2".into(),
         )));
-        assert!(state.terminal_manager.preview.lines.is_empty());
+        assert_eq!(
+            state.terminal_manager.preview.lines,
+            [] as [std::string::String; 0]
+        );
         // Selection clamped to remaining single row.
         assert_eq!(state.terminal_manager.selected_index, Some(0));
     }

@@ -184,7 +184,7 @@ fn selected_active_plugin_schema_blocks_save_when_required_config_is_missing() {
         .as_ref()
         .unwrap_or_else(|| panic!("selected config binds a draft"));
     assert!(draft.candidate().valid().is_none());
-    assert!(!draft.validation().is_empty());
+    assert_ne!(draft.validation(), []);
 }
 
 #[test]
@@ -567,7 +567,7 @@ fn a_fresh_draft_is_clean_with_no_edits_no_preview_and_no_diagnostics() {
     assert_eq!(draft.status(), &DraftStatus::Clean);
     assert_eq!(draft.edited_paths().count(), 0);
     assert!(draft.preview().is_none());
-    assert!(draft.validation().is_empty());
+    assert_eq!(draft.validation(), []);
     assert!(!draft.is_dirty());
 }
 
@@ -579,7 +579,10 @@ fn an_absent_settings_file_still_binds_a_draft_a_save_would_create() {
         panic!("an absent settings file is a normal base");
     };
     assert_eq!(draft.base_hash(), None);
-    assert!(state.settings_state.blocked.is_empty());
+    assert_eq!(
+        state.settings_state.blocked,
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]

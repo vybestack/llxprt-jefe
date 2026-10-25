@@ -209,7 +209,7 @@ fn test_clear_filter_resets_committed_and_draft() {
         new_state.prs_state.committed_filter.state,
         Some(PrFilterState::Open)
     );
-    assert!(new_state.prs_state.committed_filter.author.is_empty());
+    assert_eq!(new_state.prs_state.committed_filter.author, "");
     assert_eq!(
         new_state.prs_state.draft_filter.state,
         Some(PrFilterState::Open)

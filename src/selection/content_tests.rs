@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn pane_content_empty_has_no_lines() {
     let c = PaneContent::empty(SelectablePane::Sidebar);
-    assert!(c.lines.is_empty());
+    assert_eq!(c.lines, [] as [std::string::String; 0]);
     assert!(matches!(c.pane, SelectablePane::Sidebar));
 }
 

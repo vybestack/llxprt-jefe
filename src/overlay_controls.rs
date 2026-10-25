@@ -771,7 +771,7 @@ mod tests {
         let help = project_help(&state, 60);
         assert_eq!(help.kind, ControlKind::Detail);
         assert_eq!(help.title_style, HostControlTitleStyle::Emphasized);
-        assert!(!help.rows.is_empty());
+        assert_ne!(help.rows, [] as [crate::host_controls::HostControlRow; 0]);
         assert_eq!(
             overlay_intent(&help, ControlAction::Next),
             ControlIntent::Scroll(1)

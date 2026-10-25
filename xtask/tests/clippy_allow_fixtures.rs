@@ -254,7 +254,7 @@ fn multiple_suppressions_in_one_file() {
 
 #[test]
 fn scan_source_empty() {
-    assert!(scan_source(Path::new("x.rs"), "").is_empty());
+    assert_eq!(scan_source(Path::new("x.rs"), ""), [] as [Suppression; 0]);
 }
 
 #[test]

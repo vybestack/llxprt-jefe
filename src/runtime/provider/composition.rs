@@ -93,6 +93,7 @@ impl ProviderComposition {
     }
 
     /// One availability entry per composed action.
+    #[must_use]
     pub fn availability(&self) -> &[ActionAvailability] {
         &self.availability
     }

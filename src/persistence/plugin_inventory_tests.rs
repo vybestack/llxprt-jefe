@@ -127,7 +127,10 @@ version = "1.0.0"
         .collect();
 
     assert_eq!(configured, vec!["vendor.pkg@1.0.0"]);
-    assert!(selected_packages(inventory.packages(), &settings).is_empty());
+    assert_eq!(
+        selected_packages(inventory.packages(), &settings),
+        [] as [&crate::persistence::plugin_inventory::InstalledPackage; 0]
+    );
 }
 
 #[test]
@@ -173,7 +176,7 @@ fn lists_every_physical_version_in_exact_root_order() {
         vec!["other.pkg@2.0.0", "vendor.pkg@1.0.0", "vendor.pkg@0.9.0"],
         "listing order is id ascending then precedence descending"
     );
-    assert!(inventory.ambiguities().is_empty());
+    assert_eq!(inventory.ambiguities(), []);
 }
 
 #[test]
@@ -222,7 +225,7 @@ fn the_first_physical_occurrence_wins_and_later_aliases_are_recorded() {
         1,
         "the later alias must be recorded as provenance"
     );
-    assert!(inventory.ambiguities().is_empty());
+    assert_eq!(inventory.ambiguities(), []);
 }
 
 #[test]
@@ -268,7 +271,7 @@ fn byte_identical_but_physically_distinct_packages_are_still_ambiguous() {
 
     let inventory = scan(&[read_only_root(&low), user_root(&high)]);
 
-    assert!(coordinates(&inventory).is_empty());
+    assert_eq!(coordinates(&inventory), [] as [std::string::String; 0]);
     assert_eq!(inventory.ambiguities().len(), 1);
 }
 
@@ -432,7 +435,7 @@ fn a_manifest_whose_identity_contradicts_its_directory_is_rejected() {
 
     let inventory = scan(&[user_root(&root)]);
 
-    assert!(coordinates(&inventory).is_empty());
+    assert_eq!(coordinates(&inventory), [] as [std::string::String; 0]);
     let unavailable = inventory
         .unavailable()
         .first()
@@ -504,7 +507,7 @@ fn a_manifest_over_the_byte_bound_is_not_read_into_memory() {
 
     let inventory = scan(&[user_root(&root)]);
 
-    assert!(coordinates(&inventory).is_empty());
+    assert_eq!(coordinates(&inventory), [] as [std::string::String; 0]);
     let unavailable = inventory
         .unavailable()
         .first()

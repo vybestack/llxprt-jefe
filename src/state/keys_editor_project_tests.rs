@@ -130,7 +130,10 @@ fn a_binding_the_candidate_empties_projects_as_unbound() {
 
     let rows = project_keys(&snapshot, &published);
 
-    assert!(row(&rows, "core.open-settings").chords.is_empty());
+    assert_eq!(
+        row(&rows, "core.open-settings").chords,
+        [] as [crate::state::keys_editor_project::ChordText; 0]
+    );
 }
 
 #[test]

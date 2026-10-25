@@ -216,7 +216,10 @@ fn an_unpublished_probe_projects_an_empty_pane_with_no_selection() {
 
     let body = availability_body(&state);
 
-    assert!(body.items.is_empty());
+    assert_eq!(
+        body.items,
+        [] as [crate::runtime::provider::protocol::ListItem; 0]
+    );
     assert_eq!(body.selected_id, None);
     assert_eq!(body.next_page_token, None);
 }

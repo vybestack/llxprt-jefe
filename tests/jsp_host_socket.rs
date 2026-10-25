@@ -704,7 +704,10 @@ fn launch_environment_is_local_llxprt_only_and_never_contains_token() {
     remote.env.clear();
     remote.target = Target::Remote(RemoteTarget::default());
     assert!(!authorize_launch_environment(&mut remote, &material));
-    assert!(remote.env.is_empty());
+    assert_eq!(
+        remote.env,
+        [] as [(std::ffi::OsString, std::ffi::OsString); 0]
+    );
 }
 
 fn read_bootstrap(path: &std::path::Path) -> serde_json::Value {

@@ -210,7 +210,7 @@ fn navigation_moves_between_parents_children_and_siblings() {
     assert_eq!(editor.selected, vec![0]);
 
     editor.select_parent();
-    assert!(editor.selected.is_empty());
+    assert_eq!(editor.selected, [] as [usize; 0]);
 }
 
 #[test]

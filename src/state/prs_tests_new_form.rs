@@ -65,8 +65,8 @@ fn the_composer_opens_from_the_list_and_asks_for_the_branches() {
         "the branch list is fetched as the composer opens"
     );
     assert_eq!(form.focus, NewPrFormFocus::Head);
-    assert!(form.title_text.is_empty());
-    assert!(form.body_text.is_empty());
+    assert_eq!(form.title_text, "");
+    assert_eq!(form.body_text, "");
 }
 
 #[test]
@@ -290,7 +290,7 @@ fn typing_lands_in_the_focused_text_field() {
     let state = focused_on(ready_composer(), NewPrFormFocus::Title);
     let state = type_text(state, "Add login");
     assert_eq!(form(&state).title_text, "Add login");
-    assert!(form(&state).body_text.is_empty());
+    assert_eq!(form(&state).body_text, "");
 
     let state = focused_on(state, NewPrFormFocus::Body);
     let state = type_text(state, "why");
@@ -301,8 +301,8 @@ fn typing_lands_in_the_focused_text_field() {
 #[test]
 fn typing_is_ignored_on_a_branch_field() {
     let state = type_text(ready_composer(), "abc");
-    assert!(form(&state).title_text.is_empty());
-    assert!(form(&state).body_text.is_empty());
+    assert_eq!(form(&state).title_text, "");
+    assert_eq!(form(&state).body_text, "");
 }
 
 #[test]

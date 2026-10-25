@@ -120,7 +120,7 @@ mod tests {
         let first = buffer
             .push(b"{\"a\":")
             .unwrap_or_else(|error| panic!("push: {error:?}"));
-        assert!(first.is_empty());
+        assert_eq!(first, [] as [std::vec::Vec<u8>; 0]);
         let second = buffer
             .push(b"1}\n")
             .unwrap_or_else(|error| panic!("push: {error:?}"));
@@ -161,7 +161,7 @@ mod tests {
         let frames = buffer
             .push(&at_limit)
             .unwrap_or_else(|error| panic!("at limit is still partial: {error:?}"));
-        assert!(frames.is_empty());
+        assert_eq!(frames, [] as [std::vec::Vec<u8>; 0]);
         let Err(error) = buffer.push(b"B") else {
             panic!("one past the limit overflows");
         };
@@ -221,7 +221,7 @@ mod tests {
         let frames = buffer
             .push(&at_limit)
             .unwrap_or_else(|error| panic!("at-limit partial is legal: {error:?}"));
-        assert!(frames.is_empty());
+        assert_eq!(frames, [] as [std::vec::Vec<u8>; 0]);
         // The terminating LF assembles a frame one past the limit: rejected.
         let Err(error) = buffer.push(b"\n") else {
             panic!("the split oversize complete frame must be rejected");

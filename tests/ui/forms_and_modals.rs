@@ -256,7 +256,7 @@ fn open_new_agent_form_initializes_llxprt_debug_blank() {
     let ModalState::NewAgent { fields, .. } = state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
-    assert!(fields.llxprt_debug.is_empty());
+    assert_eq!(fields.llxprt_debug, "");
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn repository_form_toggles_remote_fields() {
         panic!("expected new-repository modal, got {:?}", state.modal);
     };
     assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
-    assert!(!fields.default_type_id.is_empty());
+    assert_ne!(fields.default_type_id, "");
     assert_eq!(
         fields.default_type_id,
         jefe::domain::shipped_agent_type(3).to_string()
