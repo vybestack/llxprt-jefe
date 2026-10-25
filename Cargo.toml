@@ -35,7 +35,7 @@ unicode-width = "0.2"
 
 # Terminal/PTY
 portable-pty = "0.9"
-alacritty_terminal = "0.24"
+alacritty_terminal = "0.26"
 
 # Async
 smol = "2.0"
@@ -48,7 +48,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Directories (for platform-specific paths)
-dirs = "6.0"
+dirs = "7.0"
 
 # Bounded cache for dead-session signatures (prevents unbounded memory growth
 # from repeated kill/recreate cycles of different agents).
@@ -59,13 +59,13 @@ lru = "0.18.5"
 # A thin renderer walks its AST into jefe text lines; iocraft has no markdown
 # support and ratatui-markdown produces ratatui-specific types that do not fit
 # jefe's iocraft pipeline.
-comrak = { version = "0.53", default-features = false }
+comrak = { version = "0.55", default-features = false }
 
 # Temp files for the issue-rewrite agent handoff (issue #359): the agent writes
 # the rewritten draft to a NamedTempFile so stdout thinking/tool noise cannot
 # pollute the composer.
 tempfile = "3.0"
-jsonschema = { version = "0.33", default-features = false }
+jsonschema = { version = "0.59", default-features = false }
 # Plugin package archives (issue #389 CW-09). Approved in
 # dev-docs/decisions/plugin-package-dependencies.md.
 #
@@ -82,7 +82,7 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 tar = { version = "0.4.46", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-winsafe = { version = "0.0.27", features = ["kernel"] }
+winsafe = { version = "0.0.29", features = ["kernel"] }
 win32job = "2.0.3"
 # Safe Windows console output code page wrapper (issue #434). Only the static
 # `WinConsole::get_output_code_page` / `set_output_code` methods are used; all
@@ -100,7 +100,7 @@ ctrlc = { version = "3.5", features = ["termination"] }
 # Signal-aware cleanup for the tmux harness (issue #375): catches SIGINT/SIGTERM/
 # SIGHUP/SIGQUIT to kill the harness-owned private-socket tmux server before the
 # process dies, since Rust Drop is bypassed by abrupt signals.
-signal-hook = "0.3"
+signal-hook = "0.4"
 
 [features]
 psmux-smoke = []

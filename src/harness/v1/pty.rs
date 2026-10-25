@@ -453,9 +453,7 @@ fn spawn_reader(
                 }
                 Ok(count) => {
                     if let Ok(mut term) = term.lock() {
-                        for byte in &buffer[..count] {
-                            parser.advance(&mut *term, *byte);
-                        }
+                        parser.advance(&mut *term, &buffer[..count]);
                     }
                     append_bounded(&stream, &buffer[..count]);
                     generation.fetch_add(1, Ordering::Relaxed);

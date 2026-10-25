@@ -794,9 +794,7 @@ fn process_pty_read(
 ) {
     if let Ok(mut term) = term.lock() {
         let before = mouse_reporting_bits(*term.mode());
-        for byte in bytes {
-            parser.advance(&mut *term, *byte);
-        }
+        parser.advance(&mut *term, bytes);
         let after = mouse_reporting_bits(*term.mode());
         if before != after {
             trace!(
