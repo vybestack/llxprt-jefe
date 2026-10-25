@@ -894,7 +894,7 @@ mod back_reload_tests {
 
         let (effects, reload_issues, _reload_prs) = commit_back(&mut state);
 
-        assert!(effects.is_empty());
+        assert_eq!(effects, [] as [jefe::domain::effects::IssuedEffect; 0]);
         assert!(!reload_issues, "composer-close refocus must not reload");
         assert!(
             state.issues_state.new_issue_form.is_none(),
@@ -911,7 +911,7 @@ mod back_reload_tests {
 
         let (effects, reload_issues, _reload_prs) = commit_back(&mut state);
 
-        assert!(effects.is_empty());
+        assert_eq!(effects, [] as [jefe::domain::effects::IssuedEffect; 0]);
         assert!(reload_issues);
         assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
     }
