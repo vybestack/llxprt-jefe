@@ -28,5 +28,5 @@ fn label_includes_commit() {
 
 #[test]
 fn git_commit_is_non_empty() {
-    assert!(!GIT_COMMIT.is_empty());
+    assert_ne!(GIT_COMMIT, "");
 }

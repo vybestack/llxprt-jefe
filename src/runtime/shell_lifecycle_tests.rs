@@ -154,7 +154,10 @@ fn parse_sessions_deduplicates_multiple_shell_windows_per_session() {
 #[test]
 fn parse_sessions_returns_empty_when_no_jefe_shell() {
     let raw = "jefe-agent-a:bash\njefe-agent-b:vim";
-    assert!(parse_sessions_with_shell_windows(raw).is_empty());
+    assert_eq!(
+        parse_sessions_with_shell_windows(raw),
+        [] as [std::string::String; 0]
+    );
 }
 
 #[test]

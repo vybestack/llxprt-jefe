@@ -156,7 +156,7 @@ fn search_composes_with_active_only() {
     assert_eq!(active_only.visible_repository_indices(), vec![0]);
 
     let idle_match = set_search_query(active_only.clone(), "be");
-    assert!(idle_match.visible_repository_indices().is_empty());
+    assert_eq!(idle_match.visible_repository_indices(), [] as [usize; 0]);
 
     let active_match = set_search_query(active_only, "al");
     assert_eq!(active_match.visible_repository_indices(), vec![0]);

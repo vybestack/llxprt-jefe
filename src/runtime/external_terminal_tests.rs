@@ -63,7 +63,7 @@ fn linux_plan_returns_some_emulator_or_error() {
     // Either a plan is found (at least xterm on CI) or NoTerminalFound.
     match result {
         Ok(plan) => {
-            assert!(!plan.program.is_empty());
+            assert_ne!(plan.program, "");
             assert_eq!(plan.work_dir, dir);
         }
         Err(ExternalTerminalError::NoTerminalFound) => {}
@@ -243,7 +243,7 @@ fn override_plan_macos_runs_arbitrary_executable_directly() {
     let dir = tmp_work_dir();
     let plan = super::plan_from_override("kitty", &dir, DesktopPlatform::Macos);
     assert_eq!(plan.program, "kitty");
-    assert!(plan.args.is_empty());
+    assert_eq!(plan.args, [] as [std::string::String; 0]);
     assert_eq!(plan.work_dir, dir);
 }
 

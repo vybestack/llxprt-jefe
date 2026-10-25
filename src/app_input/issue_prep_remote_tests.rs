@@ -101,7 +101,10 @@ fn plan_uses_ssh_t_not_tt() {
             origin_mismatch: false,
         })
         .value_or_panic("plan");
-    assert!(!ops.is_empty());
+    assert_ne!(
+        ops,
+        [] as [crate::app_input::issue_prep::remote::PlannedRemoteOp; 0]
+    );
     for op in &ops {
         assert!(
             op.ssh_argv.iter().any(|a| a == "-T"),
@@ -129,7 +132,10 @@ fn plan_targets_remote_host_user() {
             origin_mismatch: false,
         })
         .value_or_panic("plan");
-    assert!(!ops.is_empty());
+    assert_ne!(
+        ops,
+        [] as [crate::app_input::issue_prep::remote::PlannedRemoteOp; 0]
+    );
     for op in &ops {
         assert!(
             op.ssh_argv.iter().any(|a| a == "ubuntu@build.example.com"),

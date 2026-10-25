@@ -353,7 +353,7 @@ fn vertical_many_agents_page_correctly() {
     // Each page shows at most rows_visible * columns cards.
     let max_per_page = view.layout.rows_visible * view.layout.columns;
     assert!(view.cards.len() <= max_per_page);
-    assert!(!view.cards.is_empty());
+    assert_ne!(view.cards, [] as [crate::workbench_view::WorkbenchCard; 0]);
 }
 
 // ---------------------------------------------------------------------------

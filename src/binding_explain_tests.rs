@@ -128,8 +128,8 @@ fn malformed_settings_syntax_is_fatal_without_compiled_output() {
     let output = run("j", Some("dashboard"), Some(&dir));
 
     assert_eq!(output.exit_code, 2);
-    assert!(output.stdout.is_empty());
-    assert!(!output.stderr.is_empty());
+    assert_eq!(output.stdout, "");
+    assert_ne!(output.stderr, "");
     assert_eq!(
         std::fs::read(dir.join("settings.toml")).unwrap_or_default(),
         source

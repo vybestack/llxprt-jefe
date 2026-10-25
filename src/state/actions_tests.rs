@@ -309,8 +309,8 @@ mod tests {
         );
 
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
-        assert!(state.actions_state.draft_filter.workflow.is_empty());
-        assert!(state.actions_state.draft_filter.workflow_path.is_empty());
+        assert_eq!(state.actions_state.draft_filter.workflow, "");
+        assert_eq!(state.actions_state.draft_filter.workflow_path, "");
     }
 
     #[test]
@@ -338,8 +338,8 @@ mod tests {
         state.actions_state.workflows = Vec::new();
         state.actions_state.ui.filter_field_index = 0;
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
-        assert!(state.actions_state.draft_filter.workflow.is_empty());
-        assert!(state.actions_state.draft_filter.workflow_path.is_empty());
+        assert_eq!(state.actions_state.draft_filter.workflow, "");
+        assert_eq!(state.actions_state.draft_filter.workflow_path, "");
     }
 
     #[test]

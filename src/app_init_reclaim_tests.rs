@@ -68,7 +68,10 @@ fn an_ambiguous_session_name_adopts_nothing() {
 fn a_record_without_a_live_session_is_not_reclaimed() {
     let candidates = vec![candidate("agent-1")];
 
-    assert!(classify_reclaimable(&[], &candidates).is_empty());
+    assert_eq!(
+        classify_reclaimable(&[], &candidates),
+        [] as [crate::app_init::reclaim::ReclaimDecision; 0]
+    );
 }
 
 /// Records that startup already bound are excluded by the caller, so a healthy

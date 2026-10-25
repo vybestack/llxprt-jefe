@@ -106,7 +106,7 @@ fn a_minimal_action_parses_and_keeps_its_declaration() {
     assert_eq!(action.timeout_seconds(), 30);
     assert!(!action.destructive());
     assert_eq!(action.confirmation(), ActionConfirmation::None);
-    assert!(action.allowed_outcomes().is_empty());
+    assert_eq!(action.allowed_outcomes(), []);
 }
 
 #[test]

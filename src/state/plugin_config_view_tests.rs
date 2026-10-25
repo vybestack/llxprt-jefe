@@ -164,7 +164,7 @@ fn enum_choices_and_unique_flag_are_projected() {
     let row = &project_plugin_config(&schema, &TypedMap::new())[0];
     assert!(row.unique);
     // Choices belong to enum only; a string-list carries none.
-    assert!(row.choices.is_empty());
+    assert_eq!(row.choices, [] as [std::string::String; 0]);
 
     // An enum field projects its choices.
     let schema = one_field(FieldDraft {

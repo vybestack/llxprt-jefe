@@ -180,7 +180,10 @@ mod tests {
     #[test]
     fn strip_trailing_rows_saturates_at_zero() {
         let lines = vec!["a".to_owned()];
-        assert!(strip_trailing_rows(lines, 5).is_empty());
+        assert_eq!(
+            strip_trailing_rows(lines, 5),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]

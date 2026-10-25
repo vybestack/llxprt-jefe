@@ -271,10 +271,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         smol::block_on(async {
-            let mut app = element!(PanicProbe(
-                deliveries: Some(deliveries),
-                notify: Some(sender),
-            ));
+            let mut app = element!(PanicProbe(deliveries: Some(deliveries), notify: Some(sender)));
             let _: Vec<_> = app
                 .mock_terminal_render_loop(MockTerminalConfig::default())
                 .collect()
@@ -366,10 +363,9 @@ mod tests {
         let (observed_tx, observed_rx) = mpsc::channel();
 
         smol::block_on(async {
-            let mut app = element!(ThreadAffinityProbe(
-                deliveries: Some(deliveries),
-                observed: Some(observed_tx),
-            ));
+            let mut app = element!(
+                ThreadAffinityProbe(deliveries: Some(deliveries), observed: Some(observed_tx))
+            );
             let _: Vec<_> = app
                 .mock_terminal_render_loop(MockTerminalConfig::default())
                 .collect()
@@ -464,10 +460,9 @@ mod tests {
         let (observed_tx, observed_rx) = mpsc::channel();
 
         smol::block_on(async {
-            let mut app = element!(SilentPanicProbe(
-                deliveries: Some(deliveries),
-                observed: Some(observed_tx),
-            ));
+            let mut app = element!(
+                SilentPanicProbe(deliveries: Some(deliveries), observed: Some(observed_tx))
+            );
             let _: Vec<_> = app
                 .mock_terminal_render_loop(MockTerminalConfig::default())
                 .collect()
@@ -601,11 +596,13 @@ mod tests {
         let (worker_tx, worker_rx) = mpsc::channel();
 
         smol::block_on(async {
-            let mut app = element!(DeliveryLifecycle(
-                deliveries: Some(deliveries),
-                applied_notify: Some(applied_tx),
-                worker_notify: Some(worker_tx),
-            ));
+            let mut app = element!(
+                DeliveryLifecycle(
+                    deliveries: Some(deliveries),
+                    applied_notify: Some(applied_tx),
+                    worker_notify: Some(worker_tx),
+                )
+            );
             let _: Vec<_> = app
                 .mock_terminal_render_loop(MockTerminalConfig::default())
                 .collect()

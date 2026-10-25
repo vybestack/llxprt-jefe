@@ -320,7 +320,7 @@ mod tests {
                 issue_number,
                 reason,
             } => {
-                assert!(owner_repo.is_empty());
+                assert_eq!(owner_repo, "");
                 assert_eq!(issue_number, 186);
                 assert!(
                     reason.contains("No valid GitHub repo"),

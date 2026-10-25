@@ -348,7 +348,10 @@ fn candidate_version_uses_its_own_valid_screen_instead_of_the_committed_descript
     let workbench = current_workbench(&paths, &inventory, &current);
     let candidate = settings_candidate(&inventory, "2.0.0", "vendor.demo.new");
 
-    assert!(registry_refusals(&candidate, &workbench).is_empty());
+    assert_eq!(
+        registry_refusals(&candidate, &workbench),
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -553,7 +556,10 @@ fn disabling_a_package_screen_allows_the_same_compiled_action_unbind() {
         "[]",
     );
 
-    assert!(!registry_refusals(&active, &workbench).is_empty());
+    assert_ne!(
+        registry_refusals(&active, &workbench),
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
     let disabled_refusals = registry_refusals(&disabled, &workbench);
     assert!(
         disabled_refusals.is_empty(),
@@ -579,7 +585,10 @@ fn candidate_validation_uses_startup_captured_screen_bytes_after_disk_changes() 
     fs::remove_file(&dormant_screen)
         .unwrap_or_else(|error| panic!("dormant screen must be removable: {error}"));
 
-    assert!(registry_refusals(&candidate, &workbench).is_empty());
+    assert_eq!(
+        registry_refusals(&candidate, &workbench),
+        [] as [crate::persistence::diagnostic::Diagnostic; 0]
+    );
 }
 
 #[test]
@@ -710,11 +719,11 @@ fn failed_provider_panel_preparation_leaves_navigation_and_runtime_unchanged() {
 
     assert_eq!(state.nav.current().id, prior_instance);
     assert_eq!(state.pending_effects.iter().count(), prior_pending);
-    assert!(
+    assert_eq!(
         state
             .provider_panels()
-            .panels_for_screen(prior_instance.get())
-            .is_empty()
+            .panels_for_screen(prior_instance.get()),
+        [] as [crate::workbench::ids::PanelInstanceId; 0]
     );
     assert_eq!(
         state.error_message.as_deref(),

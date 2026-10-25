@@ -2707,7 +2707,7 @@
     },
     {
       "path": "src/app_input/app_input_tests.rs",
-      "sha256": "7f7d926c78567c4d2bfbdae5daab0248ec9f63c55dd1d19d0c6d8dc36b0db01e",
+      "sha256": "8d2d1424b255a20d8b9266a6937e4616f3b740024279c1e97796d41e874b5dbd",
       "mode": "100644",
       "criteria": [
         "CW00B-02"
@@ -2883,7 +2883,7 @@
     },
     {
       "path": "tests/harness_v1.rs",
-      "sha256": "49c4b27aced7ef97a8ecf88f48beebdba188873d3ee7a3e61459feae68d924a9",
+      "sha256": "4fbed76a2aad82ae950f9b1f5d5d77b68e62578dd0a81352df30b0bd31cbe6d3",
       "mode": "100644",
       "criteria": [
         "CW00B-01",
@@ -3181,7 +3181,7 @@
     },
     {
       "path": "src/harness/v1/parse_tests.rs",
-      "sha256": "06e677a7b41ed9dad98b9424ae5a43379286baf8b0ecce23c877fdd4cc9c7880",
+      "sha256": "2f5c97fe5cc1a7577e2bb81f6975d97631da257ac9e9c84eaa80e9e71e39a88a",
       "mode": "100644",
       "criteria": [
         "CW00B-01",

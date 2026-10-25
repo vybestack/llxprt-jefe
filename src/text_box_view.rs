@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn zero_viewport_empty_no_panic() {
         let v = build_text_box_view("hello\nworld", 5, 0, 20);
-        assert!(v.rows.is_empty());
+        assert_eq!(v.rows, [] as [crate::text_box_view::TextBoxRow; 0]);
         assert_eq!(v.first_visible_row, 0);
         assert_eq!(v.total_lines, 2);
     }

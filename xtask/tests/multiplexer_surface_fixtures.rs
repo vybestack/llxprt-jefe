@@ -104,7 +104,7 @@ fn a_conforming_source_has_no_violations() {
     let used =
         format_usages("const A: &str = \"#{pane_pid}\";\nconst B: &str = \"#{server_instance}\";");
 
-    assert!(surface_violations(&declared(), &used).is_empty());
+    assert_eq!(surface_violations(&declared(), &used), [] as [Violation; 0]);
 }
 
 /// A `format!` whose literal sits on a later line cannot be recognised by the

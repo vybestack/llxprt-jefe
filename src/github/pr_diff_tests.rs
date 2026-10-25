@@ -184,7 +184,7 @@ fn empty_first_page_terminates_without_truncation() {
     let response = run_accumulator(2, &schedule)
         .value_or_panic("empty first page is a successful empty response");
     assert!(!response.truncated);
-    assert!(response.files.is_empty());
+    assert_eq!(response.files, [] as [crate::domain::PrFileChange; 0]);
 }
 
 #[test]

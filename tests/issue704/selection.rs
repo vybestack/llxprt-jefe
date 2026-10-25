@@ -359,5 +359,5 @@ fn staged_packages_expose_their_version_text() {
     let packages = inventory.packages();
     let package: &jefe::persistence::plugin_inventory::InstalledPackage = &packages[0];
     assert_eq!(package.coordinate().version().as_str(), "1.0.0");
-    assert!(PluginInventory::default().packages().is_empty());
+    assert_eq!(PluginInventory::default().packages(), []);
 }

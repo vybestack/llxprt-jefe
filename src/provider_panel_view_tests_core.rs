@@ -952,7 +952,7 @@ fn zero_content_height_produces_no_lines() {
         .iter()
         .find(|panel| panel.id == PanelId::from_static("main"))
         .unwrap_or_else(|| panic!("main panel projection"));
-    assert!(main.lines.is_empty());
+    assert_eq!(main.lines, [] as [std::string::String; 0]);
 }
 
 // ---------------------------------------------------------------------------

@@ -156,7 +156,7 @@ fn measure_files_counts_lines() {
     let measurement = measure_files(&[path]);
     assert_eq!(measurement.lengths.len(), 1);
     assert_eq!(measurement.lengths[0].lines, 5);
-    assert!(measurement.unreadable.is_empty());
+    assert_eq!(measurement.unreadable, [] as [PathBuf; 0]);
 }
 
 #[test]

@@ -170,7 +170,7 @@ fn test_update_draft_filter_labels() {
             value: String::new(),
         })
         .committed_pure();
-    assert!(state.issues_state.draft_filter.labels.is_empty());
+    assert_eq!(state.issues_state.draft_filter.labels, [] as [std::string::String; 0]);
 }
 
 /// ApplyFilter commits draft to committed, closes controls, and marks for reload.
@@ -201,8 +201,8 @@ fn test_clear_filter_resets_and_reloads() {
 
     let state = state.apply(AppEvent::ClearFilter).committed_pure();
     assert!(!state.issues_state.filter_ui.controls_open);
-    assert!(state.issues_state.committed_filter.author.is_empty());
-    assert!(state.issues_state.draft_filter.author.is_empty());
+    assert_eq!(state.issues_state.committed_filter.author, "");
+    assert_eq!(state.issues_state.draft_filter.author, "");
     assert!(!state.issues_state.list_loading());
 }
 
@@ -308,7 +308,7 @@ fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
     assert!(state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.filter_ui.field_index, 5);
     assert!(!state.issues_state.list_loading());
-    assert!(state.issues_state.filter_ui.draft_labels_text.is_empty());
+    assert_eq!(state.issues_state.filter_ui.draft_labels_text, "");
 }
 
 /// UpdateDraftFilter for text fields works as expected.

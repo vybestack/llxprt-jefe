@@ -11,15 +11,15 @@ fn render(md: &str) -> String {
 
 #[test]
 fn empty_input_yields_no_lines() {
-    assert!(render_markdown_lines("").is_empty());
+    assert_eq!(render_markdown_lines(""), [] as [String; 0]);
 }
 
 #[test]
 fn whitespace_only_input_yields_no_lines() {
     // Whitespace-only must short-circuit so callers' "(no body)" placeholders
     // trigger (comrak would otherwise parse it into blank-line paragraphs).
-    assert!(render_markdown_lines("   ").is_empty());
-    assert!(render_markdown_lines("\n\n").is_empty());
+    assert_eq!(render_markdown_lines("   "), [] as [String; 0]);
+    assert_eq!(render_markdown_lines("\n\n"), [] as [String; 0]);
 }
 
 #[test]

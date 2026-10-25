@@ -388,20 +388,20 @@ mod tests {
             engine: SandboxEngine::Podman,
             start_hint: "podman machine start".to_owned(),
         };
-        assert!(!issue.prompt_message().is_empty());
-        assert!(!issue.prompt_title().is_empty());
+        assert_ne!(issue.prompt_message(), "");
+        assert_ne!(issue.prompt_title(), "");
 
         let issue = PreflightIssue::SshAgentNoIdentities;
-        assert!(!issue.prompt_message().is_empty());
-        assert!(!issue.prompt_title().is_empty());
+        assert_ne!(issue.prompt_message(), "");
+        assert_ne!(issue.prompt_title(), "");
 
         let issue = PreflightIssue::UnsupportedEngine {
             engine: SandboxEngine::Seatbelt,
             platform: "Linux",
             fallback: Some(SandboxEngine::Podman),
         };
-        assert!(!issue.prompt_message().is_empty());
-        assert!(!issue.prompt_title().is_empty());
+        assert_ne!(issue.prompt_message(), "");
+        assert_ne!(issue.prompt_title(), "");
     }
 
     #[test]

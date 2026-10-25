@@ -642,7 +642,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("serialize challenge: {error}"));
         let output =
             run(&challenge).unwrap_or_else(|| panic!("producer trace must produce output"));
-        assert!(!output.is_empty());
+        assert_ne!(output, [] as [u8; 0]);
         let parsed: serde_json::Value =
             serde_json::from_slice(&output).unwrap_or_else(|error| panic!("valid json: {error}"));
         assert_eq!(parsed["challenge_nonce"], 42);
@@ -657,7 +657,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("serialize challenge: {error}"));
         let output =
             run(&challenge).unwrap_or_else(|| panic!("server transcript must produce output"));
-        assert!(!output.is_empty());
+        assert_ne!(output, [] as [u8; 0]);
         let parsed: serde_json::Value =
             serde_json::from_slice(&output).unwrap_or_else(|error| panic!("valid json: {error}"));
         assert_eq!(parsed["challenge_nonce"], 99);

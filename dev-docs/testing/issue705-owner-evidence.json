@@ -5,7 +5,7 @@
     "phase": "post-S5",
     "status": "GREEN",
     "base_revision": "a020ea6edf3f2b71d8cad1f7895850b5b8c96eb9",
-    "artifact_set_sha256": "88a67490412874847d2fc350b02d3dc038dbfa04ec891396fd3db73932fe97a4"
+    "artifact_set_sha256": "f4eea021f03fa4393e53d37880654ebd55ec1de04c3cc1677af667365c51d30e"
   },
   "artifacts": [
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "dev-docs/testing/issue704-owner-evidence.json",
-      "sha256": "b9c3b54152c5d3e6ce92e89f8dcee3ac934daa82f3e0ddc4b6a733fc1a587ebf",
+      "sha256": "4629e940f5cc4420db078d113510d95f9d204a794a2a5d88d28394efba98bc1c",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -50,7 +50,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "50288e228b6d28a0bca8196394fed8671df84593e34b550f570e50392fa2b71a",
+      "sha256": "26a4ceb6c3d835bcd9ad28f70130d9ef11ca7555620c3a4486f3fbdb69c876a3",
       "mode": "100644",
       "criteria": [
         "CWR2-11"
@@ -283,7 +283,7 @@
     },
     {
       "path": "src/overlay_controls.rs",
-      "sha256": "75c127aa79cce981352469b88378b1856de9eb155f396c88f6a4dd1a2a48363f",
+      "sha256": "66cef761564576881cecdef85c31d16407ba89a2843df5277491468768eb97b4",
       "mode": "100644",
       "criteria": [
         "CWR2-00",
@@ -558,7 +558,7 @@
     },
     {
       "path": "src/state/relationship_confirmation_token_tests.rs",
-      "sha256": "2d74fc660f3c7a8ba8cf3a093a6d98924c2a0d4166df12852047d96592c212b8",
+      "sha256": "ce25bf817f0acdb600073790758b8d1c6a022647bc04eb9f2b38f1ae1cd9ad71",
       "mode": "100644",
       "criteria": [
         "CWR2-04",
@@ -568,7 +568,7 @@
     },
     {
       "path": "src/state/relationship_runtime_tests.rs",
-      "sha256": "0c08fa560a8aa44f666d4fbdcab04646d95da617836576600c63b92ff138ed56",
+      "sha256": "72730dc66b9345612dceecd0add742d9c89e87434b512570467e928707d539c9",
       "mode": "100644",
       "criteria": [
         "CWR2-03",
@@ -599,7 +599,7 @@
     },
     {
       "path": "src/state/settings_registry_provider_tests.rs",
-      "sha256": "16de8a5e17421f49000f0368f5d725c474c7bf196e7e3e923a99e1003263c81e",
+      "sha256": "429656afac3b62b433e173a99a58e227ae8e82c997ff19866f215db61c05c9f3",
       "mode": "100644",
       "criteria": [
         "CWR2-01",

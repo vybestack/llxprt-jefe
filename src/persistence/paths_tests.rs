@@ -37,8 +37,14 @@ fn explicit_config_isolated_override_ignores_all_path_environment() {
         paths.definitions,
         PathBuf::from("/isolated/jefe/definitions")
     );
-    assert!(paths.settings.sources.is_empty());
-    assert!(paths.state.sources.is_empty());
+    assert_eq!(
+        paths.settings.sources,
+        [] as [crate::persistence::paths::PathCandidate; 0]
+    );
+    assert_eq!(
+        paths.state.sources,
+        [] as [crate::persistence::paths::PathCandidate; 0]
+    );
 }
 
 #[test]

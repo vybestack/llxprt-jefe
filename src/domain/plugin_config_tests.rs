@@ -131,7 +131,10 @@ fn visibility_is_a_sibling_present_truthy_gate_and_required_is_visible_only() {
     let mut values = TypedMap::new();
     values.insert(id("enabled"), TypedValue::Bool(false));
     assert!(!field_visible(&dependent, schema.fields(), &values));
-    assert!(validate_config(&schema, &values).is_empty());
+    assert_eq!(
+        validate_config(&schema, &values),
+        [] as [crate::domain::plugin_config::ConfigValueError; 0]
+    );
     values.insert(id("enabled"), TypedValue::Bool(true));
     assert!(field_visible(&dependent, schema.fields(), &values));
     assert_eq!(
@@ -177,7 +180,10 @@ fn visibility_uses_effective_defaults_and_transitive_gates() {
     let mut values = TypedMap::new();
     values.insert(id("gate"), TypedValue::Bool(false));
     values.insert(id("middle"), TypedValue::Bool(true));
-    assert!(validate_config(&schema, &values).is_empty());
+    assert_eq!(
+        validate_config(&schema, &values),
+        [] as [crate::domain::plugin_config::ConfigValueError; 0]
+    );
 }
 
 #[test]

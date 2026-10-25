@@ -290,5 +290,5 @@ fn stamping_carries_generations_and_signature() {
         plan.signature.definition_hash.as_str(),
         definition.sha256().to_hex()
     );
-    assert!(!plan.signature.target_fingerprint.to_hex().is_empty());
+    assert_ne!(plan.signature.target_fingerprint.to_hex(), "");
 }

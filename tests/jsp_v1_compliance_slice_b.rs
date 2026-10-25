@@ -544,7 +544,7 @@ fn reference_adapter_producer_challenge_produces_valid_trace() {
         .unwrap_or_else(|error| panic!("serialize challenge: {error}"));
     let output = run_reference_adapter(&challenge)
         .unwrap_or_else(|error| panic!("reference adapter must produce output: {error:?}"));
-    assert!(!output.stdout.is_empty());
+    assert_ne!(output.stdout, [] as [u8; 0]);
     // The output must be valid JSON with the nonce bound
     let trace: Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("valid JSON output: {error}"));
@@ -562,7 +562,7 @@ fn reference_adapter_server_challenge_produces_valid_transcript() {
         .unwrap_or_else(|error| panic!("serialize challenge: {error}"));
     let output = run_reference_adapter(&challenge)
         .unwrap_or_else(|error| panic!("reference adapter must produce output: {error:?}"));
-    assert!(!output.stdout.is_empty());
+    assert_ne!(output.stdout, [] as [u8; 0]);
     let transcript: Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("valid JSON output: {error}"));
     assert_eq!(transcript["challenge_nonce"], 54321);

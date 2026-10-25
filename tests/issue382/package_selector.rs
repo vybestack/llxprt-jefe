@@ -196,5 +196,5 @@ fn assert_preparation_order(
     let managed = finalize_local_invocation(candidate, cache.path())
         .unwrap_or_else(|error| panic!("managed npm preparation: {error}"));
     assert!(managed.executable().starts_with(cache.path()));
-    assert!(managed.prefix().is_empty());
+    assert_eq!(managed.prefix(), [] as [std::ffi::OsString; 0]);
 }

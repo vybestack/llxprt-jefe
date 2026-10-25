@@ -444,7 +444,7 @@ fn optional_sections_may_be_omitted() {
     let manifest = parsed(minimal);
     assert!(manifest.config().is_none());
     assert!(manifest.defaults().is_none());
-    assert!(manifest.actions().is_empty());
+    assert_eq!(manifest.actions(), []);
 }
 
 #[test]

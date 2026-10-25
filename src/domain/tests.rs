@@ -201,7 +201,7 @@ fn platform_capabilities_windows_has_no_supported_engines() {
     assert!(!caps.is_engine_supported(SandboxEngine::Podman));
     assert!(!caps.is_engine_supported(SandboxEngine::Docker));
     assert!(!caps.is_engine_supported(SandboxEngine::Seatbelt));
-    assert!(caps.supported_engines().is_empty());
+    assert_eq!(caps.supported_engines(), []);
 }
 
 #[test]

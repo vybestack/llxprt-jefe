@@ -149,7 +149,7 @@ fn workbench_cards_empty_when_no_agents_pass_the_filter() {
 
     let model = project_host_panel(&state, HostPanelModelSource::WorkbenchCards, None);
 
-    assert!(card_items(&model).is_empty());
+    assert_eq!(card_items(&model).as_slice(), []);
     assert_eq!(model.selected_id, None);
     assert!(
         body_of(&model).next_page_token.is_none(),

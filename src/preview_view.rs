@@ -293,7 +293,10 @@ mod tests {
     /// is a whole-pane concern, not metadata.
     #[test]
     fn preview_metadata_is_empty_without_an_agent() {
-        assert!(preview_metadata(None, None, None).is_empty());
+        assert_eq!(
+            preview_metadata(None, None, None),
+            [] as [(&str, std::string::String); 0]
+        );
     }
 
     /// Byte-identical rendering contract: the pane's header lines must stay

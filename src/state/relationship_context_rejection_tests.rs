@@ -169,7 +169,10 @@ fn missing_required_resource_refuses_invocation_without_request_mutation() {
         },
     );
 
-    assert!(transition.effects.is_empty());
+    assert_eq!(
+        transition.effects,
+        [] as [crate::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(
         format!("{:?}", transition.next_state.provider_requests),
         requests_before

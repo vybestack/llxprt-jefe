@@ -28,7 +28,7 @@
     },
     {
       "path": "dev-docs/testing/scenario-owner-evidence.json",
-      "sha256": "50288e228b6d28a0bca8196394fed8671df84593e34b550f570e50392fa2b71a",
+      "sha256": "26a4ceb6c3d835bcd9ad28f70130d9ef11ca7555620c3a4486f3fbdb69c876a3",
       "mode": "100644",
       "criteria": [
         "CWR1-10"
@@ -246,7 +246,7 @@
     },
     {
       "path": "tests/issue704/selection.rs",
-      "sha256": "e9c67b780df18a8e9295f316e2974962a360b88639105c9e6b50dfabc3c908d7",
+      "sha256": "12f3579dd20548c29c8bda541f66b75d71fff13c74fd5bb86bde7d44c431c72d",
       "mode": "100644",
       "criteria": [
         "CWR1-00"
@@ -262,7 +262,7 @@
     },
     {
       "path": "tests/issue704/static_candidate.rs",
-      "sha256": "96960e38d2c2bbb179fb63a52c2d2a1bc4cb09a37aef270df24847cc33abebdf",
+      "sha256": "866b27ad33ccc21845bb4598f7f162b4378c489d79790ccabaffcfcf03883470",
       "mode": "100644",
       "criteria": [
         "CWR1-02"

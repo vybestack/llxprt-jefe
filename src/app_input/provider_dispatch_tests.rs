@@ -210,7 +210,10 @@ fn retry_from_a_different_instance_of_the_same_screen_is_rejected_without_effect
 
     assert_eq!(state.provider_requests.requests().len(), request_count);
     assert_eq!(latest_request_key(&state), &old_key);
-    assert!(transition.effects.is_empty());
+    assert_eq!(
+        transition.effects,
+        [] as [jefe::domain::effects::IssuedEffect; 0]
+    );
     assert!(state.error_message.as_deref().is_some_and(|message| {
         message.contains("context no longer matches the authorized intent")
     }));
@@ -588,7 +591,10 @@ fn invalid_or_undeclared_confirmation_edits_preserve_exact_request_and_overlay_s
                 ProviderMessage::EditConfirmationField { field_id, value },
             )))
             .unwrap_or_else(|error| panic!("reject provider field edit: {error}"));
-        assert!(transition.effects.is_empty());
+        assert_eq!(
+            transition.effects,
+            [] as [jefe::domain::effects::IssuedEffect; 0]
+        );
         state = transition.next_state;
     }
 
@@ -625,7 +631,10 @@ fn constraint_invalid_confirmation_edit_preserves_request_and_overlay_state() {
             },
         )))
         .unwrap_or_else(|error| panic!("reject constrained provider field edit: {error}"));
-    assert!(transition.effects.is_empty());
+    assert_eq!(
+        transition.effects,
+        [] as [jefe::domain::effects::IssuedEffect; 0]
+    );
     assert_eq!(latest_request_key(&transition.next_state), &request_key);
     assert_eq!(
         transition
@@ -691,7 +700,10 @@ fn confirmation_draft_and_focus_restore_with_the_exact_same_definition_instance(
     );
     assert_eq!(latest_request_key(&state), &request_key);
     assert_eq!(state.provider_requests.pending_confirmation_count(), 1);
-    assert!(state.take_staged_effects().is_empty());
+    assert_eq!(
+        state.take_staged_effects(),
+        [] as [jefe::domain::effects::IssuedEffect; 0]
+    );
 }
 
 #[test]
@@ -719,7 +731,10 @@ fn confirmation_draft_boundary_rejects_complete_and_wrong_syntax_without_mutatio
     );
     assert_eq!(latest_request_key(&state), &request_key);
     assert_eq!(state.provider_requests.pending_confirmation_count(), 1);
-    assert!(state.take_staged_effects().is_empty());
+    assert_eq!(
+        state.take_staged_effects(),
+        [] as [jefe::domain::effects::IssuedEffect; 0]
+    );
 }
 
 #[test]

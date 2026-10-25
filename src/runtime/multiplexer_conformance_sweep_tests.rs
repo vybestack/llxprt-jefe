@@ -169,8 +169,14 @@ fn discovery_of_an_absent_registry_yields_nothing() {
     let directory = tempfile::tempdir()
         .unwrap_or_else(|error| panic!("temporary directory must be available: {error}"));
 
-    assert!(discover_leftovers(&directory.path().join("absent")).is_empty());
-    assert!(discover_leftovers(directory.path()).is_empty());
+    assert_eq!(
+        discover_leftovers(&directory.path().join("absent")),
+        [] as [crate::runtime::multiplexer_conformance_sweep::ConformanceLeftover; 0]
+    );
+    assert_eq!(
+        discover_leftovers(directory.path()),
+        [] as [crate::runtime::multiplexer_conformance_sweep::ConformanceLeftover; 0]
+    );
 }
 
 /// Whether this environment promises a usable psmux.

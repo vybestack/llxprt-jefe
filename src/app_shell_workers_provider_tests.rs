@@ -126,7 +126,7 @@ fn a_deferred_head_remains_owned_and_cannot_be_overtaken() {
         |()| {},
     );
 
-    assert!(active.is_empty());
+    assert_eq!(active, [] as [u8; 0]);
     assert_eq!(deferred, VecDeque::from([1, 2]));
     assert_eq!(attempted, vec![1]);
 }

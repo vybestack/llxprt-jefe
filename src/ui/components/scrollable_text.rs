@@ -461,14 +461,14 @@ mod tests {
         );
         assert_eq!(before, "he");
         assert_eq!(sel, "llo");
-        assert!(after.is_empty());
+        assert_eq!(after, "");
     }
 
     #[test]
     fn split_for_highlight_from_zero() {
         let (before, sel, after) =
             split_for_highlight("hello", HighlightRange { start: 0, end: 3 });
-        assert!(before.is_empty());
+        assert_eq!(before, "");
         assert_eq!(sel, "hel");
         assert_eq!(after, "lo");
     }
