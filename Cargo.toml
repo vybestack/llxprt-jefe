@@ -34,7 +34,7 @@ taffy = "0.5"
 unicode-width = "0.2"
 
 # Terminal/PTY
-portable-pty = "0.9"
+portable-pty = "0.8"
 alacritty_terminal = "0.26"
 
 # Async
