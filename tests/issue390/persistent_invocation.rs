@@ -554,3 +554,129 @@ fn cw10_e_j_late_terminal_after_cancel_is_diagnostic_not_the_next_result() {
     );
     owner.shutdown();
 }
+
+/// A `/bin/sh` persistent provider that records the envelope type of every
+/// host frame it reads, in order, to `argv[1]`, and answers each
+/// `invoke-action` with a Navigate outcome.
+const FRAME_ORDER_PROVIDER: &str = r#"#!/bin/sh
+set -eu
+log="$1"
+read -r hello
+gen=$(printf '%s\n' "$hello" | sed -n 's/.*"generation":\([0-9][0-9]*\).*/\1/p')
+printf '%s\n' '{"protocol":1,"type":"hello-ack","request_id":"p-000001","generation":'"$gen"',"payload":{"provider_name":"frame-order","protocol":1}}'
+read -r configure
+printf '%s\n' '{"protocol":1,"type":"ready","request_id":"p-000002","generation":'"$gen"',"payload":{"capabilities":["actions","panels"]}}'
+while read -r line; do
+  kind=$(printf '%s\n' "$line" | sed -n 's/^{"protocol":1,"type":"\([a-z-]*\)".*/\1/p')
+  printf '%s\n' "$kind" >> "$log"
+  case "$kind" in
+    invoke-action)
+      printf '%s\n' '{"protocol":1,"type":"outcome","request_id":"p-000003","generation":'"$gen"',"payload":{"kind":"navigate","route_id":"r.home","activation":{}}}'
+      ;;
+    shutdown)
+      printf '%s\n' '{"protocol":1,"type":"shutdown-ack","request_id":"p-000004","generation":'"$gen"',"payload":{}}'
+      exit 0
+      ;;
+  esac
+done
+"#;
+
+/// Start a persistent session on the frame-order shell provider, logging the
+/// envelope type of every host frame to `log`.
+fn start_frame_order_owner(
+    scene: &Scene,
+    log: &std::path::Path,
+) -> jefe::runtime::provider::PersistentSessionOwner {
+    let script = scene.provider_dir.join("frame-order.sh");
+    std::fs::write(&script, FRAME_ORDER_PROVIDER)
+        .unwrap_or_else(|err| panic!("write provider script: {err:?}"));
+    let mut candidate = scene.candidate(
+        "vendor.alpha",
+        "persistent-ready",
+        vec![Capability::Actions, Capability::Panels],
+    );
+    candidate.binary = std::path::PathBuf::from("/bin/sh");
+    candidate.arguments = vec![
+        script.to_string_lossy().into_owned(),
+        log.to_string_lossy().into_owned(),
+    ];
+    let startup = PersistentStartup {
+        candidates: vec![candidate],
+    };
+    match run_persistent_startup(&startup, &fast_bounds(), &EmptyEnv) {
+        jefe::runtime::provider::persistent::PersistentStartupResult::Started {
+            supervisor,
+            ..
+        } => supervisor
+            .into_sessions()
+            .unwrap_or_else(|error| panic!("expected ready provider ownership transfer: {error}")),
+        other @ jefe::runtime::provider::persistent::PersistentStartupResult::Failed(_) => {
+            panic!("expected started, got {other:?}")
+        }
+    }
+}
+
+/// Queue one `selected` panel event for `item` with host request `h-<sequence>`.
+fn queue_selected(
+    owner: &jefe::runtime::provider::PersistentSessionOwner,
+    plugin_id: &Id,
+    sequence: u64,
+    item: &str,
+) {
+    use jefe::runtime::provider::protocol::{PanelEvent, PanelEventPayload};
+
+    let request_id = RequestId::parse(&format!("h-{sequence:06}"))
+        .unwrap_or_else(|err| panic!("request id: {err:?}"));
+    let payload = PanelEventPayload {
+        panel_instance_id: 55,
+        generation: 1,
+        revision: 1,
+        event: PanelEvent::Selected {
+            id: Id::parse(item).unwrap_or_else(|err| panic!("item id: {err:?}")),
+        },
+    };
+    owner
+        .panel_event(plugin_id, request_id, payload)
+        .unwrap_or_else(|err| panic!("panel event {item}: {err:?}"));
+}
+
+/// Issue #765: panel events queued before an invocation must reach the
+/// provider before that invocation. The owner thread waits on the invocation
+/// channel between panel-command passes, so an invocation that arrives while
+/// panel events are still queued used to be written first. The semantic
+/// continuation fixture then read `invoke-action` where it expected the
+/// `selected` event and exited.
+#[test]
+fn issue765_panel_events_queued_before_an_invocation_are_written_first() {
+    let _budget = process_budget();
+    let scene = Scene::new();
+    let log = scene.record_dir.join("frame-order.log");
+    let mut owner = start_frame_order_owner(&scene, &log);
+    let plugin_id = Id::parse("vendor.alpha").unwrap_or_else(|err| panic!("plugin id: {err:?}"));
+
+    // Let the owner thread settle into its wait on the invocation channel.
+    std::thread::sleep(Duration::from_millis(50));
+    queue_selected(&owner, &plugin_id, 3, "beta");
+    queue_selected(&owner, &plugin_id, 4, "alpha");
+    let request_id =
+        RequestId::parse("h-000005").unwrap_or_else(|err| panic!("request id: {err:?}"));
+    let invocation = owner
+        .invoke(
+            &plugin_id,
+            request_id,
+            invoke_payload("vendor.alpha", 5),
+            Duration::from_secs(5),
+        )
+        .unwrap_or_else(|err| panic!("invoke: {err:?}"));
+    let result = wait_finish(invocation, Instant::now() + Duration::from_secs(10));
+    assert!(
+        matches!(result.outcome, OneShotOutcome::Completed(_)),
+        "expected completed, got {:?}",
+        result.outcome
+    );
+    owner.shutdown();
+
+    let order = std::fs::read_to_string(&log).unwrap_or_else(|err| panic!("frame log: {err:?}"));
+    let order: Vec<&str> = order.lines().filter(|kind| *kind != "shutdown").collect();
+    assert_eq!(order, ["panel-event", "panel-event", "invoke-action"]);
+}

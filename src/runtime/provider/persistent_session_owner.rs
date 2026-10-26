@@ -434,6 +434,16 @@ fn drive_invocation(
             false,
         );
     }
+    // Panel commands queued before this invocation must reach the provider
+    // first; the owner waited on the invocation channel, not the panel one (#765).
+    if !service_panel_commands(candidate, signals.panel_command_rx) {
+        return (
+            OneShotResult::without_process(SupervisorFailure::Protocol(
+                super::driver::unexpected_after_invoke(),
+            )),
+            false,
+        );
+    }
     let frame = encode::encode_invoke_action(request_id, candidate.generation, payload);
     if let Err(failure) = write_frame(candidate.stdin.as_mut(), &frame) {
         candidate.healthy = false;
