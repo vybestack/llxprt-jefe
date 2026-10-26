@@ -71,7 +71,7 @@ jobs:
       DEBUG_OUTPUT: 'stderr'
     steps:
       - name: 'Checkout base revision'
-        uses: 'actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8' # ratchet:actions/checkout@v5
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # v7.0.1
         with:
           # Resolve the base-branch tip, not the recorded pull_request.base.sha.
           # base.sha can lag behind the commit that introduced this workflow's
@@ -404,7 +404,7 @@ jobs:
 
       - name: 'Upload walkthrough diagnostics'
         if: failure()
-        uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' # ratchet:actions/upload-artifact@v4
+        uses: 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' # v7.0.2
         with:
           name: 'walkthrough-diagnostics-${{ github.run_attempt }}'
           path: |

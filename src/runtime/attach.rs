@@ -794,8 +794,10 @@ fn process_pty_read(
 ) {
     if let Ok(mut term) = term.lock() {
         let before = mouse_reporting_bits(*term.mode());
+        // One byte per call: vte 0.15's slice path drops the ASCII that follows
+        // a UTF-8 character completed across two reads (#772 review).
         for byte in bytes {
-            parser.advance(&mut *term, *byte);
+            parser.advance(&mut *term, std::slice::from_ref(byte));
         }
         let after = mouse_reporting_bits(*term.mode());
         if before != after {

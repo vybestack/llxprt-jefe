@@ -89,6 +89,26 @@ fn process_pty_read_advances_terminal_model() {
     );
 }
 
+/// A PTY read can end inside a multibyte UTF-8 character. The ASCII that
+/// follows the completed character in the next read must still reach the
+/// terminal model: `éXé` split as `c3 | a9 58 c3 a9` renders as `éXé`.
+#[test]
+fn process_pty_read_keeps_ascii_after_a_utf8_char_split_across_reads() {
+    let term = test_term();
+    let dirty = Arc::new(AtomicBool::new(false));
+    let mut parser: Processor<StdSyncHandler> = Processor::new();
+
+    process_pty_read(b"\xc3", &mut parser, &term, &dirty);
+    process_pty_read(b"\xa9X\xc3\xa9", &mut parser, &term, &dirty);
+
+    let Ok(guard) = term.lock() else {
+        panic!("term lock should succeed");
+    };
+    let snapshot = snapshot_from_term(&guard);
+    let first_row: String = snapshot.cells[0].iter().take(3).map(|c| c.ch).collect();
+    assert_eq!(first_row, "\u{e9}X\u{e9}");
+}
+
 // ── Issue #296 diagnostics: mouse-reporting mode bit tracing ──────────
 
 /// A fresh terminal model reports no mouse-reporting bits active. This proves
