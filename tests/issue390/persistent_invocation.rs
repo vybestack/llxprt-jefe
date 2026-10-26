@@ -558,6 +558,7 @@ fn cw10_e_j_late_terminal_after_cancel_is_diagnostic_not_the_next_result() {
 /// A `/bin/sh` persistent provider that records the envelope type of every
 /// host frame it reads, in order, to `argv[1]`, and answers each
 /// `invoke-action` with a Navigate outcome.
+#[cfg(unix)]
 const FRAME_ORDER_PROVIDER: &str = r#"#!/bin/sh
 set -eu
 log="$1"
@@ -583,6 +584,7 @@ done
 
 /// Start a persistent session on the frame-order shell provider, logging the
 /// envelope type of every host frame to `log`.
+#[cfg(unix)]
 fn start_frame_order_owner(
     scene: &Scene,
     log: &std::path::Path,
@@ -617,6 +619,7 @@ fn start_frame_order_owner(
 }
 
 /// Queue one `selected` panel event for `item` with host request `h-<sequence>`.
+#[cfg(unix)]
 fn queue_selected(
     owner: &jefe::runtime::provider::PersistentSessionOwner,
     plugin_id: &Id,
@@ -646,6 +649,7 @@ fn queue_selected(
 /// panel events are still queued used to be written first. The semantic
 /// continuation fixture then read `invoke-action` where it expected the
 /// `selected` event and exited.
+#[cfg(unix)]
 #[test]
 fn issue765_panel_events_queued_before_an_invocation_are_written_first() {
     let _budget = process_budget();
