@@ -2995,7 +2995,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 12,
+        "steps_total": 15,
         "operations": [
           "assert-frame",
           "finish",
@@ -3004,7 +3004,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 2
+          "assert-frame": 3
         },
         "captures": 0,
         "capture_names": [],
@@ -3170,7 +3170,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 18,
+        "steps_total": 24,
         "operations": [
           "assert-frame",
           "finish",
@@ -3180,7 +3180,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 2
+          "assert-frame": 4
         },
         "captures": 0,
         "capture_names": [],
@@ -5368,7 +5368,7 @@
       "expect": {
         "exit_code": 0,
         "report_status": "passed",
-        "steps_total": 12,
+        "steps_total": 14,
         "operations": [
           "assert-frame",
           "finish",
@@ -5377,7 +5377,7 @@
           "wait"
         ],
         "assertions": {
-          "assert-frame": 2
+          "assert-frame": 3
         },
         "captures": 0,
         "capture_names": [],
