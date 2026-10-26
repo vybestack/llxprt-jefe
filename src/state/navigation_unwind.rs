@@ -39,13 +39,15 @@ pub enum BackLayer {
     Filter,
     /// A non-dirty overlay is open.
     Overlay,
+    /// A non-blocking notice overlays the focused detail panel.
+    PanelNotice,
     /// The focused panel holds a transient of its own.
     PanelTransient,
 }
 
 impl BackLayer {
     /// Every layer, innermost first. This list *is* the precedence rule.
-    pub const PRECEDENCE: [Self; 8] = [
+    pub const PRECEDENCE: [Self; 9] = [
         Self::HostConfirmation,
         Self::DirtyGuard,
         Self::Chooser,
@@ -53,6 +55,7 @@ impl BackLayer {
         Self::Search,
         Self::Filter,
         Self::Overlay,
+        Self::PanelNotice,
         Self::PanelTransient,
     ];
 
@@ -69,6 +72,7 @@ impl BackLayer {
             Self::Search => LocalIntent::CloseSearch,
             Self::Filter => LocalIntent::CloseFilterControls,
             Self::Overlay => LocalIntent::CloseOverlay,
+            Self::PanelNotice => LocalIntent::ClearPanelNotice,
             Self::PanelTransient => LocalIntent::ClearPanelTransient,
         }
     }
@@ -91,6 +95,8 @@ pub enum LocalIntent {
     CloseFilterControls,
     /// Close the open overlay.
     CloseOverlay,
+    /// Dismiss the focused panel's non-blocking notice.
+    ClearPanelNotice,
     /// Clear the focused panel's own transient state.
     ClearPanelTransient,
 }

@@ -468,10 +468,27 @@ struct PanelRecord {
     expected_revision: u64,
     accepted: Option<AcceptedModel>,
     host_local: Option<HostLocal>,
+    manual_scroll_selection: Option<Id>,
     bucket: TokenBucket,
 }
 
 impl PanelRecord {
+    fn selected_list_id(&self) -> Option<&Id> {
+        let snapshot = &self.accepted.as_ref()?.snapshot;
+        if !matches!(
+            snapshot.body,
+            crate::runtime::provider::protocol::PanelBody::List(_)
+        ) {
+            return None;
+        }
+        crate::host_controls::selected_control_id(
+            snapshot,
+            self.host_local
+                .as_ref()
+                .and_then(|local| local.selected_id.as_ref()),
+        )
+    }
+
     /// Construct a fresh declared panel.
     fn new(id: PanelInstanceId, command: DeclareInput) -> Self {
         Self {
@@ -490,6 +507,7 @@ impl PanelRecord {
             expected_revision: 1,
             accepted: None,
             host_local: None,
+            manual_scroll_selection: None,
             bucket: TokenBucket::fresh(),
         }
     }

@@ -268,6 +268,12 @@ fn provider_confirmation_projects_declared_label_button_rows_without_submit_leak
         !rows.iter().any(|row| row.starts_with("submit:")),
         "the internal submit affordance row must not render: {rows:?}"
     );
+    assert_eq!(
+        cancel.title, "Provider Action",
+        "provider confirmations use the Provider Action title (#740): {cancel:?}"
+    );
+    // The declared title stays visible as a content row under the Provider Action heading (#740).
+    assert!(rows.contains(&"Confirm deployment?"));
 
     let confirm = project_provider_confirmation(
         ProviderConfirmationContent {
@@ -435,7 +441,7 @@ fn provider_confirmation_projects_the_declared_decision_without_a_provider_snaps
     );
 
     assert_eq!(confirmation.kind, crate::host_controls::ControlKind::Form);
-    assert_eq!(confirmation.title, "Confirm deployment?");
+    assert_eq!(confirmation.title, "Provider Action");
     assert!(
         confirmation
             .rows

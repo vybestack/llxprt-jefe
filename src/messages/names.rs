@@ -123,6 +123,7 @@ message_names!(SystemMessage {
     Self::Quit => "Quit",
     Self::ClearError => "ClearError",
     Self::ClearWarning => "ClearWarning",
+    Self::ClearGlobalWarning => "ClearGlobalWarning",
     Self::OpenAuthDialog => "OpenAuthDialog",
     Self::AuthCodeReceived { .. } => "AuthCodeReceived",
     Self::AuthSucceeded => "AuthSucceeded",
@@ -131,6 +132,7 @@ message_names!(SystemMessage {
     Self::AuthRetry => "AuthRetry",
     Self::TransientAgentQueued { .. } => "TransientAgentQueued",
     Self::TransientAgentDequeued => "TransientAgentDequeued",
+    Self::DismissPanelNotice => "DismissPanelNotice",
 });
 
 message_names!(IssuesMessage {

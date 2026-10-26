@@ -372,6 +372,21 @@ impl ProviderPanelState {
         })
     }
 
+    /// Retain an explicit manual viewport, including a scroll back to zero.
+    pub fn scroll_host_local(
+        &mut self,
+        panel: PanelInstanceId,
+        scroll_offset: u32,
+    ) -> Result<(), PanelError> {
+        let mut host = self.host_local(panel).cloned().unwrap_or_default();
+        host.scroll_offset = scroll_offset;
+        self.update_host_local(panel, host)?;
+        let index = self.require(panel)?;
+        let record = &mut self.panels[index];
+        record.manual_scroll_selection = record.selected_list_id().cloned();
+        Ok(())
+    }
+
     /// Update host-local state on a live or suspended panel (atomic, bounded).
     ///
     /// # Errors
@@ -390,7 +405,16 @@ impl ProviderPanelState {
         if host_local_canonical_bytes(&host) > HOST_LOCAL_MAX_BYTES {
             return Err(PanelError::HostLocalTooLarge);
         }
-        self.panels[index].host_local = Some(host);
+        let record = &mut self.panels[index];
+        let prior_selection = record.selected_list_id().cloned();
+        let prior_offset = record.host_local.as_ref().map_or(0, |local| local.scroll_offset);
+        let scroll_changed = prior_offset != host.scroll_offset;
+        record.host_local = Some(host);
+        if record.selected_list_id() != prior_selection.as_ref() {
+            record.manual_scroll_selection = None;
+        } else if scroll_changed {
+            record.manual_scroll_selection = prior_selection;
+        }
         Ok(())
     }
 
@@ -588,6 +612,14 @@ impl ProviderPanelState {
             revision,
             stale: false,
         });
+        // Reactivation clears the accepted model, so a prior-selection compare
+        // would read None and drop the pin on the first republished snapshot.
+        // Comparing against the pin keeps a manual viewport across suspend,
+        // resume and retry while a changed selection still releases it.
+        let manual_pin = record.manual_scroll_selection.clone();
+        if record.selected_list_id() != manual_pin.as_ref() {
+            record.manual_scroll_selection = None;
+        }
         record.expected_revision = expected_revision;
         record.lifecycle = PanelLifecycle::Active;
         Ok(revision)

@@ -488,6 +488,19 @@ pub fn execute_mouse_resolution(
     };
     match input.resolution {
         Resolution::Dispatch { action, handler } => {
+            // A pointer chooses the visible Confirm button explicitly. Keyboard
+            // Enter continues to activate whichever decision already has focus.
+            if handler == HandlerKey::ConfirmAccept
+                && routes.app_state.read().current_confirm_focus()
+                    == Some(jefe::state::ConfirmFocus::Cancel)
+            {
+                jefe::state::transition::commit_pure_site(
+                    &mut routes.app_state.write(),
+                    jefe::messages::AppMessage::Modal(
+                        jefe::messages::ModalMessage::ConfirmCycleFocus,
+                    ),
+                );
+            }
             execute_dispatch(&mut routes, input.key_event, input.chord, action, handler)
         }
         Resolution::Unavailable { action, reason } => {

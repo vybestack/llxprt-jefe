@@ -179,6 +179,7 @@ pub(crate) struct HostControlRow {
     pub(crate) text: String,
     pub(crate) spans: Vec<HostControlSpan>,
     pub(crate) target: Option<PanelHitTarget>,
+    pub(crate) cell_targets: Vec<(std::ops::Range<usize>, PanelHitTarget)>,
     pub(crate) style: HostControlRowStyle,
 }
 
@@ -188,6 +189,7 @@ impl HostControlRow {
             text: text.into(),
             spans: Vec::new(),
             target,
+            cell_targets: Vec::new(),
             style: HostControlRowStyle::Normal,
         }
     }
@@ -198,6 +200,7 @@ impl HostControlRow {
             text,
             spans,
             target,
+            cell_targets: Vec::new(),
             style: HostControlRowStyle::Normal,
         }
     }

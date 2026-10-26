@@ -45,8 +45,10 @@ impl AppState {
             SystemMessage::Quit
             | SystemMessage::ClearError
             | SystemMessage::ClearWarning
+            | SystemMessage::ClearGlobalWarning
             | SystemMessage::TransientAgentQueued { .. }
-            | SystemMessage::TransientAgentDequeued => {}
+            | SystemMessage::TransientAgentDequeued
+            | SystemMessage::DismissPanelNotice => {}
         }
     }
 

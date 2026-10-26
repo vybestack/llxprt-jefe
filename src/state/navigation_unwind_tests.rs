@@ -6,7 +6,7 @@ use super::navigation_unwind::{BackLayer, BackResolution, LocalIntent, resolve_b
 /// The exact order the contract states, written out independently of the
 /// implementation so a reordering of `PRECEDENCE` fails here rather than
 /// silently redefining what Back means.
-const CONTRACT_ORDER: [BackLayer; 8] = [
+const CONTRACT_ORDER: [BackLayer; 9] = [
     BackLayer::HostConfirmation,
     BackLayer::DirtyGuard,
     BackLayer::Chooser,
@@ -14,6 +14,7 @@ const CONTRACT_ORDER: [BackLayer; 8] = [
     BackLayer::Search,
     BackLayer::Filter,
     BackLayer::Overlay,
+    BackLayer::PanelNotice,
     BackLayer::PanelTransient,
 ];
 

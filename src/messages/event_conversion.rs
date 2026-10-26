@@ -322,6 +322,7 @@ impl AppMessage {
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
+            AppEvent::ClearGlobalWarning => Self::System(SystemMessage::ClearGlobalWarning),
             AppEvent::OpenAuthDialog => Self::System(SystemMessage::OpenAuthDialog),
             AppEvent::AuthCodeReceived { code, url } => {
                 Self::System(SystemMessage::AuthCodeReceived { code, url })
@@ -334,6 +335,7 @@ impl AppMessage {
                 Self::System(SystemMessage::TransientAgentQueued { queue_position })
             }
             AppEvent::TransientAgentDequeued => Self::System(SystemMessage::TransientAgentDequeued),
+            AppEvent::DismissPanelNotice => Self::System(SystemMessage::DismissPanelNotice),
             other => Self::from_repository_agent_event(other),
         }
     }
@@ -607,6 +609,7 @@ impl From<SystemMessage> for AppEvent {
             SystemMessage::Quit => Self::Quit,
             SystemMessage::ClearError => Self::ClearError,
             SystemMessage::ClearWarning => Self::ClearWarning,
+            SystemMessage::ClearGlobalWarning => Self::ClearGlobalWarning,
             SystemMessage::OpenAuthDialog => Self::OpenAuthDialog,
             SystemMessage::AuthCodeReceived { code, url } => Self::AuthCodeReceived { code, url },
             SystemMessage::AuthSucceeded => Self::AuthSucceeded,
@@ -617,6 +620,7 @@ impl From<SystemMessage> for AppEvent {
                 Self::TransientAgentQueued { queue_position }
             }
             SystemMessage::TransientAgentDequeued => Self::TransientAgentDequeued,
+            SystemMessage::DismissPanelNotice => Self::DismissPanelNotice,
         }
     }
 }

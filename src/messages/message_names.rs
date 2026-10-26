@@ -100,6 +100,8 @@ message_names!(SystemMessage {
     Self::Quit => "Quit",
     Self::ClearError => "ClearError",
     Self::ClearWarning => "ClearWarning",
+    Self::ClearGlobalWarning => "ClearGlobalWarning",
+    Self::DismissPanelNotice => "DismissPanelNotice",
 });
 
 message_names!(IssuesMessage {
